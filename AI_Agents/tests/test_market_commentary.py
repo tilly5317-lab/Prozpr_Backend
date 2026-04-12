@@ -33,10 +33,16 @@ def _stub_langchain():
     if "langchain_core" not in sys.modules:
         sys.modules["langchain_core"] = types.ModuleType("langchain_core")
 
-    # langchain_core.prompts
+    # langchain_core.prompts — must expose from_messages (module import runs it at load time)
     if "langchain_core.prompts" not in sys.modules:
+
+        class _FakeChatPromptTemplate:
+            @classmethod
+            def from_messages(cls, *_args, **_kwargs):
+                return MagicMock()
+
         sub = types.ModuleType("langchain_core.prompts")
-        sub.ChatPromptTemplate = MagicMock
+        sub.ChatPromptTemplate = _FakeChatPromptTemplate
         sys.modules["langchain_core.prompts"] = sub
         sys.modules["langchain_core"].prompts = sub  # type: ignore[attr-defined]
 
@@ -321,7 +327,7 @@ class TestChatQA(unittest.TestCase):
     def test_answer_question_loads_from_disk(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             md_path = os.path.join(tmpdir, "macro_snapshot_20260405_090000.md")
-            with open(md_path, "w") as f:
+            with open(md_path, "w", encoding="utf-8") as f:
                 f.write(self._SAMPLE_COMMENTARY)
 
             with patch("market_commentary.chat_qa.qa_chain") as mock_chain:
