@@ -93,7 +93,7 @@ async def get_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id == current_user.id, Portfolio.is_primary)
+        .where(Portfolio.user_id == current_user.id, Portfolio.is_primary == True)
     )
     portfolio = (await db.execute(stmt)).scalar_one_or_none()
     if not portfolio:

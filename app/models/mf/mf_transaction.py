@@ -28,7 +28,6 @@ from app.database import Base
 from app.models.mf.enums import MfTransactionSource, MfTransactionType
 
 if TYPE_CHECKING:
-    from app.models.mf.mf_sip_mandate import MfSipMandate
     from app.models.user import User
 
 

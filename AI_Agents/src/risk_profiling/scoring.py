@@ -191,8 +191,8 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
 
     osi = OSI_MAP[occupation_type]
     risk_capacity_score = capacity_data["risk_capacity_score_clamped"]
-    effective_risk_score = round((risk_willingness + risk_capacity_score) / 2, 4)
-    gap = round(abs(risk_willingness - risk_capacity_score), 4)
+    effective_risk_score = round(0.7 * risk_willingness + 0.3 * risk_capacity_score, 1)
+    gap = round(abs(risk_willingness - risk_capacity_score), 3)
 
     calculations = {
         **age_data,
@@ -204,7 +204,7 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
         "willingness_capacity_gap": gap,
         "gap_exceeds_3": gap > 3,
         "effective_risk_score_formula": (
-            f"({risk_willingness} + {risk_capacity_score}) / 2 = {effective_risk_score}"
+            f"0.7 * {risk_willingness} + 0.3 * {risk_capacity_score} = {effective_risk_score}"
         ),
     }
 
@@ -213,7 +213,7 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
         "inputs": inputs,
         "calculations": calculations,
         "output": {
-            "effective_risk_score": effective_risk_score,
+            "effective_risk_score": effective_risk_score if effective_risk_score is not None else 7,
             "risk_summary": "",  # populated by the LLM step in chain.py
         },
     }

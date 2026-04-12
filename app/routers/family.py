@@ -54,9 +54,9 @@ def _build_member_response(fm: FamilyMember) -> FamilyMemberResponse:
     if fm.member_user:
         member_first = fm.member_user.first_name
         member_last = fm.member_user.last_name
-        f = (member_first or "")[:1].upper()
-        l = (member_last or "")[:1].upper()
-        initials = (f + l) or fm.nickname[:1].upper()
+        first_initial = (member_first or "")[:1].upper()
+        last_initial = (member_last or "")[:1].upper()
+        initials = (first_initial + last_initial) or fm.nickname[:1].upper()
     else:
         initials = fm.nickname[:1].upper()
 
@@ -423,7 +423,7 @@ async def get_member_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id == fm.member_user_id, Portfolio.is_primary)
+        .where(Portfolio.user_id == fm.member_user_id, Portfolio.is_primary == True)
     )
     portfolio = (await db.execute(stmt)).scalar_one_or_none()
     if not portfolio:
@@ -471,7 +471,7 @@ async def get_cumulative_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id.in_(user_ids), Portfolio.is_primary)
+        .where(Portfolio.user_id.in_(user_ids), Portfolio.is_primary == True)
     )
     portfolios = (await db.execute(portfolios_stmt)).scalars().all()
 

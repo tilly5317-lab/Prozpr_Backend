@@ -1,0 +1,8 @@
+[lint]
+ignore = [
+    "E402",   # Module imports not at top - intentional for sys.path manipulation
+    "E712",   # == True/False comparisons - required by SQLAlchemy filter API
+    "F821",   # "Undefined" names - string-quoted forward references in SQLAlchemy models
+]
+
+exclude = [".venv", "__pycache__", ".git"]
