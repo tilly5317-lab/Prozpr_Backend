@@ -1,6 +1,8 @@
 """Async SQLAlchemy engine, session factory, and declarative ``Base``.
 
-Reads ``DATABASE_URL`` (via ``app.config``), normalizes it for ``asyncpg``, and exposes
+Reads the database URL via ``app.config`` (``DATABASE_URL`` or ``POSTGRES_*`` / ``DB_*``
+components built with ``sqlalchemy.engine.url.URL`` for safe passwords, e.g. RDS), normalizes
+it for ``asyncpg``, and exposes
 ``get_db`` as an async generator dependency for FastAPI routes. ``create_all_tables`` /
 ``dispose_engine`` support lifespan management from ``main``.
 """
