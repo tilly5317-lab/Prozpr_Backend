@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
-from app.config import get_settings
+from app.config import get_settings, use_database
 
 
 class Base(DeclarativeBase):
@@ -29,7 +29,8 @@ def _get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         url = get_settings().get_database_url()
-        is_local = "localhost" in url or "127.0.0.1" in url
+        is_sqlite = url.startswith("sqlite")
+        is_local = is_sqlite or "localhost" in url or "127.0.0.1" in url
         engine_kw: dict = (
             {"poolclass": NullPool} if is_local else {"pool_pre_ping": True, "pool_recycle": 300}
         )
@@ -57,6 +58,8 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
 
 async def create_all_tables() -> None:
+    if not use_database():
+        return
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
