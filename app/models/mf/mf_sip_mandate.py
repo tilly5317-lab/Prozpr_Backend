@@ -29,6 +29,7 @@ from app.database import Base
 from app.models.mf.enums import MfSipFrequency, MfSipStatus, MfStepupFrequency
 
 if TYPE_CHECKING:
+    from app.models.mf.mf_transaction import MfTransaction
     from app.models.user import User
 
 

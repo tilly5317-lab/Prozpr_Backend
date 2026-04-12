@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.mf.mf_fund_metadata import MfFundMetadata
 
 
 class MfNavHistory(Base):

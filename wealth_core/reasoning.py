@@ -1,6 +1,6 @@
 # wealth_core/reasoning.py
 from __future__ import annotations
-from typing import Dict
+from typing import Any, Dict
 from .models import ClientSnapshot
 from .allocation_reasoning import serialize_client_input
 

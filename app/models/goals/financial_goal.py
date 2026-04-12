@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -27,6 +27,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 from app.models.goals.enums import GoalPriority, GoalStatus, GoalType
+
+if TYPE_CHECKING:
+    from app.models.goals.goal_contribution import GoalContribution
+    from app.models.goals.goal_holding import GoalHolding
 
 
 class FinancialGoal(Base):

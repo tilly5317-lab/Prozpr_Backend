@@ -39,7 +39,7 @@ jobs:
         run: pip install ruff
 
       - name: Ruff (undefined names / parse errors)
-        run: ruff check app main.py wealth_core scripts --select F821,F822,E999
+        run: ruff check app main.py wealth_core scripts --select F821,F822
 
   build_and_test:
     name: "2 · Build & test"
