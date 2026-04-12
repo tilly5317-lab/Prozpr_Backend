@@ -1,0 +1,277 @@
+{
+  "_meta": {
+    "description": "Sample rows for mutual-fund domain tables (app.models.mf). UUIDs and user_id are placeholders — replace user_id with a real users.id before seeding.",
+    "enums": {
+      "mf_plan_type": ["DIRECT", "REGULAR"],
+      "mf_option_type": ["GROWTH", "IDCW"],
+      "mf_transaction_type": ["BUY", "SELL", "SWITCH_IN", "SWITCH_OUT", "DIVIDEND_REINVEST"],
+      "mf_sip_frequency": ["MONTHLY", "QUARTERLY"],
+      "mf_stepup_frequency": ["ANNUALLY", "HALF_YEARLY"],
+      "mf_sip_status": ["ACTIVE", "PAUSED", "CANCELLED", "COMPLETED"],
+      "user_investment_list_kind": ["ILLIQUID_EXIT", "STCG", "RESTRICTED"],
+      "portfolio_snapshot_kind": ["IDEAL", "SUGGESTED", "ACTUAL"]
+    }
+  },
+  "mf_fund_metadata": [
+    {
+      "id": "11111111-1111-4111-8111-111111111101",
+      "scheme_code": "120503",
+      "scheme_name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+      "amc_name": "PPFAS Mutual Fund",
+      "category": "Equity",
+      "sub_category": "Flexi Cap Fund",
+      "plan_type": "DIRECT",
+      "option_type": "GROWTH",
+      "is_active": true,
+      "risk_rating_sebi": "Very High",
+      "asset_class_sebi": "Equity",
+      "asset_class": "Equity",
+      "asset_subgroup": "Flexi Cap",
+      "portfolio_managers_current": "Rajeev Thakkar, Raunak Onkar",
+      "portfolio_managers_history": null,
+      "portfolio_manager_change_date": null,
+      "rating_external_agency_1": "CRISIL 5 Star",
+      "rating_external_agency_2": null,
+      "our_rating_parameter_1": "A+",
+      "our_rating_parameter_2": null,
+      "our_rating_parameter_3": null,
+      "our_rating_history_parameter_1": null,
+      "our_rating_history_parameter_2": null,
+      "our_rating_history_parameter_3": null,
+      "direct_plan_fees": 0.0065,
+      "regular_plan_fees": 0.0155,
+      "entry_load_percent": 0,
+      "exit_load_percent": 1,
+      "exit_load_months": 12,
+      "large_cap_equity_pct": 45.5,
+      "mid_cap_equity_pct": 30.2,
+      "small_cap_equity_pct": 18.1,
+      "debt_pct": 5.2,
+      "others_pct": 1,
+      "returns_1y_pct": 18.25,
+      "returns_3y_pct": 22.1,
+      "returns_5y_pct": 19.8,
+      "returns_10y_pct": 16.4,
+      "created_at": "2025-01-15T10:00:00+00:00",
+      "updated_at": "2026-04-01T08:30:00+00:00"
+    },
+    {
+      "id": "11111111-1111-4111-8111-111111111102",
+      "scheme_code": "118551",
+      "scheme_name": "HDFC Corporate Bond Fund - Direct Plan - Growth",
+      "amc_name": "HDFC Mutual Fund",
+      "category": "Debt",
+      "sub_category": "Corporate Bond Fund",
+      "plan_type": "DIRECT",
+      "option_type": "GROWTH",
+      "is_active": true,
+      "risk_rating_sebi": "Moderate",
+      "asset_class_sebi": "Debt",
+      "asset_class": "Debt",
+      "asset_subgroup": "Corporate Bond",
+      "portfolio_managers_current": null,
+      "portfolio_managers_history": null,
+      "portfolio_manager_change_date": null,
+      "rating_external_agency_1": null,
+      "rating_external_agency_2": null,
+      "our_rating_parameter_1": null,
+      "our_rating_parameter_2": null,
+      "our_rating_parameter_3": null,
+      "our_rating_history_parameter_1": null,
+      "our_rating_history_parameter_2": null,
+      "our_rating_history_parameter_3": null,
+      "direct_plan_fees": 0.0032,
+      "regular_plan_fees": 0.008,
+      "entry_load_percent": 0,
+      "exit_load_percent": 0.5,
+      "exit_load_months": 3,
+      "large_cap_equity_pct": null,
+      "mid_cap_equity_pct": null,
+      "small_cap_equity_pct": null,
+      "debt_pct": 98.5,
+      "others_pct": 1.5,
+      "returns_1y_pct": 7.2,
+      "returns_3y_pct": 6.8,
+      "returns_5y_pct": 7.5,
+      "returns_10y_pct": 8.1,
+      "created_at": "2025-01-15T10:00:00+00:00",
+      "updated_at": "2026-04-01T08:30:00+00:00"
+    }
+  ],
+  "mf_nav_history": [
+    {
+      "id": "22222222-2222-4222-8222-222222222201",
+      "scheme_code": "120503",
+      "isin": "INF879O01027",
+      "scheme_name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+      "mf_type": "Open Ended Equity Scheme",
+      "nav": 68.4523,
+      "nav_date": "2026-04-03",
+      "created_at": "2026-04-04T06:00:00+00:00"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222202",
+      "scheme_code": "120503",
+      "isin": "INF879O01027",
+      "scheme_name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+      "mf_type": "Open Ended Equity Scheme",
+      "nav": 67.8912,
+      "nav_date": "2026-04-02",
+      "created_at": "2026-04-03T06:00:00+00:00"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222203",
+      "scheme_code": "118551",
+      "isin": "INF179K01YH5",
+      "scheme_name": "HDFC Corporate Bond Fund - Direct Plan - Growth",
+      "mf_type": "Open Ended Debt Scheme",
+      "nav": 42.1834,
+      "nav_date": "2026-04-03",
+      "created_at": "2026-04-04T06:00:00+00:00"
+    }
+  ],
+  "mf_sip_mandates": [
+    {
+      "id": "33333333-3333-4333-8333-333333333301",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "scheme_code": "120503",
+      "folio_number": "12345678/01",
+      "sip_amount": 10000,
+      "frequency": "MONTHLY",
+      "debit_day": 5,
+      "start_date": "2025-06-01",
+      "end_date": null,
+      "stepup_amount": 1000,
+      "stepup_percentage": null,
+      "stepup_frequency": "ANNUALLY",
+      "status": "ACTIVE",
+      "created_at": "2025-05-20T12:00:00+00:00",
+      "updated_at": "2026-04-01T09:00:00+00:00"
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333302",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "scheme_code": "118551",
+      "folio_number": "87654321/02",
+      "sip_amount": 5000,
+      "frequency": "MONTHLY",
+      "debit_day": 10,
+      "start_date": "2024-01-10",
+      "end_date": "2027-01-10",
+      "stepup_amount": null,
+      "stepup_percentage": 10,
+      "stepup_frequency": "HALF_YEARLY",
+      "status": "PAUSED",
+      "created_at": "2023-12-01T15:30:00+00:00",
+      "updated_at": "2026-03-15T11:00:00+00:00"
+    }
+  ],
+  "mf_transactions": [
+    {
+      "id": "44444444-4444-4444-8444-444444444401",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "scheme_code": "120503",
+      "sip_mandate_id": "33333333-3333-4333-8333-333333333301",
+      "folio_number": "12345678/01",
+      "transaction_type": "BUY",
+      "transaction_date": "2026-04-05",
+      "units": 145.8234,
+      "nav": 68.4523,
+      "amount": 10000,
+      "stamp_duty": 5,
+      "created_at": "2026-04-05T14:22:00+00:00"
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444402",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "scheme_code": "120503",
+      "sip_mandate_id": null,
+      "folio_number": "12345678/01",
+      "transaction_type": "SELL",
+      "transaction_date": "2025-11-20",
+      "units": 50,
+      "nav": 62.1,
+      "amount": 3105,
+      "stamp_duty": null,
+      "created_at": "2025-11-20T16:00:00+00:00"
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444403",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "scheme_code": "118551",
+      "sip_mandate_id": "33333333-3333-4333-8333-333333333302",
+      "folio_number": "87654321/02",
+      "transaction_type": "DIVIDEND_REINVEST",
+      "transaction_date": "2026-03-28",
+      "units": 12.3456,
+      "nav": 42.1,
+      "amount": 520,
+      "stamp_duty": null,
+      "created_at": "2026-03-28T10:00:00+00:00"
+    }
+  ],
+  "portfolio_allocation_snapshots": [
+    {
+      "id": "55555555-5555-4555-8555-555555555501",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "snapshot_kind": "IDEAL",
+      "allocation": [
+        { "asset_class": "Equity", "weight_pct": 60 },
+        { "asset_class": "Debt", "weight_pct": 30 },
+        { "asset_class": "Gold", "weight_pct": 10 }
+      ],
+      "effective_at": "2026-04-01T00:00:00+00:00",
+      "source": "allocation_orchestrator",
+      "notes": "Model output after risk questionnaire v2",
+      "created_at": "2026-04-01T00:05:00+00:00"
+    },
+    {
+      "id": "55555555-5555-4555-8555-555555555502",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "snapshot_kind": "ACTUAL",
+      "allocation": [
+        { "asset_class": "Equity", "weight_pct": 55.2 },
+        { "asset_class": "Debt", "weight_pct": 38.1 },
+        { "asset_class": "Other", "weight_pct": 6.7 }
+      ],
+      "effective_at": "2026-04-05T18:00:00+00:00",
+      "source": "finvu_sync",
+      "notes": null,
+      "created_at": "2026-04-05T18:01:00+00:00"
+    }
+  ],
+  "user_investment_lists": [
+    {
+      "id": "66666666-6666-4666-8666-666666666601",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "list_kind": "ILLIQUID_EXIT",
+      "entries": [
+        {
+          "scheme_code": "999999",
+          "reason": "exit_load_window",
+          "notes": "Do not recommend exit before Jun 2026"
+        }
+      ],
+      "created_at": "2026-01-10T09:00:00+00:00",
+      "updated_at": "2026-03-01T09:00:00+00:00"
+    },
+    {
+      "id": "66666666-6666-4666-8666-666666666602",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "list_kind": "STCG",
+      "entries": [
+        { "scheme_code": "120503", "acquired_on": "2025-12-01", "units": 25.5 }
+      ],
+      "created_at": "2026-02-15T11:00:00+00:00",
+      "updated_at": "2026-02-15T11:00:00+00:00"
+    },
+    {
+      "id": "66666666-6666-4666-8666-666666666603",
+      "user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "list_kind": "RESTRICTED",
+      "entries": [],
+      "created_at": "2025-06-01T00:00:00+00:00",
+      "updated_at": "2025-06-01T00:00:00+00:00"
+    }
+  ]
+}

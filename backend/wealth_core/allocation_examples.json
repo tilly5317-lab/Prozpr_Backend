@@ -1,0 +1,477 @@
+{
+  "input": "Age: 35, Occupation: Engineer, Goals: [Retirement], Risk Tolerance: high, Time Horizon: 25, Return Objective: growth, Annual Income: 2000000, Annual Expenses: 800000, Assets: 1000000, 500000, 200000, etc.",
+  "allocation": "Equities: 70%, Fixed Income: 20%, Alternatives: 5%, Cash: 5%",
+  "rationale": "Young client, high risk tolerance, long horizon.",
+  "embedding": [0.123, 0.456]
+}
+
+"""
+Different schemes:
+1. Equity Schemes:
+1.A. Multi Cap Fund
+1.B. Large Cap Fund
+1.C. Large & Mid Cap Fund
+1.D. Mid Cap Fund
+1.E. Small cap Fund
+1.F. Flexi Cap Fund
+1.G. Dividend Yield Fund
+1.H. Value 
+1.I. Contra 
+1.J. Focused 
+1.K. Sectoral 
+1.L. Thematic
+1.M. ELSS Tax Saver Fund
+
+
+2. Debt Schemes:
+2.A. Overnight Fund 
+2.B. Liquid Fund 
+2.C. Ultra Short Fund (3–6 months)
+2.D. Ultra Short to Short Term Fund (6–12 months)
+2.E. Money market Fund 
+2.F. Short Term Fund  (1–3 years)
+2.G. Medium Term Fund  (3–4 years) 
+2.H. Medium Term to Long Term Fund  (4-7 years)
+2.I. Long Term Fund  (above 7 years)
+2.J. Dynamic Term Fund
+2.K. Corporate Bond Fund 
+2.L. Credit Risk Fund
+2.M. Banking and PSU Debt Fund
+2.N. Gilt Fund 
+2.O. 10-year Constant Maturity Gilt Fund 
+2.P. Floating Interest Rates Fund 
+2.Q. Sectoral Fund 
+
+
+3. Hybrid Schemes:
+3.A. Conservative Hybrid Fund (Equity 10-25%, Debt 75-90%)
+3.B. Balanced Hybrid Fund  (Equity 40-60%, Debt 40-60%)
+3.C. Aggressive Hybrid Fund (Equity 65-80%, Debt 20-35%) 
+3.D. Dynamic Asset Allocation Fund
+3.E. Multi-Asset Allocation Fund
+3.F. Arbitrage Fund
+3.G. 
+
+4. Lifecycle Funds:
+4.A. Glide Path Strategy
+4.B. Goal-Based
+
+5. Other Schemes:
+5.A. Index Funds & ETFs:
+5.B. Fund of Funds
+
+
+1. Classification rules of mutual fund schemes
+1.1 Top‑level groups
+Every mutual fund scheme belongs to exactly one of these three groups:
+Equities
+Debt
+Others
+
+1.2 Equity group and subgroups
+Classification rules
+Every mutual fund scheme must be mapped to:
+  One group: equities, debt, or others.
+  One subgroup within that group.
+
+Equities subgroups (examples you must follow as labels):
+  low_beta_equities - large cap, large cap index/ETFs
+  medium_beta_equities - multi cap, large & mid cap, mid cap, flexi cap, aggresive hybrid fund, dynamic asset allocation
+  high_beta_equities - small cap, focused
+  dividend_equities - dividend yield funds
+  value_equities - value, contra funds
+  sector_equities sectoral, thematic equity or index/ETF
+  tax_efficient_equities - ELSS/tax‑saving equity
+  us_equities
+  china_equities
+  other_equities
+
+Debt subgroups:
+  near_debt - overnight, liquid, ultra‑short up to ~3–6 months
+  short_debt - 6–12 months, money market, 1–3 year short‑term funds).
+  medium_debt - 3–7 year medium term, dynamic term, intermediate gilt).
+  long_duration_debt (7+ year long term, 10‑year constant maturity gilt).
+  floating_debt - floating‑rate funds
+  high_risk_debt - credit risk, sectoraldebt, corporate bond, banking & PSU,.
+
+Others subgroups:
+  gold_commodities - gold ETFs, gold index funds
+  silver_commodities - silver ETFs, silver index funds
+  Others - other alternative funds, uncategorised FoFs
+
+Each scheme must have exactly one group and one subgroup label from the above.
+
+
+The below text provides the link of the portfolio allocation(Y) with the inputs(X). Broadly the inputs are investment_horizon, tax_planning, risk_tolerance: low (1) to high (10)
+Risk_willingness: low (1) to high (10), and the market_cycle
+Treat these links as as theoritical foundation and heuristics. You need to link all the inidvidual inputs as provided by client and come out with the right allocation 
+
+
+1) Emergency funds (investment_horizon): [Variables to check reglar expense]
+  Each client must have 3 to 6 months of household expenses in Overnight Funds or Liquid Funds, with exact no of months within the range depending on factors like savings rate.
+  If the Goal of the person is regular income from the portfolio with no other significant source of income to manage regular household expenses then additional 9 months of household expenses in: Ultra Short Fund (3–6 months) or Ultra Short to Short Term Fund (6–12 months) or Money market Fund 
+
+  Why/ Rational:- Risk tolerance is 1 
+  1. To manage regular household expenses in case of any need and 2. To avoid the need to sell investments in case of any exigencies and market downturns, which can lead to locking in losses and derailing the long term goals of the person.
+
+2) Short term funds (investment_horizon): [Variables to check regular one off expense or outflows for goal]
+  If the client has a near term cash requirement for a one off expense or outflow for goal then such amount should be allocated in the following way:- 
+  for expenses <12 months, then 100% amount should be allocated in Ultra Short Fund (3–6 months) or Ultra Short to Short Term Fund (6–12 months) or Money market Fund; 
+  for expenses between 1-3 years, then at least 70% of the amount should be allocated in Short Term Fund  (1–3 years); balance allocation will depend on other factors as mentioned below such as age, occupation, ability & willingness to take risk, etc.
+
+  Why/ Rational:- Why/ Rational:- Risk tolerance is 2-3
+  1. To ensure that the near term requirements are met without taking undue risk and 2. To avoid the need to sell investments during market downturns, which can lead to locking in losses and derailing thegoals of the person.
+
+3) Tax saving (tax_planning): [Variables to check applicability of 80c deduction, marginal tax bracket] 
+  If the client is under old tax regime and needs to save tax under 80C, then allocate up to Rs 150,000 in tax_efficient_equity schemes based on the risk tolerance and return objective. 
+  If the client has an income above 1600000, then prefer to allocate to dynamic asset allocation and aggresive hybrid fund to the extent possible based on the risk tolerance and return objective of the person and the guardrails as provided in other variables. For both these funds assumed 65% of the allocation as medium_beta_equities and 35% as medium_debt unless otherwise explicitly  mentioned for the specific mutual fund scheme. The allocation need to consider the weights assigned to medium_beta_equities and medium_debt for these funds while ensuring that the overall allocation to equities and debt is within the guardrails for the person based on their age and other factors.
+
+4) Investment Horizon (investment_horizon): [Variables to check investment horizon for the goal, age]
+Investment horizon means  the tenure the client plans to invest to achieve one or more goals.  
+1. When the investment horizon is "long term" or "greater than 10 years" then allocation between assets is based on the age of the client along with his or her return objectives and risk tolerace.
+2. When the Investment hirozon is "long term" for a client aged >60 years where the investment goal/purpose is for inter-generational wealth transfer, then the risk tolerance increases to the age range of 45 with risk tolerance rating of around 8.
+3. When the investment horizon is "short term" or "less than 3 years" then allocation between assets is specified in the 2) short term funds.
+4. When the investment horizon is "medium term" or "between 3 to 10 years" then allocation between assets is based on the following 
+    (a) Allocation to Equities can be as per the formula below duly adjusted for the risk profile and return pbjective 
+      H = investment horizon in years of the client, H_min = 3, H_max = 10
+      Equity_min= 20%, Equity_max= 70%      
+      Total equities = Equity_min + (Equity_max-Equity_min)* (H-H_min)/(H_max -H_min)
+    (b) the allocation to Equities must not exceed the maximum equities allocation allowed as per the applicable_age of the client
+    (c) the threshhold of subgroups of equities, debt and other allocation can be similar to the guardrails as provided for the age groups 50-55  with risk tolerance of 5-6. The exact allocation will depend on the risk profile and return objectives. 
+
+5) Age (risk_tolerance):  [Variables to check age of the person]
+
+  1. Allocation between asset classes:-
+    There is a “glide path”: high equity in early years, gradually shifting to bonds as retirement approaches;
+    One quick approximation is:  Debt% in the protfolio = Age of the person; Balance i.e. 100 - Age % allocated to Equity schemes, Hybrid schemes, and  Other Schemes;
+    Within Equities, the allocation to lower risk funds like Large Caps,value funds and Dshould follow an upward curve with allocation increases with age.person;
+      
+    Broad range of allocation within equities to be maintained across different schemes  based on the risk tolerance and return objective of the person.
+
+
+  2. Age grid
+  You have guardrails defined at these ages (in years):
+  25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90.
+  
+  
+  Keeping other things constant, the risk_tolerance reduces as the age increases. The risk_tolerance for different age groups is given below with 1 = lowest risk_tolerance and 10 =  highest risk_tolerance 
+  25 (10), 30 (9.5), 35 (9), 40 (8.5), 45 (8), 50 (7), 55 (6), 60 (5), 65 (4), 70 (3), 75(2), 80 (1.5), 85 (1), 90 (1).​
+
+  For each of these ages, there is a Min% and Max% for relevant groups and subgroups as given below.
+
+    2.1 Equities and equity subgroups (Min%, Max%)
+    Total equities
+    Age 25: 50, 90
+    Age 30: 50, 85
+    Age 35: 50, 80
+    Age 40: 45, 75
+    Age 45: 40, 70
+    Age 50: 35, 65
+    Age 55: 30, 60
+    Age 60: 25, 55
+    Age 65: 20, 50
+    Age 70: 15, 45
+    Age 75: 10, 40
+    Age 80: 5, 35
+    Age 85: 5, 30
+    Age 90: 5, 25
+  
+    low_beta_equities
+    Age 25: 10, 20
+    Age 30: 10, 20
+    Age 35: 10, 20
+    Age 40: 10, 20
+    Age 45: 5, 20
+    Age 50: 5, 20
+    Age 55: 5, 20
+    Age 60: 2.5, 20
+    Age 65: 2.5, 15
+    Age 70: 2.5, 15
+    Age 75: 0, 15
+    Age 80: 0, 10
+    Age 85: 0, 10
+    Age 90: 0, 10
+  
+    value_equities
+    Age 25: 0, 25
+    Age 30: 5, 25
+    Age 35: 5, 25
+    Age 40: 5, 25
+    Age 45: 5, 25
+    Age 50: 2.5, 20
+    Age 55: 2.5, 20
+    Age 60: 2.5, 20
+    Age 65: 2.5, 15
+    Age 70: 0, 15
+    Age 75: 0, 15
+    Age 80: 0, 10
+    Age 85: 0, 10
+    Age 90: 0, 10
+  
+    dividend_equities
+    Age 25: 0, 20
+    Age 30: 0, 20
+    Age 35: 0, 20
+    Age 40: 0, 20
+    Age 45: 0, 25
+    Age 50: 0, 25
+    Age 55: 0, 25
+    Age 60: 0, 20
+    Age 65: 0, 20
+    Age 70: 0, 20
+    Age 75: 0, 20
+    Age 80: 0, 20
+    Age 85: 0, 20
+    Age 90: 0, 15
+  
+    medium_beta_equities
+    Age 25: 10, 25
+    Age 30: 10, 25
+    Age 35: 10, 25
+    Age 40: 5, 25
+    Age 45: 5, 20
+    Age 50: 5, 20
+    Age 55: 5, 20
+    Age 60: 5, 15
+    Age 65: 2.5, 15
+    Age 70: 2.5, 15
+    Age 75: 2.5, 15
+    Age 80: 2.5, 15
+    Age 85: 2.5, 15
+    Age 90: 2.5, 15
+  
+    high_beta_equities
+    Age 25: 10, 25
+    Age 30: 10, 25
+    Age 35: 5, 20
+    Age 40: 5, 20
+    Age 45: 5, 20
+    Age 50: 5, 20
+    Age 55: 2.5, 15
+    Age 60: 0, 15
+    Age 65: 0, 10
+    Age 70: 0, 10
+    Age 75: 0, 10
+    Age 80: 0, 5
+    Age 85: 0, 5
+    Age 90: 0, 5
+  
+    sector_equities
+    Age 25: 0, 10
+    Age 30: 0, 10
+    Age 35: 0, 10
+    Age 40: 0, 10
+    Age 45: 0, 10
+    Age 50: 0, 10
+    Age 55: 0, 10
+    Age 60: 0, 10
+    Age 65: 0, 5
+    Age 70: 0, 5
+    Age 75: 0, 5
+    Age 80: 0, 5
+    Age 85: 0, 0
+    Age 90: 0, 0
+  
+    us_equities
+    Age 25: 10, 25
+    Age 30: 10, 25
+    Age 35: 10, 20
+    Age 40: 10, 20
+    Age 45: 10, 20
+    Age 50: 10, 20
+    Age 55: 5, 20
+    Age 60: 5, 15
+    Age 65: 5, 15
+    Age 70: 2.5, 15
+    Age 75: 2.5, 10
+    Age 80: 0, 5
+    Age 85: 0, 5
+    Age 90: 0, 5
+  
+    In equities, tax_effiecient_equities will get the priority allocation upto 150000 per finanical year, if the client has selected to save taxes under 80C
+    In medium_beta_equities, dynamic asset allocation and aggresive hybrid fund will get the priority allocation if the tax saving condition are met and the client profile is fit to invest in medium_debt. the guardrails for both the medium_beta_equities and medium_debt allocation for these funds will be considered based on the weights assigned to medium_beta_equities and medium_debt for these funds while ensuring that the overall allocation to equities and debt is within the guardrails for the person based on their age and other factors.
+    
+    2.2 Debt and debt subgroups (Min%, Max%)
+    Total debt
+    Age 25: 5, 30
+    Age 30: 10, 40
+    Age 35: 15, 45
+    Age 40: 20, 50
+    Age 45: 25, 55
+    Age 50: 25, 60
+    Age 55: 30, 65
+    Age 60: 30, 70
+    Age 65: 35, 75
+    Age 70: 35, 80
+    Age 75: 40, 85
+    Age 80: 40, 90
+    Age 85: 40, 95
+    Age 90: 40, 100
+  
+    high_risk_debt
+    Age 25: 0, 10
+    Age 30: 0, 10
+    Age 35: 0, 10
+    Age 40: 0, 10
+    Age 45: 0, 10
+    Age 50: 0, 10
+    Age 55: 0, 10
+    Age 60: 0, 10
+    Age 65: 0, 10
+    Age 70: 0, 10
+    Age 75: 0, 10
+    Age 80: 0, 5
+    Age 85: 0, 5
+    Age 90: 0, 5
+  
+    long_duration_debt
+    Age 25: 5, 10
+    Age 30: 5, 10
+    Age 35: 5, 15
+    Age 40: 5, 15
+    Age 45: 5, 20
+    Age 50: 5, 20
+    Age 55: 5, 20
+    Age 60: 5, 20
+    Age 65: 5, 20
+    Age 70: 5, 20
+    Age 75: 5, 20
+    Age 80: 5, 20
+    Age 85: 5, 20
+    Age 90: 5, 20
+  
+    floating_debt (from the continuation in your CSV)
+    Age 25: 0, 10
+    Age 30: 5, 10
+    Age 35: 5, 15
+    Age 40: 5, 15
+    Age 45: 10, 20
+    Age 50: 10, 25
+    Age 55: 10, 25
+    Age 60: 10, 30
+    Age 65: 15, 30
+    Age 70: 15, 35
+    Age 75: 20, 40
+    Age 80: 20, 45
+    Age 85: 20, 50
+    Age 90: 20, 50
+  
+    medium_debt
+    Age 25: 0, 20
+    Age 30: 0, 20
+    Age 35: 5, 20
+    Age 40: 5, 20
+    Age 45: 5, 20
+    Age 50: 5, 25
+    Age 55: 10, 25
+    Age 60: 10, 30
+    Age 65: 10, 30
+    Age 70: 10, 30
+    Age 75: 10, 30
+    Age 80: 10, 35
+    Age 85: 10, 35
+    Age 90: 10, 35
+  
+    2.3 Others and commodity subgroups (Min%, Max%)
+    Total others
+    Age 25: 5, 10
+    Age 30: 5, 10
+    Age 35: 5, 10
+    Age 40: 5, 15
+    Age 45: 5, 15
+    Age 50: 5, 15
+    Age 55: 5, 15
+    Age 60: 5, 15
+    Age 65: 5, 15
+    Age 70: 5, 15
+    Age 75: 5, 10
+    Age 80: 5, 10
+    Age 85: 5, 10
+    Age 90: 5, 10
+  
+    gold_commodities
+    Age 25: 5, 10
+    Age 30: 5, 10
+    Age 35: 5, 10
+    Age 40: 5, 15
+    Age 45: 5, 15
+    Age 50: 5, 15
+    Age 55: 5, 15
+    Age 60: 5, 15
+    Age 65: 5, 15
+    Age 70: 5, 15
+    Age 75: 5, 10
+    Age 80: 5, 10
+    Age 85: 5, 10
+    Age 90: 5, 10
+
+  3. Guardrail and interpolation rules
+    The sum of all allocations across all schemes must equal 100%.
+    For the investor’s effective age, the total allocation to each group (equities, debt, others) must be between its Min% and Max%.
+    For the investor’s effective age, the total allocation to each subgroup must be between its Min% and Max%.
+    You must not allocate below Min% or above Max% for any group or subgroup unless the user explicitly authorises you to relax that specific rule and you clearly state what you are relaxing.
+
+  4. Age handling:
+    If the investor’s age equals one of the defined ages, use that age’s Min/Max directly for every group and subgroup.
+    If the investor’s age lies between two defined ages, linearly interpolate Min% and Max% between those ages separately for each group and subgroup.
+    If the investor’s age is below 25, use the 25‑year guardrails (do not go more aggressive).
+    If the investor’s age is above 90, use the 90‑year guardrails (do not go more conservative or riskier than that grid).
+
+  Apply this interpolation/extrapolation consistently for total equities, debt, others, and every subgroup listed above.
+
+  Why/ Rational- Younger investors have large human capital (future earnings) and small financial capital, so they can hold more equities and withstand volatility
+
+6) Income and Expenses (risk_tolerance)
+    Savings rate = (Annual Income - Annual Expense)/ Annual Income
+    If the Investor has no source of regular income, for example when the person is retired or depends on investments as the primary source or income or is unemployed, then savings rates is not relevant for the perosn and  assess asset allocation will depend on factors excluding savings rate, as mentioned in this file.
+    If the Investor's savings rate is <1%, then the investor must first create Emergency Funds at the upper end of range of 6 months. For the remaining funds, the allocation to equities will reduce, say by 10-20%, from the mean of the relevant range as per the age and risk profile.
+    If the Investor's savings rate is >20%, then the allocation to equities will increase in the range 10%-30% proportional to the savings rate above 20%, from the mean of the relevant range as per the age and risk profile 
+
+
+7) Risk_willingess (risk_willingness)
+    Each client's willingness to take risk is assessed in the range of 1 to 10: 1 = lowest risk_willingness and 10 =  highest risk_willingness;
+    If the risk_willingness score is not equal to the risk_tolerance score, then take the asset allocation range for age correspnding to the mean of risk_willingness score and risk_tolerance score;
+    In case the difference between the risk_willingness score and the risk_tolerance score is more than 4, then allocation to equities and high_beta_equities should be conservative and generally less than the mid of the ranges of equities and high_beta_equities unless other variables make it otherwise; 
+    The rules of 1) Emergency funds, 2) Short term funds, 3) Tax saving, 4) Investment Horizon, 6) Income and Expenses and 5) Market Impact will continue to apply 
+
+    Why/ Rational: When an investor's willingness (emotional tolerance) and ability (financial capacity) to take risk do not match, the general rule is to adopt the more conservative of the two to ensure the portfolio remains both financially viable and psychologically sustainable.
+      If your willingness is high but your ability is low (e.g., a retiree with high spirit but low capital), you must invest conservatively. Overstepping your financial capacity risks "financial ruin" if market conditions turn adverse, regardless of your emotional courage.
+      If your ability is high but your willingness is low (e.g., a young investor with high income but high anxiety), you should still lean toward a more conservative allocation. A mathematically "perfect" aggressive portfolio fails if it triggers panic selling during a downturn.
+      
+
+8)  Market Commentary (market_cycle) 
+Client recommended asset allocation will need to be adjusted based on
+(1) Our expressed views on different asset classes (on a scale from 1 - most negative  to 10 - most positive
+(2) The precise allocation number will lie within the allocation ranges (minimum and maximum) for each asset class and its subgroups corresponding to the risk_tolerance score and risk_willinigness score, duly adjusted with other factors like time horizon.
+
+Step 1 — Interpret my views
+Use my table of “market_commerntary” (1 = most negative, 10 = most positive) for each asset class and its subgroups. Higher view scores should generally increase the target allocation within that asset class’s allowed range. Lower view scores should reduce allocation proportionately.
+Assets	Current view (1 - most negative to 10 - most positive)
+equities	3
+low_beta_equities	5
+value_equities	7
+dividend_equities	7
+medium_beta_equities	2
+high_beta_equities	1
+sector_equities	1
+us_equities	5
+	
+debt	7
+high_risk_debt	3
+long_duration_debt	6
+floating_debt	8
+high_risk_debt	2
+	
+others	
+gold_commodities	5
+
+Step 2 — Apply proportional scaling
+Adjust allocations proportionately;
+For each asset class and subgroup, map its view score (1–10) to its allocation range (Min–Max);
+Maintain the total portfolio allocation at 100% by proportionally scaling resulting values;
+If multiple subcategories exist (e.g., under “equities” or “debt”), ensure their sum does not exceed the parent category’s total range where applicable.
+
+After the table, explain briefly how the view scores affected the allocation (e.g., which assets were overweighted or underweighted relative to neutral expectations).
+
+
+"""
