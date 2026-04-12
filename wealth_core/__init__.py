@@ -19,7 +19,7 @@ from .models import (
     engine,
     SessionLocal,
 )
-from wealth_core.projection import build_client_projection
+from wealth_core.projection import build_client_projection  # noqa: F401
 #Imports from services.py (Business Logic). 
 #These are service functions that handle: Database operations (save/load), Financial calculations (cash flow, balance sheet), Data transformations (snapshot building)
 

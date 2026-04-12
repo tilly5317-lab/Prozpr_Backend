@@ -13,7 +13,7 @@ One fund is mapped to each subgroup. Use this table to populate `recommended_fun
 | equities | dividend_equities | HDFC Dividend Yield Fund - Growth Option Direct Plan | Dividend Yield Fund | INF179KC1AO6 |
 | equities | tax_efficient_equities | Axis ELSS Tax Saver Fund - Direct Plan - Growth Option | ELSS Tax Saver Fund | INF846K01EW2 |
 | equities | sector_equities | ICICI Prudential Technology Fund - Direct Plan - Growth | Sectoral Fund | INF109K01506 |
-| debt | near_debt | HDFC Liquid Fund - Growth Option - Direct Plan | Liquid Fund | INF179KB1HP9 |
+| debt | debt_subgroup | HDFC Liquid Fund - Growth Option - Direct Plan | Liquid Fund | INF179KB1HP9 |
 | debt | short_debt | HDFC Low Duration Fund - Direct Plan - Growth | Ultra Short to Short Term Fund (6-12 months) | INF179K01VF7 |
 | debt | medium_debt | ICICI Prudential All Seasons Bond Fund - Direct Plan - Growth | Dynamic Term Fund | INF109K016E5 |
 | debt | high_risk_debt | ICICI Prudential Corporate Bond Fund - Direct Plan - Growth | Corporate Bond Fund | INF109K016B1 |

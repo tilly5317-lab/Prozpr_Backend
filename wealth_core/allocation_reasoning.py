@@ -10,11 +10,18 @@ from pydantic import BaseModel
 from .ai_client import llm_chat
 import os
 
-# --- Load example cases for few-shot learning ---
-EXAMPLES_PATH = os.path.join(os.path.dirname(__file__), "allocation_examples.json")
+# --- Load few-shot examples (JSON) + long-form reference (README beside this module) ---
+_DIR = os.path.dirname(__file__)
+EXAMPLES_PATH = os.path.join(_DIR, "allocation_examples.json")
+README_PATH = os.path.join(_DIR, "README.md")
 with open(EXAMPLES_PATH, "r", encoding="utf-8") as f:
     _raw_examples = json.load(f)
 ALLOCATION_EXAMPLES = _raw_examples if isinstance(_raw_examples, list) else [_raw_examples]
+if os.path.isfile(README_PATH):
+    with open(README_PATH, "r", encoding="utf-8") as rf:
+        ALLOCATION_SCHEME_REFERENCE = rf.read().strip()
+else:
+    ALLOCATION_SCHEME_REFERENCE = ""
 
 # --- Guardrails: min/max for each asset class ---
 ASSET_CLASS_GUARDRAILS = {
@@ -89,6 +96,8 @@ def derive_strategic_asset_allocation(client: ClientSnapshot) -> Tuple[Strategic
         "provide a StrategicAssetAllocation and a brief rationale. "
         "Respond with a single JSON object with two keys: 'allocation' (object with numeric fields like equities, fixed_income, alternatives, cash; values can be percentages) and 'rationale' (string).\n\n"
     )
+    if ALLOCATION_SCHEME_REFERENCE:
+        prompt_context += ALLOCATION_SCHEME_REFERENCE + "\n\n"
     for ex in examples:
         prompt_context += f"Input: {ex.get('input', ex)}\nAllocation: {ex.get('allocation', {})}\nRationale: {ex.get('rationale', '')}\n---\n"
     prompt_context += f"\nNow provide a StrategicAssetAllocation for this client: {serialize_client_input(client)}"

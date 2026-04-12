@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.config import get_settings, use_database
+from app.config import get_settings
 from app.database import create_all_tables, dispose_engine
 from app.routers import all_routers
 
@@ -36,17 +36,11 @@ async def lifespan(application: FastAPI):
     logger.info("Starting Ask Tilly API v2.0")
     logger.info("=" * 60)
 
-    if use_database():
-        try:
-            await create_all_tables()
-            logger.info("Database tables ready")
-        except Exception as e:
-            logger.error("Database setup error: %s", e)
-    else:
-        logger.warning(
-            "USE_DATABASE=false: skipping Postgres schema init; using in-memory SQLite only. "
-            "Data routes will not persist. Set USE_DATABASE=true when RDS is reachable."
-        )
+    try:
+        await create_all_tables()
+        logger.info("Database tables ready")
+    except Exception as e:
+        logger.error("Database setup error: %s", e)
 
     logger.info("Server ready! Docs at /docs")
     logger.info("=" * 60)

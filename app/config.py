@@ -54,23 +54,6 @@ def _ensure_asyncpg_scheme(url: str) -> str:
     return url
 
 
-def _database_url_from_db_env() -> str | None:
-    """Build async Postgres URL from DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME."""
-    host = (os.getenv("DB_HOST") or "").strip()
-    user = (os.getenv("DB_USER") or "").strip()
-    name = (os.getenv("DB_NAME") or "").strip()
-    if not host or not user or not name:
-        return None
-    port = (os.getenv("DB_PORT") or "5432").strip() or "5432"
-    password = os.getenv("DB_PASSWORD")
-    password = password.strip() if password is not None else ""
-    user_q = quote(user, safe="")
-    pass_q = quote(password, safe="")
-    auth = f"{user_q}:{pass_q}@" if password else f"{user_q}@"
-    path = name.lstrip("/")
-    return f"postgresql+asyncpg://{auth}{host}:{port}/{path}"
-
-
 def _strip_pgbouncer_from_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
@@ -81,12 +64,6 @@ def _strip_pgbouncer_from_url(url: str) -> str:
     return urlunparse(
         (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
     )
-
-
-def use_database() -> bool:
-    """When false, app uses in-memory SQLite only (no Postgres/RDS). For deploy smoke tests."""
-    v = (os.getenv("USE_DATABASE") or "true").strip().lower()
-    return v not in ("false", "0", "no", "off")
 
 
 class Settings:
@@ -101,19 +78,14 @@ class Settings:
 
     @staticmethod
     def get_database_url() -> str:
-        if not use_database():
-            return "sqlite+aiosqlite:///:memory:"
         url = os.getenv("DATABASE_URL")
         if not url or not url.strip():
             load_dotenv(_backend_dir / ".env")
             url = os.getenv("DATABASE_URL")
         if not url or not url.strip():
-            url = _database_url_from_db_env()
-        if not url or not url.strip():
             raise RuntimeError(
-                "DATABASE_URL is not set, and DB_HOST / DB_USER / DB_NAME are incomplete. "
-                "Copy .env.example to .env and set either DATABASE_URL or all DB_* variables.\n"
-                "Example: postgresql+asyncpg://user:password@localhost:5432/dbname"
+                "DATABASE_URL is not set. Create backend/.env (copy from .env.example).\n"
+                "For local Postgres: postgresql://user:password@localhost:5432/dbname"
             )
         url = _ensure_asyncpg_scheme(url)
         url = _normalize_database_url(url)

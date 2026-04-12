@@ -1,0 +1,19 @@
+There are two surpluses: current_surplus and monthly_suplus
+
+Investing of monthly_surplus
+Step 1: On annual_update, monthly_SIPs are decided for the period till next annual_update
+Investing of monthly_surplus
+monthly_surplus = annual_income / 12 − annual_expenses/12
+base_SIP =max(0,monthly_surplus − monthly_buffer)
+monthly_buffer = monthly_surplus * 20%
+
+Investing of current_surplus
+Step 2: Any excess cash savings, need to invested in lumpsum every period_update, unless otherwise 
+base_buffer = annual_expenses/12
+On every periodic_update the current_surplus is computed.
+Leave the base_buffer and invest as follows:
+  Invest current_surplus in such a way that (existing portfolio allocation mix + current_surplus allocation) = target_allocation
+  If current_surplus < monthly_surplus * 3: then invest lumpsum 
+  Else, invest current_surplus in topup_sips with the amount = current_surplus/months remaining for next annual_update
+
+Need to think - should all SIPs be for fixed tenure of max 12 months which ensures that the annual_update happens
