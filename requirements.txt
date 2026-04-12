@@ -6,6 +6,7 @@ pydantic>=2.10.0
 # Database
 sqlalchemy>=2.0.25
 asyncpg>=0.30.0
+aiosqlite>=0.20.0  # in-memory SQLite when USE_DATABASE=false (no Postgres)
 alembic>=1.14.0
 
 # Security

@@ -83,6 +83,12 @@ def _strip_pgbouncer_from_url(url: str) -> str:
     )
 
 
+def use_database() -> bool:
+    """When false, app uses in-memory SQLite only (no Postgres/RDS). For deploy smoke tests."""
+    v = (os.getenv("USE_DATABASE") or "true").strip().lower()
+    return v not in ("false", "0", "no", "off")
+
+
 class Settings:
     PROJECT_NAME: str = "Ask Tilly API"
     API_V1_PREFIX: str = "/api/v1"
@@ -95,6 +101,8 @@ class Settings:
 
     @staticmethod
     def get_database_url() -> str:
+        if not use_database():
+            return "sqlite+aiosqlite:///:memory:"
         url = os.getenv("DATABASE_URL")
         if not url or not url.strip():
             load_dotenv(_backend_dir / ".env")
