@@ -1,0 +1,192 @@
+
+"""
+The code has been revised and the right file is projection.py 
+NEW / Revised
+
+import pandas as pd
+import numpy as np
+
+class ClientFinancialModel:
+    def __init__(self, start_fy, initial_assets=0, initial_liabilities_ex_mortgage=0):
+        """
+        Initializes the model with starting point and balance sheet state.
+        """
+        self.start_fy = start_fy
+        self.initial_assets = initial_assets
+        self.initial_liabilities = initial_liabilities_ex_mortgage
+        
+        # Core Financial Parameters
+        self.income = 0
+        self.income_growth = 0
+        self.expenses = 0
+        self.expense_growth = 0
+        self.tax_rate = 0
+        self.roi_rate = 0
+        
+        # Mortgage Parameters
+        self.mortgage_balance = 0
+        self.mortgage_emi = 0
+        self.mortgage_interest_monthly = 0
+        
+        # Tables
+        self.goals = []
+        self.one_offs_in = []
+        self.one_offs_out = []
+
+    def set_profile(self, income, inc_growth, expenses, exp_growth, tax_rate, roi_rate):
+        self.income, self.income_growth = income, inc_growth
+        self.expenses, self.expense_growth = expenses, exp_growth
+        self.tax_rate, self.roi_rate = tax_rate, roi_rate
+
+    def set_mortgage(self, balance, emi, annual_interest_rate):
+        self.mortgage_balance = balance
+        self.mortgage_emi = emi
+        self.mortgage_interest_monthly = annual_interest_rate / 12
+
+    def add_goal(self, description, fy, amount, inflation_rate):
+        self.goals.append({"desc": description, "fy": fy, "amount": amount, "inflation": inflation_rate})
+
+    def add_one_off(self, fy, amount, inflow=True):
+        target = self.one_offs_in if inflow else self.one_offs_out
+        target.append({"fy": fy, "amount": amount})
+
+    def run_forecast(self):
+        # Determine dynamic horizon based on the last goal
+        if not self.goals:
+            max_goal_fy = self.start_fy + 10  # Default if no goals
+        else:
+            max_goal_fy = max(g['fy'] for g in self.goals)
+        
+        horizon = max_goal_fy - self.start_fy
+        results = []
+        current_mortgage = self.mortgage_balance
+        current_assets = self.initial_assets - self.initial_liabilities
+        
+        for i in range(horizon + 1):
+            fy = self.start_fy + i
+            
+            # 1. Growth calculations
+            inc_pre_tax = self.income * ((1 + self.income_growth) ** i)
+            inc_post_tax = inc_pre_tax * (1 - self.tax_rate)
+            exp_reg = self.expenses * ((1 + self.expense_growth) ** i)
+            
+            # 2. Mortgage Amortization Logic (Monthly iteration)
+            annual_emi_total = 0
+            for _ in range(12):
+                if current_mortgage > 0:
+                    interest = current_mortgage * self.mortgage_interest_monthly
+                    emi = min(self.mortgage_emi, current_mortgage + interest)
+                    current_mortgage -= (emi - interest)
+                    annual_emi_total += emi
+            
+            # 3. One-offs & Inflation Adjusted Goals
+            off_in = sum(item["amount"] for item in self.one_offs_in if item["fy"] == fy)
+            off_out = sum(item["amount"] for item in self.one_offs_out if item["fy"] == fy)
+            goal_val = sum(g["amount"] * ((1 + g["inflation"]) ** i) for g in self.goals if g["fy"] == fy)
+            
+            # 4. Wealth Movement
+            opening_assets = current_assets
+            roi_earned = opening_assets * self.roi_rate
+            net_cf = inc_post_tax - exp_reg - annual_emi_total + off_in - off_out - goal_val
+            current_assets += roi_earned + net_cf
+            
+            results.append({
+                "Financial Year": fy,
+                "Income (Post-Tax)": round(inc_post_tax, 2),
+                "Expenses": round(exp_reg, 2),
+                "Mortgage EMI Paid": round(annual_emi_total, 2),
+                "Goals Outflow": round(goal_val, 2),
+                "ROI Earned": round(roi_earned, 2),
+                "Closing Net Worth": round(current_assets, 2),
+                "Mortgage Balance": round(current_mortgage, 2)
+            })
+            
+        return pd.DataFrame(results)
+
+
+
+
+
+
+
+
+
+
+from typing import List, Dict
+
+class ClientSnapshot:
+    """
+    Ensure your Snapshot class includes these fields from the new CSV.
+    """
+    def __init__(self):
+        self.current_fy = 2026
+        self.horizon_years = 24
+        self.annual_income = 5000000.0
+        self.income_growth_rate = 0.08  # 8%
+        self.annual_expenses = 600000.0
+        self.expense_growth_rate = 0.07 # 7%
+        self.tax_rate = 0.30
+        
+        # Balance Sheet Inputs
+        self.financial_assets = 12000000.0
+        self.financial_liabilities = 5000000.0
+        self.roi_rate = 0.11             # 11% returns
+        
+        self.one_off_inflows = [(2027, 2000000), (2029, 5000000)]
+        self.one_off_outflows = [(2028, 2000000)]
+        
+        self.goals = [
+            {"desc": "house", "fy": 2035, "amt": 20000000, "inf": 0.08},
+            {"desc": "retirement", "fy": 2046, "amt": 30000000, "inf": 0.07}
+        ]
+
+def generate_financial_projection(snapshot: ClientSnapshot) -> List[Dict]:
+    rows = []
+    # Initial Net Wealth (Opening Assets)
+    opening_assets = snapshot.financial_assets - snapshot.financial_liabilities
+    
+    for i in range(snapshot.horizon_years + 1):
+        year = snapshot.current_fy + i
+        
+        # 1. Income & Regular Expenses (Compounded Growth)
+        inc_post_tax = (snapshot.annual_income * ((1 + snapshot.income_growth_rate) ** i)) * (1 - snapshot.tax_rate)
+        exp = snapshot.annual_expenses * ((1 + snapshot.expense_growth_rate) ** i)
+        
+        # 2. One-offs & Goals
+        in_val = sum(amt for y, amt in snapshot.one_off_inflows if y == year)
+        out_val = sum(amt for y, amt in snapshot.one_off_outflows if y == year)
+        
+        goal_val = 0
+        for g in snapshot.goals:
+            if g['fy'] == year:
+                goal_val += g['amt'] * ((1 + g['inf']) ** i)
+        
+        # 3. Asset Movement (ROI + Net Savings)
+        roi_earned = opening_assets * snapshot.roi_rate
+        net_savings = inc_post_tax - exp + in_val - out_val
+        closing_assets = opening_assets + roi_earned + net_savings - goal_val
+        
+        rows.append({
+            "year": year,
+            "post_tax_income": round(inc_post_tax, 2),
+            "expenses": round(exp, 2),
+            "net_savings_before_goals": round(net_savings, 2),
+            "goal_outflow": round(goal_val, 2),
+            "opening_assets": round(opening_assets, 2),
+            "roi_earned": round(roi_earned, 2),
+            "closing_net_worth": round(closing_assets, 2)
+        })
+        
+        # Closing of this year is opening of next
+        opening_assets = closing_assets
+        
+    return rows
+
+""" To run this code successfully in your app:
+
+Update ClientSnapshot: Ensure it stores roi_rate, initial_assets, and initial_liabilities.
+
+State Management: Since Closing_Assets depends on the previous year, the loop must be executed sequentially (as shown in the code). You cannot calculate Year 20 in isolation without calculating Year 1-19 first.
+
+Data Persistence: You should write the output of generate_financial_projection to your database so charts don't have to be re-calculated on every page load.
+"""

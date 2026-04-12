@@ -1,0 +1,6 @@
+segment,pan,fromDate,toDate,assetType,closingBalance,folio,isin,marketValue,nav,scheme,schemeName,trxnAmount,trxnDate,trxnDesc,trxnUnits
+meta,ABCDE1234F,2024-04-01,2026-03-31,,,,,,,,,,,,
+transaction,ABCDE1234F,2024-04-01,2026-03-31,,,40123456789,,,,INF12345,Sample Large Cap,5000,2025-01-15,Purchase,12.345
+transaction,ABCDE1234F,2024-04-01,2026-03-31,,,40123456789,,,,INF12345,Sample Large Cap,2000,2025-06-01,SIP,4.1
+summary,ABCDE1234F,2024-04-01,2026-03-31,EQUITY,2965.432,40123456789,INF123456789,125000.50,42.15,INF12345,Sample Large Cap,,,,
+summary,ABCDE1234F,2024-04-01,2026-03-31,DEBT,2747.25,98765432100,INF999999999,50000.00,18.20,INF99999,Sample Debt Fund,,,,

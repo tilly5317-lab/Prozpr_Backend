@@ -1,0 +1,164 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  color: #111827;
+  background: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.viewTabs {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #111827;
+  color: white;
+}
+
+button.secondary {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  font-size: 0.9rem;
+  color: #4b5563;
+  margin-top: 8px;
+}
+
+.error {
+  color: #b91c1c;
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.chatWindow {
+  height: 380px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fafb;
+}
+
+.msg {
+  margin-bottom: 10px;
+  max-width: 80%;
+  padding: 10px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.msg.assistant {
+  background: #e5e7eb;
+  margin-right: auto;
+}
+
+.msg.user {
+  background: #dbeafe;
+  margin-left: auto;
+}
+
+.msgActions {
+  margin-top: 6px;
+}
+
+.chatInputRow {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.advisorList {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.advisorRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f9fafb;
+}
+
+textarea {
+  flex: 1;
+  min-height: 72px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.95rem;
+  resize: vertical;
+}
+
+.progress {
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.ipsGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+.ipsCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.ipsCard h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+ul {
+  margin: 0;
+  padding-left: 20px;
+}
