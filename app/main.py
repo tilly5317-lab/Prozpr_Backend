@@ -9,7 +9,6 @@ Global exception handlers translate ``ValidationError`` and unexpected errors in
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, status

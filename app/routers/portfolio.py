@@ -6,7 +6,7 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -93,7 +93,7 @@ async def get_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id == current_user.id, Portfolio.is_primary == True)
+        .where(Portfolio.user_id == current_user.id, Portfolio.is_primary)
     )
     portfolio = (await db.execute(stmt)).scalar_one_or_none()
     if not portfolio:

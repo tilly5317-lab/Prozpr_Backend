@@ -38,7 +38,6 @@ Token usage and cost estimate printed at end.
 """
 
 import asyncio
-import json
 import os
 from dotenv import load_dotenv
 from allocation.common.llm_client import LLMClient

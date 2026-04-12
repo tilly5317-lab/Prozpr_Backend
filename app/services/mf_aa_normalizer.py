@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
-from typing import Iterable, Optional
+from typing import Optional
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession

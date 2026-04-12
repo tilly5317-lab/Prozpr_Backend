@@ -10,7 +10,7 @@ def explain_client_profile(snapshot: ClientSnapshot) -> Dict[str, str]:
     assessment fields defined in the ClientSnapshot model.
     """
     # Use unified serialization to maintain logic consistency
-    context = serialize_client_input(snapshot)
+    serialize_client_input(snapshot)
     bg = snapshot.background
     
     # 1. Profile Summary

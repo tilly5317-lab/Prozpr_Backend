@@ -156,7 +156,7 @@ def main(run_llm: bool = True) -> None:
         print(f"  Was Clamped          : {calc['was_clamped']}  ({calc['clamp_direction']})")
 
         if run_llm and out.get("risk_summary"):
-            print(f"\n  Risk Summary:")
+            print("\n  Risk Summary:")
             for line in out["risk_summary"].split("\n"):
                 print(f"    {line}")
 
