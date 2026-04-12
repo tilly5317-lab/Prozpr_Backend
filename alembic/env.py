@@ -1,5 +1,4 @@
 import asyncio
-import os
 from logging.config import fileConfig
 from pathlib import Path
 
@@ -16,6 +15,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+from app.config import get_settings
 from app.database import Base
 import app.models  # noqa: F401 — register all models with metadata
 
@@ -23,10 +23,8 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    url = os.getenv("DATABASE_URL", "")
-    if url.startswith("postgresql://") and "asyncpg" not in url:
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    return url
+    """Same URL resolution as the FastAPI app (DATABASE_URL or POSTGRES_* components)."""
+    return get_settings().get_database_url()
 
 
 def run_migrations_offline() -> None:

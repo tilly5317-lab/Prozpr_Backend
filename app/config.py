@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
+from sqlalchemy.engine.url import URL
 
 _backend_dir = Path(__file__).resolve().parents[1]
 
@@ -54,6 +55,36 @@ def _ensure_asyncpg_scheme(url: str) -> str:
     return url
 
 
+def _database_url_from_postgres_env() -> str | None:
+    """Build async Postgres URL from discrete env vars (e.g. RDS). Password can contain any characters.
+
+    Uses POSTGRES_* (and DB_* aliases). Only used when ``DATABASE_URL`` is unset.
+    Requires ``POSTGRES_HOST`` or ``DB_HOST``.
+    """
+    host = (os.getenv("POSTGRES_HOST") or os.getenv("DB_HOST") or "").strip()
+    if not host:
+        return None
+    user = (os.getenv("POSTGRES_USER") or os.getenv("DB_USER") or "postgres").strip() or "postgres"
+    password = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASSWORD"))
+    if password is None:
+        password = ""
+    database = (os.getenv("POSTGRES_DB") or os.getenv("DB_NAME") or "postgres").strip() or "postgres"
+    port_s = (os.getenv("POSTGRES_PORT") or os.getenv("DB_PORT") or "5432").strip()
+    try:
+        port = int(port_s)
+    except ValueError:
+        port = 5432
+    u = URL.create(
+        drivername="postgresql+asyncpg",
+        username=user,
+        password=password,
+        host=host,
+        port=port,
+        database=database,
+    )
+    return u.render_as_string(hide_password=False)
+
+
 def _strip_pgbouncer_from_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
@@ -78,14 +109,19 @@ class Settings:
 
     @staticmethod
     def get_database_url() -> str:
-        url = os.getenv("DATABASE_URL")
-        if not url or not url.strip():
+        """Resolve DB URL: ``DATABASE_URL`` wins if set; otherwise build from ``POSTGRES_*`` / ``DB_*``."""
+        url = (os.getenv("DATABASE_URL") or "").strip()
+        if not url:
             load_dotenv(_backend_dir / ".env")
-            url = os.getenv("DATABASE_URL")
-        if not url or not url.strip():
+            url = (os.getenv("DATABASE_URL") or "").strip()
+        if not url:
+            url = (_database_url_from_postgres_env() or "").strip()
+        if not url:
             raise RuntimeError(
-                "DATABASE_URL is not set. Create backend/.env (copy from .env.example).\n"
-                "For local Postgres: postgresql://user:password@localhost:5432/dbname"
+                "Database URL is not configured. Either set DATABASE_URL in .env, or set "
+                "POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB "
+                "(see .env.example). For local Postgres: "
+                "postgresql+asyncpg://user:password@localhost:5432/dbname"
             )
         url = _ensure_asyncpg_scheme(url)
         url = _normalize_database_url(url)
