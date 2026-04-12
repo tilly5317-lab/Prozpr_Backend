@@ -423,7 +423,7 @@ async def get_member_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id == fm.member_user_id, Portfolio.is_primary == True)
+        .where(Portfolio.user_id == fm.member_user_id, Portfolio.is_primary)
     )
     portfolio = (await db.execute(stmt)).scalar_one_or_none()
     if not portfolio:
@@ -471,7 +471,7 @@ async def get_cumulative_portfolio(
             selectinload(Portfolio.allocations),
             selectinload(Portfolio.holdings),
         )
-        .where(Portfolio.user_id.in_(user_ids), Portfolio.is_primary == True)
+        .where(Portfolio.user_id.in_(user_ids), Portfolio.is_primary)
     )
     portfolios = (await db.execute(portfolios_stmt)).scalars().all()
 

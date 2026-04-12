@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.utils.security import create_access_token, hash_password, verify_password
+from app.utils.security import hash_password, verify_password
 
 
 async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User | None:

@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional
 
 from .models import Goal
 import re

@@ -15,7 +15,7 @@ from app.models.portfolio import Portfolio
 
 
 async def get_primary_portfolio(db: AsyncSession, user_id: uuid.UUID) -> Portfolio | None:
-    stmt = select(Portfolio).where(Portfolio.user_id == user_id, Portfolio.is_primary == True)
+    stmt = select(Portfolio).where(Portfolio.user_id == user_id, Portfolio.is_primary)
     return (await db.execute(stmt)).scalar_one_or_none()
 
 

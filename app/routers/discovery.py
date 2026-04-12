@@ -94,7 +94,7 @@ async def get_trending_funds(
     stmt = (
         select(Fund)
         .where(
-            Fund.is_trending == True,
+            Fund.is_trending,
             (Fund.user_id == current_user.id) | (Fund.user_id.is_(None)),
         )
         .limit(10)
@@ -111,7 +111,7 @@ async def get_house_view_funds(
     stmt = (
         select(Fund)
         .where(
-            Fund.is_house_view == True,
+            Fund.is_house_view,
             (Fund.user_id == current_user.id) | (Fund.user_id.is_(None)),
         )
         .limit(10)

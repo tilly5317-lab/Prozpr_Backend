@@ -245,7 +245,7 @@ class AllocationOrchestrator:
     ) -> tuple[IdealAllocation, dict]:
         # Phase A
         bounds = self._compute_bounds(client_profile)
-        print(f"  → Phase A: Guardrail bounds computed ✓")
+        print("  → Phase A: Guardrail bounds computed ✓")
 
         # Phase B
         data, usage = await self.ideal_skill.run(
@@ -287,27 +287,27 @@ class AllocationOrchestrator:
         print(f"Step 1: Loading fund view... ✓ ({len(fund_view.split())} words)")
 
         # Step 2
-        print(f"Step 2: Client profile loaded ✓")
+        print("Step 2: Client profile loaded ✓")
 
         # Step 3
-        print(f"Step 3: Generating ideal allocation...")
+        print("Step 3: Generating ideal allocation...")
         ideal, usage3 = await self._run_ideal_allocation(fund_view, client_profile)
 
         # Step 4
         if current_portfolio:
-            print(f"Step 4: Current portfolio loaded ✓")
+            print("Step 4: Current portfolio loaded ✓")
         else:
-            print(f"Step 4: No existing portfolio")
+            print("Step 4: No existing portfolio")
 
         # Step 5
         delta = self.delta_calculator.compute(ideal, current_portfolio)
         if delta:
-            print(f"Step 5: Computing delta... ✓")
+            print("Step 5: Computing delta... ✓")
         else:
-            print(f"Step 5: No portfolio → skipping delta ✓")
+            print("Step 5: No portfolio → skipping delta ✓")
 
         # Step 6
-        print(f"Step 6: Generating recommendation...")
+        print("Step 6: Generating recommendation...")
         data6, usage6 = await self.rec_skill.run(
             fund_view=fund_view,
             client_profile=client_profile.model_dump_json(indent=2),
@@ -320,6 +320,6 @@ class AllocationOrchestrator:
 
         # Step 7
         result = self.formatter.build(ideal, current_portfolio, delta, rec)
-        print(f"Step 7: Formatting response... ✓")
+        print("Step 7: Formatting response... ✓")
 
         return result

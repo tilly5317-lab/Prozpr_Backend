@@ -14,9 +14,7 @@ from .statement_parser import parse_statement
 from typing import Optional
 import datetime
 from typing import List, Dict
-from pydantic import ValidationError
 from .reasoning import explain_client_profile
-from .projection import build_client_projection
 from .allocation_reasoning import derive_strategic_asset_allocation
 from .models import (
     ClientSnapshot,
@@ -116,17 +114,6 @@ def generate_balance_sheet(snapshot: ClientSnapshot) -> Dict:
 # Snapshot builder
 # =========================
 
-from .conversation import FIELDS_SEQUENCE  # only for typing context; logic unchanged
-from .models import (
-    ClientBackground,
-    Goal,
-    ReturnObjective,
-    RiskTolerance,
-    FinancialNeeds,
-    TimeHorizon,
-    TaxProfile,
-    ReviewProcess,
-)
 
 # This is the most complex function - it transforms a flat dictionary (from conversation state) into a structured ClientSnapshot.
 # Purpose: Convert conversational data into a validated domain model
