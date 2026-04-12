@@ -143,7 +143,7 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
             inflation_rate=raw_goal.get("inflation_rate") or DEFAULT_GOAL_INFLATION,
         )
         goals_list.append(g)
-  # Provides default for required client_name field. Other fields can be None
+    # Provides default for required client_name field. Other fields can be None
     background = ClientBackground(
         client_name=state.get("background.client_name", "Unknown client"),
         occupation=state.get("background.occupation"),
@@ -151,6 +151,10 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         wealth_source=state.get("background.wealth_source"),
         core_values=state.get("background.core_values"),
     )
+
+    _po = state.get("return_objective.primary_objectives")
+    _valid_objectives = ("growth", "income", "retirement", "expense")
+    primary_obj = _po if _po in _valid_objectives else "growth"
 
     # Build ReturnObjective (with percentage conversion). Convert percentage to decimal.
     ro = ReturnObjective(
@@ -193,8 +197,8 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         liquidity_timeframe=state.get("financial_needs.liquidity_timeframe"),
     )
 
+    current_year = datetime.datetime.today().year
     if goals_list:
-        current_year = datetime.datetime.today().year
         max_year = max(g.target_year for g in goals_list)
         total_h = max_year - current_year
     else:
@@ -228,13 +232,12 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         update_process=state.get("review_process.update_process"),
     )
     existing_positions_raw = state.get("existing_positions_raw")
-    if existing_positions_raw:
-        snapshot.existing_positions = parse_statement(existing_positions_raw)
-        snapshot.existing_positions_raw = existing_positions_raw
+    existing_positions_parsed = (
+        parse_statement(existing_positions_raw) if existing_positions_raw else None
+    )
 
-    current_year = datetime.datetime.today().year
     # Assemble Final Snapshot
-        snapshot = ClientSnapshot(
+    snapshot = ClientSnapshot(
         background=background,
         goals=goals_list,
         return_objective=ro,
@@ -247,8 +250,8 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         profile_summary=None,
         risk_return_assessment=None,
         goals_alignment_assessment=None,
-        existing_positions_raw=state.get("existing_positions_raw"),
-        existing_positions=None,
+        existing_positions_raw=existing_positions_raw,
+        existing_positions=existing_positions_parsed,
 
         # Projection assumptions
         current_fy=state.get("current_fy") or current_year,
