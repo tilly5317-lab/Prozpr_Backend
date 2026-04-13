@@ -1,0 +1,48 @@
+# Deploy backend on the server over SSH: git pull, venv + pip, pm2 restart.
+# No Docker — app runs via pm2 + Python venv on the host.
+#
+# GitHub Secrets (Settings → Secrets and variables → Actions):
+#   HOST              — server hostname or IP
+#   USERNAME          — SSH user (e.g. ubuntu, ec2-user)
+#   KEY               — private SSH key (full PEM)
+#
+# Optional repository variable:
+#   SSH_PORT          — SSH port if not 22 (e.g. 2222)
+#
+# Server layout (adjust paths in the script below if yours differ):
+#   ~/Prozpr_Backend  — git clone, with venv/ and pm2 managing the app
+
+name: Deploy
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ vars.SSH_PORT != '' && vars.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ~/Prozpr_Backend
+            git fetch --all
+            git reset --hard origin/main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            pm2 restart all --update-env
