@@ -102,10 +102,15 @@ class Settings:
     API_V1_PREFIX: str = "/api/v1"
     VERSION: str = "2.0.0"
 
-    ALLOWED_ORIGINS: list[str] = os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://localhost:8080",
-    ).split(",")
+    ALLOWED_ORIGINS: list[str] = [
+        o.strip()
+        for o in os.getenv(
+            "ALLOWED_ORIGINS",
+            "http://localhost:3000,http://localhost:5173,http://localhost:8080,"
+            "http://13.127.210.211",
+        ).split(",")
+        if o.strip()
+    ]
 
     @staticmethod
     def get_database_url() -> str:
