@@ -10,6 +10,9 @@
 #
 # Server layout (adjust paths in the script below if yours differ):
 #   ~/Prozpr_Backend  — git clone, with venv/ and pm2 managing the app
+#
+# If nginx proxies /api/ and you still see CORS on OPTIONS while uvicorn is down, merge
+# deploy/nginx-api-location.conf.sample into your site config (see comments in that file).
 
 name: Deploy
 
