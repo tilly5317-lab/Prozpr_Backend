@@ -1,0 +1,7 @@
+[
+  {"name": "HDFC Bank",   "ifsc": "HDFC0001234"},
+  {"name": "SBI",         "ifsc": "SBIN0005678"},
+  {"name": "ICICI Bank",  "ifsc": "ICIC0002345"},
+  {"name": "Kotak Bank",  "ifsc": "KKBK0003456"},
+  {"name": "Axis Bank",   "ifsc": "UTIB0004567"}
+]
