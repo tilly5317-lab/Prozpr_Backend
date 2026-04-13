@@ -7,6 +7,7 @@ Encapsulates business logic consumed by FastAPI routers. Uses database sessions,
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 import xml.etree.ElementTree as ET
 from hashlib import sha256
@@ -30,6 +31,8 @@ from app.models.mf import (
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
 from app.services.portfolio_service import get_or_create_primary_portfolio
 from app.schemas.simbanks import SimBankDiscoveredAccount
+
+logger = logging.getLogger(__name__)
 
 
 SIMBANK_BASE = "https://simbanks.finfactor.in"
@@ -219,6 +222,49 @@ def _infer_account_kind(
     return "other"
 
 
+def _payload_shape_hint(account_data: str) -> str:
+    raw = (account_data or "").lstrip()
+    if raw.startswith("<"):
+        return "xml"
+    if raw.startswith("{") or raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                keys = ",".join(list(parsed.keys())[:8])
+                return f"json_object[{keys}]"
+            if isinstance(parsed, list):
+                return f"json_array[len={len(parsed)}]"
+        except Exception:
+            return "json_like_invalid"
+    return "unknown"
+
+
+def _debug_log_account_discovery(
+    *,
+    phase: str,
+    mobile: str,
+    fip_id: str,
+    account_ref_no: str,
+    fi_type: str,
+    account_type: str,
+    account_data: str,
+    inferred_kind: str,
+) -> None:
+    snippet = (account_data or "").strip().replace("\n", " ")[:220]
+    logger.warning(
+        "[SIMBANKS][%s] mobile=%s fipId=%s accountRefNo=%s fiType=%s accountType=%s payloadShape=%s inferredKind=%s payloadSnippet=%s",
+        phase,
+        mobile,
+        fip_id,
+        account_ref_no,
+        fi_type,
+        account_type,
+        _payload_shape_hint(account_data),
+        inferred_kind,
+        snippet,
+    )
+
+
 def parse_deposit_account_xml(xml_text: str) -> tuple[_DepositSummary, dict[str, Any]]:
     root = ET.fromstring(xml_text)
     masked_acc_number = root.attrib.get("maskedAccNumber")
@@ -358,7 +404,22 @@ def parse_mutual_fund_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_
 def parse_mutual_fund_account_json(
     json_text: str,
 ) -> tuple[dict[str, Any], list[_MfHolding], list[_MfTransactionRow]]:
-    payload = json.loads(json_text)
+    payload: Any
+    try:
+        payload = json.loads(json_text)
+    except json.JSONDecodeError:
+        raw = (json_text or "").strip()
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                payload = json.loads(raw[start : end + 1])
+            except json.JSONDecodeError:
+                logger.warning("[SIMBANKS][mf-json] Invalid MF JSON payload; unable to parse")
+                payload = {}
+        else:
+            logger.warning("[SIMBANKS][mf-json] Invalid MF JSON payload; no JSON object found")
+            payload = {}
     entries = payload.get("data") if isinstance(payload, dict) else []
     if not isinstance(entries, list):
         entries = []
@@ -548,6 +609,16 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
                 account_type=account_type,
                 account_data=account_xml,
             )
+            _debug_log_account_discovery(
+                phase="discover",
+                mobile=mobile,
+                fip_id=fip_id,
+                account_ref_no=account_ref_no,
+                fi_type=fi_type,
+                account_type=account_type,
+                account_data=account_xml,
+                inferred_kind=kind,
+            )
 
             if kind == "deposit":
                 summary_obj, _ = parse_deposit_account_xml(account_xml)
@@ -583,13 +654,14 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
                 )
             elif kind == "equity":
                 eq_summary, eq_holdings = parse_equities_account_xml(account_xml)
+                all_holdings_are_mf = bool(eq_holdings) and all(h.is_mutual_fund for h in eq_holdings)
                 discovered.append(
                     SimBankDiscoveredAccount(
                         account_ref_no=account_ref_no,
                         provider_name=fip_id,
                         fi_type=fi_type,
                         account_type=account_type,
-                        kind="equity",
+                        kind="mutual_fund" if all_holdings_are_mf else "equity",
                         masked_identifier=eq_summary.get("masked_demat_id"),
                         currency="INR",
                         current_value=float(eq_summary.get("current_value") or 0.0),
@@ -648,6 +720,16 @@ async def sync_simbanks_accounts(
                 account_type=account_type,
                 account_data=account_xml,
             )
+            _debug_log_account_discovery(
+                phase="sync",
+                mobile=mobile,
+                fip_id=fip_id,
+                account_ref_no=account_ref_no,
+                fi_type=fi_type,
+                account_type=account_type,
+                account_data=account_xml,
+                inferred_kind=kind,
+            )
             discovered_pairs.append((fip_id, account_ref_no, kind, fi_type, account_type, account_xml))
 
     # DB refresh (transactionally)
@@ -691,6 +773,7 @@ async def sync_simbanks_accounts(
     # MF data buffers
     mf_txns_to_create: list[MfTransaction] = []
     mf_fund_metadata_to_upsert: dict[str, dict[str, Any]] = {}
+    seen_mf_fingerprints: set[str] = set()
 
     for fip_id, account_ref_no, kind, fi_type, account_type, account_xml in discovered_pairs:
         if kind == "deposit":
@@ -807,6 +890,17 @@ async def sync_simbanks_accounts(
                 # If units are 0 (missing in XML), avoid creating invalid rows.
                 if t.units <= 0:
                     continue
+                # Ensure scheme metadata exists even when payload has txn rows but no holdings rows.
+                if t.scheme_code not in mf_fund_metadata_to_upsert:
+                    mf_fund_metadata_to_upsert[t.scheme_code] = {
+                        "scheme_code": t.scheme_code,
+                        "scheme_name": "MF Scheme",
+                        "amc_name": "Unknown AMC",
+                        "category": "Other",
+                        "sub_category": None,
+                        "plan_type": MfPlanType.REGULAR,
+                        "option_type": MfOptionType.GROWTH,
+                    }
                 raw_key = "|".join(
                     [
                         str(user.id),
@@ -819,6 +913,10 @@ async def sync_simbanks_accounts(
                         f"{t.amount:.2f}",
                     ]
                 )
+                fingerprint = sha256(raw_key.encode("utf-8")).hexdigest()
+                if fingerprint in seen_mf_fingerprints:
+                    continue
+                seen_mf_fingerprints.add(fingerprint)
                 mf_txns_to_create.append(
                     MfTransaction(
                         user_id=user.id,
@@ -833,7 +931,7 @@ async def sync_simbanks_accounts(
                         stamp_duty=None,
                         source_system=MfTransactionSource.SIMBANKS,
                         source_import_id=None,
-                        source_txn_fingerprint=sha256(raw_key.encode("utf-8")).hexdigest(),
+                        source_txn_fingerprint=fingerprint,
                     )
                 )
 
@@ -861,6 +959,7 @@ async def sync_simbanks_accounts(
         elif kind == "equity":
             eq_summary, eq_holdings = parse_equities_account_xml(account_xml)
             eq_current_value = float(eq_summary.get("current_value") or 0.0)
+            all_holdings_are_mf = bool(eq_holdings) and all(h.is_mutual_fund for h in eq_holdings)
 
             total_value += eq_current_value
             total_invested += eq_current_value
@@ -912,11 +1011,20 @@ async def sync_simbanks_accounts(
                     )
 
             if eq_current_value > eq_holdings_total:
-                bucket_amounts["Equity"] += eq_current_value - eq_holdings_total
+                remainder = eq_current_value - eq_holdings_total
+                if all_holdings_are_mf and eq_holdings:
+                    inferred_bucket = _classify_mf_bucket(
+                        eq_holdings[0].scheme_type, eq_holdings[0].scheme_category
+                    )
+                    bucket_amounts[inferred_bucket] += remainder
+                else:
+                    bucket_amounts["Equity"] += remainder
 
             linked = LinkedAccount(
                 user_id=user.id,
-                account_type=LinkedAccountType.stock_demat,
+                account_type=(
+                    LinkedAccountType.mutual_fund if all_holdings_are_mf else LinkedAccountType.stock_demat
+                ),
                 provider_name=fip_id,
                 account_identifier=account_ref_no,
                 encrypted_access_token=None,
@@ -924,7 +1032,7 @@ async def sync_simbanks_accounts(
                 metadata_json={
                     "fi_type": fi_type,
                     "account_type": account_type,
-                    "portfolio_bucket": "Equity",
+                    "portfolio_bucket": "MixedMF" if all_holdings_are_mf else "Equity",
                     "masked_demat_id": eq_summary.get("masked_demat_id"),
                     "current_value": eq_current_value,
                 },

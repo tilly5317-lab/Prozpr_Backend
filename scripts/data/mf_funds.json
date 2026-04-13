@@ -1,0 +1,10 @@
+[
+  {"scheme_code": "120503", "scheme_name": "HDFC Flexi Cap Fund - Growth",       "amc_name": "HDFC AMC",   "category": "Equity", "sub_category": "Flexi Cap",      "plan_type": "REGULAR", "option_type": "GROWTH"},
+  {"scheme_code": "119551", "scheme_name": "ICICI Pru Bluechip Fund - Growth",   "amc_name": "ICICI Pru",  "category": "Equity", "sub_category": "Large Cap",      "plan_type": "DIRECT",  "option_type": "GROWTH"},
+  {"scheme_code": "100356", "scheme_name": "SBI Small Cap Fund - Growth",        "amc_name": "SBI MF",     "category": "Equity", "sub_category": "Small Cap",      "plan_type": "DIRECT",  "option_type": "GROWTH"},
+  {"scheme_code": "102885", "scheme_name": "Axis Liquid Fund - Growth",          "amc_name": "Axis MF",    "category": "Debt",   "sub_category": "Liquid",         "plan_type": "REGULAR", "option_type": "GROWTH"},
+  {"scheme_code": "118834", "scheme_name": "Parag Parikh Flexi Cap - Growth",    "amc_name": "PPFAS MF",   "category": "Equity", "sub_category": "Flexi Cap",      "plan_type": "DIRECT",  "option_type": "GROWTH"},
+  {"scheme_code": "112090", "scheme_name": "Kotak Corporate Bond Fund - Growth", "amc_name": "Kotak MF",   "category": "Debt",   "sub_category": "Corporate Bond", "plan_type": "REGULAR", "option_type": "GROWTH"},
+  {"scheme_code": "135781", "scheme_name": "Nippon India Gold ETF",              "amc_name": "Nippon MF",  "category": "Other",  "sub_category": "Gold ETF",       "plan_type": "REGULAR", "option_type": "GROWTH"},
+  {"scheme_code": "120716", "scheme_name": "Motilal Oswal Nasdaq 100 FOF",       "amc_name": "Motilal MF", "category": "Equity", "sub_category": "International",  "plan_type": "DIRECT",  "option_type": "GROWTH"}
+]

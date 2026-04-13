@@ -3,6 +3,7 @@
 Builds the ``FastAPI`` instance, attaches CORS, registers ``app.routers.all_routers``,
 and runs startup/shutdown hooks (e.g. optional table creation, engine disposal).
 Global exception handlers translate ``ValidationError`` and unexpected errors into JSON.
+
 """
 
 
