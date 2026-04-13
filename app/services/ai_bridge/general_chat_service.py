@@ -1,8 +1,4 @@
-"""AI bridge — `general_chat_service.py`.
-
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
-"""
-
+"""Handle general/market chat queries via OpenAI (GPT-4o-mini)."""
 
 from __future__ import annotations
 
@@ -20,13 +16,17 @@ from intent_classifier.models import Intent
 from intent_classifier.prompts import OUT_OF_SCOPE_MESSAGE
 from intent_classifier import ClassificationResult
 
+# Keep market commentary under this limit so the prompt fits the context window.
+_MAX_COMMENTARY_CHARS = 7000
 
-def _compact_market_commentary(text: str, max_chars: int = 7000) -> str:
-    if not text:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n\n[Truncated for response generation]"
+_SYSTEM_PROMPT = (
+    "You are AILAX, a financial assistant. Answer exactly the user's question.\n"
+    "Keep response balanced in length (roughly 120-220 words).\n"
+    "Return markdown with two sections only:\n"
+    "1) **Answer** (direct, practical)\n"
+    "2) **Justification** (2-4 bullets explaining why this answer fits question + data).\n"
+    "Avoid unnecessary verbosity and avoid discussing internal intent classification."
+)
 
 
 async def generate_general_chat_response(
@@ -36,7 +36,9 @@ async def generate_general_chat_response(
     conversation_history: list[dict[str, str]] | None = None,
     client_context: dict | None = None,
 ) -> str:
-    """Generate concise answer with explicit justifications."""
+    """Generate a concise answer with justification for general/market intents."""
+
+    # Out-of-scope: return the canned message immediately.
     if classification.intent == Intent.OUT_OF_SCOPE:
         return (
             f"{classification.out_of_scope_message or OUT_OF_SCOPE_MESSAGE}\n\n"
@@ -54,36 +56,29 @@ async def generate_general_chat_response(
             f"- Reasoning: {classification.reasoning}"
         )
 
-    history_block = build_history_block(conversation_history)
-    commentary_block = _compact_market_commentary(market_commentary or "")
-    context_block = json.dumps(client_context, ensure_ascii=True) if client_context else "null"
-    system_prompt = (
-        "You are AILAX, a financial assistant. Answer exactly the user's question.\n"
-        "Keep response balanced in length (roughly 120-220 words).\n"
-        "Return markdown with two sections only:\n"
-        "1) **Answer** (direct, practical)\n"
-        "2) **Justification** (2-4 bullets explaining why this answer fits question + data).\n"
-        "Avoid unnecessary verbosity and avoid discussing internal intent classification."
-    )
-    labels = intent_labels()
+    # Truncate large market commentary to stay within prompt budget.
+    commentary = (market_commentary or "")[:_MAX_COMMENTARY_CHARS]
+
     user_prompt = (
         f"Intent: {classification.intent.value}\n"
         f"Classifier reasoning: {classification.reasoning}\n\n"
-        f"{history_block}\n\n"
+        f"{build_history_block(conversation_history)}\n\n"
         f"User question: {user_question}\n\n"
-        f"Client context from profile/portfolio DB: {context_block}\n\n"
-        "Market commentary context (if relevant, use it; if not relevant, ignore):\n"
-        f"{commentary_block}"
+        f"Client context from profile/portfolio DB: "
+        f"{json.dumps(client_context, ensure_ascii=True) if client_context else 'null'}\n\n"
+        f"Market commentary context (if relevant, use it; if not relevant, ignore):\n"
+        f"{commentary}"
     )
 
     payload = {
         "model": "gpt-4o-mini",
         "max_tokens": 420,
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
     }
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -91,5 +86,5 @@ async def generate_general_chat_response(
             json=payload,
         )
         resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+
+    return resp.json()["choices"][0]["message"]["content"]
