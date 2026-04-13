@@ -1,0 +1,38 @@
+# Merge this `location /api/` block into the `server { ... }` that serves 43.205.235.185 (or your API host).
+# Then: `sudo nginx -t && sudo systemctl reload nginx`
+#
+# Why: Browsers treat failed OPTIONS (e.g. 502 when uvicorn is down) as a CORS failure with
+# "No 'Access-Control-Allow-Origin' header". Answering OPTIONS at the edge with 204 + CORS
+# headers lets preflight succeed; the follow-up GET/POST still needs the app running.
+#
+# nginx `if` is limited; this pattern is the common CORS preflight workaround.
+
+location /api/ {
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin $http_origin always;
+        add_header Access-Control-Allow-Credentials true always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin,Cookie" always;
+        add_header Access-Control-Max-Age 86400 always;
+        return 204;
+    }
+
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Credentials;
+    proxy_hide_header Access-Control-Allow-Methods;
+    proxy_hide_header Access-Control-Allow-Headers;
+    proxy_hide_header Access-Control-Expose-Headers;
+    proxy_hide_header Access-Control-Max-Age;
+
+    add_header Access-Control-Allow-Origin $http_origin always;
+    add_header Access-Control-Allow-Credentials true always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin,Cookie" always;
+
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
