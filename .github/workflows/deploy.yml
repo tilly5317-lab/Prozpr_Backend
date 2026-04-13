@@ -1,10 +1,9 @@
 # Deploy backend on the server over SSH: git pull, venv + pip, pm2 restart.
 # No Docker — app runs via pm2 + Python venv on the host.
 #
-# GitHub Secrets (Settings → Secrets and variables → Actions):
-#   HOST              — server hostname or IP
-#   USERNAME          — SSH user (e.g. ubuntu, ec2-user)
-#   KEY               — private SSH key (full PEM)
+# GitHub Secrets (repository or "production" environment):
+#   HOST, USERNAME, KEY   — preferred names for appleboy/ssh-action
+#   EC2_HOST, EC2_USER, EC2_SSH_PRIVATE_KEY — still accepted as fallbacks
 #
 # Optional repository variable:
 #   SSH_PORT          — SSH port if not 22 (e.g. 2222)
@@ -31,11 +30,30 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Require SSH host and credentials
+        env:
+          SSH_HOST: ${{ secrets.HOST || secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.USERNAME || secrets.EC2_USER }}
+          SSH_KEY: ${{ secrets.KEY || secrets.EC2_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SSH_HOST" ]; then
+            echo "::error::Missing server host. Add secret HOST or EC2_HOST (IP or hostname) on the repo or production environment."
+            exit 1
+          fi
+          if [ -z "$SSH_USER" ]; then
+            echo "::error::Missing SSH user. Add secret USERNAME or EC2_USER."
+            exit 1
+          fi
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::Missing SSH private key. Add secret KEY or EC2_SSH_PRIVATE_KEY."
+            exit 1
+          fi
+
       - uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.KEY }}
+          host: ${{ secrets.HOST || secrets.EC2_HOST }}
+          username: ${{ secrets.USERNAME || secrets.EC2_USER }}
+          key: ${{ secrets.KEY || secrets.EC2_SSH_PRIVATE_KEY }}
           port: ${{ vars.SSH_PORT != '' && vars.SSH_PORT || 22 }}
           script_stop: true
           script: |
