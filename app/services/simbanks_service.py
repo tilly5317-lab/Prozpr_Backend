@@ -6,6 +6,7 @@ Encapsulates business logic consumed by FastAPI routers. Uses database sessions,
 
 from __future__ import annotations
 
+import json
 import uuid
 import xml.etree.ElementTree as ET
 from hashlib import sha256
@@ -138,6 +139,84 @@ def _find_first_attrib(root: ET.Element, tag_endswith: str) -> dict[str, str]:
 
 def _find_children(root: ET.Element, tag_endswith: str) -> list[ET.Element]:
     return [el for el in root.iter() if _strip_ns(el.tag) == tag_endswith]
+
+
+def _is_xml_payload(payload: str) -> bool:
+    return payload.lstrip().startswith("<")
+
+
+def _to_float(v: Any) -> float:
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_mf_date(v: Optional[str]) -> datetime.date:
+    if not v:
+        return datetime.now(timezone.utc).date()
+    s = v.strip()
+    for fmt in ("%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return datetime.now(timezone.utc).date()
+
+
+def _infer_mf_transaction_type(flag: Optional[str], desc: Optional[str]) -> MfTransactionType:
+    f = (flag or "").strip().upper()
+    d = (desc or "").strip().upper()
+    if f in {"SI", "SWITCH_IN"} or "SWITCH-IN" in d:
+        return MfTransactionType.SWITCH_IN
+    if f in {"SO", "SWITCH_OUT"} or "SWITCH-OUT" in d:
+        return MfTransactionType.SWITCH_OUT
+    if f in {"R", "SELL", "REDEMPTION"} or "REDEMPTION" in d or "SELL" in d:
+        return MfTransactionType.SELL
+    if f in {"DR", "DIVIDEND_REINVEST"} or "DIVIDEND REINVEST" in d:
+        return MfTransactionType.DIVIDEND_REINVEST
+    return MfTransactionType.BUY
+
+
+def _is_probable_mf_payload(
+    *,
+    fip_id: str,
+    fi_type: str,
+    account_type: str,
+    account_data: str,
+) -> bool:
+    upper_meta = " ".join([fip_id, fi_type, account_type]).upper()
+    if any(token in upper_meta for token in ("MUTUAL", "MFC", "MF ")):
+        return True
+    raw = account_data.upper()
+    return any(token in raw for token in ('"DTTRANSACTION"', '"SCHEMENAME"', '"FOLIO"', '"TRXNUNITS"'))
+
+
+def _infer_account_kind(
+    *,
+    fip_id: str,
+    fi_type: str,
+    account_type: str,
+    account_data: str,
+) -> str:
+    if "FISchema/deposit" in account_data:
+        return "deposit"
+    if "FISchema/mutual_funds" in account_data:
+        return "mutual_fund"
+    if "FISchema/equities" in account_data or fi_type.upper() == "EQUITIES":
+        return "equity"
+    if _is_probable_mf_payload(
+        fip_id=fip_id,
+        fi_type=fi_type,
+        account_type=account_type,
+        account_data=account_data,
+    ):
+        return "mutual_fund"
+    return "other"
 
 
 def parse_deposit_account_xml(xml_text: str) -> tuple[_DepositSummary, dict[str, Any]]:
@@ -276,6 +355,120 @@ def parse_mutual_fund_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_
     )
 
 
+def parse_mutual_fund_account_json(
+    json_text: str,
+) -> tuple[dict[str, Any], list[_MfHolding], list[_MfTransactionRow]]:
+    payload = json.loads(json_text)
+    entries = payload.get("data") if isinstance(payload, dict) else []
+    if not isinstance(entries, list):
+        entries = []
+
+    holdings_map: dict[tuple[str, str], dict[str, Any]] = {}
+    txns: list[_MfTransactionRow] = []
+    net_invested = 0.0
+
+    for entry in entries:
+        rows = entry.get("dtTransaction") if isinstance(entry, dict) else []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            scheme_code = str(row.get("scheme") or row.get("isin") or "UNKNOWN")[:20]
+            folio_no = str(row.get("folio") or "UNKNOWN")
+            nav = _to_float(row.get("purchasePrice"))
+            units = abs(_to_float(row.get("trxnUnits")))
+            amount = abs(_to_float(row.get("trxnAmount")))
+            txn_type = _infer_mf_transaction_type(row.get("trxnTypeFlag"), row.get("trxnDesc"))
+            txn_date = _parse_mf_date(row.get("trxnDate") or row.get("postedDate"))
+            txns.append(
+                _MfTransactionRow(
+                    scheme_code=scheme_code,
+                    folio_number=folio_no[:30] or "UNKNOWN",
+                    transaction_type=txn_type,
+                    transaction_date=txn_date,
+                    units=units,
+                    nav=nav if nav > 0 else (amount / units if units > 0 else 0.0),
+                    amount=amount,
+                )
+            )
+
+            key = (scheme_code, folio_no)
+            item = holdings_map.setdefault(
+                key,
+                {
+                    "scheme_code": scheme_code,
+                    "instrument_name": str(row.get("schemeName") or "MF Scheme"),
+                    "amc_name": str(row.get("amcName") or row.get("amc") or "Unknown AMC"),
+                    "isin": row.get("isin"),
+                    "scheme_option": None,
+                    "scheme_type": None,
+                    "scheme_category": None,
+                    "folio_no": folio_no,
+                    "units_balance": 0.0,
+                    "last_nav": nav,
+                    "last_date": row.get("postedDate") or row.get("trxnDate"),
+                },
+            )
+            if nav > 0:
+                item["last_nav"] = nav
+            if txn_type in {MfTransactionType.BUY, MfTransactionType.SWITCH_IN, MfTransactionType.DIVIDEND_REINVEST}:
+                item["units_balance"] += units
+                net_invested += amount
+            elif txn_type in {MfTransactionType.SELL, MfTransactionType.SWITCH_OUT}:
+                item["units_balance"] -= units
+                net_invested -= amount
+
+    holdings: list[_MfHolding] = []
+    current_value = 0.0
+    for item in holdings_map.values():
+        units_balance = max(float(item["units_balance"]), 0.0)
+        if units_balance <= 0:
+            continue
+        nav = float(item["last_nav"] or 0.0)
+        current_value += units_balance * nav
+        holdings.append(
+            _MfHolding(
+                scheme_code=item["scheme_code"],
+                instrument_name=item["instrument_name"],
+                amc_name=item["amc_name"],
+                isin=item["isin"],
+                scheme_option=item["scheme_option"],
+                scheme_plan=None,
+                scheme_type=item["scheme_type"],
+                scheme_category=item["scheme_category"],
+                closing_units=units_balance,
+                nav=nav,
+                nav_date=item["last_date"],
+                folio_no=item["folio_no"],
+            )
+        )
+
+    if current_value <= 0 and net_invested > 0:
+        # Fallback when simulator sends transaction tape without usable current NAV.
+        current_value = net_invested
+
+    sample_folio = holdings[0].folio_no if holdings else None
+    return (
+        {
+            "linked_acc_ref": str(payload.get("pan") or "") if isinstance(payload, dict) else "",
+            "masked_folio_no": sample_folio,
+            "cost_value": max(net_invested, 0.0),
+            "current_value": max(current_value, 0.0),
+        },
+        holdings,
+        txns,
+    )
+
+
+def parse_mutual_fund_account_payload(
+    payload: str,
+) -> tuple[dict[str, Any], list[_MfHolding], list[_MfTransactionRow]]:
+    if _is_xml_payload(payload):
+        return parse_mutual_fund_account_xml(payload)
+    return parse_mutual_fund_account_json(payload)
+
+
 def parse_equities_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_EquityHolding]]:
     root = ET.fromstring(xml_text)
     masked_demat_id = root.attrib.get("maskedDematId") or root.attrib.get("maskedDematID")
@@ -330,7 +523,9 @@ async def _simbanks_get_account_xml(client: httpx.AsyncClient, fip_id: str, acco
     account_data = payload.get("accountData")
     if not account_data:
         raise ValueError(f"No accountData returned for {account_ref_no}")
-    return account_data
+    if isinstance(account_data, str):
+        return account_data
+    return json.dumps(account_data)
 
 
 async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccount]:
@@ -347,15 +542,12 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
 
             account_xml = await _simbanks_get_account_xml(client, fip_id=fip_id, account_ref_no=account_ref_no)
 
-            # Decide kind from xml root attributes / namespace
-            if "FISchema/deposit" in account_xml:
-                kind = "deposit"
-            elif "FISchema/mutual_funds" in account_xml:
-                kind = "mutual_fund"
-            elif "FISchema/equities" in account_xml or fi_type.upper() == "EQUITIES":
-                kind = "equity"
-            else:
-                kind = "other"
+            kind = _infer_account_kind(
+                fip_id=fip_id,
+                fi_type=fi_type,
+                account_type=account_type,
+                account_data=account_xml,
+            )
 
             if kind == "deposit":
                 summary_obj, _ = parse_deposit_account_xml(account_xml)
@@ -374,7 +566,7 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
                     )
                 )
             elif kind == "mutual_fund":
-                mf_summary, holdings, _ = parse_mutual_fund_account_xml(account_xml)
+                mf_summary, holdings, _ = parse_mutual_fund_account_payload(account_xml)
                 discovered.append(
                     SimBankDiscoveredAccount(
                         account_ref_no=account_ref_no,
@@ -450,14 +642,12 @@ async def sync_simbanks_accounts(
             fi_type = str(a.get("fiType") or "")
             account_type = str(a.get("accountType") or "")
             account_xml = await _simbanks_get_account_xml(client, fip_id=fip_id, account_ref_no=account_ref_no)
-            if "FISchema/deposit" in account_xml:
-                kind = "deposit"
-            elif "FISchema/mutual_funds" in account_xml:
-                kind = "mutual_fund"
-            elif "FISchema/equities" in account_xml or fi_type.upper() == "EQUITIES":
-                kind = "equity"
-            else:
-                kind = "other"
+            kind = _infer_account_kind(
+                fip_id=fip_id,
+                fi_type=fi_type,
+                account_type=account_type,
+                account_data=account_xml,
+            )
             discovered_pairs.append((fip_id, account_ref_no, kind, fi_type, account_type, account_xml))
 
     # DB refresh (transactionally)
@@ -553,7 +743,7 @@ async def sync_simbanks_accounts(
             linked_account_ids.append(linked.id)
 
         elif kind == "mutual_fund":
-            mf_summary, holdings, txns = parse_mutual_fund_account_xml(account_xml)
+            mf_summary, holdings, txns = parse_mutual_fund_account_payload(account_xml)
             mf_current_value = float(mf_summary.get("current_value") or 0.0)
             mf_cost = mf_summary.get("cost_value") or 0.0
 
