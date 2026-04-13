@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 
 import httpx
 
+from app.config import get_settings
 from app.services.ai_bridge.common import build_history_block, ensure_ai_agents_path
 from app.services.ai_bridge.intent_classifier_service import intent_labels
 
@@ -46,7 +46,7 @@ async def generate_general_chat_response(
             f"- {classification.reasoning}"
         )
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_settings().get_openai_api_key()
     if not api_key:
         labels = intent_labels()
         return (
@@ -85,6 +85,12 @@ async def generate_general_chat_response(
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
-        resp.raise_for_status()
+    if resp.status_code == 401:
+        return (
+            "I could not reach the language model (OpenAI returned **401 Unauthorized**).\n\n"
+            "**Justification**\n"
+            "- Set a valid `OPENAI_API_KEY` in `.env` and restart the API server so the new key is loaded."
+        )
+    resp.raise_for_status()
 
     return resp.json()["choices"][0]["message"]["content"]

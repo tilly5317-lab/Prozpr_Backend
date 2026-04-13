@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
+from sqlalchemy.engine import make_url
 from sqlalchemy.engine.url import URL
 
 _backend_dir = Path(__file__).resolve().parents[1]
@@ -30,6 +31,14 @@ for _env_path in (
         break
 else:
     load_dotenv(_backend_dir / ".env")
+
+
+def _strip_wrapping_quotes(raw: str) -> str:
+    """Remove accidental outer quotes from .env values (e.g. DATABASE_URL=\"postgresql://...\")."""
+    s = raw.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        return s[1:-1].strip()
+    return s
 
 
 def _normalize_database_url(url: str) -> str:
@@ -49,9 +58,20 @@ def _normalize_database_url(url: str) -> str:
 
 
 def _ensure_asyncpg_scheme(url: str) -> str:
+    """Use asyncpg for Postgres URLs (Heroku/Railway often use postgres:// or postgresql://)."""
     url = url.strip()
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
     if url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
         return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+def _ensure_async_sqlite_scheme(url: str) -> str:
+    """Async engine requires aiosqlite driver, not default sqlite3."""
+    url = url.strip()
+    if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
     return url
 
 
@@ -115,10 +135,15 @@ class Settings:
     @staticmethod
     def get_database_url() -> str:
         """Resolve DB URL: ``DATABASE_URL`` wins if set; otherwise build from ``POSTGRES_*`` / ``DB_*``."""
-        url = (os.getenv("DATABASE_URL") or "").strip()
+        url = _strip_wrapping_quotes(os.getenv("DATABASE_URL") or "")
+        # Common typo: DATABASE_URL=DATABASE_URL=postgresql://...
+        if url.startswith("DATABASE_URL="):
+            url = url.removeprefix("DATABASE_URL=").strip()
         if not url:
             load_dotenv(_backend_dir / ".env")
-            url = (os.getenv("DATABASE_URL") or "").strip()
+            url = _strip_wrapping_quotes(os.getenv("DATABASE_URL") or "")
+            if url.startswith("DATABASE_URL="):
+                url = url.removeprefix("DATABASE_URL=").strip()
         if not url:
             url = (_database_url_from_postgres_env() or "").strip()
         if not url:
@@ -129,8 +154,18 @@ class Settings:
                 "postgresql+asyncpg://user:password@localhost:5432/dbname"
             )
         url = _ensure_asyncpg_scheme(url)
+        url = _ensure_async_sqlite_scheme(url)
         url = _normalize_database_url(url)
         url = _strip_pgbouncer_from_url(url)
+        try:
+            make_url(url)
+        except Exception as exc:
+            raise RuntimeError(
+                "DATABASE_URL could not be parsed by SQLAlchemy. Fix the string in .env — "
+                "no spaces around '=', use postgresql+asyncpg://user:password@host:5432/dbname "
+                "(URL-encode special characters in the password), or use discrete POSTGRES_* "
+                f"variables instead. Underlying error: {exc}"
+            ) from exc
         return url
 
     @staticmethod
@@ -198,6 +233,16 @@ class Settings:
     def get_anthropic_risk_profiling_key() -> str | None:
         """Risk profiling LangChain module / related HTTP surfaces."""
         return Settings._anthropic_key("RISK_PROFILING_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def get_openai_api_key() -> str | None:
+        """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
+        v = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if v:
+            return v
+        load_dotenv(_backend_dir / ".env", override=False)
+        v = (os.getenv("OPENAI_API_KEY") or "").strip()
+        return v or None
 
 
 @lru_cache
