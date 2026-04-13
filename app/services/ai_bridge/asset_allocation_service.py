@@ -1,8 +1,8 @@
-"""AI bridge — `asset_allocation_service.py`.
+"""Run the Ideal_asset_allocation pipeline and format results for chat.
 
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
+Orchestrates: input building, API key resolution, async thread offload,
+step-by-step tracing, optional DB persistence, and markdown formatting.
 """
-
 
 from __future__ import annotations
 
@@ -27,112 +27,195 @@ from app.services.ai_bridge.ideal_allocation_runner import invoke_ideal_allocati
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Result container
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class AllocationRunOutcome:
-    """Result of running the Ideal_asset_allocation pipeline once."""
-
+    """Immutable outcome of one allocation pipeline run."""
     result: AllocationOutput | None
     blocking_message: str | None = None
     rebalancing_recommendation_id: uuid.UUID | None = None
     allocation_snapshot_id: uuid.UUID | None = None
 
 
+# ---------------------------------------------------------------------------
+# Trace / debug helpers
+# ---------------------------------------------------------------------------
+
 def _short_json(obj: object, limit: int = 450) -> str:
+    """JSON-serialise *obj* and truncate to *limit* chars for trace logs."""
     try:
         s = json.dumps(obj, default=str)
     except TypeError:
         s = str(obj)
-    if len(s) > limit:
-        return s[:limit] + "…"
-    return s
+    return s[:limit] + "…" if len(s) > limit else s
 
 
-def _summarize_step(step_label: str, key: str, blob: object) -> str:
+# Map of (label, state-key) for the 5-step pipeline trace.
+_STEP_MAP = [
+    ("Step 1 (carve-outs)",  "step1_carve_outs"),
+    ("Step 2 (asset class)", "step2_asset_class"),
+    ("Step 3 (subgroups)",   "step3_subgroups"),
+    ("Step 4 (validation)",  "step4_validation"),
+    ("Step 5 (presentation)","step5_presentation"),
+]
+
+
+def _summarize_step(label: str, key: str, blob: object) -> str:
+    """One-line summary of a pipeline step for server-side trace logs."""
     if not isinstance(blob, dict):
-        return f"{step_label}: {_short_json(blob)}"
+        return f"{label}: {_short_json(blob)}"
+
     out = blob.get("output", blob)
+
     if key == "step1_carve_outs" and isinstance(out, dict):
-        rem = out.get("remaining_investable_corpus")
-        carve = (
-            out.get("carve_outs")
-            or out.get("carve_out_allocations")
-            or out.get("locked_in_carve_outs")
-            or []
-        )
-        n = len(carve) if isinstance(carve, list) else 0
-        return f"{step_label}: remaining_investable_corpus={rem}; carve_out_lines≈{n}"
+        carve = out.get("carve_outs") or out.get("carve_out_allocations") or out.get("locked_in_carve_outs") or []
+        return f"{label}: remaining_investable_corpus={out.get('remaining_investable_corpus')}; carve_out_lines≈{len(carve) if isinstance(carve, list) else 0}"
+
     if key == "step2_asset_class" and isinstance(out, dict):
-        pick = {k: out.get(k) for k in ("equities_pct", "debt_pct", "others_pct") if k in out}
-        return f"{step_label}: {_short_json(pick) if pick else _short_json(out, 300)}"
+        pick = {k: out[k] for k in ("equities_pct", "debt_pct", "others_pct") if k in out}
+        return f"{label}: {_short_json(pick) if pick else _short_json(out, 300)}"
+
     if key == "step3_subgroups" and isinstance(out, dict):
-        return f"{step_label}: output keys={list(out.keys())[:10]}"
+        return f"{label}: output keys={list(out.keys())[:10]}"
+
     if key == "step4_validation" and isinstance(out, dict):
         flag = out.get("all_rules_pass")
-        if flag is not None:
-            return f"{step_label}: all_rules_pass={flag}"
-        return f"{step_label}: {_short_json(out, 380)}"
+        return f"{label}: all_rules_pass={flag}" if flag is not None else f"{label}: {_short_json(out, 380)}"
+
     if key == "step5_presentation" and isinstance(out, dict):
-        gt = out.get("grand_total")
         cs = out.get("client_summary")
         ers = cs.get("effective_risk_score") if isinstance(cs, dict) else None
-        return f"{step_label}: grand_total={gt}; effective_risk_score={ers}"
-    return f"{step_label}: {_short_json(out, 380)}"
+        return f"{label}: grand_total={out.get('grand_total')}; effective_risk_score={ers}"
+
+    return f"{label}: {_short_json(out, 380)}"
+
+
+# ---------------------------------------------------------------------------
+# Chat formatting
+# ---------------------------------------------------------------------------
+
+def _sum_subgroup_amounts(sg) -> float:
+    """Total INR across all subgroup rows."""
+    total = 0.0
+    for items in (sg.equity, sg.debt, sg.others):
+        for it in items:
+            total += float(it.amount or 0.0)
+    return total
 
 
 def format_allocation_chat_brief(allocation_result: AllocationOutput, spine_mode: str) -> str:
-    """Short user-facing text for chat (Ideal_asset_allocation final JSON)."""
+    """Convert AllocationOutput into user-facing markdown for the chat bubble."""
     cs = allocation_result.client_summary
     ac = allocation_result.asset_class_allocation
+    gt = allocation_result.grand_total or 1.0
+    ric = allocation_result.remaining_investable_corpus or 1.0
+    tco = allocation_result.total_carve_outs or 0.0
     lines: list[str] = []
 
     lines.append(
-        f"Here is an **ideal allocation** view using your **effective risk score {cs.effective_risk_score:.1f}** "
-        f"(age {cs.age}, horizon: {cs.investment_horizon}, goal: {cs.investment_goal})."
+        f"Here is an **ideal allocation** view using your **effective risk score "
+        f"{cs.effective_risk_score:.1f}** (age {cs.age}, horizon: {cs.investment_horizon}, "
+        f"goal: {cs.investment_goal})."
     )
     lines.append("")
-    lines.append("**Target mix (class level)**")
+
+    # Class-level: show % of grand total from amounts (matches model INR; sums to ~100%).
+    lines.append("**Target mix (class level)** _(each line is % of grand total)_")
     lines.append(
-        f"- Equities: **{ac.equities.pct}%** (~INR {ac.equities.amount:,.0f})"
+        f"- Equities: **{(ac.equities.amount / gt) * 100:.2f}%** (INR {ac.equities.amount:,.2f})"
     )
-    lines.append(f"- Debt: **{ac.debt.pct}%** (~INR {ac.debt.amount:,.0f})")
-    lines.append(f"- Others: **{ac.others.pct}%** (~INR {ac.others.amount:,.0f})")
+    lines.append(f"- Debt: **{(ac.debt.amount / gt) * 100:.2f}%** (INR {ac.debt.amount:,.2f})")
+    lines.append(f"- Others: **{(ac.others.amount / gt) * 100:.2f}%** (INR {ac.others.amount:,.2f})")
     lines.append("")
-    lines.append("**Subgroup highlights**")
+
+    # Carve-outs: % of grand total (carve + investable should equal grand total).
+    if allocation_result.carve_outs:
+        lines.append("**Carve-outs** _(each line is % of grand total)_")
+        for co in allocation_result.carve_outs:
+            co_pct = (co.amount / gt) * 100
+            lines.append(f"- {co.type}: {co_pct:.2f}% (INR {co.amount:,.2f}) — {co.fund_type}")
+        lines.append("")
+
+    # Fund rows: % of *remaining investable* so lines sum to 100% (subgroup sums often
+    # round short of R; we surface the gap as Unallocated).
     sg = allocation_result.subgroup_allocation
+    fund_sum = _sum_subgroup_amounts(sg)
+    lines.append("**Fund-level allocation** _(each line is % of remaining investable corpus)_")
     any_sg = False
-    for bucket_name, items in (
-        ("Equity", sg.equity[:4]),
-        ("Debt", sg.debt[:3]),
-        ("Others", sg.others[:2]),
-    ):
+    for bucket, items in (("Equity", sg.equity), ("Debt", sg.debt), ("Others", sg.others)):
         for it in items:
             any_sg = True
+            pct_inv = (it.amount / ric) * 100 if ric else 0.0
+            pct_gross = (it.amount / gt) * 100
             lines.append(
-                f"- {bucket_name}: **{it.subgroup}** ~{it.pct}% "
-                f"(~INR {it.amount:,.0f}) — {it.recommended_fund}"
+                f"- {bucket}: **{it.subgroup}** {pct_inv:.2f}% of investable "
+                f"({pct_gross:.2f}% of grand total) "
+                f"(INR {it.amount:,.2f}) — {it.recommended_fund}"
             )
+    unallocated = ric - fund_sum
     if not any_sg:
         lines.append("- (No subgroup rows in model output.)")
+    elif abs(unallocated) > 0.01:
+        lines.append(
+            f"- **Unallocated** (rounding / model gap): "
+            f"{(unallocated / ric) * 100:.2f}% of investable "
+            f"({(unallocated / gt) * 100:.2f}% of grand total) "
+            f"(INR {unallocated:,.2f})"
+        )
+
     lines.append("")
+    carve_pct = (tco / gt) * 100
+    inv_pct = (ric / gt) * 100
     lines.append(
-        f"_Carve-outs total **INR {allocation_result.total_carve_outs:,.0f}**; "
-        f"remaining investable **INR {allocation_result.remaining_investable_corpus:,.0f}**; "
-        f"grand total **INR {allocation_result.grand_total:,.0f}**._"
+        f"_Grand total **INR {gt:,.2f}** = carve-outs **{carve_pct:.2f}%** "
+        f"(INR {tco:,.2f}) + investable **{inv_pct:.2f}%** (INR {ric:,.2f}). "
+        f"Subgroup funds sum to INR {fund_sum:,.2f}; fund-level % of investable sum to **100.00%**._"
     )
     if spine_mode != "drift_check":
         lines.append("")
-        lines.append(
-            "_Check exit loads and tax before switching schemes; general information only._"
-        )
+        lines.append("_Check exit loads and tax before switching schemes; general information only._")
+
     return "\n".join(lines)
 
 
 def _format_allocation_answer_long(allocation_result: AllocationOutput, user_question: str) -> str:
-    """Longer format for standalone allocation API."""
-    head = format_allocation_chat_brief(allocation_result, spine_mode="full")
-    return f"Based on your question: {user_question}\n\n{head}"
+    """Longer wrapper used by the standalone allocation HTTP endpoint."""
+    return f"Based on your question: {user_question}\n\n{format_allocation_chat_brief(allocation_result, 'full')}"
 
+
+# ---------------------------------------------------------------------------
+# Blocking-message helpers (avoid repeating long strings inline)
+# ---------------------------------------------------------------------------
+
+_MSG_MISSING_DOB = (
+    "I can optimise your portfolio, but your date of birth is missing. "
+    "Please complete your profile first.\n\n"
+    "**Justification**\n"
+    "- Age is required for risk scoring and allocation inputs."
+)
+
+_MSG_NO_API_KEY = (
+    "I can review your portfolio direction, but the allocation engine is temporarily unavailable.\n\n"
+    "**Answer**\n"
+    "- Keep broad diversification across equity, debt, and gold based on your risk profile.\n"
+    "- Prioritize rebalancing if any sleeve drifts materially from your target.\n\n"
+    "**Justification**\n"
+    "- Set `ASSET_ALLOCATION_API_KEY` in `.env` (or `PORTFOLIO_QUERY_API_KEY` / `ANTHROPIC_API_KEY`).\n"
+)
+
+_MSG_ENGINE_ERROR = (
+    "I could not run the allocation engine right now. Please try again shortly.\n\n"
+    "**Justification**\n"
+    "- The Ideal_asset_allocation module raised an error; see server logs for detail."
+)
+
+
+# ---------------------------------------------------------------------------
+# Core pipeline orchestration
+# ---------------------------------------------------------------------------
 
 async def compute_allocation_result(
     user,
@@ -144,112 +227,63 @@ async def compute_allocation_result(
     chat_session_id: uuid.UUID | None = None,
     spine_mode: str | None = None,
 ) -> AllocationRunOutcome:
-    trace_line("module: asset_allocation (Ideal_asset_allocation) — building inputs")
+    """Build inputs, run the 5-step allocation chain, optionally persist, and return."""
+    trace_line("module: asset_allocation — building inputs")
+
+    # Guard: date of birth is required for risk scoring.
     if getattr(user, "date_of_birth", None) is None:
-        return AllocationRunOutcome(
-            result=None,
-            blocking_message=(
-                "I can optimise your portfolio, but your date of birth is missing. "
-                "Please complete your profile first.\n\n"
-                "**Justification**\n"
-                "- Age is required for risk scoring and allocation inputs."
-            ),
-        )
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 
     try:
         alloc_input, risk_debug = build_allocation_input_for_user(user, user_question)
     except ValueError:
-        return AllocationRunOutcome(
-            result=None,
-            blocking_message=(
-                "I can optimise your portfolio, but your date of birth is missing. "
-                "Please complete your profile first.\n\n"
-                "**Justification**\n"
-                "- Age is required for risk scoring and allocation inputs."
-            ),
-        )
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 
     trace_line(
-        f"effective_risk_score (risk_profiling.scoring)={alloc_input.effective_risk_score} "
+        f"effective_risk_score={alloc_input.effective_risk_score} "
         f"(willingness={alloc_input.risk_willingness}, capacity={alloc_input.risk_capacity_score})"
     )
-    trace_line(f"allocation input summary: age={alloc_input.age}, total_corpus={alloc_input.total_corpus}, "
-               f"horizon={alloc_input.investment_horizon!r}")
+    trace_line(
+        f"allocation input: age={alloc_input.age}, corpus={alloc_input.total_corpus}, "
+        f"horizon={alloc_input.investment_horizon!r}"
+    )
 
     api_key = get_settings().get_anthropic_asset_allocation_key()
     if not api_key:
-        return AllocationRunOutcome(
-            result=None,
-            blocking_message=(
-                "I can review your portfolio direction, but the allocation engine is temporarily unavailable.\n\n"
-                "**Answer**\n"
-                "- Keep broad diversification across equity, debt, and gold based on your risk profile.\n"
-                "- Prioritize rebalancing if any sleeve drifts materially from your target.\n\n"
-                "**Justification**\n"
-                "- Set `ASSET_ALLOCATION_API_KEY` in `.env` (or `PORTFOLIO_QUERY_API_KEY` / `ANTHROPIC_API_KEY`).\n"
-            ),
-        )
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_NO_API_KEY)
 
-    def _run_chain():
-        return invoke_ideal_allocation_with_full_state(alloc_input, api_key)
-
+    # Run the blocking LCEL chain off the event loop.
     try:
-        full_state, output = await asyncio.to_thread(_run_chain)
+        full_state, output = await asyncio.to_thread(
+            invoke_ideal_allocation_with_full_state, alloc_input, api_key,
+        )
     except Exception as exc:
         logger.exception("Ideal_asset_allocation pipeline failed: %s", exc)
         trace_line(f"Ideal_asset_allocation ERROR: {exc!s}")
-        return AllocationRunOutcome(
-            result=None,
-            blocking_message=(
-                "I could not run the allocation engine right now. Please try again shortly.\n\n"
-                "**Justification**\n"
-                "- The Ideal_asset_allocation module raised an error; see server logs for detail."
-            ),
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_ENGINE_ERROR)
+
+    # Trace each pipeline step.
+    for label, key in _STEP_MAP:
+        trace_line(
+            _summarize_step(label, key, full_state[key]) if key in full_state
+            else f"{label}: <missing in state>"
         )
+    trace_line(f"AllocationOutput grand_total={output.grand_total}")
+    trace_line(f"risk scoring debug: {_short_json(risk_debug, 800)}")
 
-    trace_line("Ideal_asset_allocation — step outputs (short):")
-    step_map = [
-        ("Step 1 (carve-outs)", "step1_carve_outs"),
-        ("Step 2 (asset class)", "step2_asset_class"),
-        ("Step 3 (subgroups)", "step3_subgroups"),
-        ("Step 4 (validation)", "step4_validation"),
-        ("Step 5 (presentation)", "step5_presentation"),
-    ]
-    for label, k in step_map:
-        if k in full_state:
-            trace_line(_summarize_step(label, k, full_state[k]))
-        else:
-            trace_line(f"{label}: <missing in state>")
-
-    trace_line(
-        f"returning from app.services.ai_bridge.asset_allocation_service "
-        f"→ AllocationOutput grand_total={output.grand_total}"
-    )
-    trace_line(f"risk scoring payload (debug): {_short_json(risk_debug, 800)}")
-
+    # Optionally persist the recommendation for the /execute page.
     reb_id: uuid.UUID | None = None
     snap_id: uuid.UUID | None = None
-    if (
-        db is not None
-        and persist_recommendation
-        and output is not None
-        and acting_user_id is not None
-    ):
-        from app.services.allocation_recommendation_persist import (
-            persist_ideal_allocation_recommendation,
-        )
+    if db is not None and persist_recommendation and output is not None and acting_user_id is not None:
+        from app.services.allocation_recommendation_persist import persist_ideal_allocation_recommendation
 
         reb_id, snap_id = await persist_ideal_allocation_recommendation(
-            db,
-            acting_user_id,
-            output,
+            db, acting_user_id, output,
             chat_session_id=chat_session_id,
             user_question=user_question,
             spine_mode=spine_mode,
         )
-        trace_line(
-            f"persisted ideal allocation plan rebalancing_id={reb_id} snapshot_id={snap_id}"
-        )
+        trace_line(f"persisted: rebalancing_id={reb_id} snapshot_id={snap_id}")
 
     return AllocationRunOutcome(
         result=output,
@@ -259,6 +293,10 @@ async def compute_allocation_result(
     )
 
 
+# ---------------------------------------------------------------------------
+# Standalone HTTP entry point
+# ---------------------------------------------------------------------------
+
 async def generate_portfolio_optimisation_response(
     user,
     user_question: str,
@@ -267,10 +305,9 @@ async def generate_portfolio_optimisation_response(
     persist_recommendation: bool = False,
     acting_user_id: uuid.UUID | None = None,
 ) -> str:
-    """Run Ideal_asset_allocation for standalone HTTP and return a full user-facing string."""
+    """Run allocation for standalone HTTP and return a full user-facing string."""
     outcome = await compute_allocation_result(
-        user,
-        user_question,
+        user, user_question,
         db=db,
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,

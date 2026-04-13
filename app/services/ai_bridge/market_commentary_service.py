@@ -1,6 +1,9 @@
-"""AI bridge — `market_commentary_service.py`.
+"""Generate a macro-economic market commentary document.
 
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
+Pipeline: web-scrape 14 Indian market indicators → extract structured
+MacroSnapshot (Haiku / GPT-4o-mini) → generate prose commentary (Sonnet /
+GPT-4o-mini).  Caches the snapshot on disk to avoid re-scraping within
+``_CACHE_MAX_AGE_SEC`` (default 1 h).
 """
 
 

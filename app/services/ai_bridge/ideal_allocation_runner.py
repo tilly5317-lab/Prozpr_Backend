@@ -1,17 +1,12 @@
-"""Run ``Ideal_asset_allocation`` from the app layer without editing ``AI_Agents/``.
+"""Thread-safe runner for the Ideal_asset_allocation 5-step LCEL chain.
 
-``Ideal_asset_allocation.main`` constructs ``ChatAnthropic`` clients at import time using
-``ANTHROPIC_API_KEY``. The caller passes the key resolved from ``ASSET_ALLOCATION_API_KEY``
-(via ``Settings.get_anthropic_asset_allocation_key``); this module temporarily assigns
-``os.environ['ANTHROPIC_API_KEY']`` to that value,
-uses ``importlib.reload`` on ``Ideal_asset_allocation.main`` so clients pick up the key from
-``Settings``, invokes ``asset_allocation_chain``, then restores the previous env value.
+The chain's module constructs ``ChatAnthropic`` clients at import time, so we
+temporarily swap ``ANTHROPIC_API_KEY`` in the environment, reload the module
+under a process-wide lock, invoke the chain, then restore the previous key.
 
-A process-wide lock wraps reload + invoke because the interpreter shares one module object.
-``asset_allocation_service`` calls this from ``asyncio.to_thread`` so the event loop stays
-responsive during the five-step LCEL chain.
+Called from ``asset_allocation_service.compute_allocation_result`` inside
+``asyncio.to_thread`` to keep the event loop responsive.
 """
-
 
 from __future__ import annotations
 
@@ -26,24 +21,20 @@ ensure_ai_agents_path()
 
 from Ideal_asset_allocation.models import AllocationInput, AllocationOutput
 
+# Only one thread may reload + invoke at a time (shared module state).
 _LOCK = threading.Lock()
 
 
-def _coerce_pct_fields_to_int(obj: Any) -> Any:
-    """
-    Claude sometimes returns fractional percentages; ``AllocationOutput`` expects ``pct: int``.
-    Recursively round any ``pct`` key (excluding bools) so Pydantic validation succeeds.
-    """
+def _coerce_pct_to_int(obj: Any) -> Any:
+    """Recursively round ``pct`` fields to int (Claude sometimes returns floats)."""
     if isinstance(obj, dict):
-        out: dict[str, Any] = {}
-        for k, v in obj.items():
-            if k == "pct" and isinstance(v, (int, float)) and not isinstance(v, bool):
-                out[k] = int(round(float(v)))
-            else:
-                out[k] = _coerce_pct_fields_to_int(v)
-        return out
+        return {
+            k: int(round(float(v))) if k == "pct" and isinstance(v, (int, float)) and not isinstance(v, bool)
+            else _coerce_pct_to_int(v)
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
-        return [_coerce_pct_fields_to_int(i) for i in obj]
+        return [_coerce_pct_to_int(i) for i in obj]
     return obj
 
 
@@ -51,10 +42,7 @@ def invoke_ideal_allocation_with_full_state(
     alloc_input: AllocationInput,
     anthropic_api_key: str,
 ) -> tuple[dict, AllocationOutput]:
-    """
-    Returns (full invoke state dict including step1…step5, validated AllocationOutput).
-    Thread-safe; uses a global lock because reload affects the shared module.
-    """
+    """Run the chain and return ``(full_state, validated AllocationOutput)``."""
     ensure_ai_agents_path()
 
     key = anthropic_api_key.strip()
@@ -63,7 +51,6 @@ def invoke_ideal_allocation_with_full_state(
         os.environ["ANTHROPIC_API_KEY"] = key
         try:
             import Ideal_asset_allocation.main as ia_main
-
             importlib.reload(ia_main)
             full_state = ia_main.asset_allocation_chain.invoke(alloc_input.model_dump())
         finally:
@@ -72,12 +59,12 @@ def invoke_ideal_allocation_with_full_state(
             else:
                 os.environ["ANTHROPIC_API_KEY"] = prev
 
+    # Normalise step5 output and coerce fractional pct fields.
     step5 = full_state.get("step5_presentation")
     if isinstance(step5, dict):
         if "client_summary" not in step5 and isinstance(step5.get("output"), dict):
             step5 = step5["output"]
-        step5 = _coerce_pct_fields_to_int(step5)
-        full_state = {**full_state, "step5_presentation": step5}
+        full_state = {**full_state, "step5_presentation": _coerce_pct_to_int(step5)}
 
     output = AllocationOutput.model_validate(full_state["step5_presentation"])
     return full_state, output
