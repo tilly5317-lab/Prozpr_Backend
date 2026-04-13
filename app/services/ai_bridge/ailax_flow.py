@@ -1,8 +1,8 @@
-"""AI bridge — `ailax_flow.py`.
+"""AILAX spine: detect portfolio intent mode and run the allocation pipeline.
 
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
+``detect_spine_mode`` inspects user wording (cash-in, cash-out, rebalance, etc.)
+and ``build_ailax_spine`` orchestrates allocation + formatting into one chat reply.
 """
-
 
 from __future__ import annotations
 
@@ -22,16 +22,14 @@ from app.services.ai_bridge.asset_allocation_service import (
 
 @dataclass
 class AilaxSpineResult:
-    """Chat markdown plus optional DB row ids when an ideal plan was persisted."""
-
+    """Chat markdown + optional persisted plan IDs."""
     text: str
     rebalancing_recommendation_id: uuid.UUID | None = None
     portfolio_allocation_snapshot_id: uuid.UUID | None = None
 
 
 class SpineMode(str, Enum):
-    """Branches after portfolio-style intents (wording heuristic)."""
-
+    """Portfolio intent sub-modes derived from user wording."""
     FULL = "full"
     CASH_IN = "cash_in"
     CASH_OUT = "cash_out"
@@ -39,33 +37,25 @@ class SpineMode(str, Enum):
     REBALANCE = "rebalance"
 
 
+# Regex patterns keyed by mode, checked in priority order.
+_MODE_PATTERNS: list[tuple[SpineMode, str]] = [
+    (SpineMode.CASH_OUT,
+     r"\b(withdraw|redemption|redeem|sell\s+mf|take\s+out|need\s+cash|exit\s+load|stp\s+out|swp|take\s+money)\b"),
+    (SpineMode.CASH_IN,
+     r"\b(sip\b|lump\s*sum|invest|subscribe|buy\s+mf|add\s+funds|put\s+money|fresh\s+invest|allocate\s+more|contribute)\b"),
+    (SpineMode.DRIFT_CHECK,
+     r"\b(drift|off[\s-]?target|deviation|misaligned|not\s+aligned|away\s+from\s+target|allocation\s+gap)\b"),
+    (SpineMode.REBALANCE,
+     r"\b(rebalanc|rebalance|bring\s+back|align\s+portfolio)\b"),
+]
+
+
 def detect_spine_mode(user_question: str) -> SpineMode:
+    """Classify the user's question into a portfolio sub-mode."""
     q = user_question.lower()
-
-    if re.search(
-        r"\b(withdraw|redemption|redeem|sell\s+mf|take\s+out|need\s+cash|exit\s+load|"
-        r"stp\s+out|swp|take\s+money)\b",
-        q,
-    ):
-        return SpineMode.CASH_OUT
-
-    if re.search(
-        r"\b(sip\b|lump\s*sum|invest|subscribe|buy\s+mf|add\s+funds|"
-        r"put\s+money|fresh\s+invest|allocate\s+more|contribute)\b",
-        q,
-    ):
-        return SpineMode.CASH_IN
-
-    if re.search(
-        r"\b(drift|off[\s-]?target|deviation|misaligned|not\s+aligned|"
-        r"away\s+from\s+target|allocation\s+gap)\b",
-        q,
-    ):
-        return SpineMode.DRIFT_CHECK
-
-    if re.search(r"\b(rebalanc|rebalance|bring\s+back|align\s+portfolio)\b", q):
-        return SpineMode.REBALANCE
-
+    for mode, pattern in _MODE_PATTERNS:
+        if re.search(pattern, q):
+            return mode
     return SpineMode.FULL
 
 
@@ -79,39 +69,33 @@ async def build_ailax_spine(
     acting_user_id: uuid.UUID | None = None,
     chat_session_id: uuid.UUID | None = None,
 ) -> AilaxSpineResult:
-    """
-    One short assistant message: narrative + target mix + a few concrete moves.
-    When ``persist_recommendation`` and ``db`` are set, stores the plan for
-    ``GET /portfolio/recommended-plan`` and ``GET /rebalancing``.
-    """
+    """Run allocation and return formatted chat markdown + optional persisted IDs."""
     outcome = await compute_allocation_result(
-        user,
-        user_question,
+        user, user_question,
         db=db,
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,
         chat_session_id=chat_session_id,
         spine_mode=mode.value,
     )
+
     if outcome.blocking_message:
         return AilaxSpineResult(text=outcome.blocking_message)
     if not outcome.result:
         return AilaxSpineResult(
-            text=(
-                "I couldn’t produce an allocation summary just now. "
-                "Check your profile is complete and try again in a moment."
-            )
+            text="I couldn't produce an allocation summary just now. "
+                 "Check your profile is complete and try again in a moment."
         )
 
-    result = outcome.result
+    # Prefix with risk profile status.
     rp = getattr(user, "risk_profile", None)
     cat = getattr(rp, "risk_category", None) if rp else None
-    if cat:
-        header = f"Using your saved risk profile (**{cat}**).\n\n"
-    else:
-        header = "Complete your risk questionnaire when you can — guidance below is broader without it.\n\n"
+    header = (
+        f"Using your saved risk profile (**{cat}**).\n\n" if cat
+        else "Complete your risk questionnaire when you can — guidance below is broader without it.\n\n"
+    )
 
-    body = format_allocation_chat_brief(result, mode.value)
+    body = format_allocation_chat_brief(outcome.result, mode.value)
     return AilaxSpineResult(
         text=header + body,
         rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,

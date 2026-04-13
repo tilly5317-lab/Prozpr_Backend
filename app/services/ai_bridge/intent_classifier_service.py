@@ -1,8 +1,4 @@
-"""AI bridge — `intent_classifier_service.py`.
-
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
-"""
-
+"""Classify user messages into intents (Anthropic primary, OpenAI fallback)."""
 
 from __future__ import annotations
 
@@ -10,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+
 import httpx
 
 from app.config import get_settings
@@ -28,6 +25,7 @@ from intent_classifier.prompts import OUT_OF_SCOPE_MESSAGE, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
+# Human-readable labels for each intent value.
 _INTENT_LABELS: dict[str, str] = {
     "portfolio_optimisation": "Portfolio Optimisation",
     "goal_planning": "Goal Planning",
@@ -36,6 +34,7 @@ _INTENT_LABELS: dict[str, str] = {
     "out_of_scope": "Out of Scope",
 }
 
+# OpenAI function-calling schema used in the fallback classifier.
 _OPENAI_FUNCTION = {
     "type": "function",
     "function": {
@@ -46,13 +45,7 @@ _OPENAI_FUNCTION = {
             "properties": {
                 "intent": {
                     "type": "string",
-                    "enum": [
-                        "portfolio_optimisation",
-                        "goal_planning",
-                        "portfolio_query",
-                        "general_market_query",
-                        "out_of_scope",
-                    ],
+                    "enum": list(_INTENT_LABELS.keys()),
                 },
                 "confidence": {"type": "number"},
                 "reasoning": {"type": "string"},
@@ -64,30 +57,29 @@ _OPENAI_FUNCTION = {
 
 
 def _get_classifier() -> IntentClassifier:
+    """Build an Anthropic-backed classifier; raises if no API key is configured."""
     api_key = get_settings().get_anthropic_intent_classifier_key()
     if not api_key:
         raise RuntimeError(
-            "Set INTENT_CLASSIFIER_API_KEY or ANTHROPIC_API_KEY in .env for intent classification."
+            "Set INTENT_CLASSIFIER_API_KEY or ANTHROPIC_API_KEY in .env."
         )
     return IntentClassifier(api_key=api_key)
 
 
 async def _classify_via_openai(
-    customer_question: str,
-    conversation_history: list[dict[str, str]] | None = None,
+    question: str,
+    history: list[dict[str, str]] | None = None,
 ) -> ClassificationResult:
-    """Fallback: call OpenAI when Anthropic has no credits."""
+    """Fallback classifier using OpenAI function-calling."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set — cannot use OpenAI fallback.")
 
-    history_block = build_history_block(conversation_history)
-    user_content = ""
-    if history_block:
-        user_content += history_block + "\n\n"
-    user_content += (
-        f"Customer's current question: {customer_question}\n\n"
-        "Classify the intent using the classify_intent tool."
+    history_block = build_history_block(history)
+    user_content = (
+        (history_block + "\n\n" if history_block else "")
+        + f"Customer's current question: {question}\n\n"
+        + "Classify the intent using the classify_intent tool."
     )
 
     payload = {
@@ -104,18 +96,14 @@ async def _classify_via_openai(
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
         resp.raise_for_status()
 
-    data = resp.json()
-    tool_call = data["choices"][0]["message"]["tool_calls"][0]["function"]
-    raw = json.loads(tool_call["arguments"])
-
+    raw = json.loads(
+        resp.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    )
     intent = Intent(raw["intent"])
     return ClassificationResult(
         intent=intent,
@@ -129,19 +117,14 @@ async def classify_user_message(
     customer_question: str,
     conversation_history: list[dict[str, str]] | None = None,
 ) -> ClassificationResult:
-    """Try Anthropic first; fall back to OpenAI if Anthropic fails (e.g. no credits)."""
+    """Classify intent via Anthropic; falls back to OpenAI on failure."""
     history = [
-        ConversationMessage(role=msg["role"], content=msg["content"])
-        for msg in (conversation_history or [])
+        ConversationMessage(role=m["role"], content=m["content"])
+        for m in (conversation_history or [])
     ]
-
     try:
-        classification_input = ClassificationInput(
-            customer_question=customer_question,
-            conversation_history=history,
-        )
-        classifier = _get_classifier()
-        return await asyncio.to_thread(classifier.classify, classification_input)
+        inp = ClassificationInput(customer_question=customer_question, conversation_history=history)
+        return await asyncio.to_thread(_get_classifier().classify, inp)
     except Exception as exc:
         logger.warning("Anthropic classifier failed (%s), trying OpenAI fallback...", exc)
 
@@ -149,16 +132,14 @@ async def classify_user_message(
 
 
 def format_intent_response(result: ClassificationResult) -> str:
-    """Format the classification result as a readable assistant message."""
+    """Format a ClassificationResult as a readable assistant message."""
     label = _INTENT_LABELS.get(result.intent.value, result.intent.value)
-
     if result.out_of_scope_message:
         return (
             f"**Intent Detected:** {label}\n"
             f"**Confidence:** {result.confidence:.0%}\n\n"
             f"{result.out_of_scope_message}"
         )
-
     return (
         f"**Intent Detected:** {label}\n"
         f"**Confidence:** {result.confidence:.0%}\n"
@@ -167,4 +148,5 @@ def format_intent_response(result: ClassificationResult) -> str:
 
 
 def intent_labels() -> dict[str, str]:
+    """Return a copy of the intent-to-label mapping."""
     return dict(_INTENT_LABELS)
