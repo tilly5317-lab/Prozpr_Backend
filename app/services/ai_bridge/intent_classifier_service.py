@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 
 import httpx
 
@@ -71,9 +70,12 @@ async def _classify_via_openai(
     history: list[dict[str, str]] | None = None,
 ) -> ClassificationResult:
     """Fallback classifier using OpenAI function-calling."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_settings().get_openai_api_key()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set — cannot use OpenAI fallback.")
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set — cannot use OpenAI fallback. "
+            "Add it to .env (see https://platform.openai.com/api-keys) and restart uvicorn."
+        )
 
     history_block = build_history_block(history)
     user_content = (
@@ -99,7 +101,13 @@ async def _classify_via_openai(
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
-        resp.raise_for_status()
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "OpenAI rejected the API key (401). Regenerate the key at "
+            "https://platform.openai.com/api-keys , set OPENAI_API_KEY in .env (no extra spaces or quotes), "
+            "and restart the server (get_settings is cached)."
+        )
+    resp.raise_for_status()
 
     raw = json.loads(
         resp.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
