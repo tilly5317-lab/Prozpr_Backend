@@ -1,19 +1,7 @@
-# CI: lint + tests on PR and push.
-# CD: on push to main/master — build Docker image, push to GHCR (:main + :sha), optionally SSH deploy.
-#
-# Setup for automatic production deploy:
-# 1. GitHub repo → Settings → Actions → General → Workflow permissions: allow read/write packages.
-# 2. Ensure production docker-compose uses image: ghcr.io/<owner>/<repo>:main (lowercase path).
-# 3. On the server: docker login ghcr.io (PAT with read:packages) once, or set secrets below.
-# 4. Repository Variables: DEPLOY_ENABLED = true
-#    DEPLOY_PATH = absolute path to directory containing docker-compose.yml
-#    DEPLOY_COMPOSE_FILE = docker-compose.yml (optional)
-#    DEPLOY_SERVICE = service name for this API (e.g. api, backend)
-# 5. Repository Secrets (match your GitHub repo): EC2_HOST, EC2_USER, EC2_SSH_PRIVATE_KEY
-#    Optional: GHCR_PULL_TOKEN — PAT with read:packages if GHCR images are private.
-# 6. Environments: create "production" if you add protection rules (recommended).
+# Continuous integration: lint + tests on every PR and push.
+# Container publish and server deploy live in deploy.yml (main/master only).
 
-name: CI/CD
+name: CI
 
 on:
   push:
@@ -23,52 +11,41 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  packages: write
 
 env:
   PYTHON_VERSION: "3.11"
 
 jobs:
   lint:
-    name: Lint (Ruff)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Install Ruff
-        run: pip install ruff
-
-      - name: Ruff check
-        run: ruff check .
+      - run: pip install ruff
+      - run: ruff check .
 
   test:
-    name: Tests
     runs-on: ubuntu-latest
     needs: lint
     env:
       PYTHONPATH: ${{ github.workspace }}/AI_Agents/src
       PYTHONUTF8: "1"
       LANG: C.UTF-8
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -80,84 +57,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: AI_Agents unit tests (intent classifier)
-        run: python -m unittest AI_Agents.tests.test_intent_classifier -v
-
-      - name: Router unit tests (pytest)
-        run: pytest AI_Agents/src/router/tests -v --tb=short
-
-      - name: Goal-based allocation tests (pytest)
-        run: pytest AI_Agents/src/goal_based_allocation/Testing -v --tb=short
-
-  docker:
-    name: Build and push (GHCR)
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Image name (GHCR requires lowercase)
-        id: image
-        run: echo "full=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          build-args: |
-            GIT_COMMIT=${{ github.sha }}
-          tags: |
-            ${{ steps.image.outputs.full }}:main
-            ${{ steps.image.outputs.full }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy:
-    name: Deploy to production (SSH)
-    runs-on: ubuntu-latest
-    needs: docker
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
-      vars.DEPLOY_ENABLED == 'true'
-    environment: production
-    steps:
-      - name: Pull new image and restart stack
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          port: ${{ vars.DEPLOY_SSH_PORT != '' && vars.DEPLOY_SSH_PORT || 22 }}
-          envs: GHCR_PULL_TOKEN
-          script_stop: true
-          script: |
-            set -euo pipefail
-            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
-              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
-            fi
-            DEPLOY_PATH='${{ vars.DEPLOY_PATH }}'
-            if [ -z "$DEPLOY_PATH" ]; then echo "DEPLOY_PATH is not set"; exit 1; fi
-            cd "$DEPLOY_PATH"
-            COMPOSE_FILE='${{ vars.DEPLOY_COMPOSE_FILE }}'
-            [ -z "$COMPOSE_FILE" ] && COMPOSE_FILE=docker-compose.yml
-            SERVICE='${{ vars.DEPLOY_SERVICE }}'
-            if [ -z "$SERVICE" ]; then echo "DEPLOY_SERVICE is not set (compose service name)"; exit 1; fi
-            docker compose -f "$COMPOSE_FILE" pull "$SERVICE"
-            docker compose -f "$COMPOSE_FILE" up -d "$SERVICE"
+      - run: python -m unittest AI_Agents.tests.test_intent_classifier -v
+      - run: pytest AI_Agents/src/router/tests -v --tb=short
+      - run: pytest AI_Agents/src/goal_based_allocation/Testing -v --tb=short
