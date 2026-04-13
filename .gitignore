@@ -9,8 +9,15 @@ __pycache__/
 venv/
 env/
 
-# Environment variables / secrets
+# Environment variables / secrets (`.env.example` stays tracked)
 .env
+.env.*
+!.env.example
+*.pem
+
+# Local SQLite / tooling
+*.sqlite
+*.sqlite3
 
 # IDE / Editor
 .vscode/
