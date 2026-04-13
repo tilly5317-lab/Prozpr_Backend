@@ -1,6 +1,7 @@
 """Environment-backed settings (``.env`` loading, database URL, API keys).
 
-``Settings`` centralizes secrets and feature flags: JWT auth, CORS, OpenAI, optional shared
+``Settings`` centralizes secrets and feature flags: JWT auth, CORS (comma-separated origins,
+``ALLOWED_ORIGINS=*`` / ``0.0.0.0/0`` / ``any`` for allow-any), OpenAI, optional shared
 ``ANTHROPIC_API_KEY``, and feature-specific Anthropic keys (intent, market commentary,
 asset allocation, risk profiling, portfolio query) resolved with sensible fallbacks.
 ``get_settings`` is cached so repeated access does not re-parse the environment.
@@ -117,20 +118,36 @@ def _strip_pgbouncer_from_url(url: str) -> str:
     )
 
 
+# Production site + local dev. Override with ALLOWED_ORIGINS in .env; use * or 0.0.0.0/0 to allow any Origin.
+_DEFAULT_ALLOWED_ORIGINS = (
+    "https://prozpr.in,http://prozpr.in,https://www.prozpr.in,http://www.prozpr.in,"
+    "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://13.127.210.211"
+)
+
+
+def _parse_cors_origins_env() -> tuple[list[str], bool]:
+    """Parse ``ALLOWED_ORIGINS``: comma-separated URLs, or a single wildcard token.
+
+    ``0.0.0.0/0`` is not a browser Origin (it is a firewall CIDR); we treat it like ``*``
+    and use ``allow_origin_regex`` in FastAPI so ``allow_credentials=True`` still works.
+    """
+    raw = _strip_wrapping_quotes(os.getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS))
+    token = raw.strip().lower()
+    if token in ("*", "0.0.0.0/0", "any"):
+        return [], True
+    return [o.strip() for o in raw.split(",") if o.strip()], False
+
+
+_CORS_ORIGINS, _CORS_ALLOW_ANY_ORIGIN = _parse_cors_origins_env()
+
+
 class Settings:
     PROJECT_NAME: str = "Ask Tilly API"
     API_V1_PREFIX: str = "/api/v1"
     VERSION: str = "2.0.0"
 
-    ALLOWED_ORIGINS: list[str] = [
-        o.strip()
-        for o in os.getenv(
-            "ALLOWED_ORIGINS",
-            "http://localhost:3000,http://localhost:5173,http://localhost:8080,"
-            "http://13.127.210.211",
-        ).split(",")
-        if o.strip()
-    ]
+    ALLOWED_ORIGINS: list[str] = _CORS_ORIGINS
+    CORS_ALLOW_ANY_ORIGIN: bool = _CORS_ALLOW_ANY_ORIGIN
 
     @staticmethod
     def get_database_url() -> str:
