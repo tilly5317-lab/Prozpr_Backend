@@ -2,6 +2,7 @@
 Entry point:
     uvicorn main:app --reload
     python main.py
+    this is just a test
 """
 from app.main import app
 

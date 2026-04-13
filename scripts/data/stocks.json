@@ -1,0 +1,12 @@
+[
+  {"symbol": "RELIANCE",   "company_name": "Reliance Industries Ltd",   "exchange": "NSE", "price": 2950.00},
+  {"symbol": "TCS",        "company_name": "Tata Consultancy Services", "exchange": "NSE", "price": 3850.00},
+  {"symbol": "INFY",       "company_name": "Infosys Ltd",              "exchange": "NSE", "price": 1480.00},
+  {"symbol": "HDFCBANK",   "company_name": "HDFC Bank Ltd",            "exchange": "NSE", "price": 1720.00},
+  {"symbol": "ICICIBANK",  "company_name": "ICICI Bank Ltd",           "exchange": "NSE", "price": 1250.00},
+  {"symbol": "BHARTIARTL", "company_name": "Bharti Airtel Ltd",        "exchange": "NSE", "price": 1680.00},
+  {"symbol": "ITC",        "company_name": "ITC Ltd",                  "exchange": "NSE", "price": 465.00},
+  {"symbol": "SBIN",       "company_name": "State Bank of India",      "exchange": "NSE", "price": 820.00},
+  {"symbol": "WIPRO",      "company_name": "Wipro Ltd",                "exchange": "NSE", "price": 480.00},
+  {"symbol": "TATAMOTORS", "company_name": "Tata Motors Ltd",          "exchange": "NSE", "price": 720.00}
+]
