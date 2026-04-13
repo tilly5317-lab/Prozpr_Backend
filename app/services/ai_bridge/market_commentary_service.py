@@ -93,7 +93,7 @@ def _convert_extraction_tool_for_openai() -> dict:
 
 async def _extract_via_openai(raw_snippets: dict[str, str]) -> MacroSnapshot:
     """Step 1 of MC pipeline via OpenAI: extract structured data from snippets."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_settings().get_openai_api_key()
     parts = [
         "Below are raw web-search snippets for various Indian market "
         "indicators. Extract the most recent numeric value for each.\n"
@@ -114,13 +114,20 @@ async def _extract_via_openai(raw_snippets: dict[str, str]) -> MacroSnapshot:
         "tool_choice": {"type": "function", "function": {"name": "extract_macro_data"}},
     }
 
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
-        resp.raise_for_status()
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "OpenAI API key rejected (401). Update OPENAI_API_KEY in .env and restart the server."
+        )
+    resp.raise_for_status()
 
     data = resp.json()
     raw = json.loads(data["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])
@@ -130,7 +137,7 @@ async def _extract_via_openai(raw_snippets: dict[str, str]) -> MacroSnapshot:
 
 async def _generate_document_via_openai(snapshot: MacroSnapshot) -> str:
     """Step 2 of MC pipeline via OpenAI: generate commentary using existing prompts."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_settings().get_openai_api_key()
     user_prompt = DocumentGenerator._build_user_prompt(snapshot, datetime.now(_IST))
 
     payload = {
@@ -142,13 +149,20 @@ async def _generate_document_via_openai(snapshot: MacroSnapshot) -> str:
         ],
     }
 
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
-        resp.raise_for_status()
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "OpenAI API key rejected (401). Update OPENAI_API_KEY in .env and restart the server."
+        )
+    resp.raise_for_status()
 
     data = resp.json()
     return data["choices"][0]["message"]["content"]
@@ -185,7 +199,7 @@ async def generate_market_commentary(
         logger.warning("Anthropic MC agent failed (%s), trying OpenAI fallback...", exc)
 
     # --- Attempt 2: Same pipeline, same prompts, via OpenAI ---
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_settings().get_openai_api_key()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
 

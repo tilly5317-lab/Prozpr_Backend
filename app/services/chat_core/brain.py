@@ -12,6 +12,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
+import httpx
+
 from app.services.ai_module_telemetry import log_chat_turn_flow_summary
 from app.services.ai_bridge import (
     classify_user_message,
@@ -43,6 +45,18 @@ _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS = (
 def _looks_like_portfolio_optimisation(text: str) -> bool:
     t = text.lower()
     return any(tok in t for tok in _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS)
+
+
+def _is_llm_auth_failure(exc: BaseException) -> bool:
+    """Anthropic/OpenAI rejected credentials — expected until .env keys are valid."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        if exc.response.status_code == 401:
+            return True
+    msg = str(exc).lower()
+    return (
+        "401" in msg
+        and ("unauthorized" in msg or "invalid x-api-key" in msg or "authentication_error" in msg)
+    ) or ("invalid x-api-key" in msg)
 
 
 @dataclass
@@ -158,7 +172,14 @@ class ChatBrain:
             return await finalize(content)
 
         except Exception as exc:
-            logger.exception("ChatBrain turn failed session=%s: %s", sid, exc)
+            if _is_llm_auth_failure(exc):
+                logger.warning(
+                    "ChatBrain session=%s: LLM authentication failed (%s); using recovery path",
+                    sid,
+                    exc,
+                )
+            else:
+                logger.exception("ChatBrain turn failed session=%s: %s", sid, exc)
             flow.append(f"classifier or routing error: {exc!s}")
             trace_line(f"ChatBrain exception before recovery: {exc!s}")
             recovery = await self._answer_after_classifier_failure(turn, flow)
