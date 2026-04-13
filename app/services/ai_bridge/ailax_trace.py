@@ -1,7 +1,4 @@
-"""AI bridge — `ailax_trace.py`.
-
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
-"""
+"""Lightweight stdout tracing prefixed with [AILAX_TRACE] for server-side debugging."""
 
 
 from __future__ import annotations

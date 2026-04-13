@@ -1,6 +1,8 @@
-"""AI bridge — `liquidity_gate.py`.
+"""Heuristic liquidity check for cash-out intents.
 
-Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to `sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, and user-context mapping. Ideal mutual fund allocation is invoked from here using ``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so `AI_Agents` files stay untouched.
+Compares the user's saved emergency fund against the inferred withdrawal
+amount.  If the fund covers the need (with a 10 % buffer), the chat can
+skip the full allocation engine and return a short cash-out checklist.
 """
 
 
