@@ -203,7 +203,9 @@ _MSG_NO_API_KEY = (
     "- Keep broad diversification across equity, debt, and gold based on your risk profile.\n"
     "- Prioritize rebalancing if any sleeve drifts materially from your target.\n\n"
     "**Justification**\n"
-    "- Set `ASSET_ALLOCATION_API_KEY` in `.env` (or `PORTFOLIO_QUERY_API_KEY` / `ANTHROPIC_API_KEY`).\n"
+    "- The allocation chain needs a valid Anthropic key. Set `ASSET_ALLOCATION_API_KEY` or "
+    "`ANTHROPIC_API_KEY` in `.env` (see console.anthropic.com), then **fully restart** uvicorn so "
+    "cached settings reload.\n"
 )
 
 _MSG_ENGINE_ERROR = (
