@@ -38,6 +38,7 @@ A token usage and cost estimate is printed at the end.
 import asyncio
 import json
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from .common.llm_client import LLMClient
 from .orchestrator import AllocationOrchestrator

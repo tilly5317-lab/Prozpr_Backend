@@ -1,4 +1,5 @@
 """Unit tests for state slimmer functions in prompts.py."""
+import pytest
 from src.goal_based_allocation.prompts import (
     _slim_for_step2, _slim_for_step3, _slim_for_step4,
     _slim_for_step5, _slim_for_step6, _slim_for_step7,

@@ -90,9 +90,6 @@ Triggers when the customer is asking about:
 Example questions:
 - "How are mid-cap funds performing this year?"
 - "What is happening with interest rates?"
-- "How has the Nifty 50 performed in the last 6 months?"
-- "Are smallcap stocks risky right now?"
-- "What sectors are performing well this quarter?"
 
 Key distinction from portfolio_query: general_market_query is about **the market in general**, not the customer's own holdings.
 

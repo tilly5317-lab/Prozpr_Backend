@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-_IST = ZoneInfo("Asia/Kolkata")
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic

@@ -278,7 +278,7 @@ def main():
         print(f"  effective_risk_score : {result['output']['effective_risk_score']}")
         print(f"  gap_exceeds_3        : {result['calculations']['gap_exceeds_3']}")
         print(f"  was_clamped          : {result['calculations']['was_clamped']}")
-        print("  risk_summary:\n")
+        print(f"  risk_summary:\n")
         for line in result["output"]["risk_summary"].split("\n"):
             print(f"    {line}")
         print()
