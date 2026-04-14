@@ -83,7 +83,7 @@ class PortfolioQueryOrchestrator:
         print(f"Step 2: Context formatted ✓ ({len(history)} prior turns)")
 
         # Step 3
-        print("Step 3: Calling portfolio_query skill...")
+        print(f"Step 3: Calling portfolio_query skill...")
         data, usage = await self.query_skill.run(
             fund_view=fund_view,
             client_profile=client_profile.model_dump_json(indent=2),
@@ -103,8 +103,8 @@ class PortfolioQueryOrchestrator:
             redirect_message=data.get("redirect_message"),
         )
         if response.guardrail_triggered:
-            print("Step 4: Guardrail triggered → redirecting client")
+            print(f"Step 4: Guardrail triggered → redirecting client")
         else:
-            print("Step 4: Answer generated ✓")
+            print(f"Step 4: Answer generated ✓")
 
         return response

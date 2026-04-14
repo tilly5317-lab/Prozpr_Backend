@@ -42,18 +42,18 @@ Defines total equity, debt, and gold ranges by age bracket and risk profile.
 
 | Age     | Risk         | Equity Min | Equity Max | Debt Min | Debt Max | Gold Min | Gold Max |
 |---------|--------------|------------|------------|----------|----------|----------|----------|
-| <30     | conservative | 30         | 50         | 35       | 55       | 0       | 20       |
-| <30     | moderate     | 50         | 70         | 20       | 35       | 0        | 15       |
-| <30     | aggressive   | 70         | 85         | 10       | 20       | 0        | 10       |
-| 30-45   | conservative | 25         | 45         | 40       | 60       | 0       | 20       |
-| 30-45   | moderate     | 40         | 60         | 25       | 40       | 0        | 15       |
-| 30-45   | aggressive   | 60         | 75         | 15       | 25       | 0        | 15       |
-| 46-60   | conservative | 15         | 30         | 50       | 70       | 0       | 20       |
-| 46-60   | moderate     | 30         | 50         | 35       | 50       | 0       | 20       |
-| 46-60   | aggressive   | 45         | 60         | 25       | 35       | 0       | 15       |
-| >60     | conservative | 10         | 20         | 60       | 80       | 0       | 20       |
-| >60     | moderate     | 20         | 35         | 45       | 60       | 0       | 20       |
-| >60     | aggressive   | 30         | 45         | 35       | 50       | 0       | 20       |
+| <30     | conservative | 30         | 50         | 35       | 55       | 10       | 20       |
+| <30     | moderate     | 50         | 70         | 20       | 35       | 5        | 15       |
+| <30     | aggressive   | 70         | 85         | 10       | 20       | 5        | 10       |
+| 30-45   | conservative | 25         | 45         | 40       | 60       | 10       | 20       |
+| 30-45   | moderate     | 40         | 60         | 25       | 40       | 5        | 15       |
+| 30-45   | aggressive   | 60         | 75         | 15       | 25       | 5        | 15       |
+| 46-60   | conservative | 15         | 30         | 50       | 70       | 10       | 20       |
+| 46-60   | moderate     | 30         | 50         | 35       | 50       | 10       | 20       |
+| 46-60   | aggressive   | 45         | 60         | 25       | 35       | 10       | 15       |
+| >60     | conservative | 10         | 20         | 60       | 80       | 10       | 20       |
+| >60     | moderate     | 20         | 35         | 45       | 60       | 10       | 20       |
+| >60     | aggressive   | 30         | 45         | 35       | 50       | 10       | 20       |
 
 ## Equity Sub-Asset Split Logic
 
