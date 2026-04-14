@@ -70,7 +70,9 @@ CLAUDE.md
 **/CLAUDE.md
 docs/superpowers/
 **/docs/superpowers/
-**/.claude/commands/refresh-context.md
+**/.claude/agents/
+**/.claude/commands/
+**/.claude/hooks/
 
 # Cache files
 market_commentary_cache.json

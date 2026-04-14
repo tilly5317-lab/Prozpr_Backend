@@ -17,13 +17,15 @@ class LLMClient:
         response = await self.client.messages.create(
             model=model_id,
             max_tokens=max_tokens,
-            system=system,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user}]
         )
         text = response.content[0].text
         usage = {
             "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens
+            "output_tokens": response.usage.output_tokens,
+            "cache_creation_input_tokens": getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+            "cache_read_input_tokens": getattr(response.usage, "cache_read_input_tokens", 0) or 0,
         }
         self.total_input_tokens += usage["input_tokens"]
         self.total_output_tokens += usage["output_tokens"]
