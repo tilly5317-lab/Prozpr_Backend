@@ -65,6 +65,13 @@ htmlcov/
 # Alembic auto-generated (keep versions/, ignore stamps)
 # alembic/versions/ is tracked
 
+# Superpowers (local only)
+CLAUDE.md
+**/CLAUDE.md
+docs/superpowers/
+**/docs/superpowers/
+**/.claude/commands/refresh-context.md
+
 # Cache files
 market_commentary_cache.json
 /AI_Agents/src/goal_based_allocation/Testing
