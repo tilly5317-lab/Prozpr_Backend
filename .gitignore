@@ -22,6 +22,7 @@ env/
 # IDE / Editor
 .vscode/
 .idea/
+.obsidian/
 *.swp
 *.swo
 *~
@@ -82,3 +83,4 @@ market_commentary_cache.json
 /AI_Agents/src/goal_based_allocation_pydantic/Testing
 /AI_Agents/src/goal_based_allocation_pydantic/references
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
+/AI_Agents/src/.claude/skills
