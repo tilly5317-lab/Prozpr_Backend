@@ -7,6 +7,7 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. Kep
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -51,6 +52,11 @@ class SignUpRequest(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
+    date_of_birth: date | None = None
+    annual_income_min: float | None = None
+    annual_income_max: float | None = None
+    annual_expense_min: float | None = None
+    annual_expense_max: float | None = None
 
     @field_validator("country_code")
     @classmethod
@@ -98,6 +104,11 @@ class LoginRequest(BaseModel):
     country_code: str = Field(..., min_length=1, max_length=10)
     mobile: str = Field(..., min_length=6, max_length=20)
     password: str | None = Field(default=None, min_length=1)
+    date_of_birth: date | None = None
+    annual_income_min: float | None = None
+    annual_income_max: float | None = None
+    annual_expense_min: float | None = None
+    annual_expense_max: float | None = None
 
     @field_validator("country_code")
     @classmethod
