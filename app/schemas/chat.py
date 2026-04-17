@@ -36,6 +36,38 @@ class ChatMessageCreate(BaseModel):
     client_context: Optional[dict[str, Any]] = None
 
 
+class OnboardingExtractedValue(BaseModel):
+    field: str
+    label: Optional[str] = None
+    value: Optional[Any] = None
+    confidence: Optional[float] = None
+    status: Optional[str] = None
+    section: Optional[str] = None
+
+
+class OnboardingAssumptionSuggestion(BaseModel):
+    field: str
+    label: Optional[str] = None
+    suggested_value: Optional[Any] = None
+    reason: Optional[str] = None
+
+
+class OnboardingSummaryRow(BaseModel):
+    field: str
+    label: str
+    value: Optional[Any] = None
+    confidence: Optional[float] = None
+    status: Optional[str] = None
+    section: Optional[str] = None
+
+
+class ChatOnboardingTurnCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+    action: str = Field(default="answer", pattern="^(answer|request_summary|confirm_summary)$")
+    accumulated_values: list[OnboardingExtractedValue] = []
+    client_context: Optional[dict[str, Any]] = None
+
+
 class ChatMessageResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -55,6 +87,20 @@ class ChatSendMessageResponse(BaseModel):
     assistant_message: ChatMessageResponse
     ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
+
+
+class ChatOnboardingTurnResponse(BaseModel):
+    user_message: ChatMessageResponse
+    assistant_message: ChatMessageResponse
+    phase: str
+    next_question: Optional[str] = None
+    extracted_values: list[OnboardingExtractedValue] = []
+    assumptions: list[OnboardingAssumptionSuggestion] = []
+    advisories: list[str] = []
+    summary_rows: list[OnboardingSummaryRow] = []
+    ready_for_confirmation: bool = False
+    committed: bool = False
+    write_payload_preview: dict[str, Any] = {}
 
 
 class UploadStatementResponse(BaseModel):

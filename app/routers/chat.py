@@ -16,6 +16,8 @@ from app.models.chat import ChatMessage, ChatMessageRole, ChatSession, ChatSessi
 from app.models.chat_ai_module_run import ChatAiModuleRun
 from app.models.user import User
 from app.schemas.chat import (
+    ChatOnboardingTurnCreate,
+    ChatOnboardingTurnResponse,
     ChatAiModuleRunResponse,
     ChatMessageCreate,
     ChatMessageResponse,
@@ -27,6 +29,7 @@ from app.schemas.chat import (
 )
 from app.services.chat_core import ChatBrain, ChatTurnInput
 from app.services.chat_context import load_conversation_history
+from app.services.onboarding_chat import run_onboarding_turn
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -201,6 +204,63 @@ async def send_message(
         assistant_message=assistant_response,
         ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/onboarding/turn",
+    response_model=ChatOnboardingTurnResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_onboarding_turn(
+    session_id: uuid.UUID,
+    payload: ChatOnboardingTurnCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Interactive onboarding turn with structured extraction + optional confirm save."""
+    session = await _get_user_session(session_id, db, current_user.id)
+    if session.status == ChatSessionStatus.closed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This chat session is closed.")
+
+    conversation_history = await load_conversation_history(session_id, db)
+    user_msg = ChatMessage(session_id=session_id, role=ChatMessageRole.user, content=payload.content)
+    db.add(user_msg)
+    await db.flush()
+
+    accumulated = [v.model_dump() for v in (payload.accumulated_values or [])]
+    onboarding = await run_onboarding_turn(
+        db=db,
+        user_id=current_user.id,
+        session_id=session_id,
+        conversation_history=conversation_history,
+        latest_user_answer=payload.content,
+        action=payload.action,
+        accumulated_values=accumulated,
+    )
+
+    assistant_msg = ChatMessage(
+        session_id=session_id,
+        role=ChatMessageRole.assistant,
+        content=onboarding.assistant_message,
+    )
+    db.add(assistant_msg)
+    await db.commit()
+    await db.refresh(user_msg)
+    await db.refresh(assistant_msg)
+
+    return ChatOnboardingTurnResponse(
+        user_message=ChatMessageResponse.model_validate(user_msg),
+        assistant_message=ChatMessageResponse.model_validate(assistant_msg),
+        phase=onboarding.phase,
+        next_question=onboarding.next_question,
+        extracted_values=onboarding.extracted_values,
+        assumptions=onboarding.assumptions,
+        advisories=onboarding.advisories,
+        summary_rows=onboarding.summary_rows,
+        ready_for_confirmation=onboarding.ready_for_confirmation,
+        committed=onboarding.committed,
+        write_payload_preview=onboarding.write_payload_preview,
     )
 
 
