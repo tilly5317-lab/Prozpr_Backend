@@ -6,6 +6,7 @@ App-layer persistence and calculation helpers for the user’s effective risk as
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import date, datetime, timezone
@@ -75,7 +76,7 @@ async def upsert_effective_risk_assessment(
         merged_inp = inp
 
     try:
-        doc = compute_effective_risk_document(merged_inp)
+        doc = await asyncio.to_thread(compute_effective_risk_document, merged_inp)
     except Exception:
         logger.exception("Effective risk computation failed for user %s", user_id)
         return None
