@@ -1,0 +1,220 @@
+{
+  "total_ideal_value": 480000.0,
+  "total_actual_value": 480000.0,
+  "asset_classes": [
+    {
+      "asset_class": "equity",
+      "ideal_amount": 259700.0,
+      "ideal_pct": 54.1,
+      "actual_amount": 430000.0,
+      "actual_pct": 89.58,
+      "drift_amount": 170300.0,
+      "drift_pct": 35.48,
+      "subgroups": [
+        {
+          "subgroup": "low_beta_equities",
+          "display_name": "Large Cap Fund",
+          "asset_class": "equity",
+          "ideal_amount": 34600.0,
+          "actual_amount": 280000.0,
+          "drift_amount": 245400.0,
+          "drift_pct": 51.12,
+          "funds": [
+            {
+              "scheme_code": "S1",
+              "scheme_name": "Nippon India Large Cap Fund",
+              "isin": "INF204K01562",
+              "asset_class": "equity",
+              "asset_subgroup": "low_beta_equities",
+              "display_name": "Large Cap Fund",
+              "is_recommended": true,
+              "ideal_amount": 34600.0,
+              "actual_amount": 200000.0,
+              "drift_amount": 165400.0,
+              "drift_pct": 34.46
+            },
+            {
+              "scheme_code": "S3",
+              "scheme_name": "HDFC Large Cap Fund",
+              "isin": "INF999HDFC01",
+              "asset_class": "equity",
+              "asset_subgroup": "low_beta_equities",
+              "display_name": "Large Cap Fund",
+              "is_recommended": false,
+              "ideal_amount": 0.0,
+              "actual_amount": 80000.0,
+              "drift_amount": 80000.0,
+              "drift_pct": 16.67
+            }
+          ]
+        },
+        {
+          "subgroup": "medium_beta_equities",
+          "display_name": "Flexi Cap Fund",
+          "asset_class": "equity",
+          "ideal_amount": 34500.0,
+          "actual_amount": 150000.0,
+          "drift_amount": 115500.0,
+          "drift_pct": 24.06,
+          "funds": [
+            {
+              "scheme_code": "S2",
+              "scheme_name": "Parag Parikh Flexi Cap Fund",
+              "isin": "INF879O01027",
+              "asset_class": "equity",
+              "asset_subgroup": "medium_beta_equities",
+              "display_name": "Flexi Cap Fund",
+              "is_recommended": true,
+              "ideal_amount": 34500.0,
+              "actual_amount": 150000.0,
+              "drift_amount": 115500.0,
+              "drift_pct": 24.06
+            }
+          ]
+        },
+        {
+          "subgroup": "multi_asset",
+          "display_name": "Multi Cap Fund",
+          "asset_class": "equity",
+          "ideal_amount": 157400.0,
+          "actual_amount": 0.0,
+          "drift_amount": -157400.0,
+          "drift_pct": -32.79,
+          "funds": [
+            {
+              "scheme_code": "multi_asset",
+              "scheme_name": "ICICI Prudential Multicap Fund - Growth",
+              "isin": "INF109K01613",
+              "asset_class": "equity",
+              "asset_subgroup": "multi_asset",
+              "display_name": "Multi Cap Fund",
+              "is_recommended": true,
+              "ideal_amount": 157400.0,
+              "actual_amount": 0.0,
+              "drift_amount": -157400.0,
+              "drift_pct": -32.79
+            }
+          ]
+        },
+        {
+          "subgroup": "us_equities",
+          "display_name": "US Linked (FoF)",
+          "asset_class": "equity",
+          "ideal_amount": 33200.0,
+          "actual_amount": 0.0,
+          "drift_amount": -33200.0,
+          "drift_pct": -6.92,
+          "funds": [
+            {
+              "scheme_code": "us_equities",
+              "scheme_name": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+              "isin": "INF174KA1FQ7",
+              "asset_class": "equity",
+              "asset_subgroup": "us_equities",
+              "display_name": "US Linked (FoF)",
+              "is_recommended": true,
+              "ideal_amount": 33200.0,
+              "actual_amount": 0.0,
+              "drift_amount": -33200.0,
+              "drift_pct": -6.92
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "asset_class": "debt",
+      "ideal_amount": 203000.0,
+      "ideal_pct": 42.29,
+      "actual_amount": 50000.0,
+      "actual_pct": 10.42,
+      "drift_amount": -153000.0,
+      "drift_pct": -31.87,
+      "subgroups": [
+        {
+          "subgroup": "arbitrage_plus_income",
+          "display_name": "Arbitrage Income",
+          "asset_class": "debt",
+          "ideal_amount": 53000.0,
+          "actual_amount": 0.0,
+          "drift_amount": -53000.0,
+          "drift_pct": -11.04,
+          "funds": [
+            {
+              "scheme_code": "arbitrage_plus_income",
+              "scheme_name": "HDFC Arbitrage Fund - Wholesale Growth",
+              "isin": "INF179KB1HP6",
+              "asset_class": "debt",
+              "asset_subgroup": "arbitrage_plus_income",
+              "display_name": "Arbitrage Income",
+              "is_recommended": true,
+              "ideal_amount": 53000.0,
+              "actual_amount": 0.0,
+              "drift_amount": -53000.0,
+              "drift_pct": -11.04
+            }
+          ]
+        },
+        {
+          "subgroup": "debt_subgroup",
+          "display_name": "Liquid Fund",
+          "asset_class": "debt",
+          "ideal_amount": 150000.0,
+          "actual_amount": 50000.0,
+          "drift_amount": -100000.0,
+          "drift_pct": -20.83,
+          "funds": [
+            {
+              "scheme_code": "S4",
+              "scheme_name": "Canara Robeco Liquid Fund",
+              "isin": "INF760K01CW9",
+              "asset_class": "debt",
+              "asset_subgroup": "debt_subgroup",
+              "display_name": "Liquid Fund",
+              "is_recommended": true,
+              "ideal_amount": 150000.0,
+              "actual_amount": 50000.0,
+              "drift_amount": -100000.0,
+              "drift_pct": -20.83
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "asset_class": "others",
+      "ideal_amount": 17300.0,
+      "ideal_pct": 3.6,
+      "actual_amount": 0.0,
+      "actual_pct": 0.0,
+      "drift_amount": -17300.0,
+      "drift_pct": -3.6,
+      "subgroups": [
+        {
+          "subgroup": "gold_commodities",
+          "display_name": "Gold ETF",
+          "asset_class": "others",
+          "ideal_amount": 17300.0,
+          "actual_amount": 0.0,
+          "drift_amount": -17300.0,
+          "drift_pct": -3.6,
+          "funds": [
+            {
+              "scheme_code": "gold_commodities",
+              "scheme_name": "ICICI Prudential Gold ETF",
+              "isin": "INF109KC1NT3",
+              "asset_class": "others",
+              "asset_subgroup": "gold_commodities",
+              "display_name": "Gold ETF",
+              "is_recommended": true,
+              "ideal_amount": 17300.0,
+              "actual_amount": 0.0,
+              "drift_amount": -17300.0,
+              "drift_pct": -3.6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
