@@ -84,3 +84,4 @@ market_commentary_cache.json
 /AI_Agents/src/goal_based_allocation_pydantic/references
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
+/AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
