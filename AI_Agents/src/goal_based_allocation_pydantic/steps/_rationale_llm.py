@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, get_args
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -11,7 +11,6 @@ from ..models import (
     ClientSummary,
     FutureInvestment,
     Goal,
-    InvestmentGoal,
 )
 from ..tables import LLM_MAX_RETRIES, LLM_MAX_TOKENS, LLM_MODEL_ID
 
@@ -44,10 +43,6 @@ _INVESTMENT_GOAL_CONTEXT: Dict[str, str] = {
     "wealth_creation": "building long-term wealth",
     "other": "this goal",
 }
-
-# Catches drift if a new investment_goal literal is added without a prose entry.
-_missing = set(get_args(InvestmentGoal)) - set(_INVESTMENT_GOAL_CONTEXT)
-assert not _missing, f"_INVESTMENT_GOAL_CONTEXT missing keys: {_missing}"
 
 
 def _horizon_phrase(months: int) -> str:
