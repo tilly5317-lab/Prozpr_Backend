@@ -13,14 +13,7 @@ from .tables import (
 # ── Inputs ────────────────────────────────────────────────────────────────────
 
 
-InvestmentGoal = Literal[
-    "wealth_creation",
-    "retirement",
-    "intergenerational_transfer",
-    "education",
-    "home_purchase",
-    "other",
-]
+InvestmentGoal = str
 
 
 class Goal(BaseModel):
@@ -69,6 +62,7 @@ class AllocationInput(BaseModel):
     section_80c_utilized: float = Field(default=0.0, ge=0.0)
     emergency_fund_needed: bool = True
     primary_income_from_portfolio: bool = False
+    intergenerational_transfer: bool = False
     effective_tax_rate: float = Field(..., ge=0.0, le=100.0)
     goals: List[Goal] = []
     market_commentary: MarketCommentaryScores = Field(default_factory=MarketCommentaryScores)

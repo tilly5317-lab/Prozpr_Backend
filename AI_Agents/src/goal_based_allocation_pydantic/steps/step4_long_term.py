@@ -19,7 +19,6 @@ from ..tables import (
     CLAMP_EPSILON,
     CLAMP_MAX_ITER,
     EQUITY_SUBGROUPS,
-    INTERGEN_MIN_AGE,
     INTERGEN_SCORE_BOOST,
     INTERGEN_SCORE_CAP,
     LONG_TERM_BOUNDARY_MONTHS,
@@ -57,7 +56,7 @@ def phase1_bounds(
     score: float,
     market_commentary: MarketCommentaryScores,
     goals: list[Goal],
-    age: int,
+    intergenerational_transfer: bool,
 ) -> ResolvedBounds:
     lookup_score = ceil_to_half(score)
     row = PHASE1_RISK_BOUNDS[lookup_score]
@@ -67,9 +66,7 @@ def phase1_bounds(
     others_min, others_max = row.others_min, row.others_max
 
     # Intergenerational transfer override: raise floors using adjusted score row.
-    if age > INTERGEN_MIN_AGE and any(
-        g.investment_goal == "intergenerational_transfer" for g in goals
-    ):
+    if intergenerational_transfer:
         adj = min(lookup_score + INTERGEN_SCORE_BOOST, INTERGEN_SCORE_CAP)
         adj = min(10.0, max(1.0, adj))
         adj_row = PHASE1_RISK_BOUNDS[adj]
@@ -419,7 +416,10 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         leftover_corpus = remaining_corpus - sum_goals
 
     bounds = phase1_bounds(
-        inp.effective_risk_score, inp.market_commentary, lt_goals, inp.age
+        inp.effective_risk_score,
+        inp.market_commentary,
+        lt_goals,
+        inp.intergenerational_transfer,
     )
     eq_pct, dt_pct, oth_pct = phase2_asset_class_pcts(bounds, inp.market_commentary)
 
