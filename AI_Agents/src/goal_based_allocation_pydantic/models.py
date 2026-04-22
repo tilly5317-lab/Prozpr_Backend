@@ -128,6 +128,16 @@ class AggregatedSubgroupRow(BaseModel):
     total: float = Field(..., ge=0)
     fund_mapping: Optional[SubgroupFundMapping] = None
 
+    @property
+    def customer_label(self) -> str:
+        """Customer-facing label. Prefers SEBI sub-category; falls back to a
+        humanised version of the internal ``subgroup`` key."""
+        if self.fund_mapping and self.fund_mapping.sub_category:
+            return self.fund_mapping.sub_category
+        if self.sub_category:
+            return self.sub_category
+        return self.subgroup.replace("_", " ").strip().title()
+
 
 class ClientSummary(BaseModel):
     age: int

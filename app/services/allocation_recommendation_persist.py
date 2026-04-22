@@ -19,7 +19,11 @@ from goal_based_allocation_pydantic.models import GoalAllocationOutput
 
 
 def _allocation_output_to_jsonable(output: GoalAllocationOutput) -> dict[str, Any]:
-    return output.model_dump(mode="json")
+    payload = output.model_dump(mode="json")
+    rows = payload.get("aggregated_subgroups") or []
+    for row_dump, row_obj in zip(rows, output.aggregated_subgroups):
+        row_dump["subgroup"] = row_obj.customer_label
+    return payload
 
 
 def _asset_class_pcts_from_subgroups(output: GoalAllocationOutput) -> tuple[float, float, float]:
