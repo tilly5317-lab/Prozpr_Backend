@@ -78,6 +78,8 @@ docs/superpowers/
 
 # Cache files
 market_commentary_cache.json
+AI_Agents/src/market_commentary/market_commentary_latest.json
+AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
