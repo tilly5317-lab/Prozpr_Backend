@@ -231,27 +231,21 @@ def _format_allocation_answer_long(
 # ---------------------------------------------------------------------------
 
 _MSG_MISSING_DOB = (
-    "I can optimise your portfolio, but your date of birth is missing. "
-    "Please complete your profile first.\n\n"
-    "**Justification**\n"
-    "- Age is required for allocation inputs."
+    "I need your date of birth to build a personalised allocation — it anchors "
+    "your risk profile and time horizon. Head to your profile, add it, then "
+    "ask me again."
 )
 
 _MSG_NO_API_KEY = (
-    "I can review your portfolio direction, but the allocation engine is temporarily unavailable.\n\n"
-    "**Answer**\n"
-    "- Keep broad diversification across equity, debt, and gold based on your risk profile.\n"
-    "- Prioritize rebalancing if any sleeve drifts materially from your target.\n\n"
-    "**Justification**\n"
-    "- The allocation pipeline needs a valid Anthropic key. Set `ASSET_ALLOCATION_API_KEY` or "
-    "`ANTHROPIC_API_KEY` in `.env` (see console.anthropic.com), then **fully restart** uvicorn so "
-    "cached settings reload.\n"
+    "Sorry, I can't run the allocation engine right now. Please try again in a "
+    "few minutes. If the issue persists, let us know via the help option and "
+    "we'll get it sorted."
 )
 
 _MSG_ENGINE_ERROR = (
-    "I could not run the allocation engine right now. Please try again shortly.\n\n"
-    "**Justification**\n"
-    "- The goal_based_allocation_pydantic pipeline raised an error; see server logs for detail."
+    "Something went wrong while calculating your allocation. Please try again "
+    "in a moment. If it keeps happening, reach out via the help option and "
+    "we'll take a look."
 )
 
 
