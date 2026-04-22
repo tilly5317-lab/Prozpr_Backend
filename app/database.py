@@ -12,11 +12,20 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
+
+
+@compiles(JSONB, "sqlite")
+def _jsonb_renders_as_json_on_sqlite(type_, compiler, **kw):
+    """Local-dev only: render JSONB as JSON on SQLite. Postgres path unchanged."""
+    return compiler.visit_JSON(JSON(), **kw)
 
 
 class Base(DeclarativeBase):

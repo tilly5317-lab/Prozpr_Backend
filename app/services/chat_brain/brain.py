@@ -133,9 +133,10 @@ class ChatBrain:
                     "portfolio snapshot intent → answered from DB holdings (no allocation engine)"
                 )
                 # user_ctx must include portfolios (loaded by get_ai_user_context)
-                content = generate_portfolio_query_response(
+                content = await generate_portfolio_query_response(
                     user=turn.user_ctx,
                     user_question=turn.user_question,
+                    conversation_history=turn.conversation_history,
                 )
                 return await finalize(content)
 

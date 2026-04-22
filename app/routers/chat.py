@@ -96,7 +96,7 @@ async def get_or_create_active_session(
         session = ChatSession(user_id=current_user.id, title="Tilly Chat")
         db.add(session)
         await db.commit()
-        await db.refresh(session)
+        await db.refresh(session, attribute_names=["messages"])
 
     return ChatSessionDetailResponse(
         **ChatSessionResponse.model_validate(session).model_dump(),
