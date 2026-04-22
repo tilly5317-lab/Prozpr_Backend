@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import glob
 import os
 from typing import Optional
 
@@ -8,6 +7,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import StrOutputParser
 
 from .prompts import QA_PROMPT
+
+_DOCUMENT_FILENAME = "market_commentary_latest.md"
 
 _QA_MODEL = "claude-sonnet-4-6"
 _QA_MAX_TOKENS = 1024
@@ -19,22 +20,18 @@ qa_chain = QA_PROMPT | _qa_llm | StrOutputParser()
 
 
 def load_latest_commentary(output_dir: str) -> str:
-    """Find and read the most recent macro_snapshot_*.md file.
-
-    Filenames follow the pattern macro_snapshot_YYYYMMDD_HHMMSS.md, so
-    lexicographic sort equals chronological sort — the last element is newest.
+    """Read the most recent market commentary document.
 
     Raises:
-        FileNotFoundError: If no commentary documents exist in output_dir.
+        FileNotFoundError: If the commentary document does not exist in output_dir.
     """
-    pattern = os.path.join(output_dir, "macro_snapshot_*.md")
-    files = sorted(glob.glob(pattern))
-    if not files:
+    path = os.path.join(output_dir, _DOCUMENT_FILENAME)
+    if not os.path.exists(path):
         raise FileNotFoundError(
-            f"No market commentary documents found in {output_dir!r}. "
+            f"No market commentary document found at {path!r}. "
             "Run the daily pipeline first."
         )
-    with open(files[-1]) as f:
+    with open(path) as f:
         return f.read()
 
 
@@ -50,7 +47,7 @@ def answer_question(
 
     Args:
         user_question: The user's natural-language question.
-        output_dir: Directory containing macro_snapshot_*.md files.
+        output_dir: Directory containing ``market_commentary_latest.md``.
         document_content: Pre-loaded document string (skips file I/O if provided,
             useful for caching across multiple questions in a session).
 

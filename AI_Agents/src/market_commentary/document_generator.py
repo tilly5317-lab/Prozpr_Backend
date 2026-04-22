@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableLambda
 from .models import MacroSnapshot
 from .prompts import DOCUMENT_GENERATION_PROMPT
 
-_DOCUMENT_MODEL = "claude-sonnet-4-6"
+_DOCUMENT_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TOKENS = 3072  # 2 pages of Markdown; tuned below 4096 for cost/latency
 
 
@@ -67,12 +67,12 @@ def _build_prompt_vars(inputs: dict) -> dict:
     }
 
 
-_sonnet = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
+_llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
 
 document_generation_chain = (
     RunnableLambda(_build_prompt_vars)
     | DOCUMENT_GENERATION_PROMPT
-    | _sonnet
+    | _llm
     | StrOutputParser()
 )
 

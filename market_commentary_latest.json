@@ -1,0 +1,18 @@
+{
+  "repo_rate_pct": 5.25,
+  "rbi_stance": "neutral",
+  "cpi_yoy_pct": 3.4,
+  "nifty50_pe": 21.38,
+  "nifty_midcap150_pe": 34.7,
+  "nifty_smallcap250_pe": 27.0,
+  "gsec_10yr_yield_pct": 6.91,
+  "sbi_fd_1yr_rate_pct": 5.9,
+  "gold_price_inr_per_10g": 15529.0,
+  "gold_price_usd_per_oz": 4784.2,
+  "fed_funds_rate_pct": 3.75,
+  "fii_net_flows_cr_inr": -48213.0,
+  "brent_crude_usd": 95.42,
+  "usd_inr_rate": 92.7,
+  "data_gaps": [],
+  "document_md": null
+}
