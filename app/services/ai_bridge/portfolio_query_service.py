@@ -32,6 +32,9 @@ _SYSTEM_PROMPT = (
     "the single biggest holding with its value/%, not every holding).\n"
     "- Use the figures in the data block verbatim. Do not invent numbers, do not "
     "recall from training, do not call any tools other than `return_reply`.\n"
+    "- Money formatting: use Indian notation — lakhs ('L') and crores ('Cr'). NEVER "
+    "say 'million' or 'billion'. The data block already uses this format; keep it "
+    "exactly as shown (e.g. 'INR 45.00 L', 'INR 3.00 Cr').\n"
     "- If the data needed to answer is genuinely not present in the data block, say "
     "so in one short sentence.\n"
     "\n"
@@ -50,9 +53,14 @@ _SYSTEM_PROMPT = (
 
 def _fmt_inr(value) -> str:
     try:
-        return f"INR {float(value):,.0f}"
+        v = float(value)
     except (TypeError, ValueError):
         return "INR —"
+    if abs(v) >= 1e7:
+        return f"INR {v / 1e7:.2f} Cr"
+    if abs(v) >= 1e5:
+        return f"INR {v / 1e5:.2f} L"
+    return f"INR {v:,.0f}"
 
 
 def _build_portfolio_block(user) -> str:
