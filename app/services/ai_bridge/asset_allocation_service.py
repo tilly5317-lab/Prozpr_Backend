@@ -193,10 +193,10 @@ def format_allocation_chat_brief(
         lines.append("")
 
     if output.aggregated_subgroups:
-        lines.append("**Subgroups**")
+        lines.append("**Allocation mix**")
         for row in output.aggregated_subgroups:
             lines.append(
-                f"- {row.subgroup}: INR {row.total:,.0f}"
+                f"- {row.customer_label}: INR {row.total:,.0f}"
                 + (f" — {row.fund_mapping.recommended_fund}" if row.fund_mapping else "")
             )
         lines.append("")
