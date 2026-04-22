@@ -20,6 +20,7 @@ from app.services.ai_bridge.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
 
+import market_commentary
 from market_commentary.main import MarketCommentaryAgent
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,7 @@ _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 # Skip 14x web search + Sonnet extraction when the on-disk snapshot is still fresh.
 _CACHE_MAX_AGE_SEC = int(os.getenv("MARKET_COMMENTARY_CACHE_MAX_AGE_SEC", "3600"))
 
-
-def _backend_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+_MARKET_COMMENTARY_DIR = Path(market_commentary.__file__).resolve().parent
 
 
 async def generate_market_commentary(
@@ -44,7 +43,7 @@ async def generate_market_commentary(
     mc_key = get_settings().get_anthropic_market_commentary_key()
     agent = MarketCommentaryAgent(
         api_key=mc_key,
-        output_dir=str(_backend_root()),
+        output_dir=str(_MARKET_COMMENTARY_DIR),
         generate_document=True,
     )
 
