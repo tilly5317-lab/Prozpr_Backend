@@ -18,7 +18,6 @@ classifies intent, routes to the appropriate AI bridge, and returns a
 
 - `app/services/ai_bridge/` — all intent branches (intent classification, general chat,
   market commentary, portfolio query, allocation spine, liquidity gate).
-- `app/services/user_context.load_user_for_ai` — eager-loaded User graph.
 - `app/services/ai_module_telemetry` — `log_chat_turn_flow_summary` per-turn telemetry rows.
 
 ## Flow
