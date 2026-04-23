@@ -22,7 +22,7 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 ## Cross-module edges
 
 - `chat_core/` imports from `ai_bridge/` for every intent branch.
-- `chat_core/` and `ai_bridge/` both use `user_context.load_user_for_ai`.
+- `chat_core/` and `ai_bridge/` both receive a User graph eager-loaded upstream by `user_context.load_user_for_ai` (invoked via `app/dependencies.get_ai_user_context`); they do not import user_context directly.
 
 ## Files at this level
 
