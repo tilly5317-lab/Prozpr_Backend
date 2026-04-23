@@ -5,7 +5,7 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 ## Child modules
 
 - **allocation/** — Asset-allocation advisor: client profile + fund view → ideal allocation ranges, delta vs. current portfolio, and narrative recommendation. Entry: `orchestrator.py`.
-- **goal_based_allocation_pydantic/** — Pure-Python 7-step goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
+- **goal_based_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
 - **intent_classifier/** — Classifies a customer question into one of six intents (portfolio_optimisation, goal_planning, stock_advice, portfolio_query, general_market_query, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document. Entry: `main.py`.
 - **portfolio_query/** — Answers client questions about their own portfolio using fund view + client profile + current portfolio, with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
