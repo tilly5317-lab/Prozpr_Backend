@@ -1,10 +1,10 @@
 # AI_Agents/src/goal_based_allocation_pydantic
 
-Pure-Python 7-step goal-based asset-allocation pipeline over pydantic models. Processes emergency carve-out, short-term, medium-term, and long-term goals, then aggregates, applies guardrails, and assembles the final presentation. LLM use is isolated to an optional rationale function injected at the presentation step.
+Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes emergency carve-out, short-term, medium-term, and long-term goals, then aggregates, applies guardrails, and assembles the final presentation. LLM use is isolated to an optional rationale function injected at the presentation step.
 
 ## Files
 
-- `pipeline.py` — entry point; sequences the 7 steps.
+- `pipeline.py` — entry point for the allocation pipeline.
 - `models.py` — `AllocationInput`, `Goal`, `GoalAllocationOutput`, per-step `StepNOutput` schemas.
 - `tables.py` — static lookup tables (default market commentary scores, multi-asset composition, fund mappings).
 - `utils.py` — shared helpers used across steps.
