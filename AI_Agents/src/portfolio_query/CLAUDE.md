@@ -4,7 +4,7 @@ Handles the `portfolio_query` intent: answers client questions about their own p
 
 ## Files
 
-- `orchestrator.py` — `PortfolioQueryOrchestrator`; 4-step pipeline (load fund view → format context → call skill → parse response).
+- `orchestrator.py` — `PortfolioQueryOrchestrator`; entry point for the portfolio-query pipeline.
 - `models.py` — `ConversationTurn`, `PortfolioQueryInput`, `PortfolioQueryResponse`.
 - `dev_run.py` — developer smoke-test covering in-scope multi-turn and guardrail-trigger scenarios.
 - `portfolio_query.md` — prompt-adjacent skill source (system + user prompts) loaded at runtime; not documentation.

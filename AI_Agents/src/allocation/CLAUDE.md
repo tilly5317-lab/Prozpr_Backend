@@ -4,7 +4,7 @@ Asset-allocation advisor pipeline. Takes a client profile (and optionally a curr
 
 ## Files
 
-- `orchestrator.py` — `AllocationOrchestrator`; top-level 7-step pipeline controller.
+- `orchestrator.py` — `AllocationOrchestrator`; entry point for the allocation pipeline.
 - `dev_run.py` — developer smoke-test runner.
 - `common/` — `LLMClient`; thin Anthropic client wrapper shared across skills.
 - `skills/` — `SkillExecutor` plus prompt-adjacent `.md` skill/rule sources (`guardrails.md`, `ideal_allocation.md`, `recommendation.md`); loaded at runtime, not documentation.
