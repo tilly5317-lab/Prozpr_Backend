@@ -11,6 +11,14 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 - **portfolio_query/** — Answers client questions about their own portfolio using fund view + client profile + current portfolio, with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
 
+## Cross-module edges
+
+- `portfolio_query/` imports shared primitives from `allocation/` (`common.llm_client`, `utilities.fund_view_loader`, `skills.executor`, `schemas.client_profile`, `schemas.portfolio`).
+- `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label and downstream routing is handled outside `src/`.
+- `goal_based_allocation_pydantic/` and `risk_profiling/` both consume fields produced by `risk_profiling/` (e.g. `effective_risk_score`, `osi`, `savings_rate_adjustment`) through their `AllocationInput`, but do not import it directly.
+- `goal_based_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
+- All other modules are independent of each other at the Python-import level.
+
 ## Conventions
 
 - `models.py` — top-level pydantic input/output schemas for the module.
@@ -21,14 +29,6 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 - `Testing/` — pytest suites and dev sample runners.
 - `dev_run.py` — developer smoke-test script; run as `python -m <module>.dev_run` from `src/`.
 - Prompt-adjacent `.md` files (e.g. `portfolio_query/portfolio_query.md`, `portfolio_query/guardrails.md`, `allocation/skills/*.md`) are skill/prompt sources loaded at runtime, not documentation.
-
-## Cross-module edges
-
-- `portfolio_query/` imports shared primitives from `allocation/` (`common.llm_client`, `utilities.fund_view_loader`, `skills.executor`, `schemas.client_profile`, `schemas.portfolio`).
-- `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label and downstream routing is handled outside `src/`.
-- `goal_based_allocation_pydantic/` and `risk_profiling/` both consume fields produced by `risk_profiling/` (e.g. `effective_risk_score`, `osi`, `savings_rate_adjustment`) through their `AllocationInput`, but do not import it directly.
-- `goal_based_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
-- All other modules are independent of each other at the Python-import level.
 
 ## Don't read
 
