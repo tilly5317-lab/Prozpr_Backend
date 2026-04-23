@@ -10,12 +10,13 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document. Entry: `main.py`.
 - **portfolio_query/** — Answers client questions about their own portfolio using fund view + client profile + current portfolio, with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
+- **drift_analysis/** — Compares actual vs. ideal portfolio holdings, computing drift at fund and asset-class levels. Entry: `pipeline.py`.
 
 ## Cross-module edges
 
 - `portfolio_query/` imports shared primitives from `allocation/` (`common.llm_client`, `utilities.fund_view_loader`, `skills.executor`, `schemas.client_profile`, `schemas.portfolio`).
 - `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label and downstream routing is handled outside `src/`.
-- `goal_based_allocation_pydantic/` and `risk_profiling/` both consume fields produced by `risk_profiling/` (e.g. `effective_risk_score`, `osi`, `savings_rate_adjustment`) through their `AllocationInput`, but do not import it directly.
+- `goal_based_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` directly — the caller wires them in.
 - `goal_based_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
 - All other modules are independent of each other at the Python-import level.
 
@@ -34,6 +35,7 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 
 - `__pycache__/`, `.pytest_cache/`, `.DS_Store`, `*.egg-info/`
 - `../archive/` — historical modules, not part of the active pipeline
+- `docs/` — local planning scaffolding, not agent code
 
 ## Refresh
 
