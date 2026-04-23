@@ -32,7 +32,6 @@ and formats the reply for chat.
 
 - `AI_Agents/src/*` — each bridge calls into one agent (intent, market commentary,
   portfolio query, allocation).
-- `app/services/user_context` — `load_user_for_ai` User graph.
 - `app/models/*` — reads ORM User / portfolio / goals data.
 
 ## Tests
