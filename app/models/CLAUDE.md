@@ -22,7 +22,7 @@ One file or subpackage per domain. Column-level detail lives in
 - `chat_ai_module_run.py` — per-turn AI module telemetry rows.
 - `fund.py` — fund reference data.
 - `ips.py` — investment policy statement records.
-- `notifications.py` — notification records.
+- `notification.py` — notification records.
 - `meeting_note.py` — meeting note records.
 - `rebalancing.py` — rebalancing recommendation records.
 - `__init__.py` — imports every model so they register with `Base.metadata`.

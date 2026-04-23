@@ -19,6 +19,11 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 - **archive/** — retired service code kept for reference; not imported by
   active paths.
 
+## Cross-module edges
+
+- `chat_core/` imports from `ai_bridge/` for every intent branch.
+- `chat_core/` and `ai_bridge/` both use `user_context.load_user_for_ai`.
+
 ## Files at this level
 
 - `user_context.py` — `load_user_for_ai`: eager-loads the full User graph for
@@ -41,11 +46,6 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 - `allocation_recommendation_persist.py` — persists goal-based allocation
   outputs for rebalancing UI and portfolio snapshots.
 - `__init__.py`.
-
-## Cross-module edges
-
-- `chat_core/` imports from `ai_bridge/` for every intent branch.
-- `chat_core/` and `ai_bridge/` both use `user_context.load_user_for_ai`.
 
 ## Flows
 
