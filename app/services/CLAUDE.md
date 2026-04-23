@@ -8,8 +8,8 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 
 - **chat_core/** — chat-turn orchestration; `ChatBrain.run_turn` is the entry
   point that drives intent → branch → telemetry.
-- **chat_brain/** — standalone brain module; contains `brain.py` with the
-  single-question entrypoint used outside the full chat stack.
+- **chat_brain/** — standalone mirror of `chat_core.ChatBrain`; not imported by the live
+  chat router — keep behavior in sync when touching portfolio/allocation flow.
 - **ai_bridge/** — adapters between ChatBrain and AI_Agents orchestrators; one
   file per intent branch (intent, market, portfolio query, allocation, spine,
   liquidity gate, general chat).
@@ -41,8 +41,8 @@ telemetry), and ingest adapters (Finvu, SimBanks).
   summary per turn.
 - `chat_context.py` — loads session messages as `{role, content}` for LLM.
 - `chat_service.py` — thin re-exports of classify/generate helpers.
-- `mf_aa_normalizer.py` — normalises MF asset-allocation data for downstream
-  services.
+- `mf_aa_normalizer.py` — normalises MF Account-Aggregator imports into
+  `MfTransaction` rows with dedup fingerprints.
 - `allocation_recommendation_persist.py` — persists goal-based allocation
   outputs for rebalancing UI and portfolio snapshots.
 - `__init__.py`.
