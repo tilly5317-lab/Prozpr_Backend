@@ -138,7 +138,7 @@ class ChatBrain:
             if intent_value in ("portfolio_optimisation", "goal_planning"):
                 trace_line(
                     "next module: portfolio-style spine → "
-                    "ailax_flow.detect_spine_mode / liquidity_gate / Ideal_asset_allocation"
+                    "ailax_flow.detect_spine_mode / liquidity_gate / goal_based_allocation_pydantic"
                 )
                 p_content, p_reb, p_snap = await self._answer_portfolio_style(turn, flow)
                 return await finalize(
@@ -153,9 +153,10 @@ class ChatBrain:
                     "portfolio snapshot intent → answered from DB holdings (no allocation engine)"
                 )
                 # user_ctx must include portfolios (loaded by get_ai_user_context)
-                content = generate_portfolio_query_response(
+                content = await generate_portfolio_query_response(
                     user=turn.user_ctx,
                     user_question=turn.user_question,
+                    conversation_history=turn.conversation_history,
                 )
                 trace_response_preview("portfolio_query_service response", content)
                 return await finalize(content)
@@ -264,12 +265,12 @@ class ChatBrain:
 
         flow.append("using client profile from DB (age, risk, goals, current mix)")
         flow.append(
-            "ran Ideal_asset_allocation (5-step LCEL) via asset_allocation_service.compute_allocation_result"
+            "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
         )
         trace_line(
             "module chain: app.services.ai_bridge.ailax_flow.build_ailax_spine "
             "→ asset_allocation_service.compute_allocation_result "
-            "→ ideal_allocation_runner.invoke_ideal_allocation_with_full_state"
+            "→ goal_based_allocation_pydantic.pipeline.run_allocation_with_state"
         )
         spine = await build_ailax_spine(
             turn.user_ctx,

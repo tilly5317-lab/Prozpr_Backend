@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, get_args
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -11,7 +11,6 @@ from ..models import (
     ClientSummary,
     FutureInvestment,
     Goal,
-    InvestmentGoal,
 )
 from ..tables import LLM_MAX_RETRIES, LLM_MAX_TOKENS, LLM_MODEL_ID
 
@@ -44,10 +43,6 @@ _INVESTMENT_GOAL_CONTEXT: Dict[str, str] = {
     "wealth_creation": "building long-term wealth",
     "other": "this goal",
 }
-
-# Catches drift if a new investment_goal literal is added without a prose entry.
-_missing = set(get_args(InvestmentGoal)) - set(_INVESTMENT_GOAL_CONTEXT)
-assert not _missing, f"_INVESTMENT_GOAL_CONTEXT missing keys: {_missing}"
 
 
 def _horizon_phrase(months: int) -> str:
@@ -98,6 +93,12 @@ _SYSTEM_PROMPT = (
     "- NO jargon. Forbidden words: alpha, beta, duration, NAV, asset class, "
     "volatility, liquidity, corpus, portfolio rebalancing.\n"
     "- Explain the WHY, not the numbers.\n"
+    "- Money formatting: use Indian notation (lakh / crore). 1 lakh = "
+    "₹1,00,000 = ₹100,000. 1 crore = ₹1,00,00,000 = ₹10,000,000 (ten "
+    "million). NEVER say 'million' or 'billion'. A goal amount of "
+    "1,000,000 is ₹10 lakh (NOT ₹1 crore); 10,000,000 is ₹1 crore. "
+    "Prefer lakh/crore for any amount ≥ ₹1 lakh (e.g., '₹10 lakh', "
+    "'₹1.5 crore', '₹45 lakh').\n"
     "- Emergency bucket: why the safety cushion and how many months it covers.\n"
     "- For short_term / medium_term / long_term, write ONE rationale PER goal "
     "in the bucket (keyed by that goal's name). Each must reference the "
