@@ -19,16 +19,15 @@ HTTP endpoints for exercising AI_Agents orchestrators directly, bypassing chat. 
 - `POST /api/v1/ai-modules/market-commentary/generate` — generate market commentary.
 - `POST /api/v1/ai-modules/portfolio-query/answer` — answer portfolio question.
 - `POST /api/v1/ai-modules/asset-allocation/recommend` — recommend asset allocation.
-- `GET /api/v1/ai-modules/drift-analyzer/status` — drift analyzer status.
-- `GET /api/v1/ai-modules/mutual-fund-status/status` — mutual fund status info.
-- `GET /api/v1/ai-modules/risk-profile/status` — risk profile status.
+- `GET /api/v1/ai-modules/drift-analyzer/status` — drift analyzer status (stub).
+- `GET /api/v1/ai-modules/mutual-fund-status/status` — mutual fund status info (stub).
+- `GET /api/v1/ai-modules/risk-profile/status` — risk profile status (stub).
 
 ## Depends on
 
 - `app.schemas.ai_modules` — request/response Pydantic bodies.
-- `app.services.ai_bridge.*` — orchestrator bridges (intent, market, portfolio, allocation, drift, MF status, risk).
+- `app.services.ai_bridge.*` — orchestrator bridges for the four live routes: intent, market, portfolio-query, and allocation (drift, MF-status, and risk are stubs).
 - `app.dependencies` — `get_ai_user_context`, `get_effective_user`.
-- `AI_Agents/src/` — agent packages.
 
 ## Don't read
 
