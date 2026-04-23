@@ -133,9 +133,10 @@ class ChatBrain:
                     "portfolio snapshot intent → answered from DB holdings (no allocation engine)"
                 )
                 # user_ctx must include portfolios (loaded by get_ai_user_context)
-                content = generate_portfolio_query_response(
+                content = await generate_portfolio_query_response(
                     user=turn.user_ctx,
                     user_question=turn.user_question,
+                    conversation_history=turn.conversation_history,
                 )
                 return await finalize(content)
 
@@ -222,7 +223,7 @@ class ChatBrain:
 
         flow.append("using client profile from DB (age, risk, goals, current mix)")
         flow.append(
-            "ran Ideal_asset_allocation (5-step LCEL) via asset_allocation_service.compute_allocation_result"
+            "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
         )
         spine = await build_ailax_spine(
             turn.user_ctx,

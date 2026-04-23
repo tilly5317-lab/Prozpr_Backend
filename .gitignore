@@ -56,6 +56,7 @@ Desktop.ini
 .pytest_cache/
 htmlcov/
 .coverage
+conftest.py
 
 # Jupyter
 .ipynb_checkpoints/
@@ -77,6 +78,8 @@ docs/superpowers/
 
 # Cache files
 market_commentary_cache.json
+AI_Agents/src/market_commentary/market_commentary_latest.json
+AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
@@ -85,3 +88,4 @@ market_commentary_cache.json
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
+/app/services/ai_bridge/tests

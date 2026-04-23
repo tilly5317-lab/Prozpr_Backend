@@ -37,8 +37,8 @@ def _doc_for_path(rel: str) -> str:
             f"AI bridge — `{name}`.\n\n"
             "Sits between FastAPI services/routers and the ``AI_Agents/src`` packages (added to "
             "`sys.path` via ``ensure_ai_agents_path``). Handles env keys, async/thread boundaries, "
-            "and user-context mapping. Ideal mutual fund allocation is invoked from here using "
-            "``Ideal_asset_allocation`` inside the app layer (e.g. ``ideal_allocation_runner``) so "
+            "and user-context mapping. Goal-based allocation is invoked from here using "
+            "``goal_based_allocation_pydantic`` (orchestrated by ``asset_allocation_service``) so "
             "`AI_Agents` files stay untouched."
         )
 

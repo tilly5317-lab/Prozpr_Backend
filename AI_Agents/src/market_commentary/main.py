@@ -2,24 +2,28 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
+from anthropic import Anthropic
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
-from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
 from .document_generator import document_generation_chain
 from .models import MacroSnapshot
-from .prompts import EXTRACTION_PROMPT
-from .scraper import IndicatorScraper
+from .prompts import (
+    EXTRACT_MACRO_DATA_TOOL,
+    EXTRACTION_SYSTEM_PROMPT_WEBSEARCH,
+)
 
 load_dotenv()
 
-_CACHE_FILENAME = "market_commentary_cache.json"
-_EXTRACTION_MODEL = "claude-sonnet-4-6"
-_EXTRACTION_MAX_TOKENS = 1024
+_CACHE_FILENAME = "market_commentary_latest.json"
+_DOCUMENT_FILENAME = "market_commentary_latest.md"
+_EXTRACTION_MODEL = "claude-haiku-4-5-20251001"
+_EXTRACTION_MAX_TOKENS = 4096
+_WEBSEARCH_MAX_USES = 25
 
 
 # ---------------------------------------------------------------------------
@@ -46,20 +50,10 @@ class _MacroExtraction(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# LCEL extraction chain: snippets → MacroSnapshot
+# Web-search extraction — Claude calls Anthropic's built-in web_search server tool,
+# iterates as needed, and finalises via the extract_macro_data tool.
+# Cost note: ~15-25 searches per run at $10/1000, plus Sonnet tokens.
 # ---------------------------------------------------------------------------
-
-
-def _format_snippets(snippets: Dict[str, str]) -> dict:
-    """Format raw snippet dict into the template variable for EXTRACTION_PROMPT."""
-    parts: List[str] = [
-        "Below are raw web-search snippets for various Indian market "
-        "indicators. Extract the most recent numeric value for each.\n"
-    ]
-    for name, text in snippets.items():
-        body = text.strip() if text.strip() else "(no search results)"
-        parts.append(f"### {name}\n{body}")
-    return {"formatted_snippets": "\n\n".join(parts)}
 
 
 def _to_snapshot(extraction: _MacroExtraction) -> MacroSnapshot:
@@ -69,15 +63,46 @@ def _to_snapshot(extraction: _MacroExtraction) -> MacroSnapshot:
     return MacroSnapshot(**raw, data_gaps=gaps)
 
 
-_sonnet = ChatAnthropic(model=_EXTRACTION_MODEL, max_tokens=_EXTRACTION_MAX_TOKENS)
-_extraction_llm = _sonnet.with_structured_output(_MacroExtraction)
+_anthropic_client = Anthropic()
 
-extraction_chain = (
-    RunnableLambda(_format_snippets)
-    | EXTRACTION_PROMPT
-    | _extraction_llm
-    | RunnableLambda(_to_snapshot)
-)
+
+def run_websearch_extraction() -> MacroSnapshot:
+    """Gather all 14 macro indicators via Claude + Anthropic web_search.
+
+    Claude plans and issues its own searches, disambiguates known failure modes
+    (SDF-vs-repo, gold USD/oz vs INR/10g, spot vs forward USD/INR), and returns a
+    structured payload via the extract_macro_data tool. Returns an all-null
+    MacroSnapshot if the model does not finalise (so the caller's cache-fallback
+    path kicks in).
+    """
+    response = _anthropic_client.messages.create(
+        model=_EXTRACTION_MODEL,
+        max_tokens=_EXTRACTION_MAX_TOKENS,
+        system=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH,
+        tools=[
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": _WEBSEARCH_MAX_USES,
+            },
+            EXTRACT_MACRO_DATA_TOOL,
+        ],
+        messages=[{
+            "role": "user",
+            "content": (
+                "Gather current values for all 14 Indian macro indicators and "
+                "return them via the extract_macro_data tool."
+            ),
+        }],
+    )
+
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "extract_macro_data":
+            extraction = _MacroExtraction(**block.input)
+            return _to_snapshot(extraction)
+
+    # Model did not finalise — caller should rely on cache fallback.
+    return MacroSnapshot(data_gaps=[])
 
 
 # ---------------------------------------------------------------------------
@@ -113,10 +138,10 @@ class CacheManager:
 class MarketCommentaryAgent:
     """Orchestrates the daily market commentary pipeline.
 
-    1. Scrapes 14 macro indicators via Tavily (concurrent)
-    2. Extracts structured data using Claude Sonnet via LangChain
-    3. Writes a timestamped JSON snapshot to disk
-    4. Generates a 2-page Markdown commentary and writes it to disk
+    1. Gathers 14 macro indicators via Claude + Anthropic web_search
+    2. Writes the snapshot to ``market_commentary_latest.json``
+    3. Generates a 2-page Markdown commentary and writes it to
+       ``market_commentary_latest.md``
 
     This pipeline is intended to be triggered once daily by the system.
 
@@ -131,27 +156,72 @@ class MarketCommentaryAgent:
         self,
         api_key: Optional[str] = None,
         output_dir: str = ".",
-        max_workers: int = 7,
         generate_document: bool = True,
     ) -> None:
         if api_key:
             os.environ["ANTHROPIC_API_KEY"] = api_key
         self.output_dir = output_dir
-        self._scraper = IndicatorScraper(max_workers=max_workers)
         self._cache_path = os.path.join(output_dir, _CACHE_FILENAME)
         self._generate_document = generate_document
 
+    def run_from_cache(
+        self,
+        max_age_sec: int,
+        date: Optional[datetime] = None,
+    ) -> Optional[str]:
+        """Fast path: if the on-disk snapshot is fresh, skip scrape+extract.
+
+        Loads the cached ``MacroSnapshot`` and returns the markdown commentary.
+        If a rendered ``market_commentary_latest.md`` exists and is at least as
+        fresh as the snapshot JSON, it is returned verbatim (no LLM call —
+        the document is a deterministic function of the snapshot). Otherwise
+        the document-generation chain is invoked and the result is persisted
+        so the next call hits the fast path.
+
+        Returns the markdown document if the cache is present, fresh, and
+        non-empty; returns ``None`` otherwise (caller should run the full
+        pipeline via :meth:`run`).
+        """
+        if not os.path.exists(self._cache_path):
+            return None
+        if (time.time() - os.path.getmtime(self._cache_path)) > max_age_sec:
+            return None
+        snapshot = CacheManager.load(self._cache_path)
+        if snapshot is None or self._is_snapshot_empty(snapshot):
+            return None
+
+        md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
+        if (
+            os.path.exists(md_path)
+            and os.path.getmtime(md_path) >= os.path.getmtime(self._cache_path)
+        ):
+            try:
+                with open(md_path, "r") as f:
+                    cached_md = f.read()
+                if cached_md.strip():
+                    return cached_md
+            except OSError:
+                pass  # fall through to regeneration
+
+        regenerated_md = document_generation_chain.invoke(
+            {"snapshot": snapshot, "date": date or datetime.utcnow()}
+        )
+        try:
+            os.makedirs(self.output_dir, exist_ok=True)
+            with open(md_path, "w") as f:
+                f.write(regenerated_md)
+        except OSError:
+            pass
+        return regenerated_md
+
     def run(self) -> MacroSnapshot:
-        """Run the full pipeline: scrape → extract → cache → write JSON + Markdown.
+        """Run the full pipeline: web-search extraction → cache → write JSON + Markdown.
 
         Returns:
             MacroSnapshot with the latest macro-economic indicator values.
         """
-        # Step 1: scrape all indicators concurrently via Tavily
-        raw_snippets = self._scraper.scrape_all()
-
-        # Step 2: extract structured data via LCEL chain (Claude Sonnet)
-        snapshot = extraction_chain.invoke(raw_snippets)
+        # Step 1+2: Claude with web_search gathers and extracts all 14 indicators.
+        snapshot = run_websearch_extraction()
 
         # Step 3: fallback to cache if all indicator fields are null
         if self._is_snapshot_empty(snapshot):
@@ -160,36 +230,23 @@ class MarketCommentaryAgent:
                 cached.data_gaps.append("ALL_LIVE_DATA_FAILED — using cached snapshot")
                 snapshot = cached
 
-        # Step 4: persist successful snapshot to cache
+        # Step 4: persist successful snapshot (also serves as the "latest" JSON output)
+        os.makedirs(self.output_dir, exist_ok=True)
         if not self._is_snapshot_empty(snapshot):
             CacheManager.save(snapshot, self._cache_path)
 
-        # Step 5: write timestamped JSON
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        json_path = self._write_output(snapshot, ts=ts)
-
-        # Step 6: generate and write the 2-page Markdown commentary
+        # Step 5: generate and write the 2-page Markdown commentary
         if self._generate_document:
-            now = datetime.strptime(ts, "%Y%m%d_%H%M%S")
+            now = datetime.utcnow()
             document_md = document_generation_chain.invoke({"snapshot": snapshot, "date": now})
             snapshot.document_md = document_md
-            self._write_document(document_md, json_path)
+            self._write_document(document_md)
 
         return snapshot
 
-    def _write_output(self, snapshot: MacroSnapshot, ts: Optional[str] = None) -> str:
-        """Write the MacroSnapshot to a timestamped JSON file. Returns the path."""
-        os.makedirs(self.output_dir, exist_ok=True)
-        if ts is None:
-            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(self.output_dir, f"macro_snapshot_{ts}.json")
-        with open(path, "w") as f:
-            f.write(snapshot.model_dump_json(indent=2))
-        return path
-
-    def _write_document(self, document_md: str, json_path: str) -> str:
-        """Write the Markdown commentary alongside the JSON file. Returns the path."""
-        md_path = json_path.replace(".json", ".md")
+    def _write_document(self, document_md: str) -> str:
+        """Write the Markdown commentary to the fixed 'latest' path. Returns the path."""
+        md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
         with open(md_path, "w") as f:
             f.write(document_md)
         return md_path
