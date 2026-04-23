@@ -9,14 +9,14 @@ Procedure:
 1. Identify the nearest `CLAUDE.md` by walking up from the current working directory. That file is the reconciliation target.
 
 2. Read the target `CLAUDE.md` and detect its template by structural cues, in order:
-   - Header contains a "STATUS" line near the top → **Stub**.
+   - Presence of `## Imported by active code?` section → **Stub**.
    - Presence of `## Child modules` section → **Map**.
    - Presence of `## Files` section → **Leaf**.
    - Fallback → report "unrecognized template, leaving file unchanged" and stop.
 
 3. Scan the target folder and compare against the template-appropriate claims:
    - **Map**: scan subfolders one level deep; compare against the "Child modules" bullet list. Report new, removed, or renamed subfolders.
-   - **Leaf**: scan top-level files in the folder; compare against the "Files" bullet list. Report new, removed, or renamed files.
+   - **Leaf**: scan top-level files and direct subfolders in the folder; compare against the "Files" bullet list. Report new, removed, or renamed entries.
    - **Stub**: re-verify the "Imported by active code?" claim by grepping for imports of this folder from active code paths.
 
 4. If drift is found, update only the stale sections in place. Preserve the "write for stability" discipline:
