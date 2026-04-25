@@ -15,6 +15,7 @@ Produces a monthly Indian-market commentary. Pulls raw macro indicator data, use
 
 - Input: none (scraper-driven; no external pydantic input model)
 - Output: `MacroSnapshot` (with `document_md` populated after generation)
+- Persisted artifacts (`market_commentary_latest.json`, `market_commentary_latest.md`) are written to `AI_Agents/Reference_docs/`, the canonical home for AI-module reference docs.
 
 ## Depends on
 
@@ -25,7 +26,6 @@ Produces a monthly Indian-market commentary. Pulls raw macro indicator data, use
 ## Don't read
 
 - `__pycache__/`
-- `market_commentary_latest.json`, `market_commentary_latest.md` — cached run artifacts, not source of truth
 - `_archive/` — historical snapshots and retired scraper
 
 ## Refresh
