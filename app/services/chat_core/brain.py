@@ -150,9 +150,9 @@ class ChatBrain:
             if intent_value == "portfolio_query":
                 trace_line("next module: portfolio_query → app.services.ai_bridge.portfolio_query_service")
                 flow.append(
-                    "portfolio snapshot intent → answered from DB holdings (no allocation engine)"
+                    "portfolio_query → AI_Agents.portfolio_query orchestrator (market commentary + sub-category roll-ups)"
                 )
-                # user_ctx must include portfolios (loaded by get_ai_user_context)
+                # user_ctx must include portfolios + holdings → fund_metadata (loaded by get_ai_user_context)
                 content = await generate_portfolio_query_response(
                     user=turn.user_ctx,
                     user_question=turn.user_question,

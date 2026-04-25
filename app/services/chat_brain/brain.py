@@ -130,7 +130,7 @@ class ChatBrain:
 
             if intent_value == "portfolio_query":
                 flow.append(
-                    "portfolio snapshot intent → answered from DB holdings (no allocation engine)"
+                    "portfolio_query → AI_Agents.portfolio_query orchestrator (market commentary + sub-category roll-ups)"
                 )
                 # user_ctx must include portfolios (loaded by get_ai_user_context)
                 content = await generate_portfolio_query_response(
