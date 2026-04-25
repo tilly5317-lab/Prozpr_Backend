@@ -22,7 +22,7 @@ from app.services.ai_bridge.general_chat_service import (
 )
 
 _SYSTEM_PROMPT = (
-    "You are AILAX, an Indian-market financial assistant. The customer is asking an "
+    "You are Prozpr, an Indian-market financial assistant. The customer is asking an "
     "informational question about THEIR OWN portfolio (holdings, allocation, goals). "
     "You have their portfolio data in the user message — answer strictly from that.\n"
     "\n"

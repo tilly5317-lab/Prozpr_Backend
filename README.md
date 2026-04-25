@@ -129,7 +129,7 @@ Registered in [`app/routers/__init__.py`](./app/routers/__init__.py). All listed
 | | `chat_service.py` | Thin re-exports of `classify_user_message`, `generate_*`. |
 | **AI bridge** | `ai_bridge/common.py` | `ensure_ai_agents_path()`, `build_history_block()`. |
 | | `intent_*`, `market_*`, `general_chat`, `portfolio_query`, `asset_allocation`, `ailax_flow`, `liquidity_gate` | Call `AI_Agents` + format replies; allocation maps `User` → orchestrator; spine + liquidity for portfolio-style chat. |
-| **Telemetry** | `ai_module_telemetry.py` | `AILAX_AI_MODULE_RUN` logs + `ChatAiModuleRun` rows; `AILAX_CHAT_FLOW` + `chat_flow` summary per turn. |
+| **Telemetry** | `ai_module_telemetry.py` | `PROZPR_AI_MODULE_RUN` logs + `ChatAiModuleRun` rows; `PROZPR_CHAT_FLOW` + `chat_flow` summary per turn. |
 | **Portfolio / ingest** | `portfolio_service.py` | Primary portfolio get/create. |
 | | `finvu_portfolio_sync.py` | Bucket totals → `PortfolioAllocation` (Cash/Debt/Equity/Other). |
 | | `simbanks_service.py` | HTTP/XML → linked accounts, MF, portfolio tables. |
@@ -153,7 +153,7 @@ Registered in [`app/routers/__init__.py`](./app/routers/__init__.py). All listed
 1) Start timer + step list for telemetry.  
 2) `classify_user_message` (Anthropic intent key).  
 3) Branch: `general_market_query` → optional `generate_market_commentary` (120s cap) + `generate_general_chat_response`; `portfolio_optimisation` / `goal_planning` → portfolio path; `portfolio_query` → `generate_portfolio_query_response` from loaded `User`; else general chat.  
-4) Portfolio path: `detect_spine_mode`; cash-out may short-circuit via `liquidity_gate` or run `build_ailax_spine` → `compute_allocation_result` → `format_allocation_chat_brief`.  
+4) Portfolio path: `detect_spine_mode`; cash-out may short-circuit via `liquidity_gate` or run `build_prozpr_spine` → `compute_allocation_result` → `format_allocation_chat_brief`.  
 5) On error: keyword fallback or safe message.  
 6) `log_chat_turn_flow_summary`; return `ChatBrainResult`.  
 Data: Postgres session, `load_user_for_ai`, `load_conversation_history`, Anthropic.

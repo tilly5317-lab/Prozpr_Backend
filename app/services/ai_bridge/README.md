@@ -100,10 +100,10 @@
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │  [3]  ailax_trace.py                                                      │  │
-│  │  Lightweight stdout tracing prefixed with [AILAX_TRACE].                  │  │
+│  │  Lightweight stdout tracing prefixed with [PROZPR_TRACE].                  │  │
 │  │                                                                           │  │
 │  │  Functions:                                                               │  │
-│  │    trace_line(message)              → prints "[AILAX_TRACE] ..."          │  │
+│  │    trace_line(message)              → prints "[PROZPR_TRACE] ..."          │  │
 │  │    trace_response_preview(label, text, max_chars)  → truncated preview    │  │
 │  │                                                                           │  │
 │  │  Used by: brain.py, asset_allocation_service.py                           │  │
@@ -216,9 +216,9 @@
 │  │    OUT: one of: FULL | CASH_IN | CASH_OUT | DRIFT_CHECK | REBALANCE      │  │
 │  │    Uses regex patterns to classify the portfolio sub-intent.              │  │
 │  │                                                                           │  │
-│  │  build_ailax_spine(user, question, mode, db, ...)                         │  │
+│  │  build_prozpr_spine(user, question, mode, db, ...)                         │  │
 │  │    IN:  User ORM, question, SpineMode, DB session, flags                  │  │
-│  │    OUT: AilaxSpineResult { text, rebalancing_id, snapshot_id }            │  │
+│  │    OUT: ProzprSpineResult { text, rebalancing_id, snapshot_id }            │  │
 │  │                                                                           │  │
 │  │    Calls:  asset_allocation_service.compute_allocation_result()            │  │
 │  │    Then:   format_allocation_chat_brief() to build the chat markdown      │  │
@@ -266,7 +266,7 @@
 │  │    4. Call goal_based_allocation_pydantic.pipeline                       │  │
 │  │         .run_allocation_with_state() in a thread (asyncio.to_thread),     │  │
 │  │         passing generate_rationales as the optional LLM rationale step    │  │
-│  │    5. Trace all 7 pipeline steps to [AILAX_TRACE]                         │  │
+│  │    5. Trace all 7 pipeline steps to [PROZPR_TRACE]                         │  │
 │  │    6. Optionally persist recommendation to DB                             │  │
 │  │                                                                           │  │
 │  │  format_allocation_chat_brief(GoalAllocationOutput, spine_mode) → markdown│  │
@@ -338,7 +338,7 @@
 
 | Function                             | I/O                | Notes                    |
 | ------------------------------------ | ------------------ | ------------------------ |
-| `trace_line(msg)`                    | `str → stdout`     | Prefixed `[AILAX_TRACE]` |
+| `trace_line(msg)`                    | `str → stdout`     | Prefixed `[PROZPR_TRACE]` |
 | `trace_response_preview(label,text)` | `str,str → stdout` | Truncated preview        |
 
 
@@ -382,7 +382,7 @@
 | Function                                    | I/O                                       | External API                            |
 | ------------------------------------------- | ----------------------------------------- | --------------------------------------- |
 | `detect_spine_mode(q)`                      | `str → SpineMode`                         | None (regex)                            |
-| `build_ailax_spine(user, q, mode, db, ...)` | `User, str, SpineMode → AilaxSpineResult` | Delegates to `asset_allocation_service` |
+| `build_prozpr_spine(user, q, mode, db, ...)` | `User, str, SpineMode → ProzprSpineResult` | Delegates to `asset_allocation_service` |
 
 
 ### `liquidity_gate.py`
@@ -478,7 +478,7 @@ User types message
   │    │    liquidity_gate.assess_liquidity() → sufficient?          │ │   │
   │    │    if yes → quick cash-out checklist (no LLM needed)        │ │   │
   │    │                                                             │ │   │
-  │    │  ailax_flow.build_ailax_spine()                              │ │   │
+  │    │  ailax_flow.build_prozpr_spine()                              │ │   │
   │    │    → asset_allocation_service.compute_allocation_result()    │ │   │
   │    │      → goal_allocation_input_builder                         │ │   │
   │    │          .build_goal_allocation_input_for_user()             │ │   │

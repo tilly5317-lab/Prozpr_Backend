@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_ai_module_run import ChatAiModuleRun
 
-logger = logging.getLogger("ailax.ai_bridge")
+logger = logging.getLogger("prozpr.ai_bridge")
 
 
 async def record_ai_module_run(
@@ -31,12 +31,12 @@ async def record_ai_module_run(
     emit_standard_log: bool = True,
 ) -> None:
     """
-    Optionally emit AILAX_AI_MODULE_RUN; always persist one row when db is set.
-    Use emit_standard_log=False when a higher-level AILAX_CHAT_FLOW line is logged instead.
+    Optionally emit PROZPR_AI_MODULE_RUN; always persist one row when db is set.
+    Use emit_standard_log=False when a higher-level PROZPR_CHAT_FLOW line is logged instead.
     """
     if emit_standard_log:
         logger.info(
-            "AILAX_AI_MODULE_RUN module=%s reason=%s user_id=%s session_id=%s intent=%s spine_mode=%s duration_ms=%s",
+            "PROZPR_AI_MODULE_RUN module=%s reason=%s user_id=%s session_id=%s intent=%s spine_mode=%s duration_ms=%s",
             module,
             reason.replace("\n", " ")[:500],
             user_id,
@@ -70,10 +70,10 @@ async def log_chat_turn_flow_summary(
     steps: list[str],
     duration_ms: int | None = None,
 ) -> None:
-    """One readable line per chat turn (grep: AILAX_CHAT_FLOW). Also stored as module=chat_flow."""
+    """One readable line per chat turn (grep: PROZPR_CHAT_FLOW). Also stored as module=chat_flow."""
     text = " → ".join(steps)
     logger.info(
-        "AILAX_CHAT_FLOW user_id=%s session_id=%s intent=%s | %s | duration_ms=%s",
+        "PROZPR_CHAT_FLOW user_id=%s session_id=%s intent=%s | %s | duration_ms=%s",
         user_id,
         session_id,
         intent,

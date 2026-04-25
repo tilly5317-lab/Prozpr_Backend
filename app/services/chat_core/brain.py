@@ -13,21 +13,30 @@ import uuid
 from dataclasses import dataclass
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.chat_ai_module_run import ChatAiModuleRun
+from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.ai_module_telemetry import log_chat_turn_flow_summary
 from app.services.ai_bridge import (
     classify_user_message,
+    generate_follow_up_response,
     generate_general_chat_response,
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.ailax_flow import SpineMode, build_ailax_spine, detect_spine_mode
+from app.services.ai_bridge.ailax_flow import SpineMode, build_prozpr_spine, detect_spine_mode
 from app.services.ai_bridge.ailax_trace import trace_line, trace_response_preview
 from app.services.ai_bridge.liquidity_gate import (
     assess_liquidity_for_cash_out,
     format_quick_cash_out_response,
 )
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
+
+ensure_ai_agents_path()
+
+from intent_classifier import FollowUpType, Intent
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +54,35 @@ _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS = (
 def _looks_like_portfolio_optimisation(text: str) -> bool:
     t = text.lower()
     return any(tok in t for tok in _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS)
+
+
+async def _load_last_session_intent(
+    db: AsyncSession | None, session_id: uuid.UUID | None
+) -> Intent | None:
+    """Return the intent of the most recent chat turn for this session, if any.
+
+    Used to seed ``active_intent`` on the classifier so follow-ups can stay on
+    the prior topic (and so meta follow-ups resolve to the originating intent).
+    """
+    if db is None or session_id is None:
+        return None
+    stmt = (
+        select(ChatAiModuleRun.intent_detected)
+        .where(
+            ChatAiModuleRun.session_id == session_id,
+            ChatAiModuleRun.module == "chat_flow",
+            ChatAiModuleRun.intent_detected.is_not(None),
+        )
+        .order_by(ChatAiModuleRun.created_at.desc())
+        .limit(1)
+    )
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if not row:
+        return None
+    try:
+        return Intent(row)
+    except ValueError:
+        return None
 
 
 def _is_llm_auth_failure(exc: BaseException) -> bool:
@@ -114,10 +152,14 @@ class ChatBrain:
         try:
             trace_line("--- ChatBrain.run_turn ---")
             trace_line(f"user message: {turn.user_question}")
-            # --- Step 1–2: intent from question + recent turns ---
+            # --- Step 1–2: intent from question + recent turns (seed active_intent from the prior turn) ---
+            active_intent = await _load_last_session_intent(db, sid)
+            if active_intent is not None:
+                trace_line(f"active_intent from prior turn: {active_intent.value}")
             classification = await classify_user_message(
                 customer_question=turn.user_question,
                 conversation_history=turn.conversation_history,
+                active_intent=active_intent,
             )
             intent_value = classification.intent.value
             intent_confidence = classification.confidence
@@ -125,8 +167,28 @@ class ChatBrain:
             flow.append(f"identified intent: {intent_value}")
             trace_line(
                 f"intent classifier: {intent_value} "
-                f"(confidence={intent_confidence:.2f}, reasoning={intent_reasoning!r})"
+                f"(confidence={intent_confidence:.2f}, reasoning={intent_reasoning!r}, "
+                f"is_follow_up={classification.is_follow_up}, "
+                f"follow_up_type={classification.follow_up_type.value if classification.follow_up_type else None})"
             )
+
+            # --- Meta follow-up short-circuit: question is about a prior assistant turn. ---
+            # Answer from conversation history only; skip the specialist pipelines so we
+            # don't re-run the allocation engine or a web search just to re-explain.
+            # prior_intent is the classifier's resolved topic — follow_up_service uses it
+            # to pick topic-specific guidance on top of the universal prompt base.
+            if classification.follow_up_type == FollowUpType.META:
+                flow.append(f"meta follow-up ({intent_value}) → answering from conversation history")
+                trace_line(
+                    f"next module: follow_up_service (meta follow-up, topic={intent_value})"
+                )
+                content = await generate_follow_up_response(
+                    user_question=turn.user_question,
+                    conversation_history=turn.conversation_history,
+                    prior_intent=classification.intent,
+                )
+                trace_response_preview("follow_up_service response", content)
+                return await finalize(content)
 
             # --- Step 3–5: dispatch (user data = turn.user_ctx, already loaded for AI) ---
             if intent_value == "general_market_query":
@@ -268,11 +330,11 @@ class ChatBrain:
             "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
         )
         trace_line(
-            "module chain: app.services.ai_bridge.ailax_flow.build_ailax_spine "
+            "module chain: app.services.ai_bridge.ailax_flow.build_prozpr_spine "
             "→ asset_allocation_service.compute_allocation_result "
             "→ goal_based_allocation_pydantic.pipeline.run_allocation_with_state"
         )
-        spine = await build_ailax_spine(
+        spine = await build_prozpr_spine(
             turn.user_ctx,
             turn.user_question,
             mode,
@@ -281,7 +343,7 @@ class ChatBrain:
             acting_user_id=turn.effective_user_id,
             chat_session_id=turn.session_id,
         )
-        trace_response_preview("ailax_flow.build_ailax_spine (chat brief)", spine.text)
+        trace_response_preview("ailax_flow.build_prozpr_spine (chat brief)", spine.text)
         return (
             spine.text,
             spine.rebalancing_recommendation_id,
@@ -296,9 +358,9 @@ class ChatBrain:
                 mode = detect_spine_mode(turn.user_question)
                 flow.append("keyword fallback → running allocation engine")
                 trace_line(
-                    f"classifier failure recovery → keyword fallback → build_ailax_spine (mode={mode.value})"
+                    f"classifier failure recovery → keyword fallback → build_prozpr_spine (mode={mode.value})"
                 )
-                spine = await build_ailax_spine(
+                spine = await build_prozpr_spine(
                     turn.user_ctx,
                     turn.user_question,
                     mode,
