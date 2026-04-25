@@ -17,6 +17,7 @@ from intent_classifier import (
     ClassificationInput,
     ClassificationResult,
     ConversationMessage,
+    FollowUpType,
     IntentClassifier,
 )
 from intent_classifier.models import Intent
@@ -47,6 +48,12 @@ _OPENAI_FUNCTION = {
                     "enum": list(_INTENT_LABELS.keys()),
                 },
                 "confidence": {"type": "number"},
+                "is_follow_up": {"type": "boolean"},
+                "follow_up_type": {
+                    "type": ["string", "null"],
+                    "enum": ["meta", "continuation", None],
+                    "description": "Only set when is_follow_up is true; null otherwise.",
+                },
                 "reasoning": {"type": "string"},
             },
             "required": ["intent", "confidence", "reasoning"],
@@ -68,6 +75,7 @@ def _get_classifier() -> IntentClassifier:
 async def _classify_via_openai(
     question: str,
     history: list[dict[str, str]] | None = None,
+    active_intent: Intent | None = None,
 ) -> ClassificationResult:
     """Fallback classifier using OpenAI function-calling."""
     api_key = get_settings().get_openai_api_key()
@@ -78,8 +86,10 @@ async def _classify_via_openai(
         )
 
     history_block = build_history_block(history)
+    active_line = f"Currently active intent: {active_intent.value}\n\n" if active_intent else ""
     user_content = (
         (history_block + "\n\n" if history_block else "")
+        + active_line
         + f"Customer's current question: {question}\n\n"
         + "Classify the intent using the classify_intent tool."
     )
@@ -113,9 +123,20 @@ async def _classify_via_openai(
         resp.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
     )
     intent = Intent(raw["intent"])
+    is_follow_up = bool(raw.get("is_follow_up", False))
+    fu_type: FollowUpType | None = None
+    if is_follow_up:
+        fu_raw = raw.get("follow_up_type")
+        if isinstance(fu_raw, str):
+            try:
+                fu_type = FollowUpType(fu_raw)
+            except ValueError:
+                fu_type = None
     return ClassificationResult(
         intent=intent,
         confidence=float(raw["confidence"]),
+        is_follow_up=is_follow_up,
+        follow_up_type=fu_type,
         reasoning=raw["reasoning"],
         out_of_scope_message=OUT_OF_SCOPE_MESSAGE if intent == Intent.OUT_OF_SCOPE else None,
     )
@@ -124,6 +145,7 @@ async def _classify_via_openai(
 async def classify_user_message(
     customer_question: str,
     conversation_history: list[dict[str, str]] | None = None,
+    active_intent: Intent | None = None,
 ) -> ClassificationResult:
     """Classify intent via Anthropic; falls back to OpenAI on failure."""
     history = [
@@ -131,12 +153,16 @@ async def classify_user_message(
         for m in (conversation_history or [])
     ]
     try:
-        inp = ClassificationInput(customer_question=customer_question, conversation_history=history)
+        inp = ClassificationInput(
+            customer_question=customer_question,
+            conversation_history=history,
+            active_intent=active_intent,
+        )
         return await asyncio.to_thread(_get_classifier().classify, inp)
     except Exception as exc:
         logger.warning("Anthropic classifier failed (%s), trying OpenAI fallback...", exc)
 
-    return await _classify_via_openai(customer_question, conversation_history)
+    return await _classify_via_openai(customer_question, conversation_history, active_intent)
 
 
 def format_intent_response(result: ClassificationResult) -> str:

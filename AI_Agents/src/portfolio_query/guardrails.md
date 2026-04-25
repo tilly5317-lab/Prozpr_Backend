@@ -47,4 +47,4 @@ The client is asking about topics entirely outside the scope of mutual fund port
 
 **Examples:** Insurance policies, tax filing, legal advice, crypto or digital assets, direct stock picks, foreign markets, commodity trading.
 
-**Redirect:** "That topic is outside what I can help with here. I specialise in mutual fund portfolio and market queries for your Prozper account."
+**Redirect:** "That topic is outside what I can help with here. I specialise in mutual fund portfolio and market queries for your Prozpr account."

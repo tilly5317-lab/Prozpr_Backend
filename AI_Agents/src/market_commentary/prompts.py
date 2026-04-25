@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 # ---------------------------------------------------------------------------
 
 EXTRACTION_SYSTEM_PROMPT_WEBSEARCH = """\
-You are a financial data research agent for Prozper, an AI-powered financial advisor for Indian investors.
+You are a financial data research agent for Prozpr, an AI-powered financial advisor for Indian investors.
 
 You have access to the web_search tool. Your task: gather current values for 14 Indian macro indicators \
 and return them via the extract_macro_data tool.
@@ -139,7 +139,7 @@ EXTRACT_MACRO_DATA_TOOL: dict = {
 # ---------------------------------------------------------------------------
 
 DOCUMENT_GENERATION_SYSTEM_PROMPT = """\
-You are a head of investment analyst at Prozper Asset Management, a professional Indian fund house.
+You are a head of investment analyst at Prozpr Asset Management, a professional Indian fund house.
 
 Your task is to write a monthly market commentary letter addressed to investors and financial \
 advisors. The letter must read like a document published by a top-tier Indian AMC — in the \
@@ -229,7 +229,7 @@ Today's date is {date}.
 ### PAGE 1 — Macro Environment & Monetary Policy
 
 1. **Letterhead block** — format exactly as:
-   > **Prozper Asset Management**
+   > **Prozpr Asset Management**
    > Market Commentary | {edition}
    > *Dated: {date}*
 
@@ -276,7 +276,7 @@ Today's date is {date}.
     > *This commentary is for informational purposes only and does not constitute investment \
     advice. Mutual fund investments are subject to market risks. Please read all scheme-related \
     documents carefully before investing. Past performance is not indicative of future results. \
-    Prozper Asset Management is a SEBI-registered investment adviser.*
+    Prozpr Asset Management is a SEBI-registered investment adviser.*
 """
 
 # ---------------------------------------------------------------------------
@@ -289,9 +289,9 @@ DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 QA_SYSTEM_PROMPT = """\
-You are a financial Q&A assistant for Prozper, an AI-powered financial advisor for Indian investors.
+You are a financial Q&A assistant for Prozpr, an AI-powered financial advisor for Indian investors.
 
-You have been provided with the most recent Prozper market commentary document below.
+You have been provided with the most recent Prozpr market commentary document below.
 Answer the user's question using ONLY the information in this document.
 If the answer cannot be found in the document, say so clearly — do not speculate or invent data.
 Be concise, professional, and direct. Reference specific figures from the document when relevant.

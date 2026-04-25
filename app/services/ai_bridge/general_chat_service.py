@@ -28,7 +28,7 @@ from intent_classifier import ClassificationResult
 _MAX_COMMENTARY_CHARS = 7000
 
 _SYSTEM_PROMPT = (
-    "You are AILAX, an Indian-market financial assistant for retail clients in India.\n"
+    "You are Prozpr, an Indian-market financial assistant for retail clients in India.\n"
     "\n"
     "Data source priority (strict — follow in order):\n"
     "1. FIRST, try to answer using the 'Market commentary context' section of the "

@@ -13,6 +13,15 @@ class Intent(str, Enum):
     OUT_OF_SCOPE           = "out_of_scope"
 
 
+class FollowUpType(str, Enum):
+    # Question asks about something Prozpr itself said earlier ("why did you
+    # suggest X", "explain that point") — answer from conversation history.
+    META         = "meta"
+    # Continues the same topic with new substance ("what about gold?") — route
+    # to the usual specialist for the resolved intent.
+    CONTINUATION = "continuation"
+
+
 class ConversationMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
@@ -28,5 +37,6 @@ class ClassificationResult(BaseModel):
     intent: Intent
     confidence: float = Field(ge=0.0, le=1.0)
     is_follow_up: bool = False
+    follow_up_type: Optional[FollowUpType] = None
     reasoning: str
     out_of_scope_message: Optional[str] = None

@@ -28,7 +28,7 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.ailax_flow import SpineMode, build_ailax_spine, detect_spine_mode
+from app.services.ai_bridge.ailax_flow import SpineMode, build_prozpr_spine, detect_spine_mode
 from app.services.ai_bridge.liquidity_gate import (
     assess_liquidity_for_cash_out,
     format_quick_cash_out_response,
@@ -225,7 +225,7 @@ class ChatBrain:
         flow.append(
             "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
         )
-        spine = await build_ailax_spine(
+        spine = await build_prozpr_spine(
             turn.user_ctx,
             turn.user_question,
             mode,
@@ -247,7 +247,7 @@ class ChatBrain:
             try:
                 mode = detect_spine_mode(turn.user_question)
                 flow.append("keyword fallback → running allocation engine")
-                spine = await build_ailax_spine(
+                spine = await build_prozpr_spine(
                     turn.user_ctx,
                     turn.user_question,
                     mode,

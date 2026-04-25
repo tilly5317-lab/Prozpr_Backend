@@ -1,7 +1,7 @@
 """
 dev_run.py — Developer Smoke Test Runner
 =========================================
-Manually runs multi-turn test conversations through the Prozper portfolio query pipeline.
+Manually runs multi-turn test conversations through the Prozpr portfolio query pipeline.
 Not a production entry point — use this during development to verify the pipeline works.
 
 HOW TO RUN
@@ -69,7 +69,7 @@ async def main():
     portfolio = Portfolio(large_cap=40, mid_cap=15, small_cap=10, debt=25, gold=10)
 
     print("═" * 60)
-    print("  Prozper Portfolio Query — PoC Pipeline")
+    print("  Prozpr Portfolio Query — PoC Pipeline")
     print("═" * 60)
 
     # ── Scenario A: In-scope multi-turn ───────────────────────────────────────

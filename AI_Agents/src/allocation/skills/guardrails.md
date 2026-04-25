@@ -32,7 +32,7 @@ validation:
   sum_max: 101
 ---
 
-# Prozper Guardrail Rules
+# Prozpr Guardrail Rules
 
 Edit the YAML front matter above to change any rule. No Python code changes needed.
 

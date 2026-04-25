@@ -1,7 +1,7 @@
 """
 dev_run.py — Developer Smoke Test Runner
 =========================================
-Manually runs two end-to-end test scenarios through the Prozper allocation advisor pipeline.
+Manually runs two end-to-end test scenarios through the Prozpr allocation advisor pipeline.
 Not a production entry point — use this during development to verify the pipeline works.
 
 HOW TO RUN
@@ -56,7 +56,7 @@ async def main():
     orchestrator = AllocationOrchestrator(llm)
 
     print("═" * 55)
-    print("  Prozper Allocation Advisor — PoC Pipeline")
+    print("  Prozpr Allocation Advisor — PoC Pipeline")
     print("═" * 55)
 
     # Scenario A

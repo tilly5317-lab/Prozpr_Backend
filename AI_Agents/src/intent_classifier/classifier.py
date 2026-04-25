@@ -6,7 +6,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from .models import ClassificationInput, ClassificationResult, ConversationMessage, Intent
+from .models import ClassificationInput, ClassificationResult, ConversationMessage, FollowUpType, Intent
 from .prompts import GOAL_PLANNING_MESSAGE, OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
 
 load_dotenv()
@@ -22,6 +22,17 @@ class _LLMOutput(BaseModel):
         default=False,
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
     )
+    follow_up_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Only set when is_follow_up is true. 'meta' = the question asks "
+            "about something the assistant itself said earlier (e.g. 'why did "
+            "you suggest X', 'explain that', 'what did you mean'). "
+            "'continuation' = the customer is continuing the same topic with "
+            "new substance (e.g. 'what about gold?' after an allocation "
+            "discussion). Null when is_follow_up is false."
+        ),
+    )
     reasoning: str = Field(description="One or two sentences explaining why this intent was chosen.")
 
 
@@ -32,7 +43,7 @@ def _format_history(history: list[ConversationMessage]) -> str:
     recent = history[-_MAX_HISTORY_MESSAGES:]
     lines = ["--- Recent Conversation History ---"]
     for msg in recent:
-        label = "Customer" if msg.role == "user" else "Prozper"
+        label = "Customer" if msg.role == "user" else "Prozpr"
         lines.append(f"{label}: {msg.content}")
     lines.append("---")
     return "\n".join(lines)
@@ -112,10 +123,18 @@ class IntentClassifier:
             Intent.STOCK_ADVICE:  STOCK_ADVICE_MESSAGE,
         }
 
+        fu_type: Optional[FollowUpType] = None
+        if raw.is_follow_up and raw.follow_up_type:
+            try:
+                fu_type = FollowUpType(raw.follow_up_type)
+            except ValueError:
+                fu_type = None
+
         return ClassificationResult(
             intent=intent,
             confidence=raw.confidence,
             is_follow_up=raw.is_follow_up,
+            follow_up_type=fu_type,
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
         )

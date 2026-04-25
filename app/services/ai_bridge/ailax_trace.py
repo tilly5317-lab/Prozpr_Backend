@@ -1,9 +1,9 @@
-"""Lightweight stdout tracing prefixed with [AILAX_TRACE] for server-side debugging."""
+"""Lightweight stdout tracing prefixed with [PROZPR_TRACE] for server-side debugging."""
 
 
 from __future__ import annotations
 
-_PREFIX = "[AILAX_TRACE]"
+_PREFIX = "[PROZPR_TRACE]"
 
 
 def trace_line(message: str) -> None:

@@ -64,7 +64,7 @@ async def list_session_ai_module_runs(
     current_user: CurrentUser = Depends(get_effective_user),
     limit: int = 50,
 ):
-    """AILAX audit trail for a session's AI module invocations."""
+    """Prozpr audit trail for a session's AI module invocations."""
     await _get_user_session(session_id, db, current_user.id)
     rows = (
         await db.execute(
