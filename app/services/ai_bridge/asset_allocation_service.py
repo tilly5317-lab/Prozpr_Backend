@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -224,6 +225,150 @@ def _format_allocation_answer_long(
 ) -> str:
     """Longer wrapper used by the standalone allocation HTTP endpoint."""
     return f"Based on your question: {user_question}\n\n{format_allocation_chat_brief(output, 'full')}"
+
+
+# ---------------------------------------------------------------------------
+# Question-tailored chat composer (Haiku)
+# ---------------------------------------------------------------------------
+
+_COMPOSER_SYSTEM_PROMPT = (
+    "You are Prozpr, an Indian-market financial assistant. The customer's question "
+    "routed to the allocation engine, which has produced an authoritative allocation "
+    "brief in the user message. Your job: decide whether the customer wants the full "
+    "brief, or a tailored answer to a specific question.\n"
+    "\n"
+    "Decision rules:\n"
+    "- 'use_brief_verbatim' — when the customer asked a BROAD allocation request and "
+    "would benefit from seeing the full goal-based plan. Examples: 'plan my "
+    "portfolio', 'how should I allocate', 'recommend an SIP plan', 'rebalance my "
+    "holdings', 'show my allocation strategy'.\n"
+    "- 'tailored_answer' — when the customer asked a NARROW question that does NOT "
+    "need the full table. Examples: 'is this too risky?', 'why so much equity?', "
+    "'how much for retirement?', 'is my emergency fund enough?', 'will this beat "
+    "inflation?', 'what's my drift?'.\n"
+    "\n"
+    "Tailored-answer rules (only when decision='tailored_answer'):\n"
+    "- 1 to 4 short sentences. MAXIMUM 80 words.\n"
+    "- Use figures from the brief verbatim. NEVER invent rupee amounts, percentages, "
+    "goals, or fund names. If the answer requires data not in the brief, say so in "
+    "one short line.\n"
+    "- Money formatting: lakhs ('L') and crores ('Cr'). Never million/billion.\n"
+    "- No preamble, no '**Answer**' heading, no echoing the question, no greeting.\n"
+    "- Do not contradict the brief. If the brief says equity 65%, you say equity 65%.\n"
+    "- Do not moralize or recommend speaking to an advisor.\n"
+    "\n"
+    "Response contract: call `return_allocation_reply` exactly once. When "
+    "decision='use_brief_verbatim', set 'answer' to an empty string."
+)
+
+_COMPOSER_RETURN_TOOL = {
+    "name": "return_allocation_reply",
+    "description": (
+        "Return the final allocation chat reply. Call exactly once. Use "
+        "'use_brief_verbatim' for broad allocation requests where the customer wants "
+        "the full plan. Use 'tailored_answer' when the customer asked a specific "
+        "question that doesn't need the full table."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "decision": {
+                "type": "string",
+                "enum": ["use_brief_verbatim", "tailored_answer"],
+                "description": (
+                    "Pick 'use_brief_verbatim' for broad allocation requests; "
+                    "'tailored_answer' for narrow questions about the plan."
+                ),
+            },
+            "answer": {
+                "type": "string",
+                "description": (
+                    "When decision='tailored_answer': 1-4 short sentences (≤80 words) "
+                    "answering the specific question, drawing only from the brief's "
+                    "numbers. When decision='use_brief_verbatim': empty string."
+                ),
+            },
+        },
+        "required": ["decision", "answer"],
+    },
+}
+
+
+def _extract_allocation_reply(blocks: list[dict]) -> tuple[str, str] | None:
+    """Pull (decision, answer) from a `return_allocation_reply` tool_use block."""
+    for b in blocks:
+        if b.get("type") == "tool_use" and b.get("name") == "return_allocation_reply":
+            inp = b.get("input") or {}
+            decision = inp.get("decision")
+            answer = inp.get("answer", "")
+            if (
+                decision in ("use_brief_verbatim", "tailored_answer")
+                and isinstance(answer, str)
+            ):
+                return decision, answer
+    return None
+
+
+async def compose_allocation_chat_reply(
+    user_question: str,
+    deterministic_brief: str,
+    mode: str,
+) -> str | None:
+    """Tailor the allocation chat reply to the customer's specific question.
+
+    Returns the tailored reply when Haiku picks 'tailored_answer'; returns None
+    when it picks 'use_brief_verbatim' OR on any failure. The caller falls back
+    to the deterministic brief whenever this returns None.
+    """
+    api_key = get_settings().get_anthropic_key()
+    if not api_key:
+        return None
+
+    user_prompt = (
+        f"Customer question: {user_question}\n\n"
+        f"Engine spine mode: {mode}\n\n"
+        f"Allocation brief from engine (authoritative — numbers must come ONLY "
+        f"from this):\n{deterministic_brief}"
+    )
+
+    payload = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 600,
+        "system": _COMPOSER_SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": user_prompt}],
+        "tools": [_COMPOSER_RETURN_TOOL],
+        "tool_choice": {"type": "tool", "name": "return_allocation_reply"},
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "Allocation composer returned status %d; falling back to deterministic brief",
+                resp.status_code,
+            )
+            return None
+        parsed = _extract_allocation_reply(resp.json().get("content", []))
+        if parsed is None:
+            logger.warning("Allocation composer returned no parseable tool call; falling back")
+            return None
+        decision, answer = parsed
+        if decision == "use_brief_verbatim":
+            return None
+        return answer.strip() or None
+    except Exception:
+        logger.exception("Allocation composer failed; falling back to deterministic brief")
+        return None
 
 
 # ---------------------------------------------------------------------------
