@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.ai_bridge.asset_allocation_service import (
+    compose_allocation_chat_reply,
     compute_allocation_result,
     format_allocation_chat_brief,
 )
@@ -96,8 +97,10 @@ async def build_prozpr_spine(
     )
 
     body = format_allocation_chat_brief(outcome.result, mode.value)
+    tailored = await compose_allocation_chat_reply(user_question, body, mode.value)
+    final_body = tailored if tailored else body
     return ProzprSpineResult(
-        text=header + body,
+        text=header + final_body,
         rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
         portfolio_allocation_snapshot_id=outcome.allocation_snapshot_id,
     )

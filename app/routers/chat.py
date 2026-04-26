@@ -184,7 +184,12 @@ async def send_message(
     )
 
     # Persist assistant reply.
-    assistant_msg = ChatMessage(session_id=session_id, role=ChatMessageRole.assistant, content=brain_result.content)
+    assistant_msg = ChatMessage(
+        session_id=session_id,
+        role=ChatMessageRole.assistant,
+        content=brain_result.content,
+        chart_payloads=brain_result.chart_payloads,
+    )
     db.add(assistant_msg)
 
     await db.commit()

@@ -32,7 +32,9 @@ from app.services.ai_bridge.liquidity_gate import (
     assess_liquidity_for_cash_out,
     format_quick_cash_out_response,
 )
+from app.services.ai_bridge.chart_selector_service import select_charts
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
+from app.services.visualization_tools.registry import CHART_TOOLS
 
 ensure_ai_agents_path()
 
@@ -122,6 +124,31 @@ class ChatBrain:
         intent_value: str | None = None
         intent_confidence: float | None = None
         intent_reasoning: str | None = None
+        chart_select_task: asyncio.Task[list[str]] | None = None
+
+        async def _resolve_chart_payloads() -> list[dict] | None:
+            if chart_select_task is None or db is None:
+                return None
+            try:
+                names = await chart_select_task
+            except Exception as exc:
+                logger.warning("chart selector task failed: %s", exc)
+                return None
+            payloads: list[dict] = []
+            for name in names:
+                tool = CHART_TOOLS.get(name)
+                if tool is None:
+                    continue
+                try:
+                    payload = await tool.builder(db, uid)
+                except Exception:
+                    logger.exception("chart builder failed for %s", name)
+                    continue
+                if payload is not None:
+                    payloads.append(payload.model_dump())
+            if payloads:
+                flow.append(f"attached charts: {', '.join(p['type'] for p in payloads)}")
+            return payloads or None
 
         async def finalize(
             content: str,
@@ -129,6 +156,7 @@ class ChatBrain:
             ideal_allocation_rebalancing_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
         ) -> ChatBrainResult:
+            chart_payloads = await _resolve_chart_payloads()
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
             trace_response_preview("final assistant message sent to client", content, max_chars=1200)
@@ -147,6 +175,7 @@ class ChatBrain:
                 intent_reasoning=intent_reasoning,
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
+                chart_payloads=chart_payloads,
             )
 
         try:
@@ -165,6 +194,10 @@ class ChatBrain:
             intent_confidence = classification.confidence
             intent_reasoning = classification.reasoning
             flow.append(f"identified intent: {intent_value}")
+            # Kick off chart selection in parallel with text generation; awaited in finalize.
+            chart_select_task = asyncio.create_task(
+                select_charts(turn.user_question, intent_value)
+            )
             trace_line(
                 f"intent classifier: {intent_value} "
                 f"(confidence={intent_confidence:.2f}, reasoning={intent_reasoning!r}, "
