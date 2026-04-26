@@ -115,7 +115,11 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
             (r.pass1_sell_amount + r.pass2_sell_amount for r in sg_rows),
             Decimal(0),
         )
-        actions = [r for r in sg_rows if _row_has_action(r)]
+        actions = [
+            r for r in sg_rows
+            if r.final_target_amount > 0 or r.present_allocation_inr > 0
+        ]
+        ranks_with_action = sum(1 for r in sg_rows if _row_has_action(r))
 
         out.append(SubgroupSummary(
             asset_subgroup=sg,
@@ -129,7 +133,7 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
             ranks_with_holding=sum(
                 1 for r in sg_rows if r.present_allocation_inr > 0
             ),
-            ranks_with_action=len(actions),
+            ranks_with_action=ranks_with_action,
             actions=actions,
         ))
 

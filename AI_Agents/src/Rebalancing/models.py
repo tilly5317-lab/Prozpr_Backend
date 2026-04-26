@@ -189,8 +189,15 @@ class TradeAction(BaseModel):
 
 class SubgroupSummary(BaseModel):
     """Per-asset_subgroup aggregate: target vs current vs final holding,
-    plus the action rows for that subgroup. Built by step 6 so the
-    presentation layer doesn't have to re-derive these aggregates."""
+    plus the participating fund rows for that subgroup. Built by step 6
+    so the presentation layer doesn't have to re-derive these aggregates.
+
+    `actions` includes every fund row that's part of the plan for this
+    subgroup — both rows being traded (buy/sell/exit) and rows being
+    held as-is (target unchanged within tolerance, or already at target).
+    Phantom rows (zero target and zero holding) are dropped. To filter to
+    only traded rows, use the `ranks_with_action` count or check each
+    row's pass1_buy_amount / pass1_sell_amount / pass2_sell_amount."""
     asset_subgroup: str
     goal_target_inr: Decimal              # what goal allocation said we want
     current_holding_inr: Decimal          # what's there today (sum of present)
