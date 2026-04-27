@@ -187,6 +187,12 @@ def build_goal_allocation_input_for_user(
 
     goals = _map_goals(financial_goals, total_corpus)
 
+    # Counterfactual override path: chat-only, transient attribute.
+    # When set on the User object, this overrides the saved/derived score.
+    _override = getattr(user, "_chat_risk_score_override", None)
+    if _override is not None:
+        effective_risk_score = _clamp_score(float(_override))
+
     alloc_input = AllocationInput(
         effective_risk_score=effective_risk_score,
         age=age,

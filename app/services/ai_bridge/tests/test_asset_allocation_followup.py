@@ -76,5 +76,98 @@ class NarratePathTests(unittest.TestCase):
         self.assertIn("change your holdings", text)
 
 
+class CounterfactualPathTests(unittest.TestCase):
+
+    def test_counterfactual_runs_engine_with_override_no_persistence(self):
+        from app.services.ai_bridge import asset_allocation_followup_counterfactual as cf
+
+        captured = {}
+
+        async def fake_compute(user, question, *, db, persist_recommendation,
+                                acting_user_id, chat_session_id, spine_mode):
+            captured["persist"] = persist_recommendation
+            captured["db"] = db
+            captured["spine_mode"] = spine_mode
+            captured["override_seen"] = getattr(user, "_chat_risk_score_override", None)
+            outcome = MagicMock()
+            outcome.result = MagicMock()
+            outcome.result.grand_total = 8_000_000
+            outcome.result.model_dump = MagicMock(return_value={"grand_total": 8_000_000})
+            outcome.blocking_message = None
+            return outcome
+
+        agent_run = AgentRunRecord(
+            id=uuid.uuid4(),
+            module="goal_based_allocation",
+            intent_detected="portfolio_optimisation",
+            input_payload={
+                "effective_risk_score": 5.4, "age": 39, "annual_income": 1_000_000,
+                "osi": 0.3, "savings_rate_adjustment": "none", "gap_exceeds_3": False,
+                "total_corpus": 8_000_000, "monthly_household_expense": 50_000,
+                "tax_regime": "new", "effective_tax_rate": 30.0, "goals": [],
+            },
+            output_payload={
+                "allocation_result": {
+                    "grand_total": 8_000_000,
+                    "asset_class_breakdown": {
+                        "actual": {
+                            "equity_total_pct": 40.2,
+                            "debt_total_pct": 51.0,
+                            "others_total_pct": 8.8,
+                        },
+                    },
+                },
+            },
+            created_at=datetime.utcnow(),
+        )
+
+        with patch.object(cf, "compute_allocation_result", new=fake_compute), \
+             patch.object(cf, "_narrate_counterfactual",
+                          new=AsyncMock(return_value="hypothetical text")):
+            text = asyncio.run(cf.run_counterfactual(
+                agent_run, _ctx("what if my risk were 7?"),
+                {"effective_risk_score": 7.0},
+            ))
+
+        self.assertEqual(text, "hypothetical text")
+        self.assertFalse(captured["persist"])
+        self.assertIsNone(captured["db"])
+        self.assertEqual(captured["spine_mode"], "counterfactual")
+        self.assertEqual(captured["override_seen"], 7.0)
+
+    def test_invalid_override_falls_through_to_redirect(self):
+        from app.services.ai_bridge import asset_allocation_followup_counterfactual as cf
+
+        agent_run = AgentRunRecord(
+            id=uuid.uuid4(),
+            module="goal_based_allocation",
+            intent_detected="portfolio_optimisation",
+            input_payload={"effective_risk_score": 5.4},
+            output_payload={"allocation_result": {}},
+            created_at=datetime.utcnow(),
+        )
+        text = asyncio.run(cf.run_counterfactual(
+            agent_run, _ctx("what if my goal amount were higher?"),
+            {"goal_amount": 50_000_000},
+        ))
+        self.assertIn("Profile", text)
+
+    def test_empty_overrides_falls_through_to_redirect(self):
+        from app.services.ai_bridge import asset_allocation_followup_counterfactual as cf
+
+        agent_run = AgentRunRecord(
+            id=uuid.uuid4(),
+            module="goal_based_allocation",
+            intent_detected="portfolio_optimisation",
+            input_payload={"effective_risk_score": 5.4},
+            output_payload={"allocation_result": {}},
+            created_at=datetime.utcnow(),
+        )
+        text = asyncio.run(cf.run_counterfactual(
+            agent_run, _ctx("what if?"), {},
+        ))
+        self.assertIn("Profile", text)
+
+
 if __name__ == "__main__":
     unittest.main()
