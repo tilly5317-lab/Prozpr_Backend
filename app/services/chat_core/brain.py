@@ -21,12 +21,8 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.ailax_flow import SpineMode, build_ailax_spine, detect_spine_mode
+from app.services.ai_bridge.ailax_flow import build_ailax_spine, detect_spine_mode
 from app.services.ai_bridge.ailax_trace import trace_line, trace_response_preview
-from app.services.ai_bridge.liquidity_gate import (
-    assess_liquidity_for_cash_out,
-    format_quick_cash_out_response,
-)
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
 logger = logging.getLogger(__name__)
@@ -138,7 +134,7 @@ class ChatBrain:
             if intent_value in ("portfolio_optimisation", "goal_planning"):
                 trace_line(
                     "next module: portfolio-style spine → "
-                    "ailax_flow.detect_spine_mode / liquidity_gate / goal_based_allocation_pydantic"
+                    "ailax_flow.detect_spine_mode / goal_based_allocation_pydantic"
                 )
                 p_content, p_reb, p_snap = await self._answer_portfolio_style(turn, flow)
                 return await finalize(
@@ -246,22 +242,11 @@ class ChatBrain:
     ) -> tuple[str, uuid.UUID | None, uuid.UUID | None]:
         """
         Uses turn.user_ctx (profile, risk_profile, investment_profile, goals, portfolios)
-        inside allocation / liquidity helpers — no extra DB fetch here.
+        inside the allocation engine — no extra DB fetch here.
         """
         mode = detect_spine_mode(turn.user_question)
         flow.append(f"portfolio-style question → style={mode.value}")
         trace_line(f"ailax_flow.detect_spine_mode → {mode.value}")
-
-        if mode == SpineMode.CASH_OUT:
-            flow.append("liquidity check on saved emergency fund vs inferred need")
-            trace_line("module: liquidity_gate.assess_liquidity_for_cash_out")
-            gate = assess_liquidity_for_cash_out(turn.user_ctx, turn.user_question)
-            if gate.sufficient_for_quick_cash_out_path:
-                flow.append("liquidity OK → short cash-out reply only (no allocation engine)")
-                quick = format_quick_cash_out_response(turn.user_ctx, turn.user_question, gate)
-                trace_response_preview("liquidity_gate quick cash-out response", quick)
-                return quick, None, None
-            flow.append("liquidity not enough for quick path → running full allocation engine")
 
         flow.append("using client profile from DB (age, risk, goals, current mix)")
         flow.append(
