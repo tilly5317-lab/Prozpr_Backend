@@ -140,6 +140,29 @@ class ChatBrain:
                 )
 
             if intent_value in ("portfolio_optimisation", "goal_planning"):
+                last_alloc = turn_context.last_agent_runs.get("goal_based_allocation")
+                is_followup_route = (
+                    classification.is_follow_up
+                    and last_alloc is not None
+                    and not classification.wants_fresh_recomputation
+                )
+                if is_followup_route:
+                    flow.append(
+                        "follow-up route → dispatch_followup (no engine run)"
+                    )
+                    trace_line(
+                        "next module: followup_dispatcher → asset_allocation_followup"
+                    )
+                    # Local import — the @register decorators in
+                    # asset_allocation_followup execute at import time, so we
+                    # must import it before dispatch_followup is called.
+                    from app.services.ai_bridge import asset_allocation_followup  # noqa: F401
+                    from app.services.ai_bridge.followup_dispatcher import dispatch_followup
+                    text = await dispatch_followup(
+                        intent_value, last_alloc, turn_context,
+                    )
+                    return await finalize(text)
+
                 trace_line(
                     "next module: portfolio-style spine → "
                     "ailax_flow.detect_spine_mode / goal_based_allocation_pydantic"
