@@ -64,5 +64,36 @@ class FollowupDispatcherTests(unittest.TestCase):
             )
 
 
+class RegisterImportSideEffectTests(unittest.TestCase):
+    """Importing asset_allocation_followup must populate the dispatcher registry.
+
+    Locks the import-as-side-effect contract: removing the @register decorators
+    OR removing the brain.py `from app.services.ai_bridge import asset_allocation_followup`
+    import would silently break follow-up routing — this test fails if either
+    happens.
+    """
+
+    def test_importing_asset_allocation_followup_registers_both_intents(self):
+        import importlib
+        from app.services.ai_bridge import followup_dispatcher as fd_local
+
+        # Clear and force a fresh import so the @register decorators run again.
+        fd_local._HANDLERS.clear()
+        from app.services.ai_bridge import asset_allocation_followup
+        importlib.reload(asset_allocation_followup)
+
+        self.assertIn("portfolio_optimisation", fd_local._HANDLERS)
+        self.assertIn("goal_planning", fd_local._HANDLERS)
+        # Both intents resolve to the same public handler.
+        self.assertIs(
+            fd_local._HANDLERS["portfolio_optimisation"],
+            asset_allocation_followup.handle_allocation_followup,
+        )
+        self.assertIs(
+            fd_local._HANDLERS["goal_planning"],
+            asset_allocation_followup.handle_allocation_followup,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
