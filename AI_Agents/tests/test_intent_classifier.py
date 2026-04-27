@@ -75,6 +75,7 @@ def _make_mock_llm_output(intent: str, confidence: float = 0.95, reasoning: str 
     out.confidence = confidence
     out.is_follow_up = is_follow_up
     out.reasoning = reasoning
+    out.wants_fresh_recomputation = False
     return out
 
 
@@ -351,6 +352,51 @@ class TestIntentClassifier(unittest.TestCase):
 
         self.assertIsInstance(system_content, list)
         self.assertEqual(system_content[0]["cache_control"], {"type": "ephemeral"})
+
+
+class _FakeLLMOut:
+    """Stand-in for the LangChain-structured LLM output."""
+    def __init__(self, *, intent, confidence, is_follow_up, reasoning,
+                 wants_fresh_recomputation=False):
+        self.intent = intent
+        self.confidence = confidence
+        self.is_follow_up = is_follow_up
+        self.reasoning = reasoning
+        self.wants_fresh_recomputation = wants_fresh_recomputation
+
+
+class WantsFreshRecomputationFieldTests(unittest.TestCase):
+    """The classifier returns a wants_fresh_recomputation flag."""
+
+    def test_default_false_for_explanation_question(self):
+        from intent_classifier import IntentClassifier, ClassificationInput
+        clf = IntentClassifier(api_key="sk-fake")
+        clf.chain = MagicMock()
+        clf.chain.invoke.return_value = _FakeLLMOut(
+            intent="portfolio_optimisation", confidence=0.9,
+            is_follow_up=True, reasoning="explanation",
+            wants_fresh_recomputation=False,
+        )
+
+        result = clf.classify(ClassificationInput(
+            customer_question="is this too aggressive?",
+        ))
+        self.assertFalse(result.wants_fresh_recomputation)
+
+    def test_true_when_user_asks_for_redo(self):
+        from intent_classifier import IntentClassifier, ClassificationInput
+        clf = IntentClassifier(api_key="sk-fake")
+        clf.chain = MagicMock()
+        clf.chain.invoke.return_value = _FakeLLMOut(
+            intent="portfolio_optimisation", confidence=0.9,
+            is_follow_up=True, reasoning="redo with new money",
+            wants_fresh_recomputation=True,
+        )
+
+        result = clf.classify(ClassificationInput(
+            customer_question="actually I have 10L more, redo this",
+        ))
+        self.assertTrue(result.wants_fresh_recomputation)
 
 
 if __name__ == "__main__":
