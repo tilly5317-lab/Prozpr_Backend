@@ -23,6 +23,7 @@ from app.services.ai_bridge import (
 )
 from app.services.ai_bridge.ailax_flow import build_ailax_spine, detect_spine_mode
 from app.services.ai_bridge.ailax_trace import trace_line, trace_response_preview
+from app.services.chat_core.turn_context import build_turn_context, TurnContext
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
 logger = logging.getLogger(__name__)
@@ -110,10 +111,17 @@ class ChatBrain:
         try:
             trace_line("--- ChatBrain.run_turn ---")
             trace_line(f"user message: {turn.user_question}")
+            # --- Step 0: per-turn context bundle (history + last AgentRun per module) ---
+            turn_context: TurnContext = await build_turn_context(turn)
+            trace_line(
+                f"turn_context: last_runs={list(turn_context.last_agent_runs.keys())} "
+                f"active_intent={turn_context.active_intent}"
+            )
             # --- Step 1–2: intent from question + recent turns ---
             classification = await classify_user_message(
                 customer_question=turn.user_question,
                 conversation_history=turn.conversation_history,
+                active_intent=turn_context.active_intent,
             )
             intent_value = classification.intent.value
             intent_confidence = classification.confidence
