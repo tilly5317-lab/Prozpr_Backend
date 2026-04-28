@@ -1,7 +1,7 @@
 """Public surface of the ai_bridge package — re-exports the five main service functions."""
 
 
-from app.services.ai_bridge.asset_allocation_service import (
+from app.services.ai_bridge.asset_allocation import (
     generate_portfolio_optimisation_response,
 )
 from app.services.ai_bridge.general_chat_service import generate_general_chat_response
