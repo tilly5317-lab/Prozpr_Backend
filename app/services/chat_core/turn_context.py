@@ -1,7 +1,7 @@
 """Per-turn context bundle: history + last AgentRun per module + active intent.
 
 Built once per chat turn from ``ChatTurnInput``. Consumed by ChatBrain
-routing and downstream handlers (e.g. asset_allocation_followup).
+routing and downstream handlers (e.g. asset_allocation_chat).
 """
 
 from __future__ import annotations
