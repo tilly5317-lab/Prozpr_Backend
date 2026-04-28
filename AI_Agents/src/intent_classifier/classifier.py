@@ -22,10 +22,6 @@ class _LLMOutput(BaseModel):
         default=False,
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
     )
-    wants_fresh_recomputation: bool = Field(
-        default=False,
-        description="True only when the customer is explicitly asking the agent to recompute with new inputs (new money, new constraints, redo). False for explanation/critique/'what if' questions.",
-    )
     reasoning: str = Field(description="One or two sentences explaining why this intent was chosen.")
 
 
@@ -120,7 +116,6 @@ class IntentClassifier:
             intent=intent,
             confidence=raw.confidence,
             is_follow_up=raw.is_follow_up,
-            wants_fresh_recomputation=raw.wants_fresh_recomputation,
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
         )

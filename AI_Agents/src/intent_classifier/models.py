@@ -28,6 +28,5 @@ class ClassificationResult(BaseModel):
     intent: Intent
     confidence: float = Field(ge=0.0, le=1.0)
     is_follow_up: bool = False
-    wants_fresh_recomputation: bool = False
     reasoning: str
     out_of_scope_message: Optional[str] = None

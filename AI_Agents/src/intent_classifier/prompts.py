@@ -151,30 +151,6 @@ If there is no conversation history **and** no active intent, always set `is_fol
 - Always return a confidence score between 0.0 and 1.0.
 - Keep reasoning concise — one or two sentences explaining why you chose that intent.
 
----
-
-## Recomputation Detection
-
-Set `wants_fresh_recomputation = true` ONLY when the customer is explicitly
-asking the agent to recompute with new inputs:
-- Adds new constraints ("redo this without arbitrage", "redo without my
-  emergency fund")
-- Adds new money or new goals ("I have 10L more, redo", "now also plan
-  for child's education")
-- Asks for re-execution ("rerun", "redo", "recompute", "let's do this again")
-
-Set `wants_fresh_recomputation = false` for:
-- Vague preference statements without a specific new value ("I can take
-  more risk", "I want to be more conservative", "lean more aggressive",
-  "less debt"). These signal direction but no actionable input — the
-  followup handler will ask for the missing value via the clarify mode.
-- Explanation, critique, or "why" questions ("is this too aggressive?",
-  "why so much arbitrage?", "what does flexi-cap mean here?")
-- Counterfactual exploration ("what if my risk score were 7?") — these are
-  hypothetical, not requests to change the saved plan
-- Mutation requests ("swap arbitrage for liquid") — these are not recomputation;
-  the followup handler decides how to respond
-- Any first-turn question with no prior conversation
 """
 
 OUT_OF_SCOPE_MESSAGE = (

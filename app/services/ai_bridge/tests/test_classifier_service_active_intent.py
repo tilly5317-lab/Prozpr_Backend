@@ -22,7 +22,7 @@ class ActiveIntentForwardingTests(unittest.TestCase):
             captured["active_intent"] = inp.active_intent
             return MagicMock(intent=MagicMock(value="portfolio_optimisation"),
                               confidence=0.9, is_follow_up=True,
-                              wants_fresh_recomputation=False, reasoning="...",
+                              reasoning="...",
                               out_of_scope_message=None)
 
         with patch("app.services.ai_bridge.intent_classifier_service._get_classifier") as gc, \
