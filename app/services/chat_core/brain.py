@@ -140,38 +140,16 @@ class ChatBrain:
                 )
 
             if intent_value in ("portfolio_optimisation", "goal_planning"):
-                last_alloc = turn_context.last_agent_runs.get("goal_based_allocation")
-                is_followup_route = (
-                    classification.is_follow_up
-                    and last_alloc is not None
-                    and not classification.wants_fresh_recomputation
-                )
-                if is_followup_route:
-                    flow.append(
-                        "follow-up route → dispatch_followup (no engine run)"
-                    )
-                    trace_line(
-                        "next module: followup_dispatcher → asset_allocation_followup"
-                    )
-                    # Local import — the @register decorators in
-                    # asset_allocation_followup execute at import time, so we
-                    # must import it before dispatch_followup is called.
-                    from app.services.ai_bridge import asset_allocation_followup  # noqa: F401
-                    from app.services.ai_bridge.followup_dispatcher import dispatch_followup
-                    text = await dispatch_followup(
-                        intent_value, last_alloc, turn_context,
-                    )
-                    return await finalize(text)
-
-                trace_line(
-                    "next module: portfolio-style spine → "
-                    "ailax_flow.detect_spine_mode / goal_based_allocation_pydantic"
-                )
-                p_content, p_reb, p_snap = await self._answer_portfolio_style(turn, flow)
+                # Local imports — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge import asset_allocation_chat  # noqa: F401
+                from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+                flow.append("dispatch_chat → asset_allocation_chat")
+                trace_line("next module: chat_dispatcher → asset_allocation_chat")
+                result = await dispatch_chat(intent_value, turn_context)
                 return await finalize(
-                    p_content,
-                    ideal_allocation_rebalancing_id=p_reb,
-                    ideal_allocation_snapshot_id=p_snap,
+                    result.text,
+                    ideal_allocation_snapshot_id=result.snapshot_id,
+                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
                 )
 
             if intent_value == "portfolio_query":
@@ -267,42 +245,6 @@ class ChatBrain:
             )
             trace_response_preview("general_chat_service response (fallback)", reply)
             return reply
-
-    async def _answer_portfolio_style(
-        self, turn: ChatTurnInput, flow: list[str]
-    ) -> tuple[str, uuid.UUID | None, uuid.UUID | None]:
-        """
-        Uses turn.user_ctx (profile, risk_profile, investment_profile, goals, portfolios)
-        inside the allocation engine — no extra DB fetch here.
-        """
-        mode = detect_spine_mode(turn.user_question)
-        flow.append(f"portfolio-style question → style={mode.value}")
-        trace_line(f"ailax_flow.detect_spine_mode → {mode.value}")
-
-        flow.append("using client profile from DB (age, risk, goals, current mix)")
-        flow.append(
-            "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
-        )
-        trace_line(
-            "module chain: app.services.ai_bridge.ailax_flow.build_ailax_spine "
-            "→ asset_allocation_service.compute_allocation_result "
-            "→ goal_based_allocation_pydantic.pipeline.run_allocation_with_state"
-        )
-        spine = await build_ailax_spine(
-            turn.user_ctx,
-            turn.user_question,
-            mode,
-            db=turn.db,
-            persist_recommendation=turn.db is not None,
-            acting_user_id=turn.effective_user_id,
-            chat_session_id=turn.session_id,
-        )
-        trace_response_preview("ailax_flow.build_ailax_spine (chat brief)", spine.text)
-        return (
-            spine.text,
-            spine.rebalancing_recommendation_id,
-            spine.portfolio_allocation_snapshot_id,
-        )
 
     async def _answer_after_classifier_failure(
         self, turn: ChatTurnInput, flow: list[str]
