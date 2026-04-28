@@ -7,10 +7,8 @@ Single entry point for the entire chat lifecycle of allocation conversations:
   (narrate / educate / counterfactual_explore / clarify / recompute_full /
    recompute_with_overrides / redirect), then dispatch.
 
-Replaces the asset_allocation_followup + asset_allocation_followup_counterfactual
-split. The engine wrapper compute_allocation_result stays in
-asset_allocation_service.py and is consumed by both this module and the
-standalone HTTP endpoint.
+The engine wrapper compute_allocation_result lives in ``service.py`` (sibling
+module) and is consumed by both this module and the standalone HTTP endpoint.
 """
 
 from __future__ import annotations
@@ -25,12 +23,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
-from app.services.ai_bridge.asset_allocation_service import (
+from app.services.ai_bridge.asset_allocation.service import (
     compute_allocation_result,
     format_allocation_chat_brief,
 )
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
-from app.services.ai_bridge.ailax_trace import trace_line
+from app.services.ai_bridge.common import trace_line
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 
 logger = logging.getLogger(__name__)
@@ -72,7 +70,7 @@ class ChatAction(BaseModel):
 # ---------------------------------------------------------------------------
 
 # Maps ChatAction.overrides keys → transient User attribute names that
-# goal_allocation_input_builder reads.
+# input_builder reads.
 _OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
     "effective_risk_score":      "_chat_risk_score_override",
     "total_corpus":              "_chat_total_corpus_override",

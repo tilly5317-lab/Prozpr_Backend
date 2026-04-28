@@ -186,7 +186,7 @@ def build_goal_allocation_input_for_user(
     )
 
     # Counterfactual override path: chat-only, transient attributes set by
-    # asset_allocation_chat. Each one overrides a specific AllocationInput field.
+    # asset_allocation/chat.py. Each one overrides a specific AllocationInput field.
     _risk_override = getattr(user, "_chat_risk_score_override", None)
     if _risk_override is not None:
         effective_risk_score = _clamp_score(float(_risk_override))

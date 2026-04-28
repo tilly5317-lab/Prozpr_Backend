@@ -8,7 +8,7 @@ import uuid
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.ai_bridge import asset_allocation_chat as mod
+from app.services.ai_bridge.asset_allocation import chat as mod
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 

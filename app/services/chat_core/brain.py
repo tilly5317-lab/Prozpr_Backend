@@ -10,7 +10,6 @@ import asyncio
 import logging
 import time
 import uuid
-from dataclasses import dataclass
 
 import httpx
 
@@ -21,27 +20,17 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.ailax_flow import build_ailax_spine, detect_spine_mode
-from app.services.ai_bridge.ailax_trace import trace_line, trace_response_preview
+from app.services.ai_bridge.common import trace_line, trace_response_preview
 from app.services.chat_core.turn_context import build_turn_context, TurnContext
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
 logger = logging.getLogger(__name__)
 
-_PORTFOLIO_OPTIM_FALLBACK_TRIGGERS = (
-    "portfolio",
-    "allocation",
-    "rebalance",
-    "rebalanc",
-    "review my portfolio",
-    "optimi",
-    "asset mix",
+_CLASSIFIER_FAILURE_MESSAGE = (
+    "I can help with that, but there was a temporary processing issue.\n\n"
+    "**Justification**\n"
+    "- Intent classification is currently unavailable, so I returned a safe fallback response."
 )
-
-
-def _looks_like_portfolio_optimisation(text: str) -> bool:
-    t = text.lower()
-    return any(tok in t for tok in _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS)
 
 
 def _is_llm_auth_failure(exc: BaseException) -> bool:
@@ -54,16 +43,6 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
         "401" in msg
         and ("unauthorized" in msg or "invalid x-api-key" in msg or "authentication_error" in msg)
     ) or ("invalid x-api-key" in msg)
-
-
-@dataclass
-class _ClassifierFailureOutcome:
-    content: str
-    intent: str | None = None
-    intent_confidence: float | None = None
-    intent_reasoning: str | None = None
-    ideal_allocation_rebalancing_id: uuid.UUID | None = None
-    ideal_allocation_snapshot_id: uuid.UUID | None = None
 
 
 class ChatBrain:
@@ -141,7 +120,8 @@ class ChatBrain:
 
             if intent_value in ("portfolio_optimisation", "goal_planning"):
                 # Local imports — chat handler self-registers via @register at import time.
-                from app.services.ai_bridge import asset_allocation_chat  # noqa: F401
+                # Local imports — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge.asset_allocation import chat as _aa_chat  # noqa: F401
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
                 flow.append("dispatch_chat → asset_allocation_chat")
                 trace_line("next module: chat_dispatcher → asset_allocation_chat")
@@ -188,16 +168,7 @@ class ChatBrain:
                 logger.exception("ChatBrain turn failed session=%s: %s", sid, exc)
             flow.append(f"classifier or routing error: {exc!s}")
             trace_line(f"ChatBrain exception before recovery: {exc!s}")
-            recovery = await self._answer_after_classifier_failure(turn, flow)
-            if recovery.intent is not None:
-                intent_value = recovery.intent
-                intent_confidence = recovery.intent_confidence
-                intent_reasoning = recovery.intent_reasoning
-            return await finalize(
-                recovery.content,
-                ideal_allocation_rebalancing_id=recovery.ideal_allocation_rebalancing_id,
-                ideal_allocation_snapshot_id=recovery.ideal_allocation_snapshot_id,
-            )
+            return await finalize(_CLASSIFIER_FAILURE_MESSAGE)
 
     async def _answer_general_market(self, turn: ChatTurnInput, classification, flow: list[str]) -> str:
         flow.append("running market commentary module (macro context)")
@@ -246,47 +217,3 @@ class ChatBrain:
             trace_response_preview("general_chat_service response (fallback)", reply)
             return reply
 
-    async def _answer_after_classifier_failure(
-        self, turn: ChatTurnInput, flow: list[str]
-    ) -> _ClassifierFailureOutcome:
-        if _looks_like_portfolio_optimisation(turn.user_question):
-            try:
-                mode = detect_spine_mode(turn.user_question)
-                flow.append("keyword fallback → running allocation engine")
-                trace_line(
-                    f"classifier failure recovery → keyword fallback → build_ailax_spine (mode={mode.value})"
-                )
-                spine = await build_ailax_spine(
-                    turn.user_ctx,
-                    turn.user_question,
-                    mode,
-                    db=turn.db,
-                    persist_recommendation=turn.db is not None,
-                    acting_user_id=turn.effective_user_id,
-                    chat_session_id=turn.session_id,
-                )
-                if spine.text:
-                    return _ClassifierFailureOutcome(
-                        content=spine.text,
-                        intent="portfolio_optimisation",
-                        intent_confidence=0.5,
-                        intent_reasoning="Keyword fallback route used due classifier failure.",
-                        ideal_allocation_rebalancing_id=spine.rebalancing_recommendation_id,
-                        ideal_allocation_snapshot_id=spine.portfolio_allocation_snapshot_id,
-                    )
-            except Exception:
-                logger.exception("Portfolio fallback failed for session %s", turn.session_id)
-            return _ClassifierFailureOutcome(
-                content=(
-                    "I can review your portfolio, but the optimisation engine is temporarily unavailable.\n\n"
-                    "**Justification**\n"
-                    "- The classifier failed and fallback optimisation also failed in this request."
-                ),
-            )
-        return _ClassifierFailureOutcome(
-            content=(
-                "I can help with that, but there was a temporary processing issue.\n\n"
-                "**Justification**\n"
-                "- Intent classification is currently unavailable, so I returned a safe fallback response."
-            ),
-        )

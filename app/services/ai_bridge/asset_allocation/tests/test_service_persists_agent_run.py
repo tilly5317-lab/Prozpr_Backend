@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.ai_bridge import asset_allocation_service as svc
+from app.services.ai_bridge.asset_allocation import service as svc
 
 
 class _FakeUser:
@@ -45,7 +45,7 @@ class AllocationPersistsAgentRunTests(unittest.TestCase):
              patch.object(svc.asyncio, "to_thread",
                           new=AsyncMock(return_value=({"step7_output": {}}, output))), \
              patch.object(svc, "record_ai_module_run", side_effect=fake_record), \
-             patch("app.services.ai_bridge.asset_allocation_service.get_settings") as gs:
+             patch("app.services.ai_bridge.asset_allocation.service.get_settings") as gs:
             gs.return_value.get_anthropic_asset_allocation_key.return_value = "sk-fake"
 
             db = MagicMock()
@@ -79,7 +79,7 @@ class AllocationPersistsAgentRunTests(unittest.TestCase):
              patch.object(svc.asyncio, "to_thread",
                           new=AsyncMock(return_value=({"step7_output": {}}, output))), \
              patch.object(svc, "record_ai_module_run", side_effect=boom), \
-             patch("app.services.ai_bridge.asset_allocation_service.get_settings") as gs:
+             patch("app.services.ai_bridge.asset_allocation.service.get_settings") as gs:
             gs.return_value.get_anthropic_asset_allocation_key.return_value = "sk-fake"
 
             db = MagicMock()
