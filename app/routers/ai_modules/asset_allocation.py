@@ -13,7 +13,7 @@ from app.database import get_db
 from app.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.models.user import User
 from app.schemas.ai_modules import AssetAllocationRequest, AssetAllocationResponse
-from app.services.ai_bridge.asset_allocation_service import generate_portfolio_optimisation_response
+from app.services.ai_bridge.asset_allocation import generate_portfolio_optimisation_response
 
 router = APIRouter(prefix="/asset-allocation", tags=["AI — Asset allocation"])
 

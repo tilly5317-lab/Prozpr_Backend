@@ -11,15 +11,19 @@ and formats the reply for chat.
 - `market_commentary_service.py` — `generate_market_commentary`; wraps market commentary agent.
 - `general_chat_service.py` — `generate_general_chat_response`; general-chat reply generator.
 - `portfolio_query_service.py` — `generate_portfolio_query_response`; wraps portfolio query agent.
-- `asset_allocation_service.py` — maps User to `AllocationInput`; `compute_allocation_result`,
-  `format_allocation_chat_brief`.
+- `chat_dispatcher.py` — per-intent chat handler registry (`@register`, `dispatch_chat`).
 - `ailax_flow.py` — `detect_spine_mode`, `build_ailax_spine`; portfolio spine orchestration.
-- `liquidity_gate.py` — `assess_liquidity_for_cash_out`, `format_quick_cash_out_response`;
-  cash-out short-circuit logic.
-- `goal_allocation_input_builder.py` — `build_goal_allocation_input_for_user`; maps ORM
-  goals to allocation DTOs.
 - `ailax_trace.py` — `trace_line`, `trace_response_preview`; debug tracing helpers.
 - `__init__.py` — re-exports bridge entry points consumed by `chat_core`.
+
+## Child packages
+
+- **asset_allocation/** — allocation domain: engine adapter (`service.py`),
+  unified chat handler (`chat.py`), input builder (`input_builder.py`),
+  and `tests/` co-located with the package. Note: `chat.py` is *not*
+  auto-imported by `asset_allocation/__init__.py` (would cycle through
+  `chat_core.turn_context`); callers needing its `@register` side-effect
+  must import it lazily.
 
 ## Entry point
 
@@ -36,18 +40,20 @@ and formats the reply for chat.
 
 ## Tests
 
-- Command: `pytest app/services/ai_bridge/tests/ -v`
-- Key suites: `test_asset_allocation_service.py`, `test_asset_allocation_formatter.py`,
-  `test_goal_allocation_input_builder.py`, `test_allocation_recommendation_persist.py`.
+- Command: `pytest app/services/ai_bridge/ -v` (covers both the shared
+  `tests/` folder and `asset_allocation/tests/`).
+- Domain-specific suites live in `asset_allocation/tests/`:
+  `test_chat.py`, `test_input_builder.py`, `test_service_persists_agent_run.py`.
+- Shared suites in `tests/`: `test_chat_dispatcher.py`,
+  `test_classifier_service_active_intent.py`.
 
 ## Flow
 
 **Allocation spine** (`build_ailax_spine` → `compute_allocation_result`)
 1. Ensure fund view file is present (copy from Reference_files fallback if needed).
-2. Map ORM User to allocation DTOs via `build_goal_allocation_input_for_user`.
+2. Map ORM User to allocation DTOs via `asset_allocation.input_builder.build_goal_allocation_input_for_user`.
 3. Invoke `AllocationOrchestrator` with the mapped DTOs.
-4. Optional liquidity / block message via `liquidity_gate`.
-5. `format_allocation_chat_brief` to produce chat-ready reply.
+4. `asset_allocation.service.format_allocation_chat_brief` to produce chat-ready reply.
 
 ## Don't read
 
