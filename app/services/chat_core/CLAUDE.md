@@ -17,7 +17,7 @@ classifies intent, routes to the appropriate AI bridge, and returns a
 ## Depends on
 
 - `app/services/ai_bridge/` — all intent branches (intent classification, general chat,
-  market commentary, portfolio query, allocation spine, liquidity gate).
+  market commentary, portfolio query, allocation spine).
 - `app/services/ai_module_telemetry` — `log_chat_turn_flow_summary` per-turn telemetry rows.
 
 ## Flow
@@ -29,8 +29,7 @@ classifies intent, routes to the appropriate AI bridge, and returns a
    then `generate_general_chat_response`; `portfolio_optimisation` / `goal_planning`
    → portfolio path; `portfolio_query` → `generate_portfolio_query_response` from
    loaded User; else general chat.
-4. Portfolio path: `detect_spine_mode`; cash-out short-circuits via `assess_liquidity_for_cash_out`
-   / `format_quick_cash_out_response`, otherwise `build_ailax_spine` →
+4. Portfolio path: `detect_spine_mode`, then `build_ailax_spine` →
    `compute_allocation_result` → `format_allocation_chat_brief`.
 5. On error: keyword fallback or safe message.
 6. `log_chat_turn_flow_summary`; return `ChatBrainResult`.
