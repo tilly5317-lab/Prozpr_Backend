@@ -169,5 +169,31 @@ class CounterfactualPathTests(unittest.TestCase):
         self.assertIn("Profile", text)
 
 
+class ClarifyPathTests(unittest.TestCase):
+
+    def test_clarify_returns_composed_question(self):
+        action = mod.FollowupAction(
+            mode="clarify",
+            clarification_question="What risk score would you like to try?",
+        )
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)):
+            text = asyncio.run(mod.handle_allocation_followup(
+                _agent_run(), _ctx("I can take more risk."),
+            ))
+        self.assertEqual(text, "What risk score would you like to try?")
+
+    def test_clarify_without_question_uses_fallback(self):
+        action = mod.FollowupAction(mode="clarify", clarification_question=None)
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)):
+            text = asyncio.run(mod.handle_allocation_followup(
+                _agent_run(), _ctx("I want something different"),
+            ))
+        # The fallback is returned (not empty, mentions risk score / amount)
+        self.assertTrue(text)
+        self.assertIn("risk score", text.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

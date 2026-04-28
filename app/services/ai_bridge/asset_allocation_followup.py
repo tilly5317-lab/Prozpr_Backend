@@ -34,13 +34,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class FollowupAction(BaseModel):
-    mode: Literal["narrate", "counterfactual", "redirect_mutation"]
+    mode: Literal["narrate", "counterfactual", "redirect_mutation", "clarify"]
     counterfactual_overrides: Optional[dict[str, Any]] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
+    clarification_question: Optional[str] = Field(
+        default=None,
+        description="When mode='clarify', the question to ask the customer.",
+    )
 
+
+_DEFAULT_CLARIFY_FALLBACK = (
+    "Could you share a bit more — e.g., a specific risk score (1–10), "
+    "fund name, or amount you'd like to consider?"
+)
 
 _DETECT_SYSTEM = """You decide how to handle a follow-up question about a
-previously-shown asset allocation. Return one of three modes:
+previously-shown asset allocation. Return one of four modes:
 
 - "narrate" — the customer is asking for explanation, critique, or
   clarification of the existing plan ("is this too aggressive?",
@@ -50,11 +59,21 @@ previously-shown asset allocation. Return one of three modes:
   this iteration is `effective_risk_score` (1.0–10.0). Set
   `counterfactual_overrides = {"effective_risk_score": <value>}`. Any
   other override request must fall through to "redirect_mutation".
-- "redirect_mutation" — the customer wants to change holdings, swap
-  funds, or update saved profile data ("swap arbitrage for liquid",
-  "exclude my emergency fund"). Set `redirect_reason` to a short
-  description of what they want. The handler will respond with a
-  templated redirect to the Profile UI.
+- "redirect_mutation" — the customer wants to change holdings, swap a
+  specific fund, or update saved profile data ("swap arbitrage for
+  liquid", "exclude my emergency fund"). Mutation requests need a
+  specific instrument or fund name; vague direction signals go to
+  `clarify` instead. Set `redirect_reason` to a short description of
+  what they want. The handler will respond with a templated redirect to
+  the Profile UI.
+- "clarify" — the customer signals a direction but doesn't provide an
+  actionable value ("I can take more risk", "I want to be more
+  conservative", "less debt please"). Compose a concise clarification
+  question in `clarification_question` that asks for the missing value.
+  Reference the customer's current values from the snapshot when possible
+  (e.g., "Your current risk score is 5.5 — would 7 feel right, or higher?").
+  When the customer responds with a specific value next turn, that turn
+  will route to "counterfactual" with the value applied.
 """
 
 
@@ -79,7 +98,7 @@ and offer next steps."""
 async def handle_allocation_followup(
     agent_run: AgentRunRecord, ctx: TurnContext,
 ) -> str:
-    """Decide narrate / counterfactual / redirect, then dispatch."""
+    """Decide narrate / counterfactual / clarify / redirect, then dispatch."""
     action = await _detect_action(agent_run, ctx)
     logger.info("allocation_followup mode=%s overrides=%s",
                 action.mode, action.counterfactual_overrides)
@@ -93,6 +112,10 @@ async def handle_allocation_followup(
             run_counterfactual,
         )
         return await run_counterfactual(agent_run, ctx, action.counterfactual_overrides or {})
+
+    if action.mode == "clarify":
+        # Single-LLM-call mode: detect_action composed the question directly.
+        return action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
 
     # redirect_mutation (default branch)
     return _format_redirect(action.redirect_reason or "change your plan")
