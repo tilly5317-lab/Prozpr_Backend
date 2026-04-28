@@ -185,13 +185,30 @@ def build_goal_allocation_input_for_user(
         ]
     )
 
-    goals = _map_goals(financial_goals, total_corpus)
+    # Counterfactual override path: chat-only, transient attributes set by
+    # asset_allocation_chat. Each one overrides a specific AllocationInput field.
+    _risk_override = getattr(user, "_chat_risk_score_override", None)
+    if _risk_override is not None:
+        effective_risk_score = _clamp_score(float(_risk_override))
 
-    # Counterfactual override path: chat-only, transient attribute.
-    # When set on the User object, this overrides the saved/derived score.
-    _override = getattr(user, "_chat_risk_score_override", None)
-    if _override is not None:
-        effective_risk_score = _clamp_score(float(_override))
+    _corpus_override = getattr(user, "_chat_total_corpus_override", None)
+    if _corpus_override is not None:
+        total_corpus = float(_corpus_override)
+
+    _income_override = getattr(user, "_chat_annual_income_override", None)
+    if _income_override is not None:
+        annual_income = float(_income_override)
+
+    _expense_override = getattr(user, "_chat_monthly_expense_override", None)
+    if _expense_override is not None:
+        monthly_household_expense = float(_expense_override)
+
+    _emergency_override = getattr(user, "_chat_emergency_fund_needed_override", None)
+    _tax_regime_override = getattr(user, "_chat_tax_regime_override", None)
+
+    # Goals are mapped AFTER the corpus override so synthesized-default goals
+    # (used when the user has no explicit goals) reflect the overridden corpus.
+    goals = _map_goals(financial_goals, total_corpus)
 
     alloc_input = AllocationInput(
         effective_risk_score=effective_risk_score,
@@ -203,9 +220,9 @@ def build_goal_allocation_input_for_user(
         shortfall_amount=shortfall_amount,
         total_corpus=max(total_corpus, 0.0),
         monthly_household_expense=max(monthly_household_expense, 0.0),
-        tax_regime="new",
+        tax_regime=_tax_regime_override if _tax_regime_override in ("old", "new") else "new",
         section_80c_utilized=0.0,
-        emergency_fund_needed=False,
+        emergency_fund_needed=bool(_emergency_override) if _emergency_override is not None else False,
         primary_income_from_portfolio=False,
         intergenerational_transfer=False,
         effective_tax_rate=max(0.0, min(100.0, effective_tax_rate)),
