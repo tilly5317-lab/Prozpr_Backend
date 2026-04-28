@@ -119,6 +119,9 @@ A message is a **follow-up** when:
 - It asks a clarifying or deepening question on the same subject
 - It would be meaningless or ambiguous without the conversation history
 - It continues the same decision-making flow (e.g. narrowing down fund choices after an allocation discussion)
+- It expresses a personal preference about the prior allocation
+  ("I can take more risk", "I want more equity", "this feels too safe")
+  — these continue the same decision flow.
 
 A message is a **new topic** when:
 - It introduces a clearly different subject area
@@ -161,6 +164,10 @@ asking the agent to recompute with new inputs:
 - Asks for re-execution ("rerun", "redo", "recompute", "let's do this again")
 
 Set `wants_fresh_recomputation = false` for:
+- Vague preference statements without a specific new value ("I can take
+  more risk", "I want to be more conservative", "lean more aggressive",
+  "less debt"). These signal direction but no actionable input — the
+  followup handler will ask for the missing value via the clarify mode.
 - Explanation, critique, or "why" questions ("is this too aggressive?",
   "why so much arbitrage?", "what does flexi-cap mean here?")
 - Counterfactual exploration ("what if my risk score were 7?") — these are

@@ -398,6 +398,23 @@ class WantsFreshRecomputationFieldTests(unittest.TestCase):
         ))
         self.assertTrue(result.wants_fresh_recomputation)
 
+    def test_false_for_vague_preference_signal(self):
+        """'I can take more risk' has no specific value — should not trigger recompute."""
+        from intent_classifier import IntentClassifier, ClassificationInput
+        clf = IntentClassifier(api_key="sk-fake")
+        clf.chain = MagicMock()
+        clf.chain.invoke.return_value = _FakeLLMOut(
+            intent="portfolio_optimisation", confidence=0.9,
+            is_follow_up=True, reasoning="vague preference, no specific value",
+            wants_fresh_recomputation=False,
+        )
+
+        result = clf.classify(ClassificationInput(
+            customer_question="I can take more risk.",
+        ))
+        self.assertFalse(result.wants_fresh_recomputation)
+        self.assertTrue(result.is_follow_up)
+
 
 if __name__ == "__main__":
     unittest.main()
