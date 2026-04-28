@@ -56,5 +56,38 @@ class ChatDispatcherTests(unittest.TestCase):
         self.assertIsNone(ChatHandlerResult(text="x").rebalancing_recommendation_id)
 
 
+class RegisterImportSideEffectTests(unittest.TestCase):
+    """Importing asset_allocation_chat must populate the dispatcher registry.
+
+    Locks the import-as-side-effect contract: removing the @register decorators
+    on handle() OR removing the brain.py
+    `from app.services.ai_bridge import asset_allocation_chat` import would
+    silently break portfolio chat. Without this test, a future cleanup of the
+    noqa: F401 import in brain.py would cause every portfolio turn to fall
+    through to the safe-fallback canned message with no test signal.
+    """
+
+    def test_importing_asset_allocation_chat_registers_both_intents(self):
+        import importlib
+        from app.services.ai_bridge import chat_dispatcher as cd
+
+        # Clear and force a fresh import so the @register decorators run again.
+        cd._HANDLERS.clear()
+        from app.services.ai_bridge import asset_allocation_chat
+        importlib.reload(asset_allocation_chat)
+
+        self.assertIn("portfolio_optimisation", cd._HANDLERS)
+        self.assertIn("goal_planning", cd._HANDLERS)
+        # Both intents resolve to the same public handler.
+        self.assertIs(
+            cd._HANDLERS["portfolio_optimisation"],
+            asset_allocation_chat.handle,
+        )
+        self.assertIs(
+            cd._HANDLERS["goal_planning"],
+            asset_allocation_chat.handle,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
