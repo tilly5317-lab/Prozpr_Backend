@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services.ai_bridge.ailax_trace import trace_line
+from app.services.ai_bridge.common import trace_line
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.ai_module_telemetry import record_ai_module_run
 
@@ -27,7 +27,7 @@ from goal_based_allocation_pydantic.models import AllocationInput, GoalAllocatio
 from goal_based_allocation_pydantic.pipeline import run_allocation_with_state
 from goal_based_allocation_pydantic.steps._rationale_llm import generate_rationales
 
-from app.services.ai_bridge.goal_allocation_input_builder import (
+from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
 )
 

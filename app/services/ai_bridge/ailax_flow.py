@@ -14,7 +14,7 @@ from enum import Enum
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.services.ai_bridge.asset_allocation_service import (
+from app.services.ai_bridge.asset_allocation import (
     compute_allocation_result,
     format_allocation_chat_brief,
 )

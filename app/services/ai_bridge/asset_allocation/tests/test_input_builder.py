@@ -4,7 +4,7 @@ import unittest
 from datetime import date
 from unittest.mock import MagicMock
 
-from app.services.ai_bridge.goal_allocation_input_builder import (
+from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
 )
 

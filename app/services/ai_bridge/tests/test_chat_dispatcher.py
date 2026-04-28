@@ -73,7 +73,7 @@ class RegisterImportSideEffectTests(unittest.TestCase):
 
         # Clear and force a fresh import so the @register decorators run again.
         cd._HANDLERS.clear()
-        from app.services.ai_bridge import asset_allocation_chat
+        from app.services.ai_bridge.asset_allocation import chat as asset_allocation_chat
         importlib.reload(asset_allocation_chat)
 
         self.assertIn("portfolio_optimisation", cd._HANDLERS)
