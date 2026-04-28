@@ -40,6 +40,8 @@ class ChatAiModuleRun(Base):
     spine_mode: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     extra: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    input_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    output_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

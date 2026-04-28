@@ -17,8 +17,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services.ai_bridge.ailax_trace import trace_line
+from app.services.ai_bridge.common import trace_line
 from app.services.ai_bridge.common import ensure_ai_agents_path
+from app.services.ai_module_telemetry import record_ai_module_run
 
 ensure_ai_agents_path()
 
@@ -26,7 +27,7 @@ from goal_based_allocation_pydantic.models import AllocationInput, GoalAllocatio
 from goal_based_allocation_pydantic.pipeline import run_allocation_with_state
 from goal_based_allocation_pydantic.steps._rationale_llm import generate_rationales
 
-from app.services.ai_bridge.goal_allocation_input_builder import (
+from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
 )
 
@@ -319,6 +320,31 @@ async def compute_allocation_result(
             spine_mode=spine_mode,
         )
         trace_line(f"persisted: rebalancing_id={reb_id} snapshot_id={snap_id}")
+
+    # Persist AgentRun row for follow-up reasoning. Does not replace
+    # allocation_recommendation_persist; this captures structured I/O for chat.
+    if db is not None and acting_user_id is not None and output is not None:
+        try:
+            await record_ai_module_run(
+                db,
+                user_id=acting_user_id,
+                session_id=chat_session_id,
+                module="goal_based_allocation",
+                reason="full_pipeline_run",
+                intent_detected=None,
+                spine_mode=spine_mode,
+                input_payload=alloc_input.model_dump(mode="json"),
+                output_payload={
+                    "allocation_result": output.model_dump(mode="json"),
+                    "correlation_ids": {
+                        "snapshot_id": str(snap_id) if snap_id else None,
+                        "rebalancing_recommendation_id": str(reb_id) if reb_id else None,
+                    },
+                },
+                emit_standard_log=False,
+            )
+        except Exception as exc:
+            logger.warning("AgentRun persistence skipped (non-fatal): %s", exc)
 
     return AllocationRunOutcome(
         result=output,

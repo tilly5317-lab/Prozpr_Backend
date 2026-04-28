@@ -1,6 +1,6 @@
 """Chat core — `__init__.py`.
 
-Orchestrates a single user turn: intent classification, branch routing (market, portfolio query, portfolio-style spine with liquidity gate and allocation), optional telemetry, and assistant text. Depends on ``services.ai_bridge`` and preloaded ORM user context from ``get_ai_user_context``.
+Orchestrates a single user turn: intent classification, branch routing (market, portfolio query, portfolio-style spine with allocation), optional telemetry, and assistant text. Depends on ``services.ai_bridge`` and preloaded ORM user context from ``get_ai_user_context``.
 """
 
 
