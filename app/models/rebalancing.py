@@ -47,7 +47,6 @@ class RebalancingRecommendation(Base):
     recommendation_type: Mapped[RecommendationType] = mapped_column(
         SAEnum(RecommendationType, name="recommendation_type_enum", create_constraint=True),
         nullable=False,
-        index=True,
     )
     source_allocation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
