@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_current_user
+from app.models.profile import PersonalFinanceProfile
 from app.models.user import User
 from app.schemas.auth import (
     CurrentUserResponse,
@@ -29,12 +30,53 @@ from app.utils.security import create_access_token, hash_password, verify_passwo
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
+_INLINE_ONBOARDING_FIELDS = (
+    "date_of_birth",
+    "annual_income_min",
+    "annual_income_max",
+    "annual_expense_min",
+    "annual_expense_max",
+)
+
+
+def _extract_inline_onboarding(payload: SignUpRequest | LoginRequest) -> dict[str, object]:
+    payload_data = payload.model_dump(exclude_unset=True)
+    return {k: payload_data[k] for k in _INLINE_ONBOARDING_FIELDS if k in payload_data}
+
+
+async def _save_inline_onboarding_profile(
+    db: AsyncSession, user: User, payload: SignUpRequest | LoginRequest
+) -> None:
+    inline_data = _extract_inline_onboarding(payload)
+    if not inline_data:
+        return
+
+    date_of_birth = inline_data.pop("date_of_birth", None)
+    if date_of_birth is not None:
+        user.date_of_birth = date_of_birth
+
+    if not inline_data:
+        return
+
+    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == user.id)
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        profile = PersonalFinanceProfile(user_id=user.id, **inline_data)
+        db.add(profile)
+        return
+
+    for field, value in inline_data.items():
+        setattr(profile, field, value)
+
+
 @router.post("/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED)
 async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     phone = full_phone(payload.country_code, payload.mobile)
     result = await db.execute(select(User).where(User.phone == phone))
     existing = result.scalar_one_or_none()
     if existing:
+        await _save_inline_onboarding_profile(db, existing, payload)
+        await db.commit()
         access_token = create_access_token(existing.id, existing.phone)
         return SignUpResponse(
             user_id=existing.id,
@@ -53,6 +95,7 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(payload.password) if payload.password else None,
     )
     db.add(user)
+    await _save_inline_onboarding_profile(db, user, payload)
     await db.commit()
     await db.refresh(user)
 
@@ -117,7 +160,13 @@ async def token(request: Request, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=LoginResponse)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     phone = full_phone(payload.country_code, payload.mobile)
-    return await _login_with_phone_password(phone, payload.password, db)
+    response = await _login_with_phone_password(phone, payload.password, db)
+    user_stmt = select(User).where(User.id == response.user_id)
+    user = (await db.execute(user_stmt)).scalar_one_or_none()
+    if user:
+        await _save_inline_onboarding_profile(db, user, payload)
+        await db.commit()
+    return response
 
 
 @router.get("/me", response_model=CurrentUserResponse)
