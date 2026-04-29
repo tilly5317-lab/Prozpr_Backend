@@ -406,3 +406,92 @@ async def fixture_user_with_holdings_no_tax_profile(
     )).scalar_one_or_none()
     assert existing is None
     return user
+
+
+# ── Persistence fixtures (Task 7) ────────────────────────────────────────────
+
+
+@pytest.fixture
+def fixture_rebalancing_response():
+    """Minimal, valid ``RebalancingComputeResponse`` for persistence tests."""
+    from datetime import datetime
+
+    from app.services.ai_bridge.common import ensure_ai_agents_path
+
+    ensure_ai_agents_path()
+
+    from Rebalancing.models import (  # type: ignore[import-not-found]
+        KnobSnapshot,
+        RebalancingComputeResponse,
+        RebalancingRunMetadata,
+        RebalancingTotals,
+    )
+
+    return RebalancingComputeResponse(
+        rows=[],
+        subgroups=[],
+        totals=RebalancingTotals(
+            total_buy_inr=Decimal(0),
+            total_sell_inr=Decimal(0),
+            net_cash_flow_inr=Decimal(0),
+            total_stcg_realised=Decimal(0),
+            total_ltcg_realised=Decimal(0),
+            total_stcg_net_off=Decimal(0),
+            total_tax_estimate_inr=Decimal(0),
+            total_exit_load_inr=Decimal(0),
+            unrebalanced_remainder_inr=Decimal(0),
+            rows_count=0,
+            funds_to_buy_count=0,
+            funds_to_sell_count=0,
+            funds_to_exit_count=0,
+            funds_held_count=0,
+        ),
+        metadata=RebalancingRunMetadata(
+            computed_at=datetime(2026, 4, 29, 12, 0, 0),
+            engine_version="test-1.0.0",
+            request_corpus_inr=Decimal(0),
+            knob_snapshot=KnobSnapshot(
+                multi_fund_cap_pct=20.0,
+                others_fund_cap_pct=10.0,
+                rebalance_min_change_pct=0.10,
+                exit_floor_rating=5,
+                ltcg_annual_exemption_inr=Decimal("125000"),
+                stcg_rate_equity_pct=20.0,
+                ltcg_rate_equity_pct=12.5,
+                st_threshold_months_equity=12,
+                st_threshold_months_debt=24,
+                multi_cap_sub_categories=[],
+            ),
+            request_id=uuid.uuid4(),
+        ),
+        trade_list=[],
+    )
+
+
+@pytest_asyncio.fixture
+async def fixture_allocation_row(
+    db_session: AsyncSession, fixture_user_with_dob: User,
+):
+    """Insert a parent ALLOCATION row that REBALANCING_TRADES can FK back to."""
+    from app.models.portfolio import Portfolio
+    from app.models.rebalancing import (
+        RebalancingRecommendation,
+        RebalancingStatus,
+        RecommendationType,
+    )
+
+    portfolio = Portfolio(user_id=fixture_user_with_dob.id, name="Primary", is_primary=True)
+    db_session.add(portfolio)
+    await db_session.flush()
+
+    rec = RebalancingRecommendation(
+        portfolio_id=portfolio.id,
+        recommendation_type=RecommendationType.ALLOCATION,
+        source_allocation_id=None,
+        status=RebalancingStatus.pending,
+        recommendation_data={"goal_allocation_output": {}},
+        reason="Test allocation snapshot",
+    )
+    db_session.add(rec)
+    await db_session.flush()
+    return rec
