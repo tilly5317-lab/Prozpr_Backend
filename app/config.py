@@ -28,10 +28,18 @@ for _env_path in (
     _backend_dir / ".env.example",
 ):
     if _env_path.exists():
-        load_dotenv(_env_path)
+        load_dotenv(_env_path, encoding="utf-8-sig")
         break
 else:
-    load_dotenv(_backend_dir / ".env")
+    load_dotenv(_backend_dir / ".env", encoding="utf-8-sig")
+
+
+def _getenv(name: str, default: str | None = None) -> str | None:
+    """Read env var and tolerate accidental UTF-8 BOM prefix in .env key names."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    return os.getenv(f"\ufeff{name}", default)
 
 
 def _strip_wrapping_quotes(raw: str) -> str:
@@ -82,15 +90,15 @@ def _database_url_from_postgres_env() -> str | None:
     Uses POSTGRES_* (and DB_* aliases). Only used when ``DATABASE_URL`` is unset.
     Requires ``POSTGRES_HOST`` or ``DB_HOST``.
     """
-    host = (os.getenv("POSTGRES_HOST") or os.getenv("DB_HOST") or "").strip()
+    host = (_getenv("POSTGRES_HOST") or _getenv("DB_HOST") or "").strip()
     if not host:
         return None
-    user = (os.getenv("POSTGRES_USER") or os.getenv("DB_USER") or "postgres").strip() or "postgres"
-    password = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASSWORD"))
+    user = (_getenv("POSTGRES_USER") or _getenv("DB_USER") or "postgres").strip() or "postgres"
+    password = _getenv("POSTGRES_PASSWORD", _getenv("DB_PASSWORD"))
     if password is None:
         password = ""
-    database = (os.getenv("POSTGRES_DB") or os.getenv("DB_NAME") or "postgres").strip() or "postgres"
-    port_s = (os.getenv("POSTGRES_PORT") or os.getenv("DB_PORT") or "5432").strip()
+    database = (_getenv("POSTGRES_DB") or _getenv("DB_NAME") or "postgres").strip() or "postgres"
+    port_s = (_getenv("POSTGRES_PORT") or _getenv("DB_PORT") or "5432").strip()
     try:
         port = int(port_s)
     except ValueError:
@@ -118,6 +126,25 @@ def _strip_pgbouncer_from_url(url: str) -> str:
     )
 
 
+def _normalize_asyncpg_ssl_query(url: str) -> str:
+    """Normalize SSL query params for asyncpg URLs."""
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    ssl_values = qs.get("ssl")
+    if ssl_values:
+        v = (ssl_values[-1] or "").strip().lower()
+        if v in {"true", "1", "yes", "on", "require"}:
+            qs["ssl"] = ["require"]
+        elif v in {"false", "0", "no", "off", "disable"}:
+            qs["ssl"] = ["disable"]
+    new_query = urlencode(qs, doseq=True)
+    return urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
+    )
+
+
 # Production site + local dev. Override with ALLOWED_ORIGINS in .env; use * or 0.0.0.0/0 to allow any Origin.
 _DEFAULT_ALLOWED_ORIGINS = (
     "https://prozpr.in,http://prozpr.in,https://www.prozpr.in,http://www.prozpr.in,"
@@ -131,7 +158,7 @@ def _parse_cors_origins_env() -> tuple[list[str], bool]:
     ``0.0.0.0/0`` is not a browser Origin (it is a firewall CIDR); we treat it like ``*``
     and use ``allow_origin_regex`` in FastAPI so ``allow_credentials=True`` still works.
     """
-    raw = _strip_wrapping_quotes(os.getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS))
+    raw = _strip_wrapping_quotes(_getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS) or "")
     token = raw.strip().lower()
     if token in ("*", "0.0.0.0/0", "any"):
         return [], True
@@ -152,13 +179,13 @@ class Settings:
     @staticmethod
     def get_database_url() -> str:
         """Resolve DB URL: ``DATABASE_URL`` wins if set; otherwise build from ``POSTGRES_*`` / ``DB_*``."""
-        url = _strip_wrapping_quotes(os.getenv("DATABASE_URL") or "")
+        url = _strip_wrapping_quotes(_getenv("DATABASE_URL") or "")
         # Common typo: DATABASE_URL=DATABASE_URL=postgresql://...
         if url.startswith("DATABASE_URL="):
             url = url.removeprefix("DATABASE_URL=").strip()
         if not url:
-            load_dotenv(_backend_dir / ".env")
-            url = _strip_wrapping_quotes(os.getenv("DATABASE_URL") or "")
+            load_dotenv(_backend_dir / ".env", encoding="utf-8-sig")
+            url = _strip_wrapping_quotes(_getenv("DATABASE_URL") or "")
             if url.startswith("DATABASE_URL="):
                 url = url.removeprefix("DATABASE_URL=").strip()
         if not url:
@@ -174,6 +201,7 @@ class Settings:
         url = _ensure_async_sqlite_scheme(url)
         url = _normalize_database_url(url)
         url = _strip_pgbouncer_from_url(url)
+        url = _normalize_asyncpg_ssl_query(url)
         try:
             make_url(url)
         except Exception as exc:
@@ -187,7 +215,7 @@ class Settings:
 
     @staticmethod
     def get_jwt_secret() -> str:
-        secret = os.getenv("JWT_SECRET", "").strip()
+        secret = (_getenv("JWT_SECRET", "") or "").strip()
         if len(secret) >= 32:
             return secret
         if secret:
@@ -200,7 +228,7 @@ class Settings:
 
     @staticmethod
     def get_encryption_key() -> str:
-        key = (os.getenv("ENCRYPTION_KEY") or "").strip()
+        key = (_getenv("ENCRYPTION_KEY") or "").strip()
         if not key:
             raise RuntimeError(
                 "ENCRYPTION_KEY is not set. Generate one with: "
@@ -212,7 +240,7 @@ class Settings:
     def _anthropic_key(*candidates: str) -> str | None:
         """First non-empty env value among candidate names."""
         for name in candidates:
-            v = (os.getenv(name) or "").strip()
+            v = (_getenv(name) or "").strip()
             if v:
                 return v
         return None
@@ -254,11 +282,11 @@ class Settings:
     @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
-        v = (os.getenv("OPENAI_API_KEY") or "").strip()
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
         if v:
             return v
-        load_dotenv(_backend_dir / ".env", override=False)
-        v = (os.getenv("OPENAI_API_KEY") or "").strip()
+        load_dotenv(_backend_dir / ".env", override=False, encoding="utf-8-sig")
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
         return v or None
 
 
