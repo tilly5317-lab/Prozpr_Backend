@@ -34,7 +34,7 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
     swapping the CSV in tests), call ``get_fund_ranking.cache_clear()``.
     """
     by_sg: dict[str, list[FundRankRow]] = defaultdict(list)
-    with open(_CSV_PATH, newline="") as f:
+    with open(_CSV_PATH, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             by_sg[row["asset_subgroup"]].append(FundRankRow(
                 asset_subgroup=row["asset_subgroup"],
