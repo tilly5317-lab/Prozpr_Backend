@@ -45,7 +45,12 @@ class RebalancingRecommendation(Base):
         UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE")
     )
     recommendation_type: Mapped[RecommendationType] = mapped_column(
-        SAEnum(RecommendationType, name="recommendation_type_enum", create_constraint=True),
+        SAEnum(
+            RecommendationType,
+            name="recommendation_type_enum",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
     )
     source_allocation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -54,7 +59,12 @@ class RebalancingRecommendation(Base):
         nullable=True,
     )
     status: Mapped[RebalancingStatus] = mapped_column(
-        SAEnum(RebalancingStatus, name="rebalancing_status_enum", create_constraint=True),
+        SAEnum(
+            RebalancingStatus,
+            name="rebalancing_status_enum",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         default=RebalancingStatus.pending,
     )
     recommendation_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
