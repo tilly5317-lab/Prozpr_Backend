@@ -10,6 +10,7 @@ class Intent(str, Enum):
     STOCK_ADVICE           = "stock_advice"
     PORTFOLIO_QUERY        = "portfolio_query"
     GENERAL_MARKET_QUERY   = "general_market_query"
+    REBALANCING            = "rebalancing"
     OUT_OF_SCOPE           = "out_of_scope"
 
 

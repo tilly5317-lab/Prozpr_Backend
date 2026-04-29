@@ -103,7 +103,25 @@ Key distinction from portfolio_optimisation: `portfolio_optimisation` requires a
 
 ---
 
-### 6. out_of_scope
+### 6. rebalancing
+The customer wants the **trades to execute** to align their current holdings with their ideal allocation — a buy/sell list, exit decisions, or tax-aware sequencing of moves. This is distinct from `portfolio_optimisation`, which answers "what should my allocation be"; `rebalancing` answers **"how do I get there"** — the actionable list of switches, redemptions, and purchases.
+
+Triggers when the customer is asking:
+- For the specific trades, switches, or redemptions to bring their portfolio in line with the plan
+- For a buy/sell list, exit list, or tax-aware sequencing of transactions
+- "How do I move from my current portfolio to the recommended one?"
+- To rebalance / "do the rebalancing" once the ideal allocation is already understood
+
+Example questions:
+- "Rebalance my portfolio."
+- "What trades should I make to align with my plan?"
+- "Show me what to buy and sell to fix my portfolio."
+
+Key distinction from portfolio_optimisation: `portfolio_optimisation` is the **target** ("what should my allocation be?", "should I add midcap?"). `rebalancing` is the **path** ("what trades take me from where I am to where I should be?"). If the customer hasn't yet settled on the target, route to `portfolio_optimisation`; once they ask for the move-list, route to `rebalancing`.
+
+---
+
+### 7. out_of_scope
 The question does not fit any of the categories above.
 
 This includes: insurance queries, tax-specific advice, crypto, legal or estate planning queries, banking product questions, or anything else Prozper does not currently handle.
@@ -147,6 +165,7 @@ If there is no conversation history **and** no active intent, always set `is_fol
 - The clearest distinction: portfolio_query = "tell me what I have", portfolio_optimisation = "tell me what I should do with MY money/portfolio", general_market_query = "tell me about the market (including whether a segment looks attractive)".
 - Generic "good time to invest in <segment>?" questions (no reference to the customer's own portfolio, money, or situation) go to `general_market_query` — they are answerable from market commentary. Only route to `portfolio_optimisation` when the question has a personal hook (mentions their portfolio, a specific amount of their money, their SIP, or their allocation).
 - Direct stock pick questions (buy/sell a named company's shares) always go to `stock_advice`, not `portfolio_optimisation`.
+- Trade-list / "execute the rebalance" questions (give me the buy/sell list, what trades should I make, rebalance my portfolio) go to `rebalancing`, not `portfolio_optimisation`. `portfolio_optimisation` is for deciding the target allocation; `rebalancing` is for producing the trades that get there.
 - If conversation history is provided, use it to resolve ambiguous follow-up questions (e.g. "what about gold?" after a portfolio optimisation discussion → portfolio_optimisation).
 - Always return a confidence score between 0.0 and 1.0.
 - Keep reasoning concise — one or two sentences explaining why you chose that intent.
