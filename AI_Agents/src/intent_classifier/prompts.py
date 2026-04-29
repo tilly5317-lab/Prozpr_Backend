@@ -119,6 +119,9 @@ A message is a **follow-up** when:
 - It asks a clarifying or deepening question on the same subject
 - It would be meaningless or ambiguous without the conversation history
 - It continues the same decision-making flow (e.g. narrowing down fund choices after an allocation discussion)
+- It expresses a personal preference about the prior allocation
+  ("I can take more risk", "I want more equity", "this feels too safe")
+  — these continue the same decision flow.
 
 A message is a **new topic** when:
 - It introduces a clearly different subject area
@@ -147,6 +150,7 @@ If there is no conversation history **and** no active intent, always set `is_fol
 - If conversation history is provided, use it to resolve ambiguous follow-up questions (e.g. "what about gold?" after a portfolio optimisation discussion → portfolio_optimisation).
 - Always return a confidence score between 0.0 and 1.0.
 - Keep reasoning concise — one or two sentences explaining why you chose that intent.
+
 """
 
 OUT_OF_SCOPE_MESSAGE = (
