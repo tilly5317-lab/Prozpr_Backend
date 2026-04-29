@@ -1,6 +1,11 @@
 """SQLAlchemy ORM model — `rebalancing.py`.
 
-Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
+Holds two row kinds, distinguished by ``recommendation_type``:
+- ``ALLOCATION`` rows — goal-based asset allocation outputs (legacy + cache).
+- ``REBALANCING_TRADES`` rows — trade-list outputs from the rebalancing engine.
+
+A trade-list row references the allocation row it consumed via
+``source_allocation_id`` (audit + cache lookup).
 """
 
 
@@ -25,12 +30,12 @@ class RebalancingStatus(str, enum.Enum):
     rejected = "rejected"
 
 
+class RecommendationType(str, enum.Enum):
+    ALLOCATION = "allocation"
+    REBALANCING_TRADES = "rebalancing_trades"
+
+
 class RebalancingRecommendation(Base):
-    """Action-layer record: proposed rebalance plan and lifecycle status.
-
-    Recommendations are not source-of-truth for portfolio state.
-    """
-
     __tablename__ = "rebalancing_recommendations"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -39,7 +44,16 @@ class RebalancingRecommendation(Base):
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE")
     )
-
+    recommendation_type: Mapped[RecommendationType] = mapped_column(
+        SAEnum(RecommendationType, name="recommendation_type_enum", create_constraint=True),
+        nullable=False,
+        index=True,
+    )
+    source_allocation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("rebalancing_recommendations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[RebalancingStatus] = mapped_column(
         SAEnum(RebalancingStatus, name="rebalancing_status_enum", create_constraint=True),
         default=RebalancingStatus.pending,

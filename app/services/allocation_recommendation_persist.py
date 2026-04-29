@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf.enums import PortfolioSnapshotKind
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
-from app.models.rebalancing import RebalancingRecommendation, RebalancingStatus
+from app.models.rebalancing import (
+    RebalancingRecommendation,
+    RebalancingStatus,
+    RecommendationType,
+)
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.portfolio_service import get_or_create_primary_portfolio
 
@@ -67,6 +71,7 @@ async def persist_goal_allocation_recommendation(
     rec = RebalancingRecommendation(
         portfolio_id=portfolio.id,
         status=RebalancingStatus.pending,
+        recommendation_type=RecommendationType.ALLOCATION,
         recommendation_data={
             "source": "goal_based_allocation_pydantic",
             "goal_allocation_output": payload,
