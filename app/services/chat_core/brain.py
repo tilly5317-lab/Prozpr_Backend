@@ -132,6 +132,19 @@ class ChatBrain:
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
                 )
 
+            if intent_value == "rebalancing":
+                # Local import — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge.rebalancing import chat as _rb_chat  # noqa: F401
+                from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+                flow.append("dispatch_chat → rebalancing_chat")
+                trace_line("next module: chat_dispatcher → rebalancing_chat")
+                result = await dispatch_chat(intent_value, turn_context)
+                return await finalize(
+                    result.text,
+                    ideal_allocation_snapshot_id=result.snapshot_id,
+                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                )
+
             if intent_value == "portfolio_query":
                 trace_line("next module: portfolio_query → app.services.ai_bridge.portfolio_query_service")
                 flow.append(
