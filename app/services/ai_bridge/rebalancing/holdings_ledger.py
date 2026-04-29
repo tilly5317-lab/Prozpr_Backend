@@ -6,6 +6,10 @@ reinvest are NOT yet handled in v1 — extend if needed.
 The rebalancing engine works in ISINs but ``MfTransaction`` is keyed by
 ``scheme_code``, so we resolve ``scheme_code → isin`` via the most recent
 non-null ``MfNavHistory.isin`` for that scheme.
+
+Known limitation: if a scheme's ISIN was reassigned over time (rare but
+possible), historical lots acquired under the previous ISIN are still
+attributed to the latest ISIN. Acceptable for v1; revisit if it surfaces.
 """
 
 from __future__ import annotations
