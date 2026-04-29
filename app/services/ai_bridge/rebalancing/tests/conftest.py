@@ -495,3 +495,143 @@ async def fixture_allocation_row(
     db_session.add(rec)
     await db_session.flush()
     return rec
+
+
+# ── Service fixtures (Task 9) ────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def fixture_user_no_dob(db_session: AsyncSession) -> User:
+    """User without a date_of_birth set."""
+    suffix = uuid.uuid4().hex[:8]
+    user = User(
+        id=uuid.uuid4(),
+        email=f"rebal_no_dob_{suffix}@example.com",
+        country_code="+91",
+        mobile="9999999999",
+        phone=f"+91-9999{suffix}",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+@pytest_asyncio.fixture
+async def fixture_user_with_dob_no_holdings(db_session: AsyncSession) -> User:
+    """User with date_of_birth but no MfTransaction rows."""
+    suffix = uuid.uuid4().hex[:8]
+    user = User(
+        id=uuid.uuid4(),
+        email=f"rebal_no_holdings_{suffix}@example.com",
+        country_code="+91",
+        mobile="9999999999",
+        phone=f"+91-9999{suffix}",
+        date_of_birth=date(1990, 1, 1),
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+def _serialised_one_subgroup_allocation() -> dict:
+    """JSON payload mirroring fixture_goal_allocation_output_one_subgroup."""
+    from app.services.ai_bridge.common import ensure_ai_agents_path
+
+    ensure_ai_agents_path()
+
+    from goal_based_allocation_pydantic.models import (  # type: ignore[import-not-found]
+        AggregatedSubgroupRow,
+        ClientSummary,
+        GoalAllocationOutput,
+    )
+
+    output = GoalAllocationOutput(
+        client_summary=ClientSummary(
+            age=35,
+            effective_risk_score=50.0,
+            total_corpus=1000000.0,
+            goals=[],
+        ),
+        bucket_allocations=[],
+        aggregated_subgroups=[
+            AggregatedSubgroupRow(
+                subgroup="low_beta_equities",
+                emergency=0.0,
+                short_term=0.0,
+                medium_term=0.0,
+                long_term=1000000.0,
+                total=1000000.0,
+            )
+        ],
+        future_investments_summary=[],
+        grand_total=1000000.0,
+        all_amounts_in_multiples_of_100=True,
+    )
+    return output.model_dump(mode="json")
+
+
+async def _insert_allocation_row(
+    db: AsyncSession, user_id: uuid.UUID, *, age_days: int,
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.portfolio import Portfolio
+    from app.models.rebalancing import (
+        RebalancingRecommendation,
+        RebalancingStatus,
+        RecommendationType,
+    )
+    from sqlalchemy import select
+
+    portfolio = (await db.execute(
+        select(Portfolio).where(Portfolio.user_id == user_id, Portfolio.is_primary == True)
+    )).scalar_one_or_none()
+    if portfolio is None:
+        portfolio = Portfolio(user_id=user_id, name="Primary", is_primary=True)
+        db.add(portfolio)
+        await db.flush()
+
+    created = datetime.now(timezone.utc) - timedelta(days=age_days)
+    rec = RebalancingRecommendation(
+        portfolio_id=portfolio.id,
+        recommendation_type=RecommendationType.ALLOCATION,
+        source_allocation_id=None,
+        status=RebalancingStatus.pending,
+        recommendation_data={
+            "goal_allocation_output": _serialised_one_subgroup_allocation(),
+        },
+        reason="Test allocation snapshot",
+        created_at=created,
+    )
+    db.add(rec)
+    await db.flush()
+    return rec
+
+
+@pytest_asyncio.fixture
+async def fixture_recent_allocation_row(
+    db_session: AsyncSession, fixture_user_with_holdings: tuple[User, str],
+):
+    user, _ = fixture_user_with_holdings
+    return await _insert_allocation_row(db_session, user.id, age_days=1)
+
+
+@pytest_asyncio.fixture
+async def fixture_old_allocation_row(
+    db_session: AsyncSession, fixture_user_with_holdings: tuple[User, str],
+):
+    user, _ = fixture_user_with_holdings
+    return await _insert_allocation_row(db_session, user.id, age_days=180)
+
+
+@pytest.fixture
+def fixture_goal_allocation_outcome(fixture_goal_allocation_output_one_subgroup):
+    """An ``AllocationRunOutcome`` carrying the canonical one-subgroup output."""
+    from app.services.ai_bridge.asset_allocation.service import AllocationRunOutcome
+
+    return AllocationRunOutcome(
+        result=fixture_goal_allocation_output_one_subgroup,
+        blocking_message=None,
+        rebalancing_recommendation_id=uuid.uuid4(),
+        allocation_snapshot_id=uuid.uuid4(),
+    )
