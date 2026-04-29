@@ -194,3 +194,8 @@ async def test_persists_trades_row_on_success(
         )
     )).scalar_one()
     assert rec.recommendation_type == RecommendationType.REBALANCING_TRADES
+    # Chart picker (default-stubbed) attaches the first candidate to the outcome.
+    assert outcome.chart is not None
+    assert outcome.chart.chart_type in (
+        "category_gap_bar", "planned_donut", "tax_cost_bar",
+    )

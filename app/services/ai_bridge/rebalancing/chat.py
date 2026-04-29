@@ -26,9 +26,11 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             text=outcome.blocking_message,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
+            chart=None,
         )
     return ChatHandlerResult(
         text=outcome.formatted_text or "",
         snapshot_id=outcome.allocation_snapshot_id,
         rebalancing_recommendation_id=outcome.recommendation_id,
+        chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
     )

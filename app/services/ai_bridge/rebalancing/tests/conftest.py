@@ -38,6 +38,22 @@ from app.models.profile.tax_profile import TaxProfile
 from app.models.user import User
 
 
+@pytest.fixture(autouse=True)
+def _no_llm_chart_picker(monkeypatch):
+    """Default-skip the Haiku chart-picker call for all rebalancing tests.
+
+    Replaces ``pick_chart`` with a no-LLM stub that returns the first
+    candidate (or None). Individual picker tests opt back in by importing
+    and patching ``chart_picker._ainvoke`` directly.
+    """
+    async def _stub(candidates, user_question):
+        return candidates[0] if candidates else None
+
+    monkeypatch.setattr(
+        "app.services.ai_bridge.rebalancing.service.pick_chart", _stub,
+    )
+
+
 @pytest_asyncio.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
     """Per-test in-memory SQLite session; engine disposed at teardown."""

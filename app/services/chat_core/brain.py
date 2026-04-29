@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 import uuid
+from typing import Any
 
 import httpx
 
@@ -66,6 +67,7 @@ class ChatBrain:
             *,
             ideal_allocation_rebalancing_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
+            chart: dict[str, Any] | None = None,
         ) -> ChatBrainResult:
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
@@ -85,6 +87,7 @@ class ChatBrain:
                 intent_reasoning=intent_reasoning,
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
+                chart=chart,
             )
 
         try:
@@ -143,6 +146,7 @@ class ChatBrain:
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                    chart=result.chart,
                 )
 
             if intent_value == "portfolio_query":
