@@ -55,6 +55,7 @@ class ChatSendMessageResponse(BaseModel):
     assistant_message: ChatMessageResponse
     ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
+    chart: Optional[dict[str, Any]] = None
 
 
 class UploadStatementResponse(BaseModel):

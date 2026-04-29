@@ -73,3 +73,36 @@ def test_handle_returns_blocking_message(monkeypatch):
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "No DOB"
     assert result.rebalancing_recommendation_id is None
+    assert result.chart is None
+
+
+def test_handle_forwards_chart_payload_when_present(monkeypatch):
+    """When the service picks a chart, the handler converts it to a JSON dict
+    on ChatHandlerResult.chart so the brain → router → frontend chain can
+    surface it without re-importing pydantic models downstream.
+    """
+    from app.services.ai_bridge.rebalancing import chat as rb_chat
+    from app.services.ai_bridge.rebalancing.charts import ChartSpec
+    from app.services.ai_bridge.rebalancing.service import RebalancingRunOutcome
+
+    chart = ChartSpec(
+        chart_type="category_gap_bar",
+        title="Gap chart",
+        caption="caption",
+        data={"categories": ["Large Cap Fund"], "series": []},
+    )
+    fake = RebalancingRunOutcome(
+        response=None,
+        formatted_text="ok",
+        recommendation_id=uuid.uuid4(),
+        chart=chart,
+    )
+    monkeypatch.setattr(
+        rb_chat, "compute_rebalancing_result",
+        AsyncMock(return_value=fake),
+    )
+    result = asyncio.run(rb_chat.handle(_ctx()))
+    assert isinstance(result.chart, dict)
+    assert result.chart["chart_type"] == "category_gap_bar"
+    assert result.chart["title"] == "Gap chart"
+    assert result.chart["data"]["categories"] == ["Large Cap Fund"]

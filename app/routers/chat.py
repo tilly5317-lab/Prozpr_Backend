@@ -201,6 +201,7 @@ async def send_message(
         assistant_message=assistant_response,
         ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+        chart=brain_result.chart,
     )
 
 
