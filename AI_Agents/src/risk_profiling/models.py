@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal
 from pydantic import BaseModel, Field
 
 OccupationType = Literal[

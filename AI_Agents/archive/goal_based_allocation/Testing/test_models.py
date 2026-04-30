@@ -3,7 +3,7 @@ import pytest
 from pydantic import ValidationError
 from src.goal_based_allocation.models import (
     Goal, AllocationInput, BucketShortfall, BucketAllocation,
-    SubgroupFundMapping, AggregatedSubgroupRow, ClientSummary,
+    AggregatedSubgroupRow, ClientSummary,
     GoalAllocationOutput,
 )
 
@@ -253,7 +253,6 @@ def test_allocation_input_market_commentary_default():
 
 
 def test_allocation_input_market_commentary_custom():
-    from src.goal_based_allocation.models import MarketCommentaryScores
     inp = AllocationInput(**_base_input(market_commentary={"equities": 7.0, "debt": 4.0, "high_beta_equities": 8.0}))
     assert inp.market_commentary.equities == 7.0
     assert inp.market_commentary.debt == 4.0
