@@ -353,5 +353,14 @@ class TestIntentClassifier(unittest.TestCase):
         self.assertEqual(system_content[0]["cache_control"], {"type": "ephemeral"})
 
 
+class _FakeLLMOut:
+    """Stand-in for the LangChain-structured LLM output."""
+    def __init__(self, *, intent, confidence, is_follow_up, reasoning):
+        self.intent = intent
+        self.confidence = confidence
+        self.is_follow_up = is_follow_up
+        self.reasoning = reasoning
+
+
 if __name__ == "__main__":
     unittest.main()

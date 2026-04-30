@@ -3,36 +3,49 @@ from __future__ import annotations
 from langchain_core.prompts import ChatPromptTemplate
 
 # ---------------------------------------------------------------------------
-# Extraction prompts — Claude Sonnet
-# Extracts numeric values from raw web-search snippets.
+# Extraction prompt — Claude + Anthropic web_search server tool
 # ---------------------------------------------------------------------------
 
-EXTRACTION_SYSTEM_PROMPT = """\
-You are a financial data extraction assistant for Prozper, an AI-powered financial advisor for Indian investors.
+EXTRACTION_SYSTEM_PROMPT_WEBSEARCH = """\
+You are a financial data research agent for Prozper, an AI-powered financial advisor for Indian investors.
 
-You will receive raw web-search snippets grouped by macro indicator. Each group is labelled with the indicator name (e.g. "repo_rate", "nifty50_pe").
+You have access to the web_search tool. Your task: gather current values for 14 Indian macro indicators \
+and return them via the extract_macro_data tool.
 
-Your job:
-1. Read the snippets for each indicator.
-2. Extract the **most recent numeric value** that matches the field definition.
-3. Return the value using the extract_macro_data tool.
+Workflow:
+1. Plan your searches. Group related indicators when queries can overlap (e.g., RBI repo rate + stance).
+2. Issue web_search calls with concise, specific queries. Prefer authoritative sources: RBI, MOSPI, NSE \
+India, NSDL (FPI), FBIL (USD/INR reference), niftyindices.com, worldgovernmentbonds.com, \
+tradingeconomics, trendlyne. Avoid undated blogs.
+3. If the first search returns ambiguous or undated data, issue a refined follow-up search.
+4. When you have reliable values (or confirmed gaps) for all 14 indicators, make ONE final call to \
+extract_macro_data.
 
-Choosing "most recent":
-- Prefer values tied to an explicit **as-of date**, policy meeting date, or data release date over undated figures.
+Extraction rules:
+- Prefer values tied to an explicit as-of date, policy meeting date, or data release date.
 - If multiple dated values conflict, use the **later** calendar date.
-- If you cannot tell which figure is more recent, set the field to null.
+- If a value cannot be reliably found after searching, set the field to null. DO NOT invent.
 
-Field-specific rules:
-- **Policy rates** (repo_rate_pct, fed_funds_rate_pct): express as **percent** (e.g. 6.5 not 650). If only basis points appear, convert to percent.
-- **Index PE** (nifty50_pe, nifty_midcap150_pe, nifty_smallcap250_pe): **trailing** PE for the index only. If snippets only give **forward** PE or a single-stock PE, use null.
-- **fii_net_flows_cr_inr**: net FII/FPI flow in **crore INR** for a **stated** period (e.g. calendar month). Positive = net inflows, negative = outflows. If unit (crore vs lakh vs USD) or period is unclear, use null.
-- **usd_inr_rate**: prefer **spot** USD/INR. Do not use forward/implied rates unless explicitly labelled as such.
+Disambiguation rules (critical — these are known failure modes):
+- **repo_rate_pct**: the RBI **repo rate** specifically — NOT the SDF (Standing Deposit Facility, repo − 25bps) \
+nor the MSF (Marginal Standing Facility, repo + 25bps). If a page lists multiple RBI rates, pick the one \
+explicitly labelled "repo rate" or "policy repo rate".
+- **gold_price_usd_per_oz**: **spot** gold in USD per **troy ounce**. Expected range ~$1,500–$4,500. \
+Do NOT use INR prices here, and do NOT use per-gram figures converted to ounce.
+- **gold_price_inr_per_10g**: **24-carat** gold, INR per **10 grams**. Prefer 24K over 22K when both listed.
+- **usd_inr_rate**: **spot** USD/INR. Do NOT use forward, NDF, or implied rates.
 - **rbi_stance**: one of "hawkish", "neutral", "accommodative", or null if unclear.
+- **Index PE** (nifty50_pe, nifty_midcap150_pe, nifty_smallcap250_pe): **trailing** PE of the index. \
+If only forward PE or single-stock PE appears, set null.
+- **fii_net_flows_cr_inr**: net FII/FPI flow for the **latest stated calendar month**, in **crore INR**. \
+Positive = net inflows, negative = outflows.
+- **fed_funds_rate_pct**: US Federal Funds target rate upper bound, in percent.
+- **cpi_yoy_pct**: latest India CPI year-on-year in percent.
 
-If data is ambiguous, contradictory, or absent, set that field to null. Do NOT invent values.
+Return all 14 fields via extract_macro_data. Use null for any indicator you could not verify.
 """
 
-# Tool schema — forces Haiku to return structured JSON matching MacroSnapshot fields.
+# Tool schema — forces Claude to return structured JSON matching MacroSnapshot fields.
 EXTRACT_MACRO_DATA_TOOL: dict = {
     "name": "extract_macro_data",
     "description": (
@@ -269,11 +282,6 @@ Today's date is {date}.
 # ---------------------------------------------------------------------------
 # LangChain ChatPromptTemplate wrappers (used by LCEL chains)
 # ---------------------------------------------------------------------------
-
-EXTRACTION_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", EXTRACTION_SYSTEM_PROMPT),
-    ("human", "{formatted_snippets}"),
-])
 
 DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
     ("system", DOCUMENT_GENERATION_SYSTEM_PROMPT),

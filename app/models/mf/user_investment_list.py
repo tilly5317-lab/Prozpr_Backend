@@ -43,7 +43,7 @@ class UserInvestmentList(Base):
         nullable=False,
     )
     entries: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=sa_text("'[]'::jsonb")
+        JSONB, nullable=False, server_default=sa_text("'[]'")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

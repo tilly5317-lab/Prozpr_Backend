@@ -22,6 +22,7 @@ env/
 # IDE / Editor
 .vscode/
 .idea/
+.obsidian/
 *.swp
 *.swo
 *~
@@ -55,6 +56,7 @@ Desktop.ini
 .pytest_cache/
 htmlcov/
 .coverage
+conftest.py
 
 # Jupyter
 .ipynb_checkpoints/
@@ -65,5 +67,28 @@ htmlcov/
 # Alembic auto-generated (keep versions/, ignore stamps)
 # alembic/versions/ is tracked
 
+# Superpowers (local only)
+docs/superpowers/
+**/docs/superpowers/
+**/.claude/agents/
+**/.claude/hooks/
+
+# Shared .claude/commands — ignore all except the backend-root refresh-context command
+**/.claude/commands/
+!/.claude/
+!/.claude/commands/
+/.claude/commands/*
+!/.claude/commands/refresh-context.md
+
 # Cache files
 market_commentary_cache.json
+AI_Agents/src/market_commentary/market_commentary_latest.json
+AI_Agents/src/market_commentary/market_commentary_latest.md
+/AI_Agents/src/goal_based_allocation/Testing
+/AI_Agents/src/goal_based_allocation/Testing
+/AI_Agents/src/goal_based_allocation/Testing
+/AI_Agents/src/goal_based_allocation_pydantic/Testing
+/AI_Agents/src/goal_based_allocation_pydantic/references
+/AI_Agents/src/goal_based_allocation_pydantic/Master_testing
+/AI_Agents/src/.claude/skills
+/AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html

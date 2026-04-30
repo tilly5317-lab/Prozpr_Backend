@@ -1,0 +1,2715 @@
+{
+  "Rajesh Sharma": {
+    "effective_risk_score": 7.1906,
+    "age": 45,
+    "annual_income": 1200000.0,
+    "osi": 1.0,
+    "savings_rate_adjustment": "equity_boost",
+    "gap_exceeds_3": false,
+    "shortfall_amount": null,
+    "total_corpus": 3350000.0,
+    "monthly_household_expense": 60000.0,
+    "tax_regime": "old",
+    "section_80c_utilized": 100000.0,
+    "emergency_fund_needed": true,
+    "primary_income_from_portfolio": false,
+    "effective_tax_rate": 20.0,
+    "goals": [
+      {
+        "goal_name": "Child Education",
+        "time_to_goal_months": 12,
+        "amount_needed": 300000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "education"
+      },
+      {
+        "goal_name": "Home Purchase",
+        "time_to_goal_months": 60,
+        "amount_needed": 2500000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "home_purchase"
+      },
+      {
+        "goal_name": "Retirement",
+        "time_to_goal_months": 180,
+        "amount_needed": 20000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "retirement"
+      }
+    ],
+    "market_commentary": {
+      "equities": 5.0,
+      "debt": 5.0,
+      "others": 5.0,
+      "low_beta_equities": 5.0,
+      "value_equities": 5.0,
+      "dividend_equities": 5.0,
+      "medium_beta_equities": 5.0,
+      "high_beta_equities": 5.0,
+      "sector_equities": 5.0,
+      "us_equities": 5.0
+    },
+    "multi_asset_composition": {
+      "equity_pct": 65.0,
+      "debt_pct": 25.0,
+      "others_pct": 10.0
+    },
+    "risk_willingness": 6.0,
+    "risk_capacity_score": 8.3812,
+    "net_financial_assets": 3350000.0,
+    "occupation_type": "public_sector",
+    "step1_emergency": {
+      "step": 1,
+      "step_name": "emergency_carve_out",
+      "output": {
+        "emergency_fund_months": 3,
+        "emergency_fund_amount": 180000,
+        "nfa_carveout_amount": 0,
+        "total_emergency": 180000,
+        "remaining_corpus": 3170000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 180000
+        }
+      }
+    },
+    "step2_short_term": {
+      "step": 2,
+      "step_name": "short_term_goals",
+      "output": {
+        "goals_in_bucket": [
+          {
+            "goal_name": "Child Education",
+            "time_to_goal_months": 12,
+            "amount_needed": 300000.0,
+            "goal_priority": "non_negotiable"
+          }
+        ],
+        "asset_subgroup": "debt_subgroup",
+        "total_goal_amount": 300000.0,
+        "allocated_amount": 300000.0,
+        "remaining_corpus": 2870000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 300000.0
+        }
+      }
+    },
+    "step3_medium_term": {
+      "step": 3,
+      "step_name": "medium_term_goals",
+      "output": {
+        "risk_bucket": "Medium",
+        "asset_subgroup": "debt_subgroup",
+        "goals_allocated": [
+          {
+            "goal_name": "Home Purchase",
+            "time_to_goal_months": 60,
+            "amount_needed": 2500000.0,
+            "goal_priority": "non_negotiable",
+            "horizon_years": 5,
+            "equity_pct": 70,
+            "debt_pct": 30,
+            "equity_amount": 1750000.0,
+            "debt_amount": 750000.0
+          }
+        ],
+        "total_goal_amount": 2500000.0,
+        "allocated_amount": 2500000.0,
+        "remaining_corpus": 370000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "multi_asset": 1750000.0,
+          "debt_subgroup": 750000.0
+        }
+      }
+    },
+    "step4_long_term": {
+      "step": 4,
+      "step_name": "long_term_goals",
+      "asset_class_allocation": {
+        "equities_pct": 48,
+        "debt_pct": 37,
+        "others_pct": 15,
+        "equities_amount": 177600,
+        "debt_amount": 136900,
+        "others_amount": 55500
+      },
+      "elss": {
+        "applicable": true,
+        "elss_headroom": 50000,
+        "elss_amount": 50000,
+        "residual_equity_corpus": 127600
+      },
+      "multi_asset": {
+        "multi_asset_amount": 196923,
+        "equity_component": 128000,
+        "debt_component": 49231,
+        "others_component": 19692,
+        "equity_for_subgroups": 0,
+        "debt_for_subgroups": 87669,
+        "remaining_others_for_gold": 35808
+      },
+      "output": {
+        "goals_allocated": [
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 180,
+            "amount_needed": 20000000.0,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "retirement"
+          }
+        ],
+        "leftover_corpus": 370000,
+        "total_long_term_corpus": 370000,
+        "total_allocated": 370000,
+        "remaining_corpus": 0,
+        "shortfall": {
+          "goal_name": "Retirement",
+          "shortfall_amount": 19630000,
+          "negotiable": false
+        },
+        "subgroup_amounts": {
+          "tax_efficient_equities": 50000,
+          "multi_asset": 196923,
+          "us_equities": 0,
+          "low_beta_equities": 0,
+          "medium_beta_equities": 0,
+          "high_beta_equities": 0,
+          "sector_equities": 0,
+          "value_equities": 0,
+          "debt_subgroup": 87669,
+          "arbitrage_income": 0,
+          "gold_commodities": 35808
+        }
+      }
+    },
+    "step5_aggregation": {
+      "step": 5,
+      "step_name": "aggregation",
+      "output": {
+        "rows": [
+          {
+            "subgroup": "debt_subgroup",
+            "emergency": 180000,
+            "short_term": 300000,
+            "medium_term": 750000,
+            "long_term": 87669,
+            "total": 1317669
+          },
+          {
+            "subgroup": "multi_asset",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 1750000,
+            "long_term": 196923,
+            "total": 1946923
+          },
+          {
+            "subgroup": "tax_efficient_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 50000,
+            "total": 50000
+          },
+          {
+            "subgroup": "gold_commodities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 35808,
+            "total": 35808
+          }
+        ],
+        "grand_total": 3350000,
+        "grand_total_matches_corpus": true
+      }
+    },
+    "step6_guardrails": {
+      "step": 6,
+      "step_name": "guardrails_and_fund_mapping",
+      "output": {
+        "validation": {
+          "all_rules_pass": true,
+          "violations_found": [],
+          "adjustments_made": []
+        },
+        "fund_mappings": [
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "total_amount": 1317669
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "total_amount": 1946923
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "tax_efficient_equities",
+            "sub_category": "ELSS Tax Saver Fund",
+            "recommended_fund": "Motilal Oswal ELSS Tax Saver Fund - Regular Plan - Growth Option",
+            "isin": "INF247L01544",
+            "total_amount": 50000
+          },
+          {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "total_amount": 35808
+          }
+        ]
+      }
+    },
+    "step7_presentation": {
+      "step": 7,
+      "step_name": "presentation",
+      "client_summary": {
+        "age": 45,
+        "occupation": "public_sector",
+        "effective_risk_score": 7.1906,
+        "total_corpus": 3350000,
+        "goals": [
+          {
+            "goal_name": "Child Education",
+            "time_to_goal_months": 12,
+            "amount_needed": 300000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Home Purchase",
+            "time_to_goal_months": 60,
+            "amount_needed": 2500000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 180,
+            "amount_needed": 20000000,
+            "goal_priority": "non_negotiable"
+          }
+        ]
+      },
+      "bucket_allocations": [
+        {
+          "bucket": "emergency",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 180000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 180000
+          },
+          "rationale": "We've set aside 3 months of your household expenses (\u20b9180,000) in a safe, easily accessible fund. This covers unexpected costs like medical bills or urgent repairs without disrupting your other plans."
+        },
+        {
+          "bucket": "short_term",
+          "goals": [
+            "Child Education"
+          ],
+          "total_goal_amount": 300000,
+          "allocated_amount": 300000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 300000
+          },
+          "rationale": "Your child's education is due in 12 months, so we're keeping this money in a stable, low-risk fund. This ensures the full \u20b9300,000 is ready when you need it, without any chance of market swings affecting the amount."
+        },
+        {
+          "bucket": "medium_term",
+          "goals": [
+            "Home Purchase"
+          ],
+          "total_goal_amount": 2500000,
+          "allocated_amount": 2500000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "multi_asset": 1750000,
+            "debt_subgroup": 750000
+          },
+          "rationale": "Your home purchase is 5 years away. We're splitting this into 70% growth-focused investments (\u20b91,750,000) and 30% stable funds (\u20b9750,000). This balanced mix gives your money time to grow while protecting you from big market drops as you get closer to buying."
+        },
+        {
+          "bucket": "long_term",
+          "goals": [
+            "Retirement"
+          ],
+          "total_goal_amount": 20000000,
+          "allocated_amount": 370000,
+          "shortfall": {
+            "goal_name": "Retirement",
+            "shortfall_amount": 19630000,
+            "message": "Your retirement goal needs \u20b920,000,000, but after funding your other priorities, only \u20b9370,000 is available to invest now. We recommend either increasing your monthly savings, adjusting your retirement timeline, or revisiting your retirement spending plans to close this gap."
+          },
+          "subgroup_amounts": {
+            "tax_efficient_equities": 50000,
+            "multi_asset": 196923,
+            "debt_subgroup": 87669,
+            "gold_commodities": 35808
+          },
+          "rationale": "With 15 years until retirement, your remaining \u20b9370,000 is invested for growth across diversified funds. We've included a tax-saving investment (\u20b950,000) to reduce your tax bill, growth-focused funds (\u20b9196,923), stable bonds (\u20b987,669), and gold (\u20b935,808) for safety. However, this amount alone won't reach your \u20b920 million target\u2014see the shortfall note above."
+        }
+      ],
+      "aggregated_subgroups": [
+        {
+          "subgroup": "debt_subgroup",
+          "sub_category": "Liquid Fund",
+          "emergency": 180000,
+          "short_term": 300000,
+          "medium_term": 750000,
+          "long_term": 87669,
+          "total": 1317669,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "amount": 1317669
+          }
+        },
+        {
+          "subgroup": "multi_asset",
+          "sub_category": "Multi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 1750000,
+          "long_term": 196923,
+          "total": 1946923,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "amount": 1946923
+          }
+        },
+        {
+          "subgroup": "tax_efficient_equities",
+          "sub_category": "ELSS Tax Saver Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 50000,
+          "total": 50000,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "tax_efficient_equities",
+            "sub_category": "ELSS Tax Saver Fund",
+            "recommended_fund": "Motilal Oswal ELSS Tax Saver Fund - Regular Plan - Growth Option",
+            "isin": "INF247L01544",
+            "amount": 50000
+          }
+        },
+        {
+          "subgroup": "gold_commodities",
+          "sub_category": "Gold ETF",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 35808,
+          "total": 35808,
+          "fund_mapping": {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "amount": 35808
+          }
+        }
+      ],
+      "shortfall_summary": [
+        {
+          "bucket": "long_term",
+          "shortfall_amount": 19630000,
+          "message": "Your retirement goal of \u20b920,000,000 has a shortfall of \u20b919,630,000. After setting aside money for your child's education and home purchase, only \u20b9370,000 remains for retirement. We recommend increasing your monthly savings, working a few years longer, or adjusting your retirement spending expectations to bridge this gap."
+        }
+      ],
+      "grand_total": 3350000,
+      "all_amounts_in_multiples_of_100": false
+    }
+  },
+  "Priya Menon": {
+    "effective_risk_score": 8.2826,
+    "age": 31,
+    "annual_income": 1800000.0,
+    "osi": 0.8,
+    "savings_rate_adjustment": "equity_boost",
+    "gap_exceeds_3": false,
+    "shortfall_amount": null,
+    "total_corpus": 1320000.0,
+    "monthly_household_expense": 75000.0,
+    "tax_regime": "new",
+    "section_80c_utilized": 0.0,
+    "emergency_fund_needed": true,
+    "primary_income_from_portfolio": false,
+    "effective_tax_rate": 30.0,
+    "goals": [
+      {
+        "goal_name": "International Travel",
+        "time_to_goal_months": 18,
+        "amount_needed": 300000.0,
+        "goal_priority": "negotiable",
+        "investment_goal": "other"
+      },
+      {
+        "goal_name": "Retirement",
+        "time_to_goal_months": 348,
+        "amount_needed": 30000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "retirement"
+      }
+    ],
+    "market_commentary": {
+      "equities": 5.0,
+      "debt": 5.0,
+      "others": 5.0,
+      "low_beta_equities": 5.0,
+      "value_equities": 5.0,
+      "dividend_equities": 5.0,
+      "medium_beta_equities": 5.0,
+      "high_beta_equities": 5.0,
+      "sector_equities": 5.0,
+      "us_equities": 5.0
+    },
+    "multi_asset_composition": {
+      "equity_pct": 65.0,
+      "debt_pct": 25.0,
+      "others_pct": 10.0
+    },
+    "risk_willingness": 8.0,
+    "risk_capacity_score": 8.5652,
+    "net_financial_assets": 1320000.0,
+    "occupation_type": "private_sector",
+    "step1_emergency": {
+      "step": 1,
+      "step_name": "emergency_carve_out",
+      "output": {
+        "emergency_fund_months": 3,
+        "emergency_fund_amount": 225000,
+        "nfa_carveout_amount": 0,
+        "total_emergency": 225000,
+        "remaining_corpus": 1095000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 225000
+        }
+      }
+    },
+    "step2_short_term": {
+      "step": 2,
+      "step_name": "short_term_goals",
+      "output": {
+        "goals_in_bucket": [
+          {
+            "goal_name": "International Travel",
+            "time_to_goal_months": 18,
+            "amount_needed": 300000.0,
+            "goal_priority": "negotiable"
+          }
+        ],
+        "asset_subgroup": "arbitrage_income",
+        "total_goal_amount": 300000.0,
+        "allocated_amount": 300000.0,
+        "remaining_corpus": 795000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "arbitrage_income": 300000.0
+        }
+      }
+    },
+    "step3_medium_term": {
+      "step": 3,
+      "step_name": "medium_term_goals",
+      "output": {
+        "risk_bucket": "High",
+        "goals_allocated": [],
+        "total_goal_amount": 0,
+        "allocated_amount": 0,
+        "remaining_corpus": 795000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "multi_asset": 0,
+          "debt_subgroup": 0
+        }
+      }
+    },
+    "step4_long_term": {
+      "step": 4,
+      "step_name": "long_term_goals",
+      "asset_class_allocation": {
+        "equities_pct": 63,
+        "debt_pct": 28,
+        "others_pct": 9,
+        "equities_amount": 500700,
+        "debt_amount": 222600,
+        "others_amount": 71700
+      },
+      "elss": {
+        "applicable": false,
+        "elss_headroom": null,
+        "elss_amount": 0,
+        "residual_equity_corpus": 500700
+      },
+      "multi_asset": {
+        "multi_asset_amount": 308000,
+        "equity_component": 200200,
+        "debt_component": 77000,
+        "others_component": 30800,
+        "equity_for_subgroups": 300500,
+        "debt_for_subgroups": 145600,
+        "remaining_others_for_gold": 40900
+      },
+      "output": {
+        "goals_allocated": [
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 348,
+            "amount_needed": 30000000.0,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "retirement"
+          }
+        ],
+        "leftover_corpus": 0,
+        "total_long_term_corpus": 795000,
+        "total_allocated": 795000,
+        "remaining_corpus": 0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "tax_efficient_equities": 0,
+          "multi_asset": 308000,
+          "us_equities": 72100,
+          "low_beta_equities": 90200,
+          "medium_beta_equities": 72100,
+          "high_beta_equities": 36100,
+          "sector_equities": 0,
+          "value_equities": 0,
+          "debt_subgroup": 0,
+          "arbitrage_income": 145600,
+          "gold_commodities": 40900
+        }
+      }
+    },
+    "step5_aggregation": {
+      "step": 5,
+      "step_name": "aggregation",
+      "output": {
+        "rows": [
+          {
+            "subgroup": "debt_subgroup",
+            "emergency": 225000,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 0,
+            "total": 225000
+          },
+          {
+            "subgroup": "arbitrage_income",
+            "emergency": 0,
+            "short_term": 300000,
+            "medium_term": 0,
+            "long_term": 145600,
+            "total": 445600
+          },
+          {
+            "subgroup": "multi_asset",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 308000,
+            "total": 308000
+          },
+          {
+            "subgroup": "us_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 72100,
+            "total": 72100
+          },
+          {
+            "subgroup": "low_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 90200,
+            "total": 90200
+          },
+          {
+            "subgroup": "medium_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 72100,
+            "total": 72100
+          },
+          {
+            "subgroup": "high_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 36100,
+            "total": 36100
+          },
+          {
+            "subgroup": "gold_commodities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 40900,
+            "total": 40900
+          }
+        ],
+        "grand_total": 1320000,
+        "grand_total_matches_corpus": true
+      }
+    },
+    "step6_guardrails": {
+      "step": 6,
+      "step_name": "guardrails_and_fund_mapping",
+      "output": {
+        "validation": {
+          "all_rules_pass": true,
+          "violations_found": [],
+          "adjustments_made": []
+        },
+        "fund_mappings": [
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "total_amount": 225000
+          },
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "total_amount": 445600
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "total_amount": 308000
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "total_amount": 72100
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "total_amount": 90200
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "total_amount": 72100
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "total_amount": 36100
+          },
+          {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "total_amount": 40900
+          }
+        ]
+      }
+    },
+    "step7_presentation": {
+      "step": 7,
+      "step_name": "presentation",
+      "client_summary": {
+        "age": 31,
+        "occupation": "private_sector",
+        "effective_risk_score": 8.2826,
+        "total_corpus": 1320000,
+        "goals": [
+          {
+            "goal_name": "International Travel",
+            "time_to_goal_months": 18,
+            "amount_needed": 300000,
+            "goal_priority": "negotiable"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 348,
+            "amount_needed": 30000000,
+            "goal_priority": "non_negotiable"
+          }
+        ]
+      },
+      "bucket_allocations": [
+        {
+          "bucket": "emergency",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 225000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 225000
+          },
+          "rationale": "We've set aside 3 months of your household expenses (\u20b9225,000) in a safe, easily accessible fund. This covers unexpected costs like medical emergencies or job transitions without forcing you to sell long-term investments."
+        },
+        {
+          "bucket": "short_term",
+          "goals": [
+            {
+              "goal_name": "International Travel",
+              "time_to_goal_months": 18,
+              "amount_needed": 300000,
+              "goal_priority": "negotiable"
+            }
+          ],
+          "total_goal_amount": 300000,
+          "allocated_amount": 300000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "arbitrage_income": 300000
+          },
+          "rationale": "Your travel goal in 18 months needs a stable, low-risk home. We've chosen an arbitrage fund that earns steady returns with minimal ups and downs, so your \u20b9300,000 will be ready when you need it without surprises."
+        },
+        {
+          "bucket": "medium_term",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 0,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "multi_asset": 0,
+            "debt_subgroup": 0
+          },
+          "rationale": "You have no goals in the 2\u20135 year window, so we've kept this bucket empty. If you add medium-term goals later, we can reallocate funds here."
+        },
+        {
+          "bucket": "long_term",
+          "goals": [
+            {
+              "goal_name": "Retirement",
+              "time_to_goal_months": 348,
+              "amount_needed": 30000000,
+              "goal_priority": "non_negotiable"
+            }
+          ],
+          "total_goal_amount": 30000000,
+          "allocated_amount": 795000,
+          "shortfall": 29205000,
+          "subgroup_amounts": {
+            "multi_asset": 308000,
+            "us_equities": 72100,
+            "low_beta_equities": 90200,
+            "medium_beta_equities": 72100,
+            "high_beta_equities": 36100,
+            "arbitrage_income": 145600,
+            "gold_commodities": 40900
+          },
+          "rationale": "Your retirement is 29 years away, so we've built a growth-focused portfolio with a mix of Indian and global stocks, balanced funds, and a small gold hedge. This long timeframe lets you ride out market ups and downs while your money compounds."
+        }
+      ],
+      "aggregated_subgroups": [
+        {
+          "subgroup": "debt_subgroup",
+          "sub_category": "Liquid Fund",
+          "emergency": 225000,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 0,
+          "total": 225000,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "amount": 225000
+          }
+        },
+        {
+          "subgroup": "arbitrage_income",
+          "sub_category": "Arbitrage Fund",
+          "emergency": 0,
+          "short_term": 300000,
+          "medium_term": 0,
+          "long_term": 145600,
+          "total": 445600,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "amount": 445600
+          }
+        },
+        {
+          "subgroup": "multi_asset",
+          "sub_category": "Multi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 308000,
+          "total": 308000,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "amount": 308000
+          }
+        },
+        {
+          "subgroup": "us_equities",
+          "sub_category": "US Linked (FoF)",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 72100,
+          "total": 72100,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "amount": 72100
+          }
+        },
+        {
+          "subgroup": "low_beta_equities",
+          "sub_category": "Large Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 90200,
+          "total": 90200,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "amount": 90200
+          }
+        },
+        {
+          "subgroup": "medium_beta_equities",
+          "sub_category": "Flexi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 72100,
+          "total": 72100,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "amount": 72100
+          }
+        },
+        {
+          "subgroup": "high_beta_equities",
+          "sub_category": "Small Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 36100,
+          "total": 36100,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "amount": 36100
+          }
+        },
+        {
+          "subgroup": "gold_commodities",
+          "sub_category": "Gold ETF",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 40900,
+          "total": 40900,
+          "fund_mapping": {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "amount": 40900
+          }
+        }
+      ],
+      "shortfall_summary": [
+        {
+          "bucket": "long_term",
+          "shortfall_amount": 29205000,
+          "message": "Your retirement goal needs \u20b930,000,000, but you've allocated \u20b9795,000 today. You have 29 years to close this gap through regular monthly investments. If you can invest \u20b985,000\u2013\u20b990,000 per month, you'll comfortably reach your retirement target. Alternatively, you could adjust your retirement spending expectations downward."
+        }
+      ],
+      "grand_total": 1320000,
+      "all_amounts_in_multiples_of_100": true
+    }
+  },
+  "Amit Rathore": {
+    "effective_risk_score": 7.8218,
+    "age": 39,
+    "annual_income": 2200000.0,
+    "osi": 0.8,
+    "savings_rate_adjustment": "equity_boost",
+    "gap_exceeds_3": false,
+    "shortfall_amount": null,
+    "total_corpus": 3700000.0,
+    "monthly_household_expense": 110000.0,
+    "tax_regime": "new",
+    "section_80c_utilized": 0.0,
+    "emergency_fund_needed": true,
+    "primary_income_from_portfolio": false,
+    "effective_tax_rate": 30.0,
+    "goals": [
+      {
+        "goal_name": "Home Renovation",
+        "time_to_goal_months": 18,
+        "amount_needed": 500000.0,
+        "goal_priority": "negotiable",
+        "investment_goal": "other"
+      },
+      {
+        "goal_name": "Child Higher Education",
+        "time_to_goal_months": 60,
+        "amount_needed": 2000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "education"
+      },
+      {
+        "goal_name": "Retirement",
+        "time_to_goal_months": 252,
+        "amount_needed": 25000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "retirement"
+      }
+    ],
+    "market_commentary": {
+      "equities": 5.0,
+      "debt": 5.0,
+      "others": 5.0,
+      "low_beta_equities": 5.0,
+      "value_equities": 5.0,
+      "dividend_equities": 5.0,
+      "medium_beta_equities": 5.0,
+      "high_beta_equities": 5.0,
+      "sector_equities": 5.0,
+      "us_equities": 5.0
+    },
+    "multi_asset_composition": {
+      "equity_pct": 65.0,
+      "debt_pct": 25.0,
+      "others_pct": 10.0
+    },
+    "risk_willingness": 7.0,
+    "risk_capacity_score": 8.6436,
+    "net_financial_assets": 3700000.0,
+    "occupation_type": "private_sector",
+    "step1_emergency": {
+      "step": 1,
+      "step_name": "emergency_carve_out",
+      "output": {
+        "emergency_fund_months": 3,
+        "emergency_fund_amount": 330000,
+        "nfa_carveout_amount": 0,
+        "total_emergency": 330000,
+        "remaining_corpus": 3370000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 330000
+        }
+      }
+    },
+    "step2_short_term": {
+      "step": 2,
+      "step_name": "short_term_goals",
+      "output": {
+        "goals_in_bucket": [
+          {
+            "goal_name": "Home Renovation",
+            "time_to_goal_months": 18,
+            "amount_needed": 500000.0,
+            "goal_priority": "negotiable"
+          }
+        ],
+        "asset_subgroup": "arbitrage_income",
+        "total_goal_amount": 500000.0,
+        "allocated_amount": 500000.0,
+        "remaining_corpus": 2870000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "arbitrage_income": 500000.0
+        }
+      }
+    },
+    "step3_medium_term": {
+      "step": 3,
+      "step_name": "medium_term_goals",
+      "output": {
+        "risk_bucket": "High",
+        "asset_subgroup": "debt_subgroup",
+        "goals_allocated": [
+          {
+            "goal_name": "Child Higher Education",
+            "time_to_goal_months": 60,
+            "amount_needed": 2000000.0,
+            "goal_priority": "non_negotiable",
+            "horizon_years": 5,
+            "equity_pct": 80,
+            "debt_pct": 20,
+            "equity_amount": 1600000.0,
+            "debt_amount": 400000.0
+          }
+        ],
+        "total_goal_amount": 2000000.0,
+        "allocated_amount": 2000000.0,
+        "remaining_corpus": 870000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "multi_asset": 1600000.0,
+          "debt_subgroup": 400000.0
+        }
+      }
+    },
+    "step4_long_term": {
+      "step": 4,
+      "step_name": "long_term_goals",
+      "asset_class_allocation": {
+        "equities_pct": 58,
+        "debt_pct": 32,
+        "others_pct": 10,
+        "equities_amount": 504400,
+        "debt_amount": 278400,
+        "others_amount": 87000
+      },
+      "elss": {
+        "applicable": false,
+        "elss_headroom": null,
+        "elss_amount": 0,
+        "residual_equity_corpus": 504400
+      },
+      "multi_asset": {
+        "multi_asset_amount": 600000,
+        "equity_component": 390000,
+        "debt_component": 150000,
+        "others_component": 60000,
+        "equity_for_subgroups": 114400,
+        "debt_for_subgroups": 128400,
+        "remaining_others_for_gold": 27000
+      },
+      "output": {
+        "goals_allocated": [
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 252,
+            "amount_needed": 25000000.0,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "retirement"
+          }
+        ],
+        "leftover_corpus": -24129600.0,
+        "total_long_term_corpus": 870000,
+        "total_allocated": 869800,
+        "remaining_corpus": 0,
+        "shortfall": {
+          "shortfall_amount": 24129600.0,
+          "negotiable_goals": [
+            {
+              "goal_name": "Retirement",
+              "amount_needed": 25000000.0,
+              "goal_priority": "non_negotiable"
+            }
+          ],
+          "message": "Retirement goal amount exceeds remaining corpus. Proceeding with allocation using available corpus."
+        },
+        "subgroup_amounts": {
+          "tax_efficient_equities": 0,
+          "multi_asset": 600000,
+          "us_equities": 22900,
+          "low_beta_equities": 34300,
+          "medium_beta_equities": 22900,
+          "high_beta_equities": 11500,
+          "sector_equities": 0,
+          "value_equities": 0,
+          "debt_subgroup": 0,
+          "arbitrage_income": 128400,
+          "gold_commodities": 27000
+        }
+      }
+    },
+    "step5_aggregation": {
+      "step": 5,
+      "step_name": "aggregation",
+      "output": {
+        "rows": [
+          {
+            "subgroup": "debt_subgroup",
+            "emergency": 330000,
+            "short_term": 0,
+            "medium_term": 400000,
+            "long_term": 0,
+            "total": 730000
+          },
+          {
+            "subgroup": "arbitrage_income",
+            "emergency": 0,
+            "short_term": 500000,
+            "medium_term": 0,
+            "long_term": 128400,
+            "total": 628400
+          },
+          {
+            "subgroup": "multi_asset",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 1600000,
+            "long_term": 600000,
+            "total": 2200000
+          },
+          {
+            "subgroup": "us_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 22900,
+            "total": 22900
+          },
+          {
+            "subgroup": "low_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 34300,
+            "total": 34300
+          },
+          {
+            "subgroup": "medium_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 22900,
+            "total": 22900
+          },
+          {
+            "subgroup": "high_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 11500,
+            "total": 11500
+          },
+          {
+            "subgroup": "gold_commodities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 27000,
+            "total": 27000
+          }
+        ],
+        "grand_total": 3677000,
+        "grand_total_matches_corpus": false
+      }
+    },
+    "step6_guardrails": {
+      "step": 6,
+      "step_name": "guardrails_and_fund_mapping",
+      "output": {
+        "validation": {
+          "all_rules_pass": true,
+          "violations_found": [],
+          "adjustments_made": []
+        },
+        "fund_mappings": [
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "total_amount": 730000
+          },
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "total_amount": 628400
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "total_amount": 2200000
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "total_amount": 22900
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "total_amount": 34300
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "total_amount": 22900
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "total_amount": 11500
+          },
+          {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "total_amount": 27000
+          }
+        ]
+      }
+    },
+    "step7_presentation": {
+      "step": 7,
+      "step_name": "presentation",
+      "client_summary": {
+        "age": 39,
+        "occupation": "private_sector",
+        "effective_risk_score": 7.8218,
+        "total_corpus": 3700000,
+        "goals": [
+          {
+            "goal_name": "Home Renovation",
+            "time_to_goal_months": 18,
+            "amount_needed": 500000,
+            "goal_priority": "negotiable"
+          },
+          {
+            "goal_name": "Child Higher Education",
+            "time_to_goal_months": 60,
+            "amount_needed": 2000000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 252,
+            "amount_needed": 25000000,
+            "goal_priority": "non_negotiable"
+          }
+        ]
+      },
+      "bucket_allocations": [
+        {
+          "bucket": "emergency",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 330000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 330000
+          },
+          "rationale": "We've set aside 3 months of your household expenses (\u20b9330,000) in a safe, easily accessible fund. This covers unexpected costs like medical bills or job transitions without disrupting your other investments."
+        },
+        {
+          "bucket": "short_term",
+          "goals": [
+            "Home Renovation"
+          ],
+          "total_goal_amount": 500000,
+          "allocated_amount": 500000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "arbitrage_income": 500000
+          },
+          "rationale": "Your home renovation is 18 months away, so we're using a low-risk income fund that generates steady returns without worrying about market ups and downs. You'll have the full \u20b9500,000 ready when you need it."
+        },
+        {
+          "bucket": "medium_term",
+          "goals": [
+            "Child Higher Education"
+          ],
+          "total_goal_amount": 2000000,
+          "allocated_amount": 2000000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "multi_asset": 1600000,
+            "debt_subgroup": 400000
+          },
+          "rationale": "Your child's education is 5 years away. We're splitting this into 80% growth-focused investments and 20% safer bonds. This mix gives you time to ride out market swings while building toward the \u20b92,000,000 you'll need."
+        },
+        {
+          "bucket": "long_term",
+          "goals": [
+            "Retirement"
+          ],
+          "total_goal_amount": 25000000,
+          "allocated_amount": 869800,
+          "shortfall": {
+            "shortfall_amount": 24130200,
+            "message": "Your retirement goal of \u20b925,000,000 is larger than your available funds. We've invested all remaining money (\u20b9869,800) in growth-focused funds to maximize long-term returns. Consider either increasing your monthly savings, delaying retirement by a few years, or adjusting your retirement spending expectations."
+          },
+          "subgroup_amounts": {
+            "multi_asset": 600000,
+            "us_equities": 22900,
+            "low_beta_equities": 34300,
+            "medium_beta_equities": 22900,
+            "high_beta_equities": 11500,
+            "arbitrage_income": 128400,
+            "gold_commodities": 27000
+          },
+          "rationale": "Retirement is 21 years away, so we're taking a growth-oriented approach with a mix of Indian and international stocks, plus some gold for stability. The longer time horizon lets your money compound and weather market cycles."
+        }
+      ],
+      "aggregated_subgroups": [
+        {
+          "subgroup": "debt_subgroup",
+          "sub_category": "Liquid Fund",
+          "emergency": 330000,
+          "short_term": 0,
+          "medium_term": 400000,
+          "long_term": 0,
+          "total": 730000,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "amount": 730000
+          }
+        },
+        {
+          "subgroup": "arbitrage_income",
+          "sub_category": "Arbitrage Fund",
+          "emergency": 0,
+          "short_term": 500000,
+          "medium_term": 0,
+          "long_term": 128400,
+          "total": 628400,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "amount": 628400
+          }
+        },
+        {
+          "subgroup": "multi_asset",
+          "sub_category": "Multi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 1600000,
+          "long_term": 600000,
+          "total": 2200000,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "amount": 2200000
+          }
+        },
+        {
+          "subgroup": "us_equities",
+          "sub_category": "US Linked (FoF)",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 22900,
+          "total": 22900,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "amount": 22900
+          }
+        },
+        {
+          "subgroup": "low_beta_equities",
+          "sub_category": "Large Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 34300,
+          "total": 34300,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "amount": 34300
+          }
+        },
+        {
+          "subgroup": "medium_beta_equities",
+          "sub_category": "Flexi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 22900,
+          "total": 22900,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "amount": 22900
+          }
+        },
+        {
+          "subgroup": "high_beta_equities",
+          "sub_category": "Small Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 11500,
+          "total": 11500,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "amount": 11500
+          }
+        },
+        {
+          "subgroup": "gold_commodities",
+          "sub_category": "Gold ETF",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 27000,
+          "total": 27000,
+          "fund_mapping": {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "amount": 27000
+          }
+        }
+      ],
+      "shortfall_summary": [
+        {
+          "bucket": "long_term",
+          "shortfall_amount": 24130200,
+          "message": "Your retirement goal of \u20b925,000,000 exceeds your available funds by \u20b924,130,200. We've invested all remaining money in growth-focused funds to maximize returns over 21 years. To close this gap, you could increase monthly savings, work a few years longer, or adjust your retirement lifestyle expectations. Even with the shortfall, your investments will grow significantly over time."
+        }
+      ],
+      "grand_total": 3677000,
+      "all_amounts_in_multiples_of_100": false
+    }
+  },
+  "Deepa Patel": {
+    "effective_risk_score": 8.1319,
+    "age": 43,
+    "annual_income": 2800000.0,
+    "osi": 0.6,
+    "savings_rate_adjustment": "equity_boost",
+    "gap_exceeds_3": false,
+    "shortfall_amount": null,
+    "total_corpus": 6000000.0,
+    "monthly_household_expense": 116700.0,
+    "tax_regime": "old",
+    "section_80c_utilized": 150000.0,
+    "emergency_fund_needed": true,
+    "primary_income_from_portfolio": false,
+    "effective_tax_rate": 35.0,
+    "goals": [
+      {
+        "goal_name": "Business Expansion",
+        "time_to_goal_months": 24,
+        "amount_needed": 800000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "other"
+      },
+      {
+        "goal_name": "Child Education",
+        "time_to_goal_months": 84,
+        "amount_needed": 3000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "education"
+      },
+      {
+        "goal_name": "Retirement",
+        "time_to_goal_months": 204,
+        "amount_needed": 35000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "retirement"
+      }
+    ],
+    "market_commentary": {
+      "equities": 5.0,
+      "debt": 5.0,
+      "others": 5.0,
+      "low_beta_equities": 5.0,
+      "value_equities": 5.0,
+      "dividend_equities": 5.0,
+      "medium_beta_equities": 5.0,
+      "high_beta_equities": 5.0,
+      "sector_equities": 5.0,
+      "us_equities": 5.0
+    },
+    "multi_asset_composition": {
+      "equity_pct": 65.0,
+      "debt_pct": 25.0,
+      "others_pct": 10.0
+    },
+    "risk_willingness": 7.5,
+    "risk_capacity_score": 8.7637,
+    "net_financial_assets": 6000000.0,
+    "occupation_type": "family_business",
+    "step1_emergency": {
+      "step": 1,
+      "step_name": "emergency_carve_out",
+      "output": {
+        "emergency_fund_months": 3,
+        "emergency_fund_amount": 350100,
+        "nfa_carveout_amount": 0,
+        "total_emergency": 350100,
+        "remaining_corpus": 5649900,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 350100
+        }
+      }
+    },
+    "step2_short_term": {
+      "step": 2,
+      "step_name": "short_term_goals",
+      "output": {
+        "goals_in_bucket": [
+          {
+            "goal_name": "Business Expansion",
+            "time_to_goal_months": 24,
+            "amount_needed": 800000.0,
+            "goal_priority": "non_negotiable"
+          }
+        ],
+        "asset_subgroup": "arbitrage_income",
+        "total_goal_amount": 800000.0,
+        "allocated_amount": 800000.0,
+        "remaining_corpus": 4849900.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "arbitrage_income": 800000.0
+        }
+      }
+    },
+    "step3_medium_term": {
+      "step": 3,
+      "step_name": "medium_term_goals",
+      "output": {
+        "risk_bucket": "High",
+        "goals_allocated": [],
+        "total_goal_amount": 0,
+        "allocated_amount": 0,
+        "remaining_corpus": 4849900,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "multi_asset": 0,
+          "debt_subgroup": 0
+        }
+      }
+    },
+    "step4_long_term": {
+      "step": 4,
+      "step_name": "long_term_goals",
+      "asset_class_allocation": {
+        "equities_pct": 60,
+        "debt_pct": 30,
+        "others_pct": 10,
+        "equities_amount": 2909940,
+        "debt_amount": 1454970,
+        "others_amount": 484990
+      },
+      "elss": {
+        "applicable": false,
+        "elss_headroom": null,
+        "elss_amount": 0,
+        "residual_equity_corpus": 2909940
+      },
+      "multi_asset": {
+        "multi_asset_amount": 1939960,
+        "equity_component": 1259974,
+        "debt_component": 484990,
+        "others_component": 194996,
+        "equity_for_subgroups": 1649966,
+        "debt_for_subgroups": 969980,
+        "remaining_others_for_gold": 289994
+      },
+      "output": {
+        "goals_allocated": [
+          {
+            "goal_name": "Child Education",
+            "time_to_goal_months": 84,
+            "amount_needed": 3000000.0,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "education"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 204,
+            "amount_needed": 35000000.0,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "retirement"
+          }
+        ],
+        "leftover_corpus": -33150100,
+        "total_long_term_corpus": 4849900,
+        "total_allocated": 4849900,
+        "remaining_corpus": 0,
+        "shortfall": {
+          "shortfall_amount": 33150100,
+          "negotiable_goals": []
+        },
+        "subgroup_amounts": {
+          "tax_efficient_equities": 0,
+          "multi_asset": 1939960,
+          "us_equities": 329993,
+          "low_beta_equities": 659986,
+          "medium_beta_equities": 329993,
+          "high_beta_equities": 0,
+          "sector_equities": 0,
+          "value_equities": 0,
+          "debt_subgroup": 0,
+          "arbitrage_income": 969980,
+          "gold_commodities": 289994
+        }
+      }
+    },
+    "step5_aggregation": {
+      "step": 5,
+      "step_name": "aggregation",
+      "output": {
+        "rows": [
+          {
+            "subgroup": "debt_subgroup",
+            "emergency": 350100,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 0,
+            "total": 350100
+          },
+          {
+            "subgroup": "arbitrage_income",
+            "emergency": 0,
+            "short_term": 800000,
+            "medium_term": 0,
+            "long_term": 969980,
+            "total": 1769980
+          },
+          {
+            "subgroup": "multi_asset",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 1939960,
+            "total": 1939960
+          },
+          {
+            "subgroup": "us_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 329993,
+            "total": 329993
+          },
+          {
+            "subgroup": "low_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 659986,
+            "total": 659986
+          },
+          {
+            "subgroup": "medium_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 329993,
+            "total": 329993
+          },
+          {
+            "subgroup": "gold_commodities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 289994,
+            "total": 289994
+          }
+        ],
+        "grand_total": 6000000.0,
+        "grand_total_matches_corpus": true
+      }
+    },
+    "step6_guardrails": {
+      "step": 6,
+      "step_name": "guardrails_and_fund_mapping",
+      "output": {
+        "validation": {
+          "all_rules_pass": true,
+          "violations_found": [],
+          "adjustments_made": []
+        },
+        "fund_mappings": [
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "total_amount": 350100
+          },
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "total_amount": 1769980
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "total_amount": 1939960
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "total_amount": 329993
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "total_amount": 659986
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "total_amount": 329993
+          },
+          {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "total_amount": 289994
+          }
+        ]
+      }
+    },
+    "step7_presentation": {
+      "step": 7,
+      "step_name": "presentation",
+      "client_summary": {
+        "age": 43,
+        "occupation": "family_business",
+        "effective_risk_score": 8.1319,
+        "total_corpus": 6000000,
+        "goals": [
+          {
+            "goal_name": "Business Expansion",
+            "time_to_goal_months": 24,
+            "amount_needed": 800000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Child Education",
+            "time_to_goal_months": 84,
+            "amount_needed": 3000000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 204,
+            "amount_needed": 35000000,
+            "goal_priority": "non_negotiable"
+          }
+        ]
+      },
+      "bucket_allocations": [
+        {
+          "bucket": "emergency",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 350100,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 350100
+          },
+          "rationale": "We've set aside 3 months of your household expenses (\u20b9350,100) in a safe, easily accessible fund. This covers unexpected costs without disrupting your investment plans."
+        },
+        {
+          "bucket": "short_term",
+          "goals": [
+            {
+              "goal_name": "Business Expansion",
+              "time_to_goal_months": 24,
+              "amount_needed": 800000,
+              "goal_priority": "non_negotiable"
+            }
+          ],
+          "total_goal_amount": 800000,
+          "allocated_amount": 800000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "arbitrage_income": 800000
+          },
+          "rationale": "Your business expansion needs \u20b9800,000 in 2 years. We've placed this in a fund that earns steady returns with minimal tax impact, keeping your money safe while it grows."
+        },
+        {
+          "bucket": "medium_term",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 0,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "multi_asset": 0,
+            "debt_subgroup": 0
+          },
+          "rationale": "No goals fall into the 3\u20137 year window, so we've allocated nothing here. Your remaining funds go toward longer-term objectives."
+        },
+        {
+          "bucket": "long_term",
+          "goals": [
+            {
+              "goal_name": "Child Education",
+              "time_to_goal_months": 84,
+              "amount_needed": 3000000,
+              "goal_priority": "non_negotiable"
+            },
+            {
+              "goal_name": "Retirement",
+              "time_to_goal_months": 204,
+              "amount_needed": 35000000,
+              "goal_priority": "non_negotiable"
+            }
+          ],
+          "total_goal_amount": 38000000,
+          "allocated_amount": 4849900,
+          "shortfall": {
+            "shortfall_amount": 33150100,
+            "message": "Your education and retirement goals need \u20b938 million, but your current \u20b96 million corpus can only cover \u20b94.85 million. You're short by \u20b933.15 million. Consider increasing your savings rate, extending your retirement timeline, or adjusting education plans to a more modest budget."
+          },
+          "subgroup_amounts": {
+            "tax_efficient_equities": 0,
+            "multi_asset": 1939960,
+            "us_equities": 329993,
+            "low_beta_equities": 659986,
+            "medium_beta_equities": 329993,
+            "high_beta_equities": 0,
+            "sector_equities": 0,
+            "value_equities": 0,
+            "debt_subgroup": 0,
+            "arbitrage_income": 969980,
+            "gold_commodities": 289994
+          },
+          "rationale": "With 7\u201317 years ahead, we've built a growth-focused portfolio mixing Indian stocks, international exposure, and a touch of gold for balance. This gives your money time to compound and weather market ups and downs."
+        }
+      ],
+      "aggregated_subgroups": [
+        {
+          "subgroup": "debt_subgroup",
+          "sub_category": "Liquid Fund",
+          "emergency": 350100,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 0,
+          "total": 350100,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "amount": 350100
+          }
+        },
+        {
+          "subgroup": "arbitrage_income",
+          "sub_category": "Arbitrage Fund",
+          "emergency": 0,
+          "short_term": 800000,
+          "medium_term": 0,
+          "long_term": 969980,
+          "total": 1769980,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "amount": 1769980
+          }
+        },
+        {
+          "subgroup": "multi_asset",
+          "sub_category": "Multi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 1939960,
+          "total": 1939960,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "amount": 1939960
+          }
+        },
+        {
+          "subgroup": "us_equities",
+          "sub_category": "US Linked (FoF)",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 329993,
+          "total": 329993,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "amount": 329993
+          }
+        },
+        {
+          "subgroup": "low_beta_equities",
+          "sub_category": "Large Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 659986,
+          "total": 659986,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "amount": 659986
+          }
+        },
+        {
+          "subgroup": "medium_beta_equities",
+          "sub_category": "Flexi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 329993,
+          "total": 329993,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "amount": 329993
+          }
+        },
+        {
+          "subgroup": "gold_commodities",
+          "sub_category": "Gold ETF",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 289994,
+          "total": 289994,
+          "fund_mapping": {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "amount": 289994
+          }
+        }
+      ],
+      "shortfall_summary": [
+        {
+          "bucket": "long_term",
+          "shortfall_amount": 33150100,
+          "message": "Your education and retirement goals need \u20b938 million total, but your current \u20b96 million corpus can only cover \u20b94.85 million. You're short by \u20b933.15 million. Consider increasing your savings rate, extending your retirement timeline, or adjusting education plans to a more modest budget."
+        }
+      ],
+      "grand_total": 6000000,
+      "all_amounts_in_multiples_of_100": true
+    }
+  },
+  "Vikram Joshi": {
+    "effective_risk_score": 6.6096,
+    "age": 50,
+    "annual_income": 1500000.0,
+    "osi": 0.4,
+    "savings_rate_adjustment": "equity_boost",
+    "gap_exceeds_3": false,
+    "shortfall_amount": null,
+    "total_corpus": 2600000.0,
+    "monthly_household_expense": 60000.0,
+    "tax_regime": "old",
+    "section_80c_utilized": 100000.0,
+    "emergency_fund_needed": true,
+    "primary_income_from_portfolio": false,
+    "effective_tax_rate": 20.0,
+    "goals": [
+      {
+        "goal_name": "Insurance Premium",
+        "time_to_goal_months": 6,
+        "amount_needed": 200000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "other"
+      },
+      {
+        "goal_name": "Retirement",
+        "time_to_goal_months": 120,
+        "amount_needed": 15000000.0,
+        "goal_priority": "non_negotiable",
+        "investment_goal": "retirement"
+      }
+    ],
+    "market_commentary": {
+      "equities": 5.0,
+      "debt": 5.0,
+      "others": 5.0,
+      "low_beta_equities": 5.0,
+      "value_equities": 5.0,
+      "dividend_equities": 5.0,
+      "medium_beta_equities": 5.0,
+      "high_beta_equities": 5.0,
+      "sector_equities": 5.0,
+      "us_equities": 5.0
+    },
+    "multi_asset_composition": {
+      "equity_pct": 65.0,
+      "debt_pct": 25.0,
+      "others_pct": 10.0
+    },
+    "risk_willingness": 5.5,
+    "risk_capacity_score": 7.7192,
+    "net_financial_assets": 2600000.0,
+    "occupation_type": "commission_based",
+    "step1_emergency": {
+      "step": 1,
+      "step_name": "emergency_carve_out",
+      "output": {
+        "emergency_fund_months": 3,
+        "emergency_fund_amount": 180000,
+        "nfa_carveout_amount": 0,
+        "total_emergency": 180000,
+        "remaining_corpus": 2420000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 180000
+        }
+      }
+    },
+    "step2_short_term": {
+      "step": 2,
+      "step_name": "short_term_goals",
+      "output": {
+        "goals_in_bucket": [
+          {
+            "goal_name": "Insurance Premium",
+            "time_to_goal_months": 6,
+            "amount_needed": 200000.0,
+            "goal_priority": "non_negotiable"
+          }
+        ],
+        "asset_subgroup": "debt_subgroup",
+        "total_goal_amount": 200000.0,
+        "allocated_amount": 200000.0,
+        "remaining_corpus": 2220000.0,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "debt_subgroup": 200000.0
+        }
+      }
+    },
+    "step3_medium_term": {
+      "step": 3,
+      "step_name": "medium_term_goals",
+      "output": {
+        "risk_bucket": "Medium",
+        "asset_subgroup": "debt_subgroup",
+        "goals_allocated": [],
+        "total_goal_amount": 0,
+        "allocated_amount": 0,
+        "remaining_corpus": 2220000,
+        "shortfall": null,
+        "subgroup_amounts": {
+          "multi_asset": 0,
+          "debt_subgroup": 0
+        }
+      }
+    },
+    "step4_long_term": {
+      "step": 4,
+      "step_name": "long_term_goals",
+      "asset_class_allocation": {
+        "equities_pct": 40,
+        "debt_pct": 45,
+        "others_pct": 15,
+        "equities_amount": 888000,
+        "debt_amount": 999000,
+        "others_amount": 333000
+      },
+      "elss": {
+        "applicable": true,
+        "elss_headroom": 50000,
+        "elss_amount": 50000,
+        "residual_equity_corpus": 838000
+      },
+      "multi_asset": {
+        "multi_asset_amount": 1200000,
+        "equity_component": 780000,
+        "debt_component": 300000,
+        "others_component": 120000,
+        "equity_for_subgroups": 58000,
+        "debt_for_subgroups": 699000,
+        "remaining_others_for_gold": 213000
+      },
+      "output": {
+        "goals_allocated": [
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 120,
+            "amount_needed": 15000000,
+            "goal_priority": "non_negotiable",
+            "investment_goal": "retirement"
+          }
+        ],
+        "leftover_corpus": 0,
+        "total_long_term_corpus": 2220000,
+        "total_allocated": 2220000,
+        "remaining_corpus": 0,
+        "shortfall": {
+          "goal_name": "Retirement",
+          "shortfall_amount": 12780000,
+          "negotiable": false
+        },
+        "subgroup_amounts": {
+          "tax_efficient_equities": 50000,
+          "multi_asset": 1200000,
+          "us_equities": 11600,
+          "low_beta_equities": 17400,
+          "medium_beta_equities": 11600,
+          "high_beta_equities": 11600,
+          "sector_equities": 0,
+          "value_equities": 0,
+          "debt_subgroup": 0,
+          "arbitrage_income": 699000,
+          "gold_commodities": 213000
+        }
+      }
+    },
+    "step5_aggregation": {
+      "step": 5,
+      "step_name": "aggregation",
+      "output": {
+        "rows": [
+          {
+            "subgroup": "debt_subgroup",
+            "emergency": 180000,
+            "short_term": 200000,
+            "medium_term": 0,
+            "long_term": 0,
+            "total": 380000
+          },
+          {
+            "subgroup": "tax_efficient_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 50000,
+            "total": 50000
+          },
+          {
+            "subgroup": "multi_asset",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 1200000,
+            "total": 1200000
+          },
+          {
+            "subgroup": "us_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 11600,
+            "total": 11600
+          },
+          {
+            "subgroup": "low_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 17400,
+            "total": 17400
+          },
+          {
+            "subgroup": "medium_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 11600,
+            "total": 11600
+          },
+          {
+            "subgroup": "high_beta_equities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 11600,
+            "total": 11600
+          },
+          {
+            "subgroup": "arbitrage_income",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 699000,
+            "total": 699000
+          },
+          {
+            "subgroup": "gold_commodities",
+            "emergency": 0,
+            "short_term": 0,
+            "medium_term": 0,
+            "long_term": 213000,
+            "total": 213000
+          }
+        ],
+        "grand_total": 2600000,
+        "grand_total_matches_corpus": true
+      }
+    },
+    "step6_guardrails": {
+      "step": 6,
+      "step_name": "guardrails_and_fund_mapping",
+      "output": {
+        "validation": {
+          "all_rules_pass": true,
+          "violations_found": [],
+          "adjustments_made": []
+        },
+        "fund_mappings": [
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "total_amount": 380000
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "tax_efficient_equities",
+            "sub_category": "ELSS Tax Saver Fund",
+            "recommended_fund": "Motilal Oswal ELSS Tax Saver Fund - Regular Plan - Growth Option",
+            "isin": "INF247L01544",
+            "total_amount": 50000
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "total_amount": 1200000
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "total_amount": 11600
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "total_amount": 17400
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "total_amount": 11600
+          },
+          {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "total_amount": 11600
+          },
+          {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "total_amount": 699000
+          },
+          {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "total_amount": 213000
+          }
+        ]
+      }
+    },
+    "step7_presentation": {
+      "step": 7,
+      "step_name": "presentation",
+      "client_summary": {
+        "age": 50,
+        "occupation": "commission_based",
+        "effective_risk_score": 6.6096,
+        "total_corpus": 2600000,
+        "goals": [
+          {
+            "goal_name": "Insurance Premium",
+            "time_to_goal_months": 6,
+            "amount_needed": 200000,
+            "goal_priority": "non_negotiable"
+          },
+          {
+            "goal_name": "Retirement",
+            "time_to_goal_months": 120,
+            "amount_needed": 15000000,
+            "goal_priority": "non_negotiable"
+          }
+        ]
+      },
+      "bucket_allocations": [
+        {
+          "bucket": "emergency",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 180000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 180000
+          },
+          "rationale": "We've set aside 3 months of your household expenses (\u20b9180,000) in a safe, easily accessible fund. This covers unexpected situations like medical emergencies or sudden income gaps, so you don't have to sell investments at the wrong time."
+        },
+        {
+          "bucket": "short_term",
+          "goals": [
+            "Insurance Premium"
+          ],
+          "total_goal_amount": 200000,
+          "allocated_amount": 200000,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "debt_subgroup": 200000
+          },
+          "rationale": "Your insurance premium is due in 6 months. We've placed this money in a liquid fund that keeps it safe and ready to pay without any market risk. You'll earn a small return while waiting."
+        },
+        {
+          "bucket": "medium_term",
+          "goals": [],
+          "total_goal_amount": 0,
+          "allocated_amount": 0,
+          "shortfall": null,
+          "subgroup_amounts": {
+            "multi_asset": 0,
+            "debt_subgroup": 0
+          },
+          "rationale": "No medium-term goals were identified in your plan, so this bucket remains empty. If you add goals for 2\u20135 years ahead, we can allocate funds here."
+        },
+        {
+          "bucket": "long_term",
+          "goals": [
+            "Retirement"
+          ],
+          "total_goal_amount": 15000000,
+          "allocated_amount": 2220000,
+          "shortfall": {
+            "goal_name": "Retirement",
+            "shortfall_amount": 12780000,
+            "negotiable": false
+          },
+          "subgroup_amounts": {
+            "tax_efficient_equities": 50000,
+            "multi_asset": 1200000,
+            "us_equities": 11600,
+            "low_beta_equities": 17400,
+            "medium_beta_equities": 11600,
+            "high_beta_equities": 11600,
+            "arbitrage_income": 699000,
+            "gold_commodities": 213000
+          },
+          "rationale": "Your retirement is 10 years away, giving us time to grow your money through a mix of Indian stocks, international exposure, and income-generating funds. We've spread the risk across different types of investments so your portfolio can weather market ups and downs while building wealth."
+        }
+      ],
+      "aggregated_subgroups": [
+        {
+          "subgroup": "debt_subgroup",
+          "sub_category": "Liquid Fund",
+          "emergency": 180000,
+          "short_term": 200000,
+          "medium_term": 0,
+          "long_term": 0,
+          "total": 380000,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "debt_subgroup",
+            "sub_category": "Liquid Fund",
+            "recommended_fund": "Canara Robeco Liquid Fund - Regular Plan - Growth Option",
+            "isin": "INF760K01CW9",
+            "amount": 380000
+          }
+        },
+        {
+          "subgroup": "tax_efficient_equities",
+          "sub_category": "ELSS Tax Saver Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 50000,
+          "total": 50000,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "tax_efficient_equities",
+            "sub_category": "ELSS Tax Saver Fund",
+            "recommended_fund": "Motilal Oswal ELSS Tax Saver Fund - Regular Plan - Growth Option",
+            "isin": "INF247L01544",
+            "amount": 50000
+          }
+        },
+        {
+          "subgroup": "multi_asset",
+          "sub_category": "Multi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 1200000,
+          "total": 1200000,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "multi_asset",
+            "sub_category": "Multi Cap Fund",
+            "recommended_fund": "ICICI Prudential Multicap Fund - Growth",
+            "isin": "INF109K01613",
+            "amount": 1200000
+          }
+        },
+        {
+          "subgroup": "us_equities",
+          "sub_category": "US Linked (FoF)",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 11600,
+          "total": 11600,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "us_equities",
+            "sub_category": "US Linked (FoF)",
+            "recommended_fund": "Kotak US Specific Equity Passive FOF - Direct Plan - Growth",
+            "isin": "INF174KA1FQ7",
+            "amount": 11600
+          }
+        },
+        {
+          "subgroup": "low_beta_equities",
+          "sub_category": "Large Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 17400,
+          "total": 17400,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "low_beta_equities",
+            "sub_category": "Large Cap Fund",
+            "recommended_fund": "Nippon India Large Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01562",
+            "amount": 17400
+          }
+        },
+        {
+          "subgroup": "medium_beta_equities",
+          "sub_category": "Flexi Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 11600,
+          "total": 11600,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "medium_beta_equities",
+            "sub_category": "Flexi Cap Fund",
+            "recommended_fund": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            "isin": "INF879O01027",
+            "amount": 11600
+          }
+        },
+        {
+          "subgroup": "high_beta_equities",
+          "sub_category": "Small Cap Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 11600,
+          "total": 11600,
+          "fund_mapping": {
+            "asset_class": "equities",
+            "asset_subgroup": "high_beta_equities",
+            "sub_category": "Small Cap Fund",
+            "recommended_fund": "Nippon India Small Cap Fund - Growth Plan - Growth Option",
+            "isin": "INF204K01HY3",
+            "amount": 11600
+          }
+        },
+        {
+          "subgroup": "arbitrage_income",
+          "sub_category": "Arbitrage Fund",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 699000,
+          "total": 699000,
+          "fund_mapping": {
+            "asset_class": "debt",
+            "asset_subgroup": "arbitrage_income",
+            "sub_category": "Arbitrage Fund",
+            "recommended_fund": "Nippon India Arbitrage Fund - Direct Plan - Growth",
+            "isin": "INF204K01XZ7",
+            "amount": 699000
+          }
+        },
+        {
+          "subgroup": "gold_commodities",
+          "sub_category": "Gold ETF",
+          "emergency": 0,
+          "short_term": 0,
+          "medium_term": 0,
+          "long_term": 213000,
+          "total": 213000,
+          "fund_mapping": {
+            "asset_class": "others",
+            "asset_subgroup": "gold_commodities",
+            "sub_category": "Gold ETF",
+            "recommended_fund": "ICICI Prudential Gold ETF",
+            "isin": "INF109KC1NT3",
+            "amount": 213000
+          }
+        }
+      ],
+      "shortfall_summary": [
+        {
+          "bucket": "long_term",
+          "shortfall_amount": 12780000,
+          "message": "Your retirement goal needs \u20b915,000,000, but your current savings can only cover \u20b92,220,000. You're short by \u20b912,780,000. Consider increasing your monthly investments, delaying retirement by a few years, or adjusting your retirement spending plans. Even small increases in savings now will make a big difference over the next 10 years."
+        }
+      ],
+      "grand_total": 2600000,
+      "all_amounts_in_multiples_of_100": false
+    }
+  }
+}

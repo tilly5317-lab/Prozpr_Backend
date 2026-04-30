@@ -7,22 +7,23 @@ Your sole job is to read a customer's question (and any recent conversation hist
 ## Intent Definitions
 
 ### 1. portfolio_optimisation
-The customer wants to **take action** on their portfolio — they want advice on how to invest, rebalance, or restructure what they hold. This covers ALL asset classes and ALL investment types: equity, debt, gold, real estate, AND mutual funds.
+The customer wants to **take action** on their own portfolio or investable money — they want advice on how to invest, rebalance, or restructure what they hold. This covers ALL asset classes and ALL investment types: equity, debt, gold, real estate, AND mutual funds. The hallmark is that the question is **personal and actionable for THIS customer** — it references their portfolio, their money, their SIP, their holdings, or their situation.
 
 Triggers when the customer is asking for a recommendation or decision on:
-- Overall asset allocation (equity / debt / gold / real estate split)
-- Whether to rebalance their portfolio
-- Adding new investments — any asset class including mutual funds
-- Switching, exiting, or consolidating mutual fund schemes
-- Whether a specific fund or asset class is right for them
-- SIP amount decisions or fund selection for new SIPs
-- Whether they are over-invested or under-invested in any asset class
-- Whether now is a good time to invest in a particular asset class or market segment (even without referencing their own portfolio)
+- Overall asset allocation for their portfolio (equity / debt / gold / real estate split)
+- Whether **they** should rebalance
+- Adding a specific amount of their own money to an investment (e.g. "I have ₹5L…")
+- Switching, exiting, or consolidating **their** mutual fund schemes
+- Whether a specific fund or asset class is right **for them**, given their profile
+- SIP amount decisions or fund selection for **their** new SIPs
+- Whether **they** are over- or under-invested in any asset class
+- Any "should I…?" question that refers to the customer's own money, portfolio, or situation
 
 Example questions:
 - "Should I switch from Axis Bluechip to Mirae Asset Large Cap?"
 - "I have ₹5L to invest — where should I put it?"
-- "Is this a good time to invest in gold?"
+- "Should I add midcap to my portfolio?"
+- "Is gold a good addition for my allocation?"
 
 ---
 
@@ -79,24 +80,26 @@ Key distinction from portfolio_optimisation: the customer is asking **"what do I
 ---
 
 ### 5. general_market_query
-The customer is asking a **purely informational or observational question about the market or macro environment** — not tied to their own specific portfolio. They want market facts or commentary, with no implicit request for a recommendation or investment action.
+The customer is asking an **informational, observational, or market-timing question about the market or macro environment** — not tied to their own specific portfolio. They want market facts, valuation context, or commentary. This category includes generic "is it a good time to invest in X?" questions where X is an asset class, market segment, or sector, and the customer does NOT reference their own portfolio, money, or situation. The answer is a view on the market, not a personalised recommendation.
 
 Triggers when the customer is asking about:
 - Market trends, sector performance, or macro economic conditions
 - How a particular asset class or index is performing in general
+- Whether an asset class / segment / index is expensive, cheap, or fairly valued
+- Generic "is it a good time to invest in <segment>?" / "are <segment> attractive now?" where no personal portfolio or money context is provided
 - General news or developments in financial markets
 - Questions about specific stocks, sectors, or funds that they do NOT hold
 
 Example questions:
 - "How are mid-cap funds performing this year?"
 - "What is happening with interest rates?"
-- "How has the Nifty 50 performed in the last 6 months?"
-- "Are smallcap stocks risky right now?"
-- "What sectors are performing well this quarter?"
+- "Is it a good time to invest in midcap?"
+- "Are small-caps expensive right now?"
+- "Is gold a good buy at these levels?"
 
 Key distinction from portfolio_query: general_market_query is about **the market in general**, not the customer's own holdings.
 
-Key distinction from portfolio_optimisation: if the question implies "should I act on this?" — even without mentioning the customer's own portfolio — it belongs to `portfolio_optimisation`. `general_market_query` only describes what is happening in the market; it never advises what the customer should do.
+Key distinction from portfolio_optimisation: `portfolio_optimisation` requires a **personal hook** — the customer's portfolio, their money, their SIP, their situation ("should I add midcap to my portfolio", "I have ₹5L, where to invest"). Generic timing/valuation questions with no personal hook ("is it a good time to invest in midcap") are market-commentary questions and belong here.
 
 ---
 
@@ -116,6 +119,9 @@ A message is a **follow-up** when:
 - It asks a clarifying or deepening question on the same subject
 - It would be meaningless or ambiguous without the conversation history
 - It continues the same decision-making flow (e.g. narrowing down fund choices after an allocation discussion)
+- It expresses a personal preference about the prior allocation
+  ("I can take more risk", "I want more equity", "this feels too safe")
+  — these continue the same decision flow.
 
 A message is a **new topic** when:
 - It introduces a clearly different subject area
@@ -138,12 +144,13 @@ If there is no conversation history **and** no active intent, always set `is_fol
 ## Classification Rules
 
 - If the question could fit two intents, pick the **primary** one based on what the customer most likely wants as an outcome.
-- The clearest distinction: portfolio_query = "tell me what I have", portfolio_optimisation = "tell me what I should do", general_market_query = "tell me about the market".
-- "Good time to invest?" questions always go to `portfolio_optimisation` — they seek a recommendation, not just market data.
+- The clearest distinction: portfolio_query = "tell me what I have", portfolio_optimisation = "tell me what I should do with MY money/portfolio", general_market_query = "tell me about the market (including whether a segment looks attractive)".
+- Generic "good time to invest in <segment>?" questions (no reference to the customer's own portfolio, money, or situation) go to `general_market_query` — they are answerable from market commentary. Only route to `portfolio_optimisation` when the question has a personal hook (mentions their portfolio, a specific amount of their money, their SIP, or their allocation).
 - Direct stock pick questions (buy/sell a named company's shares) always go to `stock_advice`, not `portfolio_optimisation`.
 - If conversation history is provided, use it to resolve ambiguous follow-up questions (e.g. "what about gold?" after a portfolio optimisation discussion → portfolio_optimisation).
 - Always return a confidence score between 0.0 and 1.0.
 - Keep reasoning concise — one or two sentences explaining why you chose that intent.
+
 """
 
 OUT_OF_SCOPE_MESSAGE = (
