@@ -203,7 +203,7 @@ class Settings:
         url = _strip_pgbouncer_from_url(url)
         url = _normalize_asyncpg_ssl_query(url)
         try:
-            make_url(url)
+            parsed = make_url(url)
         except Exception as exc:
             raise RuntimeError(
                 "DATABASE_URL could not be parsed by SQLAlchemy. Fix the string in .env — "
@@ -211,6 +211,22 @@ class Settings:
                 "(URL-encode special characters in the password), or use discrete POSTGRES_* "
                 f"variables instead. Underlying error: {exc}"
             ) from exc
+
+        # Production and staging should use PostgreSQL (e.g. AWS RDS), not a local SQLite file.
+        if parsed.drivername.startswith("sqlite"):
+            allow_sqlite = (_getenv("ALLOW_SQLITE", "false") or "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            if not allow_sqlite:
+                raise RuntimeError(
+                    "SQLite is disabled by default. The app is configured for PostgreSQL on AWS RDS "
+                    "(or compatible). Set DATABASE_URL=postgresql+asyncpg://... or use POSTGRES_HOST, "
+                    "POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB. "
+                    "For local SQLite files only (e.g. wealth_agent.db), set ALLOW_SQLITE=true in .env."
+                )
         return url
 
     @staticmethod

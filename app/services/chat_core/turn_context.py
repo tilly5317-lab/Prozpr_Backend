@@ -57,9 +57,13 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
     active_intent: str | None = None
 
     if turn.db is not None and turn.session_id is not None:
+        # Use a savepoint so a failed query (e.g. schema behind ORM, missing columns)
+        # does not call Session.rollback(), which expires all instances and breaks
+        # async SQLAlchemy (lazy loads → MissingGreenlet on user.portfolios, etc.).
         try:
-            last_runs = await _load_last_agent_runs(turn.db, turn.session_id)
-            active_intent = await _load_active_intent(turn.db, turn.session_id)
+            async with turn.db.begin_nested():
+                last_runs = await _load_last_agent_runs(turn.db, turn.session_id)
+                active_intent = await _load_active_intent(turn.db, turn.session_id)
         except Exception as exc:
             logger.warning("build_turn_context degraded (%s); using empty context", exc)
 

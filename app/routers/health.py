@@ -6,6 +6,7 @@ import os
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -42,7 +43,16 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     except Exception:
         db_status = "unhealthy"
 
+    parsed = make_url(get_settings().get_database_url())
+    if parsed.drivername.startswith("postgresql"):
+        backend = "postgresql"
+    elif "sqlite" in parsed.drivername:
+        backend = "sqlite"
+    else:
+        backend = parsed.drivername
+
     return {
         "status": "ok" if db_status == "healthy" else "degraded",
         "database": db_status,
+        "database_backend": backend,
     }
