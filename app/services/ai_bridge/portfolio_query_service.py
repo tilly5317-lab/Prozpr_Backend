@@ -16,6 +16,8 @@ from collections import defaultdict
 from datetime import date
 from typing import Any, Iterable
 
+from anthropic import AuthenticationError as AnthropicAuthenticationError
+
 from app.config import get_settings
 from app.services.ai_bridge.common import ensure_ai_agents_path
 
@@ -43,7 +45,11 @@ _NO_PORTFOLIO_TEMPLATE = (
 )
 _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
-    "configured on the server. Please set `ANTHROPIC_API_KEY` and try again."
+    "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
+)
+_INVALID_ANTHROPIC_KEY_REPLY = (
+    "The Anthropic API key was rejected (invalid or expired). "
+    "Set a valid `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in your server `.env`."
 )
 _MISSING_COMMENTARY_REPLY = (
     "I can't answer that yet — the market commentary file isn't available. "
@@ -282,7 +288,7 @@ async def generate_portfolio_query_response(
         first_name = getattr(user, "first_name", None) or "there"
         return _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
 
-    api_key = get_settings().get_anthropic_key()
+    api_key = get_settings().get_anthropic_portfolio_query_key() or get_settings().get_anthropic_key()
     if not api_key:
         return _MISSING_KEY_REPLY
 
@@ -299,6 +305,9 @@ async def generate_portfolio_query_response(
     except FileNotFoundError as exc:
         logger.warning("portfolio_query: market commentary file missing — %s", exc)
         return _MISSING_COMMENTARY_REPLY
+    except AnthropicAuthenticationError as exc:
+        logger.warning("portfolio_query: Anthropic authentication failed — %s", exc)
+        return _INVALID_ANTHROPIC_KEY_REPLY
     except Exception:
         logger.exception("portfolio_query: orchestrator failed")
         return _GENERIC_FAILURE_REPLY

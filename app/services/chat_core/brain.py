@@ -168,6 +168,11 @@ class ChatBrain:
                 logger.exception("ChatBrain turn failed session=%s: %s", sid, exc)
             flow.append(f"classifier or routing error: {exc!s}")
             trace_line(f"ChatBrain exception before recovery: {exc!s}")
+            if db is not None:
+                try:
+                    await db.rollback()
+                except Exception:
+                    logger.exception("ChatBrain failed to rollback aborted transaction session=%s", sid)
             return await finalize(_CLASSIFIER_FAILURE_MESSAGE)
 
     async def _answer_general_market(self, turn: ChatTurnInput, classification, flow: list[str]) -> str:

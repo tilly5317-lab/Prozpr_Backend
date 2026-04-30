@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.chat_ai_module_run import ChatAiModuleRun
 
@@ -50,21 +51,30 @@ async def record_ai_module_run(
         )
     if db is None:
         return None
-    row = ChatAiModuleRun(
-        user_id=user_id,
-        session_id=session_id,
-        module=module,
-        reason=reason,
-        intent_detected=intent_detected,
-        spine_mode=spine_mode,
-        duration_ms=duration_ms,
-        extra=extra,
-        input_payload=input_payload,
-        output_payload=output_payload,
-    )
-    db.add(row)
-    await db.flush()
-    return row.id
+    try:
+        # Keep telemetry best-effort: a failed audit insert must not break chat flow.
+        async with db.begin_nested():
+            row = ChatAiModuleRun(
+                user_id=user_id,
+                session_id=session_id,
+                module=module,
+                reason=reason,
+                intent_detected=intent_detected,
+                spine_mode=spine_mode,
+                duration_ms=duration_ms,
+                extra=extra,
+                input_payload=input_payload,
+                output_payload=output_payload,
+            )
+            db.add(row)
+            await db.flush()
+            return row.id
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Skipping AI module telemetry write due to DB transaction state/session error: %s",
+            exc,
+        )
+        return None
 
 
 async def log_chat_turn_flow_summary(

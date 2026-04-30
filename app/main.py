@@ -17,8 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from sqlalchemy.engine import make_url
+
 from app.config import get_settings
-from app.database import create_all_tables, dispose_engine
+from app.database import apply_postgres_schema_patches, create_all_tables, dispose_engine
 from app.routers import all_routers
 
 logging.basicConfig(
@@ -38,8 +40,25 @@ async def lifespan(application: FastAPI):
     logger.info("=" * 60)
 
     try:
+        db_url = get_settings().get_database_url()
+        parsed = make_url(db_url)
+        if parsed.drivername.startswith("postgresql"):
+            logger.info(
+                "Database engine: postgresql (host=%s, db=%s). Run `alembic upgrade head` on RDS for migrations.",
+                parsed.host or "?",
+                parsed.database or "?",
+            )
+        elif parsed.drivername.startswith("sqlite"):
+            logger.warning("Database engine: sqlite (ALLOW_SQLITE dev mode only)")
         await create_all_tables()
-        logger.info("Database tables ready")
+        try:
+            await apply_postgres_schema_patches()
+        except Exception as patch_exc:
+            logger.warning(
+                "Postgres schema patches failed (check DB permissions / table chat_ai_module_runs): %s",
+                patch_exc,
+            )
+        logger.info("Database tables ready (create_all).")
     except Exception as e:
         logger.error("Database setup error: %s", e)
 
