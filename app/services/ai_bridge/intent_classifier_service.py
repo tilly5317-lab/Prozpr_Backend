@@ -124,18 +124,28 @@ async def _classify_via_openai(
 async def classify_user_message(
     customer_question: str,
     conversation_history: list[dict[str, str]] | None = None,
+    active_intent: str | None = None,
 ) -> ClassificationResult:
-    """Classify intent via Anthropic; falls back to OpenAI on failure."""
+    """Classify intent via Anthropic; falls back to OpenAI on failure.
+
+    ``active_intent`` is the intent from the most recent prior turn in this
+    session (or ``None`` for first turns). When set, it biases the classifier
+    toward returning the same intent on follow-ups. Raises ``ValueError`` if
+    the string is not a valid ``Intent`` enum value.
+    """
     history = [
         ConversationMessage(role=m["role"], content=m["content"])
         for m in (conversation_history or [])
     ]
+    active = Intent(active_intent) if active_intent else None
     try:
-        inp = ClassificationInput(customer_question=customer_question, conversation_history=history)
+        inp = ClassificationInput(customer_question=customer_question, conversation_history=history, active_intent=active)
         return await asyncio.to_thread(_get_classifier().classify, inp)
     except Exception as exc:
         logger.warning("Anthropic classifier failed (%s), trying OpenAI fallback...", exc)
 
+    # NOTE: active_intent is intentionally not forwarded to the OpenAI fallback;
+    # the bias is a small loss when the system is already degraded to recovery.
     return await _classify_via_openai(customer_question, conversation_history)
 
 

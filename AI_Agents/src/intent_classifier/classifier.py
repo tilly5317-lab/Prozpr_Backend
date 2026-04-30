@@ -76,7 +76,7 @@ class IntentClassifier:
         llm = ChatAnthropic(
             model=model,
             api_key=resolved_key,
-            max_tokens=150,
+            max_tokens=512,
         )
         self.chain = llm.with_structured_output(_LLMOutput)
 

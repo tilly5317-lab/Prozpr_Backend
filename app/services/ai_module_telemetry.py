@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.chat_ai_module_run import ChatAiModuleRun
 
@@ -28,11 +29,14 @@ async def record_ai_module_run(
     spine_mode: str | None = None,
     duration_ms: int | None = None,
     extra: dict[str, Any] | None = None,
+    input_payload: dict[str, Any] | None = None,
+    output_payload: dict[str, Any] | None = None,
     emit_standard_log: bool = True,
-) -> None:
+) -> uuid.UUID | None:
     """
     Optionally emit AILAX_AI_MODULE_RUN; always persist one row when db is set.
     Use emit_standard_log=False when a higher-level AILAX_CHAT_FLOW line is logged instead.
+    Returns the new row's id (or None when db is None).
     """
     if emit_standard_log:
         logger.info(
@@ -46,19 +50,31 @@ async def record_ai_module_run(
             duration_ms,
         )
     if db is None:
-        return
-    row = ChatAiModuleRun(
-        user_id=user_id,
-        session_id=session_id,
-        module=module,
-        reason=reason,
-        intent_detected=intent_detected,
-        spine_mode=spine_mode,
-        duration_ms=duration_ms,
-        extra=extra,
-    )
-    db.add(row)
-    await db.flush()
+        return None
+    try:
+        # Keep telemetry best-effort: a failed audit insert must not break chat flow.
+        async with db.begin_nested():
+            row = ChatAiModuleRun(
+                user_id=user_id,
+                session_id=session_id,
+                module=module,
+                reason=reason,
+                intent_detected=intent_detected,
+                spine_mode=spine_mode,
+                duration_ms=duration_ms,
+                extra=extra,
+                input_payload=input_payload,
+                output_payload=output_payload,
+            )
+            db.add(row)
+            await db.flush()
+            return row.id
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Skipping AI module telemetry write due to DB transaction state/session error: %s",
+            exc,
+        )
+        return None
 
 
 async def log_chat_turn_flow_summary(

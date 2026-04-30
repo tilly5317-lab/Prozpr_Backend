@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.mf.mf_fund_metadata import MfFundMetadata
     from app.models.user import User
 
 
@@ -118,6 +119,13 @@ class PortfolioHolding(Base):
     )
 
     portfolio: Mapped["Portfolio"] = relationship(back_populates="holdings")
+
+    fund_metadata: Mapped[Optional["MfFundMetadata"]] = relationship(
+        "MfFundMetadata",
+        primaryjoin="foreign(PortfolioHolding.ticker_symbol) == MfFundMetadata.scheme_code",
+        viewonly=True,
+        uselist=False,
+    )
 
 
 class PortfolioHistory(Base):

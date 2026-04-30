@@ -3,8 +3,8 @@
 > This package sits between the FastAPI routers and the `AI_Agents/src`
 > packages.  It handles API key resolution, async ↔ thread bridging,
 > user-context mapping, and markdown formatting so that the AI engine
-> modules (`Ideal_asset_allocation`, `intent_classifier`, `market_commentary`,
-> `risk_profiling`) stay untouched.
+> modules (`goal_based_allocation_pydantic`, `intent_classifier`,
+> `market_commentary`, `risk_profiling`) stay untouched.
 
 ---
 
@@ -70,7 +70,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                    AI BRIDGE  (app/services/ai_bridge/)                          │
 │                                                                                  │
-│  The numbered boxes below are the 12 files in this package.                      │
+│  The numbered boxes below are the 11 files in this package.                      │
 │  Arrows show call direction; labels show key I/O data.                           │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
@@ -91,7 +91,7 @@
 │  │    ensure_ai_agents_path()                                                │  │
 │  │      Adds AI_Agents/src to sys.path so agent packages are importable.     │  │
 │  │      Called at module load time by every service that imports from         │  │
-│  │      AI_Agents (intent_classifier, Ideal_asset_allocation, etc.).         │  │
+│  │      AI_Agents (intent_classifier, goal_based_allocation_pydantic, etc.). │  │
 │  │                                                                           │  │
 │  │    build_history_block(history: list[dict]) → str                         │  │
 │  │      IN:  last N chat turns [{role, content}, ...]                        │  │
@@ -255,57 +255,55 @@
 │  │                                                                           │  │
 │  │  compute_allocation_result(user, question, db, ...)                       │  │
 │  │    IN:  User ORM, question, db session, persist flags, spine_mode         │  │
-│  │    OUT: AllocationRunOutcome { result: AllocationOutput | None,            │  │
+│  │    OUT: AllocationRunOutcome { result: GoalAllocationOutput | None,       │  │
 │  │           blocking_message, rebalancing_id, snapshot_id }                 │  │
 │  │                                                                           │  │
 │  │    Orchestration steps:                                                   │  │
 │  │    1. Guard: check date_of_birth exists                                   │  │
-│  │    2. Call effective_risk_from_user.build_allocation_input_for_user()      │  │
+│  │    2. Call goal_allocation_input_builder                                  │  │
+│  │         .build_goal_allocation_input_for_user()                           │  │
 │  │    3. Resolve Anthropic API key from settings                             │  │
-│  │    4. Call ideal_allocation_runner (in a thread via asyncio.to_thread)     │  │
-│  │    5. Trace all 5 pipeline steps to [AILAX_TRACE]                         │  │
+│  │    4. Call goal_based_allocation_pydantic.pipeline                       │  │
+│  │         .run_allocation_with_state() in a thread (asyncio.to_thread),     │  │
+│  │         passing generate_rationales as the optional LLM rationale step    │  │
+│  │    5. Trace all 7 pipeline steps to [AILAX_TRACE]                         │  │
 │  │    6. Optionally persist recommendation to DB                             │  │
 │  │                                                                           │  │
-│  │  format_allocation_chat_brief(AllocationOutput, spine_mode) → markdown    │  │
+│  │  format_allocation_chat_brief(GoalAllocationOutput, spine_mode) → markdown│  │
 │  │    Renders: risk score, target mix (%), carve-outs, fund-level rows,      │  │
 │  │    unallocated gap, grand total reconciliation — all to 0.01 precision    │  │
 │  │                                                                           │  │
 │  │  generate_portfolio_optimisation_response(user, question, db)             │  │
 │  │    Wrapper for standalone HTTP use (not via chat flow).                   │  │
-│  └──────────────┬───────────────────────────────────┬─────────────────────────┘  │
-│                 │                                    │                            │
-│    calls [11]   │                           calls [12]                            │
-│                 ▼                                    ▼                            │
-│  ┌────────────────────────────┐   ┌──────────────────────────────────────────┐   │
-│  │  [11]  effective_risk      │   │  [12]  ideal_allocation_runner.py        │   │
-│  │        _from_user.py       │   │                                          │   │
-│  │                            │   │  invoke_ideal_allocation_with_full_state  │   │
-│  │  build_allocation_input    │   │    (alloc_input, api_key)                │   │
-│  │    _for_user(user, q)      │   │                                          │   │
-│  │                            │   │    IN:  AllocationInput, Anthropic key    │   │
-│  │  IN:  User ORM (with      │   │    OUT: (full_state dict, AllocationOutput│   │
-│  │    risk_profile,           │   │         validated Pydantic model)         │   │
-│  │    investment_profile,     │   │                                          │   │
-│  │    financial_goals,        │   │    Mechanism:                             │   │
-│  │    portfolios loaded)      │   │    1. Swap ANTHROPIC_API_KEY in env      │   │
-│  │                            │   │    2. importlib.reload the LCEL chain    │   │
-│  │  OUT: (AllocationInput,    │   │    3. chain.invoke(input.model_dump())   │   │
-│  │        debug_dict)         │   │    4. Restore original key               │   │
-│  │                            │   │    5. Coerce pct fields to int           │   │
-│  │  Reads from user:          │   │    6. Validate → AllocationOutput        │   │
-│  │    • date_of_birth → age   │   │                                          │   │
-│  │    • risk_profile          │   │    The LCEL chain runs 5 steps:          │   │
-│  │    • investment_profile    │   │      Step 1: Carve-outs                  │   │
-│  │    • financial_goals       │   │      Step 2: Asset class split           │   │
-│  │    • portfolios            │   │      Step 3: Subgroup allocation         │   │
-│  │                            │   │      Step 4: Validation                  │   │
-│  │  Calls AI_Agents:          │   │      Step 5: Presentation               │   │
-│  │    risk_profiling.scoring  │   │                                          │   │
-│  │    .compute_all_scores()   │   │    API call:                             │   │
-│  │                            │   │      → Anthropic (Claude) via            │   │
-│  │  API calls: NONE           │   │        LangChain ChatAnthropic           │   │
-│  │  (pure computation)        │   │        (5 chained LLM calls)             │   │
-│  └────────────────────────────┘   └──────────────────────────────────────────┘   │
+│  │                                                                           │  │
+│  │  Pipeline steps (run inside goal_based_allocation_pydantic):              │  │
+│  │    Step 1: Emergency fund carve-out                                       │  │
+│  │    Step 2: Short-term goal allocation                                     │  │
+│  │    Step 3: Medium-term goal allocation                                    │  │
+│  │    Step 4: Long-term goal allocation                                      │  │
+│  │    Step 5: Aggregation across goals                                       │  │
+│  │    Step 6: Guardrails / bounds enforcement                                │  │
+│  │    Step 7: Presentation (optional Anthropic Claude rationale)             │  │
+│  └──────────────────────────────────┬─────────────────────────────────────────┘  │
+│                                     │ calls [11]                                 │
+│                                     ▼                                            │
+│  ┌────────────────────────────────────────────────────────────────────────────┐  │
+│  │  [11]  goal_allocation_input_builder.py                                   │  │
+│  │                                                                           │  │
+│  │  build_goal_allocation_input_for_user(user)                               │  │
+│  │    IN:  User ORM (with risk_profile, investment_profile, financial_goals, │  │
+│  │         portfolios, effective_risk_assessments loaded)                    │  │
+│  │    OUT: (AllocationInput, debug_dict)                                     │  │
+│  │                                                                           │  │
+│  │  Reads from user:                                                         │  │
+│  │    • date_of_birth → age                                                  │  │
+│  │    • investment_profile (income, liabilities, horizon)                    │  │
+│  │    • financial_goals → Goal list                                          │  │
+│  │    • portfolios → total_corpus                                            │  │
+│  │    • effective_risk_assessments → effective_risk_score (fallback 7.0)     │  │
+│  │                                                                           │  │
+│  │  API calls: NONE (pure DB + computation, no call into scoring module)     │  │
+│  └────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -399,27 +397,19 @@
 ### `asset_allocation_service.py`
 
 
-| Function                                                | I/O                                | External API                        |
-| ------------------------------------------------------- | ---------------------------------- | ----------------------------------- |
-| `compute_allocation_result(user, q, db, ...)`           | `User, str → AllocationRunOutcome` | Delegates to `[11]` and `[12]`      |
-| `format_allocation_chat_brief(output, mode)`            | `AllocationOutput, str → str`      | None (pure formatting)              |
-| `generate_portfolio_optimisation_response(user, q, db)` | `User, str → str`                  | Same as `compute_allocation_result` |
+| Function                                                | I/O                                | External API                                         |
+| ------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------- |
+| `compute_allocation_result(user, q, db, ...)`           | `User, str → AllocationRunOutcome` | **Anthropic (Claude)** via pydantic pipeline rationale step |
+| `format_allocation_chat_brief(output, mode)`            | `GoalAllocationOutput, str → str`  | None (pure formatting)                               |
+| `generate_portfolio_optimisation_response(user, q, db)` | `User, str → str`                  | Same as `compute_allocation_result`                  |
 
 
-### `effective_risk_from_user.py`
+### `goal_allocation_input_builder.py`
 
 
-| Function                                   | I/O                                         | External API                                 |
-| ------------------------------------------ | ------------------------------------------- | -------------------------------------------- |
-| `build_allocation_input_for_user(user, q)` | `User, str → (AllocationInput, debug_dict)` | None (uses `risk_profiling.scoring` locally) |
-
-
-### `ideal_allocation_runner.py`
-
-
-| Function                                              | I/O                                               | External API                                                             |
-| ----------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------ |
-| `invoke_ideal_allocation_with_full_state(input, key)` | `AllocationInput, str → (dict, AllocationOutput)` | **Anthropic (Claude)** via LangChain LCEL chain (5 sequential LLM calls) |
+| Function                                  | I/O                                    | External API                             |
+| ----------------------------------------- | -------------------------------------- | ---------------------------------------- |
+| `build_goal_allocation_input_for_user(u)` | `User → (AllocationInput, debug_dict)` | None (pure DB + computation)             |
 
 
 ---
@@ -429,7 +419,7 @@
 
 | Provider       | Model                         | Used By                     | Purpose                                     |
 | -------------- | ----------------------------- | --------------------------- | ------------------------------------------- |
-| **Anthropic**  | Claude (via LangChain)        | `ideal_allocation_runner`   | 5-step allocation chain                     |
+| **Anthropic**  | Claude (via LangChain)        | `asset_allocation_service`  | Optional LLM rationale in the 7-step pydantic allocation pipeline |
 | **Anthropic**  | Claude (via IntentClassifier) | `intent_classifier_service` | Intent classification (primary)             |
 | **Anthropic**  | Haiku + Sonnet                | `market_commentary_service` | Macro data extraction + document generation |
 | **OpenAI**     | gpt-4o-mini                   | `intent_classifier_service` | Intent classification (fallback)            |
@@ -445,7 +435,7 @@
 
 | Variable                              | Used By                                                                        | Fallback                                        |
 | ------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `ANTHROPIC_API_KEY`                   | `intent_classifier`, `ideal_allocation_runner`, `market_commentary`            | —                                               |
+| `ANTHROPIC_API_KEY`                   | `intent_classifier`, `asset_allocation_service`, `market_commentary`           | —                                               |
 | `ASSET_ALLOCATION_API_KEY`            | `asset_allocation_service` (overrides `ANTHROPIC_API_KEY` for allocation)      | `PORTFOLIO_QUERY_API_KEY` → `ANTHROPIC_API_KEY` |
 | `OPENAI_API_KEY`                      | `general_chat`, `intent_classifier` (fallback), `market_commentary` (fallback) | —                                               |
 | `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC` | `market_commentary_service`                                                    | `3600` (1 hour)                                 |
@@ -490,12 +480,15 @@ User types message
   │    │                                                             │ │   │
   │    │  ailax_flow.build_ailax_spine()                              │ │   │
   │    │    → asset_allocation_service.compute_allocation_result()    │ │   │
-  │    │      → effective_risk_from_user.build_allocation_input()     │ │   │
-  │    │        → risk_profiling.scoring.compute_all_scores()         │ │   │
+  │    │      → goal_allocation_input_builder                         │ │   │
+  │    │          .build_goal_allocation_input_for_user()             │ │   │
+  │    │        → reads risk_profile + investment_profile + goals     │ │   │
   │    │        → returns AllocationInput + debug                     │ │   │
-  │    │      → ideal_allocation_runner.invoke_..._with_full_state()  │ │   │
-  │    │        → Anthropic Claude  (5 LCEL steps via LangChain)     │ │   │
-  │    │        → returns AllocationOutput                           │ │   │
+  │    │      → goal_based_allocation_pydantic.pipeline               │ │   │
+  │    │          .run_allocation_with_state()                        │ │   │
+  │    │        → 7 pure-Python steps + optional Anthropic Claude     │ │   │
+  │    │          rationale via generate_rationales                   │ │   │
+  │    │        → returns GoalAllocationOutput                        │ │   │
   │    │      → optionally persist to DB                             │ │   │
   │    │    → format_allocation_chat_brief() → markdown              │ │   │
   │    │  returns: risk header + allocation markdown + IDs           │ │   │
