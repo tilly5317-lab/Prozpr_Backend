@@ -115,7 +115,7 @@ class CacheManager:
 
     @staticmethod
     def save(snapshot: MacroSnapshot, cache_path: str) -> None:
-        with open(cache_path, "w") as f:
+        with open(cache_path, "w", encoding="utf-8") as f:
             f.write(snapshot.model_dump_json(indent=2))
 
     @staticmethod
@@ -123,7 +123,7 @@ class CacheManager:
         if not os.path.exists(cache_path):
             return None
         try:
-            with open(cache_path, "r") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return MacroSnapshot(**data)
         except Exception:
@@ -196,7 +196,7 @@ class MarketCommentaryAgent:
             and os.path.getmtime(md_path) >= os.path.getmtime(self._cache_path)
         ):
             try:
-                with open(md_path, "r") as f:
+                with open(md_path, "r", encoding="utf-8") as f:
                     cached_md = f.read()
                 if cached_md.strip():
                     return cached_md
@@ -208,7 +208,7 @@ class MarketCommentaryAgent:
         )
         try:
             os.makedirs(self.output_dir, exist_ok=True)
-            with open(md_path, "w") as f:
+            with open(md_path, "w", encoding="utf-8") as f:
                 f.write(regenerated_md)
         except OSError:
             pass
@@ -247,7 +247,7 @@ class MarketCommentaryAgent:
     def _write_document(self, document_md: str) -> str:
         """Write the Markdown commentary to the fixed 'latest' path. Returns the path."""
         md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
-        with open(md_path, "w") as f:
+        with open(md_path, "w", encoding="utf-8") as f:
             f.write(document_md)
         return md_path
 
