@@ -17,7 +17,7 @@ from app.models.user import User
 from app.services.ai_bridge.asset_allocation import (
     compose_allocation_chat_reply,
     compute_allocation_result,
-    format_allocation_chat_brief,
+    build_fallback_brief,
 )
 
 
@@ -96,7 +96,7 @@ async def build_prozpr_spine(
         else "Complete your risk questionnaire when you can — guidance below is broader without it.\n\n"
     )
 
-    body = format_allocation_chat_brief(outcome.result, mode.value)
+    body = build_fallback_brief(outcome.result, mode.value)
     tailored = await compose_allocation_chat_reply(user_question, body, mode.value)
     final_body = tailored if tailored else body
     return ProzprSpineResult(

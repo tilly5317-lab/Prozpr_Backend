@@ -83,7 +83,7 @@ class FirstTurnTests(unittest.TestCase):
 
         with patch.object(mod, "compute_allocation_result",
                           new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "format_allocation_chat_brief",
+             patch.object(mod, "build_fallback_brief",
                           return_value="brief text"):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
@@ -209,7 +209,7 @@ class RecomputeFullTests(unittest.TestCase):
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "format_allocation_chat_brief",
+             patch.object(mod, "build_fallback_brief",
                           return_value="updated brief"):
             ctx = _ctx("redo my plan", last_alloc=_agent_run())
             result = asyncio.run(mod.handle(ctx))
@@ -235,7 +235,7 @@ class RecomputeWithOverridesTests(unittest.TestCase):
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "format_allocation_chat_brief",
+             patch.object(mod, "build_fallback_brief",
                           return_value="updated brief"):
             result = asyncio.run(mod.handle(_ctx("lock in risk 7", last_alloc=_agent_run())))
 

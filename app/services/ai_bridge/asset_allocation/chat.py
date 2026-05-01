@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 from app.services.ai_bridge.asset_allocation.service import (
     compute_allocation_result,
-    format_allocation_chat_brief,
+    build_fallback_brief,
 )
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import trace_line
@@ -248,7 +248,7 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
         return ChatHandlerResult(
             text="I couldn't produce an allocation right now. Please try again."
         )
-    text = format_allocation_chat_brief(outcome.result, "full")
+    text = build_fallback_brief(outcome.result, "full")
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
@@ -319,7 +319,7 @@ async def _recompute_with_overrides(
         return ChatHandlerResult(
             text="I couldn't compute the updated plan right now."
         )
-    text = format_allocation_chat_brief(outcome.result, "full")
+    text = build_fallback_brief(outcome.result, "full")
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
