@@ -155,6 +155,14 @@ def test_total_portfolio_inr_sums_current_holding():
     assert pack["total_portfolio_inr"] == 1_000_000
 
 
+def test_rebal_facts_pack_zero_trades_yields_zero_trade_count():
+    """Empty rows → trade_count must be exactly 0."""
+    from app.services.ai_bridge.rebalancing.service import build_rebal_facts_pack
+
+    pack = build_rebal_facts_pack(_build_min_response())
+    assert pack["trade_count"] == 0
+
+
 def test_facts_pack_omits_fund_and_isin():
     from app.services.ai_bridge.rebalancing.service import build_rebal_facts_pack
 

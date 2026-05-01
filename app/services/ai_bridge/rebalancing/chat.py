@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Literal, Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -13,16 +14,16 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
-from app.services.ai_bridge.rebalancing.service import compute_rebalancing_result
+from app.services.ai_bridge.rebalancing.service import (
+    build_rebal_facts_pack,
+    compute_rebalancing_result,
+)
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 from app.services.ai_bridge.answer_formatter import (
     FormatterFailure,
     format_answer,
 )
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
-from app.services.ai_bridge.rebalancing.service import (
-    build_rebal_facts_pack,
-)
 from app.services.ai_module_telemetry import record_ai_module_run
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,6 @@ async def _format_or_fallback_rebal(
     action_mode: str,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
-    import time
     started = time.monotonic()
     formatter_succeeded = False
     formatter_error_class: str | None = None
@@ -162,7 +162,11 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
     try:
         from Rebalancing.models import RebalancingComputeResponse  # type: ignore[import-not-found]
         return RebalancingComputeResponse.model_validate(payload)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "rebal_rehydration_validation_failed error_class=%s",
+            type(exc).__name__,
+        )
         return payload
 
 

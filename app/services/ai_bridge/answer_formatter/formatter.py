@@ -25,9 +25,10 @@ ActionMode = Literal[
     "compute",
     "narrate",
     "educate",
-    "recompute_full",
-    "recompute_with_overrides",
-    "counterfactual_explore",
+    "recompute",                  # rebalancing
+    "recompute_full",             # asset_allocation
+    "recompute_with_overrides",   # asset_allocation
+    "counterfactual_explore",     # asset_allocation
 ]
 
 
