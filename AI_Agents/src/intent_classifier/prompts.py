@@ -227,9 +227,13 @@ OUT_OF_SCOPE_MESSAGE = (
 )
 
 GOAL_PLANNING_MESSAGE = (
-    "Goal planning is coming soon to Prozpr! In the meantime, please head over to your "
-    "Profile section and update your financial goals there — that way we'll have everything "
-    "ready to give you a personalised plan the moment the feature goes live."
+    "Goal planning — checking whether a target like '₹5 crore in 15 years' is "
+    "achievable, and what monthly investment would get you there — is something "
+    "we're actively building. I can't run that math for you yet.\n\n"
+    "If you'd like, tell me how much you have to invest (a lump sum, or a monthly "
+    "amount) and your time horizon, and I can suggest an allocation that fits. "
+    "Once goal planning is live, I'll be able to tell you whether the target is "
+    "reachable and what it would take."
 )
 
 STOCK_ADVICE_MESSAGE = (
