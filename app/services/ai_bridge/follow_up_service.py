@@ -79,7 +79,7 @@ _UNIVERSAL_BASE = (
 )
 
 
-_PORTFOLIO_OPTIMISATION_CLAUSE = (
+_ASSET_ALLOCATION_CLAUSE = (
     "Topic context — this follow-up is about a prior ALLOCATION RECOMMENDATION.\n"
     "- Name the specific goal(s) from the anchor turn that the instrument is serving. "
     "Use the exact goal names as written (e.g. 'International Vacation', "
@@ -125,7 +125,7 @@ _PORTFOLIO_QUERY_CLAUSE = (
 
 
 _INTENT_CLAUSES: dict[Intent, str] = {
-    Intent.PORTFOLIO_OPTIMISATION: _PORTFOLIO_OPTIMISATION_CLAUSE,
+    Intent.ASSET_ALLOCATION: _ASSET_ALLOCATION_CLAUSE,
     Intent.GENERAL_MARKET_QUERY:   _GENERAL_MARKET_QUERY_CLAUSE,
     Intent.PORTFOLIO_QUERY:        _PORTFOLIO_QUERY_CLAUSE,
 }
