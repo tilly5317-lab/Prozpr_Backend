@@ -175,7 +175,7 @@ Triggers:
 - "you said X — why?" / "in your recommendation above, ..."
 - Any question where the subject is clearly a prior assistant statement rather than the customer's own portfolio data or the market.
 
-Critically, for `meta` follow-ups the **intent should still reflect the topic** of the prior turn (usually `portfolio_optimisation` if the customer is asking about a prior allocation recommendation, `general_market_query` if about a prior market comment, etc.) — the follow_up_type is what tells downstream code to answer from history rather than re-run the specialist pipeline.
+Critically, for `meta` follow-ups the **intent should still reflect the topic** of the prior turn (usually `asset_allocation` if the customer is asking about a prior allocation recommendation, `general_market_query` if about a prior market comment, etc.) — the follow_up_type is what tells downstream code to answer from history rather than re-run the specialist pipeline.
 
 ### `continuation`
 The customer is continuing the same topic with **new substance** — a new angle, a new asset, a new number, a new constraint. The answer requires running the normal specialist for the resolved intent with history as context, not just re-explaining a prior turn.
@@ -190,11 +190,11 @@ Triggers:
 
 - Prior turn: assistant gave a goal-based allocation suggesting ~20% in an Arbitrage Fund.
   Current message: *"Why is there so much investment in Arbitrage Fund?"*
-  → `is_follow_up=true`, `follow_up_type="meta"`, `intent="portfolio_optimisation"`. The customer is asking about the assistant's own recommendation — answer from the prior turn, do not re-run the allocation engine.
+  → `is_follow_up=true`, `follow_up_type="meta"`, `intent="asset_allocation"`. The customer is asking about the assistant's own recommendation — answer from the prior turn, do not re-run the allocation engine.
 
 - Prior turn: assistant gave an allocation recommendation.
   Current message: *"What about adding gold to it?"*
-  → `is_follow_up=true`, `follow_up_type="continuation"`, `intent="portfolio_optimisation"`. New substance (gold), re-run the allocation flow with history as context.
+  → `is_follow_up=true`, `follow_up_type="continuation"`, `intent="asset_allocation"`. New substance (gold), re-run the allocation flow with history as context.
 
 - Prior turn: assistant explained the Nifty 50 PE ratio.
   Current message: *"And what about the midcap index?"*
