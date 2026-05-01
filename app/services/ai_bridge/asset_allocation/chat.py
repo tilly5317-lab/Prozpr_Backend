@@ -38,6 +38,7 @@ from app.services.ai_bridge.asset_allocation.service import (
 )
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import trace_line
+from app.services.ai_module_telemetry import record_ai_module_run
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 
 logger = logging.getLogger(__name__)
@@ -468,12 +469,15 @@ async def _format_or_fallback(
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure.
 
-    Task 9 layers telemetry (timing + ChatAiModuleRun row) into this body.
-    Signature stays stable so Task 9 doesn't ripple through call sites.
+    Records a ChatAiModuleRun row with formatter timing and success/failure.
     """
+    import time
+    started = time.monotonic()
+    formatter_succeeded = False
+    formatter_error_class: str | None = None
     try:
         facts_pack = build_aa_facts_pack(output)
-        return await format_answer(
+        text = await format_answer(
             question=ctx.user_question,
             action_mode=action_mode,
             module_name="asset_allocation",
@@ -482,12 +486,31 @@ async def _format_or_fallback(
             history=ctx.conversation_history or [],
             profile=_profile_dict(ctx),
         )
+        formatter_succeeded = True
     except FormatterFailure as exc:
+        formatter_error_class = type(exc).__name__
         logger.error(
-            "formatter_failed module=asset_allocation mode=%s error_class=%s",
-            action_mode, type(exc).__name__,
+            "formatter_failed mode=%s error_class=%s",
+            action_mode, formatter_error_class,
         )
-        return build_fallback_brief(output, spine_mode)
+        text = build_fallback_brief(output, spine_mode)
+    finally:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        await record_ai_module_run(
+            ctx.db,
+            user_id=ctx.effective_user_id,
+            session_id=ctx.session_id,
+            module="asset_allocation",
+            reason=f"formatter:{action_mode}",
+            duration_ms=latency_ms,
+            formatter_invoked=True,
+            formatter_succeeded=formatter_succeeded,
+            formatter_latency_ms=latency_ms,
+            formatter_error_class=formatter_error_class,
+            action_mode=action_mode,
+            emit_standard_log=False,
+        )
+    return text
 
 
 # ---------------------------------------------------------------------------

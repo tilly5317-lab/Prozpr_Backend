@@ -32,6 +32,12 @@ async def record_ai_module_run(
     input_payload: dict[str, Any] | None = None,
     output_payload: dict[str, Any] | None = None,
     emit_standard_log: bool = True,
+    # New formatter telemetry — all nullable.
+    formatter_invoked: bool | None = None,
+    formatter_succeeded: bool | None = None,
+    formatter_latency_ms: int | None = None,
+    formatter_error_class: str | None = None,
+    action_mode: str | None = None,
 ) -> uuid.UUID | None:
     """
     Optionally emit AILAX_AI_MODULE_RUN; always persist one row when db is set.
@@ -65,6 +71,11 @@ async def record_ai_module_run(
                 extra=extra,
                 input_payload=input_payload,
                 output_payload=output_payload,
+                formatter_invoked=formatter_invoked,
+                formatter_succeeded=formatter_succeeded,
+                formatter_latency_ms=formatter_latency_ms,
+                formatter_error_class=formatter_error_class,
+                action_mode=action_mode,
             )
             db.add(row)
             await db.flush()
