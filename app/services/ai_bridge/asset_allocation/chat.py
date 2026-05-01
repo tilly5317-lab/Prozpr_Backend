@@ -245,7 +245,19 @@ async def _dispatch_action(
     action: ChatAction, last_alloc: AgentRunRecord, ctx: TurnContext,
 ) -> ChatHandlerResult:
     if action.mode in ("narrate", "educate"):
-        output = _rehydrate_last_alloc_output(last_alloc)
+        try:
+            output = _rehydrate_last_alloc_output(last_alloc)
+        except Exception as exc:
+            logger.error(
+                "rehydrate_last_alloc_output_failed mode=%s error_class=%s",
+                action.mode, type(exc).__name__,
+            )
+            return ChatHandlerResult(
+                text=(
+                    "I couldn't load your last plan to answer that. "
+                    "Try asking me to redo the plan and we'll work from there."
+                )
+            )
         text = await _format_or_fallback(
             ctx=ctx, output=output, action_mode=action.mode, spine_mode="full",
         )
