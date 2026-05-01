@@ -23,31 +23,7 @@ from asset_allocation_pydantic.models import GoalAllocationOutput
 
 
 def _allocation_output_to_jsonable(output: GoalAllocationOutput) -> dict[str, Any]:
-    payload = output.model_dump(mode="json")
-    rows = payload.get("aggregated_subgroups") or []
-    for row_dump, row_obj in zip(rows, output.aggregated_subgroups):
-        row_dump["subgroup"] = row_obj.customer_label
-    return payload
-
-
-def _asset_class_pcts_from_subgroups(output: GoalAllocationOutput) -> tuple[float, float, float]:
-    """Fallback: derive equity/debt/others percents from aggregated subgroup totals."""
-    totals = {"equity": 0.0, "debt": 0.0, "others": 0.0}
-    for row in output.aggregated_subgroups:
-        fm = row.fund_mapping
-        if fm is None:
-            continue
-        key = fm.asset_class
-        if key in totals:
-            totals[key] += float(row.total)
-    grand = totals["equity"] + totals["debt"] + totals["others"]
-    if grand <= 0:
-        return 0.0, 0.0, 0.0
-    return (
-        round(totals["equity"] / grand * 100, 2),
-        round(totals["debt"] / grand * 100, 2),
-        round(totals["others"] / grand * 100, 2),
-    )
+    return output.model_dump(mode="json")
 
 
 async def persist_goal_allocation_recommendation(
@@ -84,12 +60,9 @@ async def persist_goal_allocation_recommendation(
     db.add(rec)
 
     acb = output.asset_class_breakdown
-    if acb is not None:
-        equity_pct = float(acb.actual.equity_total_pct)
-        debt_pct = float(acb.actual.debt_total_pct)
-        others_pct = float(acb.actual.others_total_pct)
-    else:
-        equity_pct, debt_pct, others_pct = _asset_class_pcts_from_subgroups(output)
+    equity_pct = float(acb.actual.equity_total_pct)
+    debt_pct = float(acb.actual.debt_total_pct)
+    others_pct = float(acb.actual.others_total_pct)
 
     snapshot_allocation: dict[str, Any] = {
         "rows": [

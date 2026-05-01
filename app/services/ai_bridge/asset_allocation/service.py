@@ -123,7 +123,7 @@ def _summarize_step(label: str, key: str, blob: Any) -> str:
         validation = data.get("validation") or {}
         return (
             f"{label}: all_rules_pass={validation.get('all_rules_pass')} "
-            f"fund_mappings={len(data.get('fund_mappings', []))}"
+            f"violations={len(validation.get('violations_found', []))}"
         )
     if key == "step7_output":
         return (
@@ -184,22 +184,36 @@ def format_allocation_chat_brief(
         lines.append("")
 
     acb = output.asset_class_breakdown
-    if acb is not None:
-        actual = acb.actual
-        lines.append(
-            f"**Asset-class mix** — equity {actual.equity_total_pct:.1f}% "
-            f"(INR {actual.equity_total:,.0f}), debt {actual.debt_total_pct:.1f}% "
-            f"(INR {actual.debt_total:,.0f}), others {actual.others_total_pct:.1f}% "
-            f"(INR {actual.others_total:,.0f})."
-        )
-        lines.append("")
+    actual = acb.actual
+    lines.append(
+        f"**Asset-class mix** — equity {actual.equity_total_pct:.1f}% "
+        f"(INR {actual.equity_total:,.0f}), debt {actual.debt_total_pct:.1f}% "
+        f"(INR {actual.debt_total:,.0f}), others {actual.others_total_pct:.1f}% "
+        f"(INR {actual.others_total:,.0f})."
+    )
+    lines.append("")
 
-    if output.aggregated_subgroups:
-        lines.append("**Allocation mix**")
-        for row in output.aggregated_subgroups:
+    _BUCKET_ORDER_FOR_BREAKDOWN = ["short_term", "medium_term", "long_term"]
+    bucket_splits = {b.bucket: b for b in actual.per_bucket}
+    breakdown_rows = [
+        (bucket_name, bucket_splits.get(bucket_name))
+        for bucket_name in _BUCKET_ORDER_FOR_BREAKDOWN
+        if bucket_splits.get(bucket_name)
+        and (
+            bucket_splits[bucket_name].equity
+            + bucket_splits[bucket_name].debt
+            + bucket_splits[bucket_name].others
+        ) > 0
+    ]
+    if breakdown_rows:
+        lines.append("**By horizon**")
+        for bucket_name, split in breakdown_rows:
+            assert split is not None
             lines.append(
-                f"- {row.customer_label}: INR {row.total:,.0f}"
-                + (f" — {row.fund_mapping.recommended_fund}" if row.fund_mapping else "")
+                f"- {_BUCKET_TITLES[bucket_name]}: "
+                f"equity {split.equity_pct:.1f}% (INR {split.equity:,.0f}), "
+                f"debt {split.debt_pct:.1f}% (INR {split.debt:,.0f}), "
+                f"others {split.others_pct:.1f}% (INR {split.others:,.0f})"
             )
         lines.append("")
 
