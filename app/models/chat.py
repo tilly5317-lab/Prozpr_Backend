@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -77,7 +77,9 @@ class ChatMessage(Base):
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    chart_payloads: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
+    chart_payloads: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
+        JSONB, nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

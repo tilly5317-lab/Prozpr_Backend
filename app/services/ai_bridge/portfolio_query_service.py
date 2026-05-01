@@ -1,217 +1,315 @@
-"""Answer portfolio_query intents — informational questions about the user's own holdings.
+"""Bridge: portfolio_query intent — wraps the AI_Agents.portfolio_query orchestrator.
 
-Uses Claude Haiku with a forced `return_reply` tool so the output is a clean
-conversational answer targeted at the specific question asked (e.g. "biggest
-holding", "equity allocation %", "how many funds"), rather than a flat dump
-of every portfolio stat we have.
+Maps the User ORM (with eager-loaded holdings → fund_metadata) into the agent's
+ClientContext / PortfolioContext DTOs, calls PortfolioQueryOrchestrator, and
+formats the response for the chat layer.
+
+Market commentary is read by the orchestrator from
+`AI_Agents/Reference_docs/market_commentary_latest.md` (written by the
+market_commentary agent / `app/services/ai_bridge/market_commentary_service.py`).
 """
 
 from __future__ import annotations
 
-import json
+import logging
+from collections import defaultdict
+from datetime import date
+from typing import Any, Iterable
 
-import httpx
+from anthropic import AuthenticationError as AnthropicAuthenticationError
 
 from app.config import get_settings
-from app.services.ai_bridge.common import build_history_block
-from app.services.ai_bridge.general_chat_service import (
-    _RETURN_REPLY_TOOL,
-    _extract_return_reply,
-    _render_reply,
-    _strip_cite_tags,
-)
+from app.services.ai_bridge.common import ensure_ai_agents_path
 
-_SYSTEM_PROMPT = (
-    "You are Prozpr, an Indian-market financial assistant. The customer is asking an "
-    "informational question about THEIR OWN portfolio (holdings, allocation, goals). "
-    "You have their portfolio data in the user message — answer strictly from that.\n"
-    "\n"
-    "Rules:\n"
-    "- Answer the exact question asked. Do NOT dump the full portfolio summary when "
-    "the customer asks one targeted thing (e.g. 'which is my biggest holding' → name "
-    "the single biggest holding with its value/%, not every holding).\n"
-    "- Use the figures in the data block verbatim. Do not invent numbers, do not "
-    "recall from training, do not call any tools other than `return_reply`.\n"
-    "- Money formatting: use Indian notation — lakhs ('L') and crores ('Cr'). NEVER "
-    "say 'million' or 'billion'. The data block already uses this format; keep it "
-    "exactly as shown (e.g. 'INR 45.00 L', 'INR 3.00 Cr').\n"
-    "- If the data needed to answer is genuinely not present in the data block, say "
-    "so in one short sentence.\n"
-    "\n"
-    "Response contract (MANDATORY):\n"
-    "- Finalize by calling `return_reply` exactly once.\n"
-    "- `answer`: conversational prose, 1-3 short sentences, MAXIMUM 60 words. No "
-    "preamble, no greeting, no '**Answer**' heading, no echoing the question back.\n"
-    "- `justification_bullets`: set to null for straightforward lookups (biggest "
-    "holding, fund count, total value). Use up to 3 short bullets ONLY if the "
-    "customer asked something that benefits from a breakdown (e.g. 'show my "
-    "allocation' → one bullet per asset class).\n"
-    "- Do NOT moralize, disclaim, or recommend changes — this is informational, not "
-    "advisory."
+ensure_ai_agents_path()
+
+from portfolio_query import (
+    AllocationRow,
+    ClientContext,
+    ConversationTurn,
+    Holding,
+    LLMClient,
+    PortfolioContext,
+    PortfolioQueryOrchestrator,
+    SubCategoryAllocationRow,
 )
 
 
-def _fmt_inr(value) -> str:
+logger = logging.getLogger(__name__)
+
+
+_NO_PORTFOLIO_TEMPLATE = (
+    "Hi {first_name}, I couldn't find an active portfolio on your account yet. "
+    "Once you add holdings or allocation details, I can answer questions like "
+    "your biggest holding, allocation breakdown, and overall performance."
+)
+_MISSING_KEY_REPLY = (
+    "I can't reach the language model right now — the Anthropic API key isn't "
+    "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
+)
+_INVALID_ANTHROPIC_KEY_REPLY = (
+    "The Anthropic API key was rejected (invalid or expired). "
+    "Set a valid `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in your server `.env`."
+)
+_MISSING_COMMENTARY_REPLY = (
+    "I can't answer that yet — the market commentary file isn't available. "
+    "Please ask a market question first to refresh it, then try again."
+)
+_GENERIC_FAILURE_REPLY = (
+    "I couldn't generate a portfolio answer right now. Please try rephrasing your question."
+)
+
+
+# ---------------------------------------------------------------------------
+# Lazy orchestrator singleton (skill .md parsed once per process)
+# ---------------------------------------------------------------------------
+
+_orchestrator: PortfolioQueryOrchestrator | None = None
+
+
+def _get_orchestrator(api_key: str) -> PortfolioQueryOrchestrator:
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = PortfolioQueryOrchestrator(LLMClient(api_key))
+    return _orchestrator
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_MIN_AGE = 18
+
+
+def _age_from_dob(dob: date) -> int:
+    today = date.today()
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return max(_MIN_AGE, age)
+
+
+def _f(obj: Any, attr: str) -> float | None:
+    val = getattr(obj, attr, None)
+    if val is None:
+        return None
     try:
-        v = float(value)
+        return float(val)
     except (TypeError, ValueError):
-        return "INR —"
-    if abs(v) >= 1e7:
-        return f"INR {v / 1e7:.2f} Cr"
-    if abs(v) >= 1e5:
-        return f"INR {v / 1e5:.2f} L"
-    return f"INR {v:,.0f}"
+        return None
 
 
-def _build_portfolio_block(user) -> str:
-    """Render the user's primary portfolio into a compact text block for the LLM."""
+# ---------------------------------------------------------------------------
+# ORM → ClientContext
+# ---------------------------------------------------------------------------
+
+
+def _build_client_context(user: Any) -> ClientContext:
+    rp = getattr(user, "risk_profile", None)
+    era = getattr(user, "effective_risk_assessment", None)
+    inv = getattr(user, "investment_profile", None)
+
+    dob = getattr(user, "date_of_birth", None)
+    age = _age_from_dob(dob) if dob is not None else None
+
+    risk_category = rp.risk_category if rp is not None else None
+    investment_horizon = getattr(rp, "investment_horizon", None) if rp is not None else None
+    occupation_type = getattr(rp, "occupation_type", None) if rp is not None else None
+
+    effective_risk_score = _f(era, "effective_risk_score") if era is not None else None
+    annual_income = _f(inv, "annual_income") if inv is not None else None
+    total_liabilities = _f(inv, "total_liabilities") if inv is not None else None
+
+    goals: list[str] = []
+    for g in getattr(user, "financial_goals", []) or []:
+        name = getattr(g, "goal_name", None)
+        if name:
+            goals.append(str(name))
+
+    return ClientContext(
+        age=age,
+        risk_category=risk_category,
+        effective_risk_score=effective_risk_score,
+        investment_horizon=investment_horizon,
+        occupation_type=occupation_type,
+        annual_income_inr=annual_income,
+        total_liabilities_inr=total_liabilities,
+        financial_goals=goals,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ORM → PortfolioContext
+# ---------------------------------------------------------------------------
+
+
+def _holding_asset_class(holding: Any) -> str | None:
+    md = getattr(holding, "fund_metadata", None)
+    if md is not None:
+        cat = getattr(md, "category", None)
+        if cat:
+            return str(cat)
+    # Fallback for non-MF holdings (stocks, ETFs, etc.) — coarse but honest.
+    itype = getattr(holding, "instrument_type", None)
+    return str(itype) if itype else None
+
+
+def _holding_sub_category(holding: Any) -> str | None:
+    md = getattr(holding, "fund_metadata", None)
+    if md is None:
+        return None
+    sub = getattr(md, "sub_category", None)
+    return str(sub) if sub else None
+
+
+def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
+    out: list[Holding] = []
+    for h in orm_holdings:
+        name = (
+            getattr(h, "instrument_name", None)
+            or getattr(h, "ticker_symbol", None)
+            or "Unknown"
+        )
+        out.append(
+            Holding(
+                name=str(name),
+                instrument_type=getattr(h, "instrument_type", None),
+                asset_class=_holding_asset_class(h),
+                sub_category=_holding_sub_category(h),
+                quantity=_f(h, "quantity"),
+                current_value_inr=_f(h, "current_value"),
+                allocation_percentage=_f(h, "allocation_percentage"),
+                return_1y_pct=_f(h, "return_1y"),
+                return_3y_pct=_f(h, "return_3y"),
+            )
+        )
+    return out
+
+
+def _build_allocation_rows(orm_allocations: Iterable[Any]) -> list[AllocationRow]:
+    out: list[AllocationRow] = []
+    for a in orm_allocations:
+        ac = getattr(a, "asset_class", None)
+        if not ac:
+            continue
+        out.append(
+            AllocationRow(
+                asset_class=str(ac),
+                percentage=float(getattr(a, "allocation_percentage", 0) or 0),
+                amount_inr=_f(a, "amount"),
+            )
+        )
+    return out
+
+
+def _build_subcategory_rows(
+    orm_holdings: Iterable[Any], total_value: float
+) -> list[SubCategoryAllocationRow]:
+    """Bucket holdings by (asset_class, sub_category) using fund_metadata; sum amounts."""
+    if total_value <= 0:
+        return []
+    buckets: dict[tuple[str | None, str], float] = defaultdict(float)
+    for h in orm_holdings:
+        sub = _holding_sub_category(h)
+        if not sub:
+            continue
+        ac = _holding_asset_class(h)
+        cv = float(getattr(h, "current_value", 0) or 0)
+        if cv <= 0:
+            continue
+        buckets[(ac, sub)] += cv
+
+    rows: list[SubCategoryAllocationRow] = []
+    for (ac, sub), amount in sorted(buckets.items(), key=lambda kv: -kv[1]):
+        rows.append(
+            SubCategoryAllocationRow(
+                asset_class=ac,
+                sub_category=sub,
+                percentage=round(100.0 * amount / total_value, 2),
+                amount_inr=round(amount, 2),
+            )
+        )
+    return rows
+
+
+def _build_portfolio_context(user: Any) -> PortfolioContext | None:
     portfolios = list(getattr(user, "portfolios", []) or [])
     if not portfolios:
-        return "Portfolio: (none on file)"
+        return None
+    primary = next(
+        (p for p in portfolios if getattr(p, "is_primary", False)), portfolios[0]
+    )
 
-    primary = next((p for p in portfolios if getattr(p, "is_primary", False)), portfolios[0])
-    total_value = getattr(primary, "total_value", None)
-    total_invested = getattr(primary, "total_invested", None)
-    gain_pct = getattr(primary, "total_gain_percentage", None)
+    orm_holdings = list(getattr(primary, "holdings", []) or [])
+    orm_allocations = list(getattr(primary, "allocations", []) or [])
 
-    lines = [
-        "Primary portfolio:",
-        f"- Current value: {_fmt_inr(total_value)}",
-        f"- Total invested: {_fmt_inr(total_invested)}",
-    ]
-    if gain_pct is not None:
-        try:
-            lines.append(f"- Overall gain/loss: {float(gain_pct):.2f}%")
-        except (TypeError, ValueError):
-            pass
+    total_value = float(getattr(primary, "total_value", 0) or 0)
 
-    holdings = list(getattr(primary, "holdings", []) or [])
-    if holdings:
-        ranked = sorted(
-            holdings,
-            key=lambda h: float(getattr(h, "current_value", 0) or 0),
-            reverse=True,
-        )
-        lines.append(f"- Number of holdings: {len(holdings)}")
-        lines.append("- Holdings (ranked by current value):")
-        for h in ranked:
-            name = getattr(h, "instrument_name", None) or getattr(h, "ticker_symbol", "Unknown")
-            itype = getattr(h, "instrument_type", None)
-            qty = getattr(h, "quantity", None)
-            cv = getattr(h, "current_value", None)
-            parts = [f"{name}"]
-            if itype:
-                parts.append(f"type={itype}")
-            if qty is not None:
-                try:
-                    parts.append(f"qty={float(qty):g}")
-                except (TypeError, ValueError):
-                    pass
-            parts.append(f"value={_fmt_inr(cv)}")
-            lines.append(f"    - {', '.join(parts)}")
-    else:
-        lines.append("- Holdings: none recorded")
+    return PortfolioContext(
+        total_value_inr=_f(primary, "total_value"),
+        total_invested_inr=_f(primary, "total_invested"),
+        total_gain_percentage=_f(primary, "total_gain_percentage"),
+        holdings=_build_holdings(orm_holdings),
+        allocations=_build_allocation_rows(orm_allocations),
+        sub_category_allocations=_build_subcategory_rows(orm_holdings, total_value),
+    )
 
-    allocs = list(getattr(primary, "allocations", []) or [])
-    if allocs:
-        ranked_allocs = sorted(
-            allocs,
-            key=lambda a: float(getattr(a, "allocation_percentage", 0) or 0),
-            reverse=True,
-        )
-        lines.append("- Allocation by asset class:")
-        for a in ranked_allocs:
-            ac = getattr(a, "asset_class", "Unknown")
-            try:
-                pct = f"{float(getattr(a, 'allocation_percentage', 0) or 0):.1f}%"
-            except (TypeError, ValueError):
-                pct = "—"
-            amt = _fmt_inr(getattr(a, "amount", None))
-            lines.append(f"    - {ac}: {pct} ({amt})")
 
-    goals = list(getattr(user, "financial_goals", []) or [])
-    if goals:
-        names = []
-        for g in goals:
-            nm = getattr(g, "goal_name", None) or getattr(g, "name", None)
-            if nm:
-                names.append(nm)
-        if names:
-            lines.append(f"- Financial goals on file: {', '.join(names[:5])}")
+# ---------------------------------------------------------------------------
+# Conversation history mapping
+# ---------------------------------------------------------------------------
 
-    return "\n".join(lines)
+
+def _build_history(history: list[dict[str, str]] | None) -> list[ConversationTurn]:
+    if not history:
+        return []
+    turns: list[ConversationTurn] = []
+    for msg in history[-6:]:
+        role = msg.get("role")
+        content = msg.get("content") or ""
+        if role not in ("user", "assistant"):
+            continue
+        turns.append(ConversationTurn(role=role, content=content))
+    return turns
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
 
 async def generate_portfolio_query_response(
-    user,
+    user: Any,
     user_question: str,
     conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
-    """Answer the user's portfolio question via Haiku, targeted to the exact ask."""
+    """Answer the user's portfolio question via the AI_Agents.portfolio_query agent."""
 
-    portfolios = list(getattr(user, "portfolios", []) or [])
-    first_name = getattr(user, "first_name", None) or "there"
+    portfolio = _build_portfolio_context(user)
+    if portfolio is None:
+        first_name = getattr(user, "first_name", None) or "there"
+        return _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
 
-    # Early out: no portfolio rows at all.
-    if not portfolios:
-        return (
-            f"Hi {first_name}, I couldn't find an active portfolio on your account yet. "
-            "Once you add holdings or allocation details, I can answer questions like "
-            "your biggest holding, allocation breakdown, and overall performance."
-        )
-
-    api_key = get_settings().get_anthropic_key()
+    api_key = get_settings().get_anthropic_portfolio_query_key() or get_settings().get_anthropic_key()
     if not api_key:
-        return (
-            "I can't reach the language model right now — the Anthropic API key isn't "
-            "configured on the server. Please set `ANTHROPIC_API_KEY` and try again."
+        return _MISSING_KEY_REPLY
+
+    client_ctx = _build_client_context(user)
+    history = _build_history(conversation_history)
+
+    try:
+        result = await _get_orchestrator(api_key).run(
+            question=user_question,
+            client=client_ctx,
+            portfolio=portfolio,
+            conversation_history=history,
         )
+    except FileNotFoundError as exc:
+        logger.warning("portfolio_query: market commentary file missing — %s", exc)
+        return _MISSING_COMMENTARY_REPLY
+    except AnthropicAuthenticationError as exc:
+        logger.warning("portfolio_query: Anthropic authentication failed — %s", exc)
+        return _INVALID_ANTHROPIC_KEY_REPLY
+    except Exception:
+        logger.exception("portfolio_query: orchestrator failed")
+        return _GENERIC_FAILURE_REPLY
 
-    portfolio_block = _build_portfolio_block(user)
-
-    user_prompt = (
-        f"{build_history_block(conversation_history)}\n\n"
-        f"Customer question: {user_question}\n\n"
-        f"Customer portfolio data (authoritative — answer only from this):\n"
-        f"{portfolio_block}"
-    ).strip()
-
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 400,
-        "system": _SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_prompt}],
-        "tools": [_RETURN_REPLY_TOOL],
-        "tool_choice": {"type": "tool", "name": "return_reply"},
-    }
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=payload,
-        )
-    if resp.status_code == 401:
-        return (
-            "I couldn't reach the language model — Anthropic returned a 401 Unauthorized. "
-            "Please set a valid `ANTHROPIC_API_KEY` in `.env` and restart the API server."
-        )
-    resp.raise_for_status()
-
-    blocks = resp.json().get("content", [])
-    parsed = _extract_return_reply(blocks)
-    if parsed is not None:
-        answer, bullets = parsed
-        return _render_reply(answer, bullets)
-
-    fallback_text = _strip_cite_tags(
-        "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-    )
-    if fallback_text:
-        return fallback_text
-    return "I couldn't produce a reply in the expected format. Please try rephrasing your question."
+    return result.answer or result.redirect_message or _GENERIC_FAILURE_REPLY

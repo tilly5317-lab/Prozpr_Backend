@@ -58,5 +58,5 @@ jobs:
           pip install pytest
 
       - run: python -m unittest AI_Agents.tests.test_intent_classifier -v
-      - run: pytest AI_Agents/src/router/tests -v --tb=short
-      - run: pytest AI_Agents/src/goal_based_allocation/Testing -v --tb=short
+      # drift_analysis + goal_based_allocation_pydantic integration tests (PYTHONPATH=AI_Agents/src)
+      - run: pytest AI_Agents/src/drift_analysis/Testing -v --tb=short
