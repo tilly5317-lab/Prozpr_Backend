@@ -12,7 +12,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +25,7 @@ from app.services.ai_bridge.asset_allocation.service import (
 from app.services.ai_bridge.common import ensure_ai_agents_path, trace_line
 from app.services.ai_bridge.rebalancing.chart_picker import pick_chart
 from app.services.ai_bridge.rebalancing.charts import ChartSpec, available_charts
-from app.services.ai_bridge.rebalancing.formatter import format_rebalancing_chat_brief
+from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
 from app.services.ai_bridge.rebalancing.input_builder import (
     build_rebalancing_input_for_user,
 )
@@ -76,6 +76,81 @@ class RebalancingRunOutcome:
     source_allocation_id: Optional[uuid.UUID] = None
     used_cached_allocation: bool = False
     chart: Optional[ChartSpec] = None
+
+
+def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, Any]:
+    """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
+
+    Shape:
+      {
+        "total_portfolio_inr": <float>,
+        "buys_total_inr": <float>,
+        "sells_total_inr": <float>,
+        "tax_impact_inr": <float>,
+        "trade_count": int,
+        "buckets": [{"asset_subgroup": str, "goal_target_inr": float,
+                     "current_holding_inr": float, "suggested_final_inr": float,
+                     "rebalance_inr": float}, ...],
+        "warnings": [<short_string>, ...],   # human-readable, <= 5 entries
+      }
+
+    Fields are derived from ``response``; absent fields become 0/empty list.
+    """
+    rows = list(getattr(response, "rows", []) or [])
+    warnings_list = list(getattr(response, "warnings", []) or [])
+
+    buys_total = sum(
+        float(getattr(r, "pass1_buy_amount", 0) or 0)
+        for r in rows
+    )
+    sells_total = sum(
+        float(getattr(r, "pass1_sell_amount", 0) or 0)
+        for r in rows
+    )
+
+    # totals is a RebalancingTotals object; fall back to computed if absent
+    totals_obj = getattr(response, "totals", None)
+    tax_impact = float(
+        getattr(totals_obj, "total_tax_estimate_inr", 0) or 0
+    )
+    total_buy_inr = float(getattr(totals_obj, "total_buy_inr", buys_total) or buys_total)
+    total_sell_inr = float(getattr(totals_obj, "total_sell_inr", sells_total) or sells_total)
+
+    # Derive portfolio total from subgroup current holdings (not gross trade volume).
+    subgroups = list(getattr(response, "subgroups", []) or [])
+    total_portfolio = sum(
+        float(getattr(sg, "current_holding_inr", 0) or 0) for sg in subgroups
+    )
+
+    buckets: list[dict[str, Any]] = []
+    for subgroup in subgroups:
+        buckets.append({
+            "asset_subgroup": getattr(subgroup, "asset_subgroup", None),
+            "goal_target_inr": float(getattr(subgroup, "goal_target_inr", 0) or 0),
+            "current_holding_inr": float(getattr(subgroup, "current_holding_inr", 0) or 0),
+            "suggested_final_inr": float(
+                getattr(subgroup, "suggested_final_holding_inr", 0) or 0
+            ),
+            "rebalance_inr": float(getattr(subgroup, "rebalance_inr", 0) or 0),
+        })
+
+    warnings: list[str] = []
+    for w in warnings_list[:5]:
+        msg = getattr(w, "message", None) or str(w)
+        warnings.append(msg)
+
+    return {
+        "total_portfolio_inr": total_portfolio,
+        "buys_total_inr": total_buy_inr,
+        "sells_total_inr": total_sell_inr,
+        "tax_impact_inr": tax_impact,
+        "trade_count": sum(1 for r in rows if (
+            float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
+            or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
+        )),
+        "buckets": buckets,
+        "warnings": warnings,
+    }
 
 
 async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
@@ -226,7 +301,7 @@ async def compute_rebalancing_result(
     except Exception as exc:
         logger.warning("ai_module_telemetry skipped (non-fatal): %s", exc)
 
-    formatted = format_rebalancing_chat_brief(
+    formatted = build_fallback_rebal_brief(
         response, used_cached_allocation=used_cache,
     )
 

@@ -199,7 +199,7 @@ def _warning_line(w: RebalancingWarning) -> str:
     return f"- {w.message}"
 
 
-def format_rebalancing_chat_brief(
+def build_fallback_rebal_brief(
     response: RebalancingComputeResponse,
     *,
     used_cached_allocation: bool,

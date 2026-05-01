@@ -91,6 +91,12 @@ _DEFAULT_CLARIFY_FALLBACK = (
     "or constraint?"
 )
 
+_NARRATE_DEGRADED_FALLBACK = (
+    "I have your latest rebalancing plan but couldn't compose a tailored "
+    "explanation right now. Ask me to redo the trades and I'll regenerate "
+    "from your current holdings."
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -240,13 +246,16 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     response_payload = (last_run.output_payload or {}).get("rebalancing_response") or {}
     response = _rehydrate_response(response_payload)
     # No persisted formatted_text — rebuild the templated fallback inline if
-    # the formatter fails. Note: build_fallback_rebal_brief expects the
-    # typed response; if rehydration returned a dict (or fails for any reason),
-    # we fall back to an empty string.
+    # the formatter fails. If the response is dict-shaped (validation drift) or
+    # build_fallback_rebal_brief raises, use the degraded text so the user never
+    # sees an empty message.
     try:
-        fallback = build_fallback_rebal_brief(response, used_cached_allocation=False) if not isinstance(response, dict) else ""
-    except Exception:
-        fallback = ""
+        if isinstance(response, dict):
+            fallback = _NARRATE_DEGRADED_FALLBACK
+        else:
+            fallback = build_fallback_rebal_brief(response, used_cached_allocation=False)
+    except (AttributeError, TypeError, ValueError):
+        fallback = _NARRATE_DEGRADED_FALLBACK
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=response, fallback_brief=fallback, action_mode="narrate",
     )

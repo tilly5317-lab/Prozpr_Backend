@@ -230,5 +230,24 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertEqual(result.text, "redone")
 
 
+class NarrateFallbackTests(unittest.TestCase):
+
+    def test_narrate_returns_degraded_text_when_formatter_and_fallback_both_fail(self):
+        from app.services.ai_bridge.answer_formatter import FormatterFailure
+        action = mod.RebalanceAction(mode="narrate")
+        # rehydrate returns a dict (validation drift), so fallback path picks
+        # the degraded text. Then formatter raises FormatterFailure, so the
+        # degraded text is what the user sees.
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_rehydrate_response", return_value={"rows": []}), \
+             patch("app.services.ai_bridge.rebalancing.chat.format_answer",
+                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
+             patch("app.services.ai_bridge.rebalancing.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("why?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        self.assertIn("redo the trades", result.text)
+
+
 if __name__ == "__main__":
     unittest.main()
