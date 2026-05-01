@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import unittest
+import uuid
+
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from app.services.ai_bridge.answer_formatter import (
     FORMATTER_HOUSE_STYLE,
@@ -97,3 +102,83 @@ def test_format_answer_raises_formatter_failure_on_llm_exception():
                 question="?", action_mode="narrate", module_name="x",
                 facts_pack={}, body_prompt="b", history=[], profile={},
             ))
+
+
+# ---------------------------------------------------------------------------
+# format_with_telemetry tests
+# ---------------------------------------------------------------------------
+
+class FormatWithTelemetryTests(unittest.TestCase):
+
+    def _ctx(self):
+        from unittest.mock import MagicMock
+        ctx = MagicMock()
+        ctx.user_question = "test question"
+        ctx.conversation_history = []
+        ctx.db = MagicMock()
+        ctx.effective_user_id = uuid.uuid4()
+        ctx.session_id = uuid.uuid4()
+        return ctx
+
+    def test_format_with_telemetry_returns_formatter_text_on_success(self):
+        from app.services.ai_bridge.answer_formatter import format_with_telemetry
+        with patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="tailored")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            text = asyncio.run(format_with_telemetry(
+                ctx=self._ctx(),
+                facts_pack={},
+                body_prompt="b",
+                module_name="x",
+                action_mode="compute",
+                profile={},
+                build_fallback=lambda: "FALLBACK",
+            ))
+        self.assertEqual(text, "tailored")
+
+    def test_format_with_telemetry_uses_fallback_on_formatter_failure(self):
+        from app.services.ai_bridge.answer_formatter import (
+            FormatterFailure,
+            format_with_telemetry,
+        )
+        with patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            text = asyncio.run(format_with_telemetry(
+                ctx=self._ctx(),
+                facts_pack={},
+                body_prompt="b",
+                module_name="x",
+                action_mode="compute",
+                profile={},
+                build_fallback=lambda: "FALLBACK",
+            ))
+        self.assertEqual(text, "FALLBACK")
+
+    def test_format_with_telemetry_records_run_with_correct_columns_on_success(self):
+        from app.services.ai_bridge.answer_formatter import format_with_telemetry
+        captured = {}
+
+        async def fake_record(*args, **kwargs):
+            captured.update(kwargs)
+            return uuid.uuid4()
+
+        with patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="ok")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   side_effect=fake_record):
+            asyncio.run(format_with_telemetry(
+                ctx=self._ctx(),
+                facts_pack={},
+                body_prompt="b",
+                module_name="rebalancing",
+                action_mode="recompute",
+                profile={},
+                build_fallback=lambda: "",
+            ))
+        self.assertTrue(captured.get("formatter_invoked"))
+        self.assertTrue(captured.get("formatter_succeeded"))
+        self.assertEqual(captured.get("module"), "rebalancing")
+        self.assertEqual(captured.get("action_mode"), "recompute")

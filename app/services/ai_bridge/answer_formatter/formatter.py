@@ -1,7 +1,8 @@
 """Shared answer-formatter implementation.
 
 Single-file module: house-style preamble, FactsPack alias, ActionMode literal,
-FormatterFailure exception, prompt-assembly helper, and the async LLM call.
+FormatterFailure exception, prompt-assembly helper, the async LLM call, and the
+shared format_with_telemetry wrapper used by per-module chat bridges.
 """
 
 from __future__ import annotations
@@ -9,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Literal, TypedDict
+import time
+from typing import Any, Callable, Literal, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -152,3 +154,76 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
     ]
     raw = await asyncio.to_thread(llm.invoke, messages)
     return getattr(raw, "content", "") or ""
+
+
+# ---------------------------------------------------------------------------
+# Shared telemetry wrapper (used by per-module chat bridges)
+# ---------------------------------------------------------------------------
+
+# These imports couple this helper to chat-turn concepts but keep format_answer
+# itself decoupled. Neither chat_core.turn_context nor ai_module_telemetry
+# imports from answer_formatter, so there is no circular dependency.
+from app.services.ai_module_telemetry import record_ai_module_run  # noqa: E402
+from app.services.chat_core.turn_context import TurnContext  # noqa: E402
+
+
+async def format_with_telemetry(
+    *,
+    ctx: TurnContext,
+    facts_pack: FactsPack,
+    body_prompt: str,
+    module_name: str,
+    action_mode: str,
+    profile: dict[str, Any],
+    build_fallback: Callable[[], str],
+) -> str:
+    """Run the formatter with timing + telemetry; fall back on failure.
+
+    Records a ``ChatAiModuleRun`` row with formatter_invoked / formatter_succeeded /
+    formatter_latency_ms / formatter_error_class / action_mode populated.
+    On ``FormatterFailure``, calls ``build_fallback()`` (the per-module fallback
+    closure) and surfaces its return value as the response text.
+
+    Per-module wrappers in each bridge supply: facts_pack, body_prompt, module
+    name, profile, and the fallback closure. They keep their existing signatures
+    (asset_allocation passes typed output + spine_mode; rebalancing passes a
+    precomputed fallback string from the engine outcome).
+    """
+    started = time.monotonic()
+    formatter_succeeded = False
+    formatter_error_class: str | None = None
+    try:
+        text = await format_answer(
+            question=ctx.user_question,
+            action_mode=action_mode,
+            module_name=module_name,
+            facts_pack=facts_pack,
+            body_prompt=body_prompt,
+            history=ctx.conversation_history or [],
+            profile=profile,
+        )
+        formatter_succeeded = True
+    except FormatterFailure as exc:
+        formatter_error_class = type(exc).__name__
+        logger.error(
+            "formatter_failed module=%s mode=%s error_class=%s",
+            module_name, action_mode, formatter_error_class,
+        )
+        text = build_fallback()
+    finally:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        await record_ai_module_run(
+            ctx.db,
+            user_id=ctx.effective_user_id,
+            session_id=ctx.session_id,
+            module=module_name,
+            reason=f"formatter:{action_mode}",
+            duration_ms=latency_ms,
+            formatter_invoked=True,
+            formatter_succeeded=formatter_succeeded,
+            formatter_latency_ms=latency_ms,
+            formatter_error_class=formatter_error_class,
+            action_mode=action_mode,
+            emit_standard_log=False,
+        )
+    return text

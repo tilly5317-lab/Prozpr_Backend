@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import Any, Literal, Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -19,12 +18,8 @@ from app.services.ai_bridge.rebalancing.service import (
     compute_rebalancing_result,
 )
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
-from app.services.ai_bridge.answer_formatter import (
-    FormatterFailure,
-    format_answer,
-)
+from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
-from app.services.ai_module_telemetry import record_ai_module_run
 
 logger = logging.getLogger(__name__)
 
@@ -111,45 +106,15 @@ async def _format_or_fallback_rebal(
     action_mode: str,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
-    started = time.monotonic()
-    formatter_succeeded = False
-    formatter_error_class: str | None = None
-    try:
-        facts_pack = build_rebal_facts_pack(response)
-        text = await format_answer(
-            question=ctx.user_question,
-            action_mode=action_mode,
-            module_name="rebalancing",
-            facts_pack=facts_pack,
-            body_prompt=_REBAL_FORMATTER_BODY,
-            history=ctx.conversation_history or [],
-            profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
-        )
-        formatter_succeeded = True
-    except FormatterFailure as exc:
-        formatter_error_class = type(exc).__name__
-        logger.error(
-            "formatter_failed mode=%s error_class=%s",
-            action_mode, formatter_error_class,
-        )
-        text = fallback_brief
-    finally:
-        latency_ms = int((time.monotonic() - started) * 1000)
-        await record_ai_module_run(
-            ctx.db,
-            user_id=ctx.effective_user_id,
-            session_id=ctx.session_id,
-            module="rebalancing",
-            reason=f"formatter:{action_mode}",
-            duration_ms=latency_ms,
-            formatter_invoked=True,
-            formatter_succeeded=formatter_succeeded,
-            formatter_latency_ms=latency_ms,
-            formatter_error_class=formatter_error_class,
-            action_mode=action_mode,
-            emit_standard_log=False,
-        )
-    return text
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=build_rebal_facts_pack(response),
+        body_prompt=_REBAL_FORMATTER_BODY,
+        module_name="rebalancing",
+        action_mode=action_mode,
+        profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
+        build_fallback=lambda: fallback_brief,
+    )
 
 
 def _rehydrate_response(payload: dict[str, Any]) -> Any:
