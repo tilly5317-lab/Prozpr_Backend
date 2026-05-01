@@ -19,13 +19,13 @@ class ChatDispatcherTests(unittest.TestCase):
     def test_register_and_dispatch_calls_handler(self):
         called = {}
 
-        @cd.register("portfolio_optimisation")
+        @cd.register("asset_allocation")
         async def fake_handler(ctx):
             called["ctx"] = ctx
             return ChatHandlerResult(text="hello")
 
         ctx = MagicMock()
-        result = asyncio.run(cd.dispatch_chat("portfolio_optimisation", ctx))
+        result = asyncio.run(cd.dispatch_chat("asset_allocation", ctx))
         self.assertIsInstance(result, ChatHandlerResult)
         self.assertEqual(result.text, "hello")
         self.assertIs(called["ctx"], ctx)
@@ -35,12 +35,12 @@ class ChatDispatcherTests(unittest.TestCase):
             asyncio.run(cd.dispatch_chat("no_such_intent", MagicMock()))
 
     def test_register_multiple_intents_for_one_handler(self):
-        @cd.register("portfolio_optimisation")
+        @cd.register("asset_allocation")
         @cd.register("goal_planning")
         async def shared(ctx):
             return ChatHandlerResult(text="shared")
 
-        for intent in ("portfolio_optimisation", "goal_planning"):
+        for intent in ("asset_allocation", "goal_planning"):
             self.assertEqual(
                 asyncio.run(cd.dispatch_chat(intent, MagicMock())).text,
                 "shared",
@@ -76,11 +76,11 @@ class RegisterImportSideEffectTests(unittest.TestCase):
         from app.services.ai_bridge.asset_allocation import chat as asset_allocation_chat
         importlib.reload(asset_allocation_chat)
 
-        self.assertIn("portfolio_optimisation", cd._HANDLERS)
+        self.assertIn("asset_allocation", cd._HANDLERS)
         self.assertIn("goal_planning", cd._HANDLERS)
         # Both intents resolve to the same public handler.
         self.assertIs(
-            cd._HANDLERS["portfolio_optimisation"],
+            cd._HANDLERS["asset_allocation"],
             asset_allocation_chat.handle,
         )
         self.assertIs(

@@ -239,7 +239,7 @@ class Settings:
 
     @staticmethod
     def get_anthropic_asset_allocation_key() -> str | None:
-        """Goal-based allocation (``goal_based_allocation_pydantic`` 7-step pipeline via ``asset_allocation_service``)."""
+        """Goal-based allocation (``asset_allocation_pydantic`` 7-step pipeline via ``asset_allocation_service``)."""
         return Settings._anthropic_key(
             "ASSET_ALLOCATION_API_KEY",
             "PORTFOLIO_QUERY_API_KEY",

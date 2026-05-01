@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from goal_based_allocation_pydantic import run_allocation
+from asset_allocation_pydantic import run_allocation
 
 from Rebalancing import run_rebalancing
 

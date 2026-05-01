@@ -16,8 +16,8 @@ from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 def _agent_run() -> AgentRunRecord:
     return AgentRunRecord(
         id=uuid.uuid4(),
-        module="goal_based_allocation",
-        intent_detected="portfolio_optimisation",
+        module="asset_allocation",
+        intent_detected="asset_allocation",
         input_payload={
             "effective_risk_score": 5.4, "age": 39, "annual_income": 1_000_000,
             "osi": 0.3, "savings_rate_adjustment": "none", "gap_exceeds_3": False,
@@ -43,7 +43,7 @@ def _agent_run() -> AgentRunRecord:
 
 
 def _ctx(question: str, *, last_alloc: AgentRunRecord | None = None) -> TurnContext:
-    last_runs = {"goal_based_allocation": last_alloc} if last_alloc else {}
+    last_runs = {"asset_allocation": last_alloc} if last_alloc else {}
     return TurnContext(
         user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
         user_question=question,
@@ -53,7 +53,7 @@ def _ctx(question: str, *, last_alloc: AgentRunRecord | None = None) -> TurnCont
         db=MagicMock(),
         effective_user_id=uuid.uuid4(),
         last_agent_runs=last_runs,
-        active_intent="portfolio_optimisation",
+        active_intent="asset_allocation",
     )
 
 

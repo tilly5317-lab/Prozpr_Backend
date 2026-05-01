@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from goal_based_allocation_pydantic import run_allocation
+from asset_allocation_pydantic import run_allocation
 
 from Rebalancing import run_rebalancing
 from Rebalancing.Testing.Master_testing.bridge import (

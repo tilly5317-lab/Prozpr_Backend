@@ -23,9 +23,9 @@ from app.services.ai_module_telemetry import record_ai_module_run
 
 ensure_ai_agents_path()
 
-from goal_based_allocation_pydantic.models import AllocationInput, GoalAllocationOutput
-from goal_based_allocation_pydantic.pipeline import run_allocation_with_state
-from goal_based_allocation_pydantic.steps._rationale_llm import generate_rationales
+from asset_allocation_pydantic.models import AllocationInput, GoalAllocationOutput
+from asset_allocation_pydantic.pipeline import run_allocation_with_state
+from asset_allocation_pydantic.steps._rationale_llm import generate_rationales
 
 from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
@@ -294,8 +294,8 @@ async def compute_allocation_result(
             _invoke_pipeline, alloc_input, api_key,
         )
     except Exception as exc:
-        logger.exception("goal_based_allocation pipeline failed: %s", exc)
-        trace_line(f"goal_based_allocation ERROR: {exc!s}")
+        logger.exception("asset_allocation pipeline failed: %s", exc)
+        trace_line(f"asset_allocation ERROR: {exc!s}")
         return AllocationRunOutcome(result=None, blocking_message=_MSG_ENGINE_ERROR)
 
     for label, key in _STEP_MAP:
@@ -329,7 +329,7 @@ async def compute_allocation_result(
                 db,
                 user_id=acting_user_id,
                 session_id=chat_session_id,
-                module="goal_based_allocation",
+                module="asset_allocation",
                 reason="full_pipeline_run",
                 intent_detected=None,
                 spine_mode=spine_mode,
@@ -358,7 +358,7 @@ async def compute_allocation_result(
 # Standalone HTTP entry point
 # ---------------------------------------------------------------------------
 
-async def generate_portfolio_optimisation_response(
+async def generate_asset_allocation_response(
     user,
     user_question: str,
     *,

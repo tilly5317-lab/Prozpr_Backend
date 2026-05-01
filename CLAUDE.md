@@ -15,10 +15,12 @@ Ask Tilly is an AI-powered financial advisor. This package is the backend: FastA
 
 ## Files at this level
 
-- `main.py` — uvicorn entry point; re-exports `app.main:app`.
-- `conftest.py` — pytest root config.
-- `alembic.ini` — Alembic configuration (points at `alembic/env.py`).
-- `requirements.txt`, `Dockerfile`, `pyrightconfig.json`, `ruff.toml` — build/tooling.
+- `main.py` — uvicorn entry point; re-exports `app.main:app` so `uvicorn main:app` boots the FastAPI server.
+- `alembic.ini` — Alembic migrations configuration; points at `alembic/env.py` for the migration environment.
+- `requirements.txt` — Python runtime dependencies for the backend (pip install target).
+- `Dockerfile` — container image definition used to build the deployable backend image.
+- `pyrightconfig.json` — Pyright static type-checker configuration for the repo.
+- `ruff.toml` — Ruff linter/formatter configuration applied across the project.
 
 ## Flows
 

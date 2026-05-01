@@ -45,6 +45,7 @@ class ChatMessageResponse(BaseModel):
     intent: Optional[str] = None
     intent_confidence: Optional[float] = None
     intent_reasoning: Optional[str] = None
+    chart_payloads: Optional[list[dict[str, Any]]] = None
     created_at: datetime
 
 
@@ -55,7 +56,6 @@ class ChatSendMessageResponse(BaseModel):
     assistant_message: ChatMessageResponse
     ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
-    chart: Optional[dict[str, Any]] = None
 
 
 class UploadStatementResponse(BaseModel):

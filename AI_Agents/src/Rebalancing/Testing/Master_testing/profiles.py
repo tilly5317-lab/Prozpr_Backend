@@ -1,6 +1,6 @@
 """Synthetic-holdings overlay for the 5 canonical Prozpr profiles.
 
-Re-exports the `AllocationInput` PROFILES from `goal_based_allocation_pydantic`
+Re-exports the `AllocationInput` PROFILES from `asset_allocation_pydantic`
 and adds a deterministic synthesizer that builds a dummy current portfolio
 per profile. The synthesizer:
   - Drifts each subgroup off its goal-allocation target by a fixed scale
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from goal_based_allocation_pydantic import AllocationInput, GoalAllocationOutput
-from goal_based_allocation_pydantic.Master_testing.profiles import PROFILES
+from asset_allocation_pydantic import AllocationInput, GoalAllocationOutput
+from asset_allocation_pydantic.Master_testing.profiles import PROFILES
 
 
 # Per-subgroup-index scale factor. Cycles through under/over so every

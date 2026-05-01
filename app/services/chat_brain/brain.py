@@ -44,7 +44,7 @@ _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS = (
 )
 
 
-def _looks_like_portfolio_optimisation(text: str) -> bool:
+def _looks_like_asset_allocation(text: str) -> bool:
     t = text.lower()
     return any(tok in t for tok in _PORTFOLIO_OPTIM_FALLBACK_TRIGGERS)
 
@@ -116,7 +116,7 @@ class ChatBrain:
                     await self._answer_general_market(turn, classification, flow)
                 )
 
-            if intent_value in ("portfolio_optimisation", "goal_planning"):
+            if intent_value in ("asset_allocation", "goal_planning"):
                 txt, rid, sid_alloc = await self._answer_portfolio_style(turn, flow)
                 return await finalize(
                     txt,
@@ -211,7 +211,7 @@ class ChatBrain:
 
         flow.append("using client profile from DB (age, risk, goals, current mix)")
         flow.append(
-            "ran goal_based_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
+            "ran asset_allocation_pydantic (7-step pipeline) via asset_allocation_service.compute_allocation_result"
         )
         spine = await build_ailax_spine(
             turn.user_ctx,
@@ -231,7 +231,7 @@ class ChatBrain:
     async def _answer_after_classifier_failure(
         self, turn: ChatTurnInput, flow: list[str]
     ) -> _ClassifierFailureOutcome:
-        if _looks_like_portfolio_optimisation(turn.user_question):
+        if _looks_like_asset_allocation(turn.user_question):
             try:
                 mode = detect_spine_mode(turn.user_question)
                 flow.append("keyword fallback → running allocation engine")
@@ -247,7 +247,7 @@ class ChatBrain:
                 if spine.text:
                     return _ClassifierFailureOutcome(
                         content=spine.text,
-                        intent="portfolio_optimisation",
+                        intent="asset_allocation",
                         intent_confidence=0.5,
                         intent_reasoning="Keyword fallback route used due classifier failure.",
                         ideal_allocation_rebalancing_id=spine.rebalancing_recommendation_id,

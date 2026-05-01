@@ -5,7 +5,7 @@
 Building on [`input_parameter_spec.md`](input_parameter_spec.md), this plan converts the spreadsheet rebalancing logic (rows 279–323 of `goal_based_allocation_model_latest.xlsx`, sheet "Allocation 2") into a modular Python pipeline.
 
 **Design priority: easy to edit in the future.** Achieved by:
-1. Mirroring the proven `goal_based_allocation_pydantic` package layout already in the repo.
+1. Mirroring the proven `asset_allocation_pydantic` package layout already in the repo.
 2. One file per pipeline step (no monolithic engine).
 3. Pure functions with explicit input/output Pydantic models — no hidden state.
 4. All I/O isolated to a single input-builder module; the engine itself is sync and DB-free.
@@ -15,7 +15,7 @@ Building on [`input_parameter_spec.md`](input_parameter_spec.md), this plan conv
 
 ## Package layout
 
-Mirror the `goal_based_allocation_pydantic` structure (verified against [../goal_based_allocation_pydantic/](../../goal_based_allocation_pydantic/)).
+Mirror the `asset_allocation_pydantic` structure (verified against [../asset_allocation_pydantic/](../../asset_allocation_pydantic/)).
 
 ```
 AI_Agents/src/Rebalancing/

@@ -4,8 +4,8 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 
 ## Child modules
 
-- **goal_based_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
-- **intent_classifier/** — Classifies a customer question into one of six intents (portfolio_optimisation, goal_planning, stock_advice, portfolio_query, general_market_query, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
+- **asset_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
+- **intent_classifier/** — Classifies a customer question into one of six intents (asset_allocation, goal_planning, stock_advice, portfolio_query, general_market_query, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document persisted to `AI_Agents/Reference_docs/`. Entry: `main.py`.
 - **portfolio_query/** — Self-contained agent that answers client questions about their own portfolio using market commentary + client profile + current portfolio (asset-class, sub-category, and per-fund detail), with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
@@ -15,8 +15,8 @@ Python package hosting the Prozper AI financial-advisor agents. Each top-level f
 
 - `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label and downstream routing is handled outside `src/`.
 - `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (written by `market_commentary/`) but does not import the `market_commentary` module — the file is the contract.
-- `goal_based_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` directly — the caller wires them in.
-- `goal_based_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
+- `asset_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` directly — the caller wires them in.
+- `asset_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
 - All other modules are independent of each other at the Python-import level.
 
 ## Conventions

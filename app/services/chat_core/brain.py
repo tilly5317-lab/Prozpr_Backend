@@ -121,7 +121,7 @@ class ChatBrain:
                     await self._answer_general_market(turn, classification, flow)
                 )
 
-            if intent_value in ("portfolio_optimisation", "goal_planning"):
+            if intent_value in ("asset_allocation", "goal_planning"):
                 # Local imports — chat handler self-registers via @register at import time.
                 # Local imports — chat handler self-registers via @register at import time.
                 from app.services.ai_bridge.asset_allocation import chat as _aa_chat  # noqa: F401

@@ -14,7 +14,7 @@ from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
 
-from goal_based_allocation_pydantic import AllocationInput, GoalAllocationOutput
+from asset_allocation_pydantic import AllocationInput, GoalAllocationOutput
 
 from Rebalancing.models import FundRowInput, RebalancingComputeRequest
 

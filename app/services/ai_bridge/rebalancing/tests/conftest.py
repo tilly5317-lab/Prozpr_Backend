@@ -217,7 +217,7 @@ def fixture_goal_allocation_output_one_subgroup():
 
     ensure_ai_agents_path()
 
-    from goal_based_allocation_pydantic.models import (  # type: ignore[import-not-found]
+    from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]
         AggregatedSubgroupRow,
         ClientSummary,
         GoalAllocationOutput,
@@ -555,7 +555,7 @@ def _serialised_one_subgroup_allocation() -> dict:
 
     ensure_ai_agents_path()
 
-    from goal_based_allocation_pydantic.models import (  # type: ignore[import-not-found]
+    from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]
         AggregatedSubgroupRow,
         ClientSummary,
         GoalAllocationOutput,
