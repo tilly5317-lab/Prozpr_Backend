@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import Any, Literal, Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -28,10 +27,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
-from app.services.ai_bridge.answer_formatter import (
-    FormatterFailure,
-    format_answer,
-)
+from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.asset_allocation.service import (
     build_aa_facts_pack,
     build_fallback_brief,
@@ -39,7 +35,6 @@ from app.services.ai_bridge.asset_allocation.service import (
 )
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import trace_line
-from app.services.ai_module_telemetry import record_ai_module_run
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 
 logger = logging.getLogger(__name__)
@@ -468,49 +463,16 @@ async def _format_or_fallback(
     action_mode: str,
     spine_mode: str,
 ) -> str:
-    """Run the formatter; fall back to the templated brief on failure.
-
-    Records a ChatAiModuleRun row with formatter timing and success/failure.
-    """
-    started = time.monotonic()
-    formatter_succeeded = False
-    formatter_error_class: str | None = None
-    try:
-        facts_pack = build_aa_facts_pack(output)
-        text = await format_answer(
-            question=ctx.user_question,
-            action_mode=action_mode,
-            module_name="asset_allocation",
-            facts_pack=facts_pack,
-            body_prompt=_AA_FORMATTER_BODY,
-            history=ctx.conversation_history or [],
-            profile=_profile_dict(ctx),
-        )
-        formatter_succeeded = True
-    except FormatterFailure as exc:
-        formatter_error_class = type(exc).__name__
-        logger.error(
-            "formatter_failed mode=%s error_class=%s",
-            action_mode, formatter_error_class,
-        )
-        text = build_fallback_brief(output, spine_mode)
-    finally:
-        latency_ms = int((time.monotonic() - started) * 1000)
-        await record_ai_module_run(
-            ctx.db,
-            user_id=ctx.effective_user_id,
-            session_id=ctx.session_id,
-            module="asset_allocation",
-            reason=f"formatter:{action_mode}",
-            duration_ms=latency_ms,
-            formatter_invoked=True,
-            formatter_succeeded=formatter_succeeded,
-            formatter_latency_ms=latency_ms,
-            formatter_error_class=formatter_error_class,
-            action_mode=action_mode,
-            emit_standard_log=False,
-        )
-    return text
+    """Run the formatter; fall back to the templated brief on failure."""
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=build_aa_facts_pack(output),
+        body_prompt=_AA_FORMATTER_BODY,
+        module_name="asset_allocation",
+        action_mode=action_mode,
+        profile=_profile_dict(ctx),
+        build_fallback=lambda: build_fallback_brief(output, spine_mode),
+    )
 
 
 # ---------------------------------------------------------------------------
