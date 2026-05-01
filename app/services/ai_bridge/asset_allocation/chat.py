@@ -27,9 +27,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.services.ai_bridge.answer_formatter import (
+    FormatterFailure,
+    format_answer,
+)
 from app.services.ai_bridge.asset_allocation.service import (
-    compute_allocation_result,
+    build_aa_facts_pack,
     build_fallback_brief,
+    compute_allocation_result,
 )
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import trace_line
@@ -239,12 +244,11 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 async def _dispatch_action(
     action: ChatAction, last_alloc: AgentRunRecord, ctx: TurnContext,
 ) -> ChatHandlerResult:
-    if action.mode == "narrate":
-        text = await _narrate_with_llm(last_alloc, ctx)
-        return ChatHandlerResult(text=text)
-
-    if action.mode == "educate":
-        text = await _educate_with_llm(last_alloc, ctx)
+    if action.mode in ("narrate", "educate"):
+        output = _rehydrate_last_alloc_output(last_alloc)
+        text = await _format_or_fallback(
+            ctx=ctx, output=output, action_mode=action.mode, spine_mode="full",
+        )
         return ChatHandlerResult(text=text)
 
     if action.mode == "counterfactual_explore":
@@ -285,7 +289,9 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
         return ChatHandlerResult(
             text="I couldn't produce an allocation right now. Please try again."
         )
-    text = build_fallback_brief(outcome.result, "full")
+    text = await _format_or_fallback(
+        ctx=ctx, output=outcome.result, action_mode="compute", spine_mode="full",
+    )
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
@@ -320,7 +326,10 @@ async def _counterfactual_explore(
         return ChatHandlerResult(
             text="I couldn't compute that hypothetical right now."
         )
-    text = await _narrate_counterfactual(last_alloc, ctx, outcome.result, overrides)
+    text = await _format_or_fallback(
+        ctx=ctx, output=outcome.result,
+        action_mode="counterfactual_explore", spine_mode="counterfactual",
+    )
     return ChatHandlerResult(text=text)
 
 
@@ -356,7 +365,10 @@ async def _recompute_with_overrides(
         return ChatHandlerResult(
             text="I couldn't compute the updated plan right now."
         )
-    text = build_fallback_brief(outcome.result, "full")
+    text = await _format_or_fallback(
+        ctx=ctx, output=outcome.result,
+        action_mode="recompute_with_overrides", spine_mode="full",
+    )
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
@@ -478,6 +490,69 @@ async def _narrate_counterfactual(
         "clear the hypothetical is not the user's saved plan."
     )
     return await _ainvoke_text(llm, _COUNTERFACTUAL_NARRATE_SYSTEM, user_block)
+
+
+# ---------------------------------------------------------------------------
+# Formatter helpers
+# ---------------------------------------------------------------------------
+
+def _profile_dict(ctx: TurnContext) -> dict[str, Any]:
+    """Pull the customer's profile fields the formatter cares about."""
+    user = ctx.user_ctx
+    return {
+        "age": getattr(user, "age", None) or _years_since(getattr(user, "date_of_birth", None)),
+        "first_name": getattr(user, "first_name", None),
+    }
+
+
+def _years_since(dob: Any) -> int | None:
+    if dob is None:
+        return None
+    from datetime import date
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+
+def _rehydrate_last_alloc_output(last_alloc: AgentRunRecord) -> Any:
+    """Parse the persisted allocation_result JSON back into a GoalAllocationOutput.
+
+    Used on follow-up turns when we don't re-run the engine but need the typed
+    output to feed `build_aa_facts_pack` and the fallback brief.
+    """
+    from asset_allocation_pydantic.models import GoalAllocationOutput  # type: ignore[import-not-found]
+    payload = (last_alloc.output_payload or {}).get("allocation_result") or {}
+    return GoalAllocationOutput.model_validate(payload)
+
+
+async def _format_or_fallback(
+    *,
+    ctx: TurnContext,
+    output: Any,
+    action_mode: str,
+    spine_mode: str,
+) -> str:
+    """Run the formatter; fall back to the templated brief on failure.
+
+    Task 9 layers telemetry (timing + ChatAiModuleRun row) into this body.
+    Signature stays stable so Task 9 doesn't ripple through call sites.
+    """
+    try:
+        facts_pack = build_aa_facts_pack(output)
+        return await format_answer(
+            question=ctx.user_question,
+            action_mode=action_mode,
+            module_name="asset_allocation",
+            facts_pack=facts_pack,
+            body_prompt=_AA_FORMATTER_BODY,
+            history=ctx.conversation_history or [],
+            profile=_profile_dict(ctx),
+        )
+    except FormatterFailure as exc:
+        logger.error(
+            "formatter_failed module=asset_allocation mode=%s error_class=%s",
+            action_mode, type(exc).__name__,
+        )
+        return build_fallback_brief(output, spine_mode)
 
 
 # ---------------------------------------------------------------------------
