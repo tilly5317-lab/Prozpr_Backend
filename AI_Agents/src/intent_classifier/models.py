@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class Intent(str, Enum):
-    PORTFOLIO_OPTIMISATION = "portfolio_optimisation"
+    ASSET_ALLOCATION = "asset_allocation"
     GOAL_PLANNING          = "goal_planning"
     STOCK_ADVICE           = "stock_advice"
     PORTFOLIO_QUERY        = "portfolio_query"

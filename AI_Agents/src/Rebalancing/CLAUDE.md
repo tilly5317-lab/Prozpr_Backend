@@ -1,6 +1,6 @@
 # AI_Agents/src/Rebalancing
 
-Pure-Python rebalancing engine. Takes a goal-based ideal allocation plus present holdings, and emits per-fund target / buy / sell amounts under per-fund caps with a tax-aware sell prioritisation (STCG offset budget + carryforward losses). Mirrors the layout of `goal_based_allocation_pydantic`.
+Pure-Python rebalancing engine. Takes a goal-based ideal allocation plus present holdings, and emits per-fund target / buy / sell amounts under per-fund caps with a tax-aware sell prioritisation (STCG offset budget + carryforward losses). Mirrors the layout of `asset_allocation_pydantic`.
 
 ## Files
 

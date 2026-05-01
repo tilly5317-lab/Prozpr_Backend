@@ -1,4 +1,4 @@
-"""Build a ``goal_based_allocation_pydantic.AllocationInput`` from a User ORM row.
+"""Build a ``asset_allocation_pydantic.AllocationInput`` from a User ORM row.
 
 Reads from persisted DB rows only — no call into ``risk_profiling.scoring``.
 When an ``effective_risk_assessments`` row is absent, falls back to score 7.0.
@@ -15,7 +15,7 @@ from app.services.ai_bridge.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
 
-from goal_based_allocation_pydantic.models import AllocationInput, Goal
+from asset_allocation_pydantic.models import AllocationInput, Goal
 
 
 _DEFAULT_RISK_SCORE = 7.0
@@ -205,6 +205,13 @@ def build_goal_allocation_input_for_user(
 
     _emergency_override = getattr(user, "_chat_emergency_fund_needed_override", None)
     _tax_regime_override = getattr(user, "_chat_tax_regime_override", None)
+
+    # Snap corpus down to a multiple of 100. The asset_allocation pipeline
+    # asserts every subgroup amount is a non-negative multiple of 100
+    # (step4_long_term._verify_invariants); a fractional input corpus produces
+    # a non-multiple-of-100 drift that propagates to subgroup amounts and trips
+    # the assertion. Sheds at most ₹99.
+    total_corpus = float(int(max(total_corpus, 0.0) // 100 * 100))
 
     # Goals are mapped AFTER the corpus override so synthesized-default goals
     # (used when the user has no explicit goals) reflect the overridden corpus.

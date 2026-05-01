@@ -11,7 +11,7 @@ from app.services.ai_bridge import (
     format_intent_response,
     generate_general_chat_response,
     generate_market_commentary,
-    generate_portfolio_optimisation_response,
+    generate_asset_allocation_response,
     generate_portfolio_query_response,
 )
 
@@ -20,6 +20,6 @@ __all__ = [
     "format_intent_response",
     "generate_general_chat_response",
     "generate_market_commentary",
-    "generate_portfolio_optimisation_response",
+    "generate_asset_allocation_response",
     "generate_portfolio_query_response",
 ]

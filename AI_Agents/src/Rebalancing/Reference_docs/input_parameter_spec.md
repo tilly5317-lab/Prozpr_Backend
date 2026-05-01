@@ -25,7 +25,7 @@ This plan covers **only the input contract**. Stage-by-stage logic will be plann
 
 | Need | File / location |
 | --- | --- |
-| Goal-based allocation output (target per asset_subgroup, **rank-1** recommended fund) | [GoalAllocationOutput.aggregated_subgroups](../../goal_based_allocation_pydantic/models.py:193) → `AggregatedSubgroupRow.fund_mapping` ([models.py:121](../../goal_based_allocation_pydantic/models.py:121)) is a **single** `SubgroupFundMapping` ([models.py:92](../../goal_based_allocation_pydantic/models.py:92)), not a list |
+| Goal-based allocation output (target per asset_subgroup, **rank-1** recommended fund) | [GoalAllocationOutput.aggregated_subgroups](../../asset_allocation_pydantic/models.py:193) → `AggregatedSubgroupRow.fund_mapping` ([models.py:121](../../asset_allocation_pydantic/models.py:121)) is a **single** `SubgroupFundMapping` ([models.py:92](../../asset_allocation_pydantic/models.py:92)), not a list |
 | Raw transactions | [MfTransaction](../../../../app/models/mf/mf_transaction.py:34) |
 | Fund metadata (sub_category, asset_subgroup, exit_load_percent, exit_load_months, our_rating_parameter_*) | [MfFundMetadata](../../../../app/models/mf/mf_fund_metadata.py:33) |
 | Existing CRUD router on saved recommendations | [app/routers/rebalancing.py](../../../../app/routers/rebalancing.py) (already wired to `RebalancingRecommendation`) |
@@ -41,7 +41,7 @@ This plan covers **only the input contract**. Stage-by-stage logic will be plann
 
 ### Create new
 
-The engine itself lives **inside `AI_Agents/src/Rebalancing/`** (mirroring the `goal_based_allocation_pydantic` package — see [AI_Agents/src/CLAUDE.md](../../CLAUDE.md)). Only the I/O layer lives under `app/`.
+The engine itself lives **inside `AI_Agents/src/Rebalancing/`** (mirroring the `asset_allocation_pydantic` package — see [AI_Agents/src/CLAUDE.md](../../CLAUDE.md)). Only the I/O layer lives under `app/`.
 
 | New file / module | Purpose |
 | --- | --- |
@@ -151,7 +151,7 @@ Built fresh by the new `holdings_aging.py` walking `MfTransaction` directly. **D
 
 ## Verification (for follow-up impl)
 
-**Test conventions**, mirroring [AI_Agents/src/goal_based_allocation_pydantic/Testing/](../../goal_based_allocation_pydantic/Testing):
+**Test conventions**, mirroring [AI_Agents/src/asset_allocation_pydantic/Testing/](../../asset_allocation_pydantic/Testing):
 - Per-step test files: `test_step1_caps.py`, `test_step2_diff_exit.py`, `test_step3_tax.py`, `test_step4_initial_trades.py`, `test_step5_loss_offset.py`, `test_step6_presentation.py`.
 - One end-to-end test: `test_e2e_workbook.py` → row-by-row assertion against the workbook.
 - Shared `Testing/conftest.py` with a golden-fixture loader.

@@ -37,7 +37,7 @@ from app.services.rebalancing_recommendation_persist import (
 
 ensure_ai_agents_path()
 
-from goal_based_allocation_pydantic.models import (  # type: ignore[import-not-found]  # noqa: E402
+from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]  # noqa: E402
     GoalAllocationOutput,
 )
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402

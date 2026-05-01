@@ -37,4 +37,4 @@ def test_optimisation_still_routes_to_optimisation() -> None:
     result = classifier.classify(
         ClassificationInput(customer_question="what's my ideal asset allocation?")
     )
-    assert result.intent == Intent.PORTFOLIO_OPTIMISATION
+    assert result.intent == Intent.ASSET_ALLOCATION
