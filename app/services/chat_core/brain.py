@@ -121,9 +121,8 @@ class ChatBrain:
                     await self._answer_general_market(turn, classification, flow)
                 )
 
-            if intent_value in ("asset_allocation", "goal_planning"):
-                # Local imports — chat handler self-registers via @register at import time.
-                # Local imports — chat handler self-registers via @register at import time.
+            if intent_value == "asset_allocation":
+                # Local import — chat handler self-registers via @register at import time.
                 from app.services.ai_bridge.asset_allocation import chat as _aa_chat  # noqa: F401
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
                 flow.append("dispatch_chat → asset_allocation_chat")
@@ -134,6 +133,18 @@ class ChatBrain:
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
                 )
+
+            if intent_value == "goal_planning":
+                # No agent module yet — return the canned redirect attached
+                # by the classifier. When the goal_planning module ships,
+                # replace this branch with a dispatch_chat("goal_planning", ...) call.
+                flow.append("goal_planning → canned redirect (module not yet built)")
+                trace_line("next module: goal_planning → canned redirect")
+                redirect_text = (
+                    classification.out_of_scope_message
+                    or "Goal planning isn't available yet — please ask me about your portfolio or where to invest."
+                )
+                return await finalize(redirect_text)
 
             if intent_value == "rebalancing":
                 # Local import — chat handler self-registers via @register at import time.
