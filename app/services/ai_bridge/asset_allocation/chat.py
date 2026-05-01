@@ -189,25 +189,6 @@ Answer the customer's question. Do not default to a fixed template — what they
 asked dictates the structure of the response.
 """
 
-_NARRATE_SYSTEM = """You are Prozpr's allocation explainer. You answer
-follow-up questions about a customer's already-shown goal-based allocation
-plan. Use the provided snapshot to answer. Be concise (4-8 sentences),
-specific (cite numbers from the snapshot), and warm. Never invent funds
-or numbers. If the question can't be answered from the snapshot, say so
-and offer next steps."""
-
-_EDUCATE_SYSTEM = """You are Prozpr's allocation educator. The customer
-is asking an educational question about a financial concept that appears
-in their plan. Explain the concept in plain language (4-7 sentences), then
-tie it back to the customer's specific holding using numbers from the
-snapshot. Be accurate, never invent. If the concept doesn't appear in the
-snapshot, explain it generally and note that it's not in their current mix."""
-
-_COUNTERFACTUAL_NARRATE_SYSTEM = """You explain the result of a hypothetical
-allocation calculation. Make the hypothetical-ness explicit ("this is
-hypothetical, not your saved plan"). Compare to the existing plan briefly,
-citing specific numbers. Keep to 4-7 sentences."""
-
 
 # ---------------------------------------------------------------------------
 # Public handler
@@ -226,9 +207,16 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     try:
         action = await _detect_action(last_alloc, ctx)
     except Exception as exc:
-        logger.warning("detect_action failed (%s); falling back to narrate", exc)
-        text = await _narrate_with_llm(last_alloc, ctx)
-        return ChatHandlerResult(text=text)
+        logger.error(
+            "detect_action_failed error_class=%s",
+            type(exc).__name__,
+        )
+        return ChatHandlerResult(
+            text=(
+                "I'm having trouble understanding that right now. "
+                "Could you rephrase, or ask me to redo your plan?"
+            )
+        )
 
     logger.info("asset_allocation_chat mode=%s overrides=%s",
                 action.mode, action.overrides)
@@ -439,71 +427,6 @@ async def _detect_action(
     return await _ainvoke(llm, _DETECT_SYSTEM, user_block)
 
 
-async def _narrate_with_llm(
-    last_alloc: AgentRunRecord, ctx: TurnContext,
-) -> str:
-    return await _free_text_call(_NARRATE_SYSTEM, last_alloc, ctx)
-
-
-async def _educate_with_llm(
-    last_alloc: AgentRunRecord, ctx: TurnContext,
-) -> str:
-    return await _free_text_call(_EDUCATE_SYSTEM, last_alloc, ctx)
-
-
-async def _free_text_call(
-    system_text: str, last_alloc: AgentRunRecord, ctx: TurnContext,
-) -> str:
-    """Shared free-text Haiku call for narrate + educate."""
-    api_key = get_settings().get_anthropic_asset_allocation_key()
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        max_tokens=600,
-    )
-    snapshot = json.dumps(last_alloc.output_payload, default=str)
-    profile = {
-        "effective_risk_score": (last_alloc.input_payload or {}).get("effective_risk_score"),
-        "age": (last_alloc.input_payload or {}).get("age"),
-        "total_corpus": (last_alloc.input_payload or {}).get("total_corpus"),
-    }
-    history_lines = [
-        f"{m.get('role','user')}: {m.get('content','')}"
-        for m in (ctx.conversation_history or [])[-6:]
-    ]
-    user_block = (
-        f"Snapshot:\n{snapshot}\n\n"
-        f"Profile (from input): {json.dumps(profile, default=str)}\n\n"
-        f"Recent history:\n" + "\n".join(history_lines) + "\n\n"
-        f"Customer's current question: {ctx.user_question}"
-    )
-    return await _ainvoke_text(llm, system_text, user_block)
-
-
-async def _narrate_counterfactual(
-    last_alloc: AgentRunRecord, ctx: TurnContext,
-    new_result: Any, overrides: dict[str, Any],
-) -> str:
-    """Narrate the hypothetical result side-by-side with the saved plan."""
-    api_key = get_settings().get_anthropic_asset_allocation_key()
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        max_tokens=500,
-    )
-    saved = (last_alloc.output_payload or {}).get("allocation_result", {})
-    new = new_result.model_dump(mode="json") if hasattr(new_result, "model_dump") else new_result
-    user_block = (
-        f"Customer's question: {ctx.user_question}\n\n"
-        f"Overrides applied (hypothetical): {json.dumps(overrides)}\n\n"
-        f"Saved plan (do NOT change this): {json.dumps(saved, default=str)}\n\n"
-        f"Hypothetical result: {json.dumps(new, default=str)}\n\n"
-        "Narrate the hypothetical, comparing to the saved plan. Make it "
-        "clear the hypothetical is not the user's saved plan."
-    )
-    return await _ainvoke_text(llm, _COUNTERFACTUAL_NARRATE_SYSTEM, user_block)
-
-
 # ---------------------------------------------------------------------------
 # Formatter helpers
 # ---------------------------------------------------------------------------
@@ -580,15 +503,3 @@ async def _ainvoke(llm: Any, system_text: str, user_text: str) -> Any:
         HumanMessage(content=user_text),
     ]
     return await asyncio.to_thread(llm.invoke, messages)
-
-
-async def _ainvoke_text(llm: Any, system_text: str, user_text: str) -> str:
-    """Plain-text invocation."""
-    messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-        ]),
-        HumanMessage(content=user_text),
-    ]
-    raw = await asyncio.to_thread(llm.invoke, messages)
-    return raw.content if hasattr(raw, "content") else str(raw)

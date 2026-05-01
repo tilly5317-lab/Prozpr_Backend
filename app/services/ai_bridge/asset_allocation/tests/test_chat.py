@@ -265,13 +265,11 @@ class RedirectModeTests(unittest.TestCase):
 
 class DetectActionFailureTests(unittest.TestCase):
 
-    def test_detect_action_failure_falls_back_to_narrate(self):
+    def test_detect_action_failure_returns_degraded_text(self):
         with patch.object(mod, "_detect_action",
-                          new=AsyncMock(side_effect=RuntimeError("LLM down"))), \
-             patch.object(mod, "_narrate_with_llm",
-                          new=AsyncMock(return_value="best-effort narration")):
+                          new=AsyncMock(side_effect=RuntimeError("LLM down"))):
             result = asyncio.run(mod.handle(_ctx("what?", last_alloc=_agent_run())))
-        self.assertEqual(result.text, "best-effort narration")
+        self.assertIn("rephrase", result.text)
 
 
 class FallbackTests(unittest.TestCase):
