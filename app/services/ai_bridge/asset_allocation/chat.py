@@ -1,4 +1,4 @@
-"""Unified chat handler for asset_allocation / goal_planning intents.
+"""Chat handler for the asset_allocation intent.
 
 Single entry point for the entire chat lifecycle of allocation conversations:
 - First turn (no AgentRun for asset_allocation in session) → run engine,
@@ -9,6 +9,10 @@ Single entry point for the entire chat lifecycle of allocation conversations:
 
 The engine wrapper compute_allocation_result lives in ``service.py`` (sibling
 module) and is consumed by both this module and the standalone HTTP endpoint.
+
+Note: this handler is registered ONLY for the asset_allocation intent.
+The goal_planning intent is handled in app/services/chat_core/brain.py via a
+canned redirect (no agent module exists for goal_planning yet).
 """
 
 from __future__ import annotations
@@ -168,7 +172,6 @@ citing specific numbers. Keep to 4-7 sentences."""
 # ---------------------------------------------------------------------------
 
 @register("asset_allocation")
-@register("goal_planning")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     """Sole entry point for chat turns in this intent family."""
     last_alloc = ctx.last_agent_runs.get("asset_allocation")
