@@ -65,7 +65,7 @@ def _build_user_turn(input: ClassificationInput) -> str:
 class IntentClassifier:
     """
     Classifies a customer's financial question into one of six intents:
-      - portfolio_optimisation
+      - asset_allocation
       - goal_planning  (coming soon — returns a holding message)
       - stock_advice   (redirects to mutual funds)
       - portfolio_query

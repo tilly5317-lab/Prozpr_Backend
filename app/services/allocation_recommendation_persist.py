@@ -9,13 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf.enums import PortfolioSnapshotKind
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
-from app.models.rebalancing import RebalancingRecommendation, RebalancingStatus
+from app.models.rebalancing import (
+    RebalancingRecommendation,
+    RebalancingStatus,
+    RecommendationType,
+)
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.portfolio_service import get_or_create_primary_portfolio
 
 ensure_ai_agents_path()
 
-from goal_based_allocation_pydantic.models import GoalAllocationOutput
+from asset_allocation_pydantic.models import GoalAllocationOutput
 
 
 def _allocation_output_to_jsonable(output: GoalAllocationOutput) -> dict[str, Any]:
@@ -67,8 +71,9 @@ async def persist_goal_allocation_recommendation(
     rec = RebalancingRecommendation(
         portfolio_id=portfolio.id,
         status=RebalancingStatus.pending,
+        recommendation_type=RecommendationType.ALLOCATION,
         recommendation_data={
-            "source": "goal_based_allocation_pydantic",
+            "source": "asset_allocation_pydantic",
             "goal_allocation_output": payload,
             "chat_session_id": str(chat_session_id) if chat_session_id else None,
             "user_question": user_question,
@@ -102,7 +107,7 @@ async def persist_goal_allocation_recommendation(
         user_id=user_id,
         snapshot_kind=PortfolioSnapshotKind.IDEAL,
         allocation=snapshot_allocation,
-        source="goal_based_allocation_pydantic",
+        source="asset_allocation_pydantic",
         notes=(user_question or "")[:2000] or None,
     )
     db.add(snap)

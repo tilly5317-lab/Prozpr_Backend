@@ -69,6 +69,6 @@ class IndicatorScraper:
                     lines.append(f"{title} — {body}")
                 else:
                     lines.append(title or body)
-            return "\n".join(l for l in lines if l)
+            return "\n".join(line for line in lines if line)
         except Exception:
             return ""

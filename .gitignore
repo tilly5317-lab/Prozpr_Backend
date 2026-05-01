@@ -68,13 +68,17 @@ conftest.py
 # alembic/versions/ is tracked
 
 # Superpowers (local only)
-CLAUDE.md
-**/CLAUDE.md
 docs/superpowers/
 **/docs/superpowers/
 **/.claude/agents/
-**/.claude/commands/
 **/.claude/hooks/
+
+# Shared .claude/commands — ignore all except the backend-root refresh-context command
+**/.claude/commands/
+!/.claude/
+!/.claude/commands/
+/.claude/commands/*
+!/.claude/commands/refresh-context.md
 
 # Cache files
 market_commentary_cache.json
@@ -88,4 +92,3 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
-/app/services/ai_bridge/tests

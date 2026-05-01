@@ -94,27 +94,27 @@ class TestIntentClassifier(unittest.TestCase):
 
     # --- Portfolio Optimisation ---
 
-    def test_portfolio_optimisation_asset_allocation(self):
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.93, "Customer asking about asset allocation.")
+    def test_asset_allocation_asset_allocation(self):
+        mock = _make_mock_llm_output("asset_allocation", 0.93, "Customer asking about asset allocation.")
         classifier = self._classifier_with_mock(mock)
 
         result = classifier.classify(ClassificationInput(
             customer_question="Am I too heavy in equities right now?"
         ))
 
-        self.assertEqual(result.intent, Intent.PORTFOLIO_OPTIMISATION)
+        self.assertEqual(result.intent, Intent.ASSET_ALLOCATION)
         self.assertAlmostEqual(result.confidence, 0.93)
         self.assertIsNone(result.out_of_scope_message)
 
-    def test_portfolio_optimisation_fund_switch(self):
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.97, "Fund switch is a portfolio action.")
+    def test_asset_allocation_fund_switch(self):
+        mock = _make_mock_llm_output("asset_allocation", 0.97, "Fund switch is a portfolio action.")
         classifier = self._classifier_with_mock(mock)
 
         result = classifier.classify(ClassificationInput(
             customer_question="Should I switch from Axis Bluechip to Mirae Asset Large Cap?"
         ))
 
-        self.assertEqual(result.intent, Intent.PORTFOLIO_OPTIMISATION)
+        self.assertEqual(result.intent, Intent.ASSET_ALLOCATION)
         self.assertAlmostEqual(result.confidence, 0.97)
         self.assertIsNone(result.out_of_scope_message)
 
@@ -146,16 +146,16 @@ class TestIntentClassifier(unittest.TestCase):
         self.assertAlmostEqual(result.confidence, 0.90)
         self.assertIsNone(result.out_of_scope_message)
 
-    def test_investment_timing_question_is_portfolio_optimisation(self):
-        # "Is this a good time to invest in X?" implies advice → portfolio_optimisation, NOT general_market_query
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.92, "Investment timing question implies a recommendation.")
+    def test_investment_timing_question_is_asset_allocation(self):
+        # "Is this a good time to invest in X?" implies advice → asset_allocation, NOT general_market_query
+        mock = _make_mock_llm_output("asset_allocation", 0.92, "Investment timing question implies a recommendation.")
         classifier = self._classifier_with_mock(mock)
 
         result = classifier.classify(ClassificationInput(
             customer_question="Is this a good time to invest in gold?"
         ))
 
-        self.assertEqual(result.intent, Intent.PORTFOLIO_OPTIMISATION)
+        self.assertEqual(result.intent, Intent.ASSET_ALLOCATION)
         self.assertAlmostEqual(result.confidence, 0.92)
         self.assertIsNone(result.out_of_scope_message)
 
@@ -202,7 +202,7 @@ class TestIntentClassifier(unittest.TestCase):
     # --- Conversation history is forwarded ---
 
     def test_conversation_history_included_in_api_call(self):
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.88, "Follow-up on prior discussion.")
+        mock = _make_mock_llm_output("asset_allocation", 0.88, "Follow-up on prior discussion.")
         classifier = self._classifier_with_mock(mock)
 
         history = [
@@ -253,7 +253,7 @@ class TestIntentClassifier(unittest.TestCase):
     # --- Follow-up detection ---
 
     def test_follow_up_flag_true(self):
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.91, "Continuing allocation discussion.", is_follow_up=True)
+        mock = _make_mock_llm_output("asset_allocation", 0.91, "Continuing allocation discussion.", is_follow_up=True)
         classifier = self._classifier_with_mock(mock)
 
         history = [
@@ -263,10 +263,10 @@ class TestIntentClassifier(unittest.TestCase):
         result = classifier.classify(ClassificationInput(
             customer_question="Yes, go ahead with that.",
             conversation_history=history,
-            active_intent=Intent.PORTFOLIO_OPTIMISATION,
+            active_intent=Intent.ASSET_ALLOCATION,
         ))
 
-        self.assertEqual(result.intent, Intent.PORTFOLIO_OPTIMISATION)
+        self.assertEqual(result.intent, Intent.ASSET_ALLOCATION)
         self.assertTrue(result.is_follow_up)
 
     def test_follow_up_flag_false_for_new_topic(self):
@@ -291,19 +291,19 @@ class TestIntentClassifier(unittest.TestCase):
         self.assertFalse(result.is_follow_up)
 
     def test_active_intent_included_in_user_turn(self):
-        mock = _make_mock_llm_output("portfolio_optimisation", 0.90, "Follow-up.", is_follow_up=True)
+        mock = _make_mock_llm_output("asset_allocation", 0.90, "Follow-up.", is_follow_up=True)
         classifier = self._classifier_with_mock(mock)
 
         classifier.classify(ClassificationInput(
             customer_question="What about gold?",
-            active_intent=Intent.PORTFOLIO_OPTIMISATION,
+            active_intent=Intent.ASSET_ALLOCATION,
         ))
 
         call_args = classifier.chain.invoke.call_args
         messages = call_args[0][0]
         user_content: str = messages[1].content
 
-        self.assertIn("Currently active intent: portfolio_optimisation", user_content)
+        self.assertIn("Currently active intent: asset_allocation", user_content)
 
     def test_active_intent_omitted_when_none(self):
         mock = _make_mock_llm_output("portfolio_query", 0.92, "Fresh question.")
@@ -351,6 +351,15 @@ class TestIntentClassifier(unittest.TestCase):
 
         self.assertIsInstance(system_content, list)
         self.assertEqual(system_content[0]["cache_control"], {"type": "ephemeral"})
+
+
+class _FakeLLMOut:
+    """Stand-in for the LangChain-structured LLM output."""
+    def __init__(self, *, intent, confidence, is_follow_up, reasoning):
+        self.intent = intent
+        self.confidence = confidence
+        self.is_follow_up = is_follow_up
+        self.reasoning = reasoning
 
 
 if __name__ == "__main__":

@@ -223,9 +223,9 @@ def run_customer(name: str, client: AllocationInput) -> dict:
         for w in warnings:
             print(f"  WARNING: {w}")
     else:
-        print(f"  No warnings")
+        print("  No warnings")
 
-    print(f"\n  Bucket allocations:")
+    print("\n  Bucket allocations:")
     for bucket in s7.get("bucket_allocations", []):
         print(f"    {bucket['bucket']:<15} allocated: ₹{bucket['allocated_amount']:>12,.0f}")
         for sg, amt in bucket.get("subgroup_amounts", {}).items():

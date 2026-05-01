@@ -10,16 +10,21 @@ it for ``asyncpg``, and exposes
 
 from __future__ import annotations
 
+import logging
 from typing import AsyncIterator
 
-from sqlalchemy import JSON
+from sqlalchemy import JSON, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
+from sqlalchemy.engine import make_url
+
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @compiles(JSONB, "sqlite")
@@ -71,6 +76,39 @@ async def create_all_tables() -> None:
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def apply_postgres_schema_patches() -> None:
+    """Idempotent DDL for ORM/DB drift (e.g. RDS created before payload columns existed).
+
+    Safe to run every startup: ``IF NOT EXISTS`` only.
+    """
+    parsed = make_url(get_settings().get_database_url())
+    if not str(parsed.drivername).startswith("postgresql"):
+        return
+
+    engine = _get_engine()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "ALTER TABLE chat_ai_module_runs ADD COLUMN IF NOT EXISTS input_payload JSONB"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE chat_ai_module_runs ADD COLUMN IF NOT EXISTS output_payload JSONB"
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_chat_ai_module_runs_session_module_created
+                ON chat_ai_module_runs (session_id, module, created_at DESC)
+                WHERE output_payload IS NOT NULL
+                """
+            )
+        )
+    logger.info("Postgres schema patches applied (chat_ai_module_runs payload columns + index)")
 
 
 async def dispose_engine() -> None:
