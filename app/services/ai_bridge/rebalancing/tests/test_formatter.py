@@ -187,93 +187,93 @@ def _make_minimal_response(*, with_warnings=False, tax_zero=True, with_actions=F
 
 def test_output_includes_lead_line_when_allocation_refreshed():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response()
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=False)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=False)
     assert "asset mix" in text.lower()
 
 
 def test_output_omits_lead_line_when_cache_hit():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response()
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "asset mix" not in text.lower()
 
 
 def test_output_includes_corpus_in_header():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response()
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "1,000" in text or "1000" in text
 
 
 def test_tax_line_omitted_when_zero():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(tax_zero=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "trade-offs" not in text.lower()
 
 
 def test_tax_line_present_when_nonzero():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(tax_zero=False)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "trade-offs" in text.lower()
 
 
 def test_heads_up_section_present_when_warnings():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(with_warnings=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "heads-up" in text.lower()
 
 
 def test_closing_line_always_present():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response()
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "sanity check" in text.lower()
 
 
 def test_summary_table_present_when_actions():
     """Top summary table renders with markdown pipes when there are actions."""
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(with_actions=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "| Category | Current | Target | Plan |" in text
 
 
 def test_uses_sebi_sub_category_labels_not_asset_subgroup_keys():
     """Per-section headers use SEBI sub_category like 'Large Cap Fund', not 'low_beta_equities'."""
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(with_actions=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "Large Cap Fund" in text
     assert "Flexi Cap Fund" in text
     assert "low_beta_equities" not in text
@@ -282,22 +282,22 @@ def test_uses_sebi_sub_category_labels_not_asset_subgroup_keys():
 
 def test_buy_table_renders_when_buys_present():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(with_actions=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "| Buy into | Amount |" in text
     assert "Test Large Cap Fund" in text
 
 
 def test_sell_table_renders_with_exit_verb():
     from app.services.ai_bridge.rebalancing.formatter import (
-        format_rebalancing_chat_brief,
+        build_fallback_rebal_brief,
     )
 
     response = _make_minimal_response(with_actions=True)
-    text = format_rebalancing_chat_brief(response, used_cached_allocation=True)
+    text = build_fallback_rebal_brief(response, used_cached_allocation=True)
     assert "| Action | From | Amount |" in text
     # exit_flag=True on action_b → "Exit" verb
     assert "Exit" in text
