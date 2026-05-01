@@ -146,7 +146,7 @@ _BUCKET_TITLES = {
 }
 
 
-def format_allocation_chat_brief(
+def build_fallback_brief(
     output: GoalAllocationOutput, spine_mode: str | None
 ) -> str:
     """Render a ``GoalAllocationOutput`` as user-facing markdown."""
@@ -239,7 +239,7 @@ def _format_allocation_answer_long(
     output: GoalAllocationOutput, user_question: str
 ) -> str:
     """Longer wrapper used by the standalone allocation HTTP endpoint."""
-    return f"Based on your question: {user_question}\n\n{format_allocation_chat_brief(output, 'full')}"
+    return f"Based on your question: {user_question}\n\n{build_fallback_brief(output, 'full')}"
 
 
 # ---------------------------------------------------------------------------
