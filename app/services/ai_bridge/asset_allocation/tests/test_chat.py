@@ -292,5 +292,20 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(result.text, "fallback brief text")
 
 
+class RehydrateFallbackTests(unittest.TestCase):
+
+    def test_rehydration_failure_returns_degraded_text(self):
+        action = mod.ChatAction(mode="narrate")
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_rehydrate_last_alloc_output",
+                          side_effect=ValueError("schema drift")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
+                   new=AsyncMock()) as fmt:
+            result = asyncio.run(mod.handle(_ctx("explain my mix", last_alloc=_agent_run())))
+        self.assertIn("redo the plan", result.text)
+        fmt.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
