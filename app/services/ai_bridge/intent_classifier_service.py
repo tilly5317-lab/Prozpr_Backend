@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Human-readable labels for each intent value.
 _INTENT_LABELS: dict[str, str] = {
-    "portfolio_optimisation": "Portfolio Optimisation",
+    "asset_allocation": "Portfolio Optimisation",
     "goal_planning": "Goal Planning",
     "portfolio_query": "Portfolio Query",
     "general_market_query": "General Market Query",

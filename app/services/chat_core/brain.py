@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 import uuid
+from typing import Any
 
 import httpx
 
@@ -66,6 +67,7 @@ class ChatBrain:
             *,
             ideal_allocation_rebalancing_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
+            chart: dict[str, Any] | None = None,
         ) -> ChatBrainResult:
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
@@ -85,6 +87,7 @@ class ChatBrain:
                 intent_reasoning=intent_reasoning,
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
+                chart=chart,
             )
 
         try:
@@ -118,7 +121,7 @@ class ChatBrain:
                     await self._answer_general_market(turn, classification, flow)
                 )
 
-            if intent_value in ("portfolio_optimisation", "goal_planning"):
+            if intent_value in ("asset_allocation", "goal_planning"):
                 # Local imports — chat handler self-registers via @register at import time.
                 # Local imports — chat handler self-registers via @register at import time.
                 from app.services.ai_bridge.asset_allocation import chat as _aa_chat  # noqa: F401
@@ -130,6 +133,20 @@ class ChatBrain:
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                )
+
+            if intent_value == "rebalancing":
+                # Local import — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge.rebalancing import chat as _rb_chat  # noqa: F401
+                from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+                flow.append("dispatch_chat → rebalancing_chat")
+                trace_line("next module: chat_dispatcher → rebalancing_chat")
+                result = await dispatch_chat(intent_value, turn_context)
+                return await finalize(
+                    result.text,
+                    ideal_allocation_snapshot_id=result.snapshot_id,
+                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                    chart=result.chart,
                 )
 
             if intent_value == "portfolio_query":

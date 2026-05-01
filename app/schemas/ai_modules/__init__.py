@@ -9,6 +9,10 @@ from app.schemas.ai_modules.conversation import ConversationTurn
 from app.schemas.ai_modules.intent_classifier import IntentClassifyRequest, IntentClassifyResponse
 from app.schemas.ai_modules.market_commentary import MarketCommentaryResponse
 from app.schemas.ai_modules.portfolio_query import PortfolioQueryRequest, PortfolioQueryResponse
+from app.schemas.ai_modules.rebalancing import (
+    RebalancingComputeApiRequest,
+    RebalancingComputeApiResponse,
+)
 from app.schemas.ai_modules.status import AIModuleStatusResponse
 
 __all__ = [
@@ -21,4 +25,6 @@ __all__ = [
     "MarketCommentaryResponse",
     "PortfolioQueryRequest",
     "PortfolioQueryResponse",
+    "RebalancingComputeApiRequest",
+    "RebalancingComputeApiResponse",
 ]

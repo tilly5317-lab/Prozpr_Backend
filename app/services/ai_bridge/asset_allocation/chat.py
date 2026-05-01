@@ -1,7 +1,7 @@
-"""Unified chat handler for portfolio_optimisation / goal_planning intents.
+"""Unified chat handler for asset_allocation / goal_planning intents.
 
 Single entry point for the entire chat lifecycle of allocation conversations:
-- First turn (no AgentRun for goal_based_allocation in session) → run engine,
+- First turn (no AgentRun for asset_allocation in session) → run engine,
   persist, return chat brief
 - Subsequent turns → call _detect_action LLM to pick one of 7 modes
   (narrate / educate / counterfactual_explore / clarify / recompute_full /
@@ -167,11 +167,11 @@ citing specific numbers. Keep to 4-7 sentences."""
 # Public handler
 # ---------------------------------------------------------------------------
 
-@register("portfolio_optimisation")
+@register("asset_allocation")
 @register("goal_planning")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     """Sole entry point for chat turns in this intent family."""
-    last_alloc = ctx.last_agent_runs.get("goal_based_allocation")
+    last_alloc = ctx.last_agent_runs.get("asset_allocation")
 
     if last_alloc is None:
         # First turn (or no persisted snapshot in this session) → run engine.

@@ -33,7 +33,7 @@ The client is asking you to tell them what to change, buy, sell, or rebalance in
 
 **Examples:** "Should I sell my small cap?", "What should I buy now?", "Should I move money from debt to equity?", "How should I rebalance?"
 
-**Redirect:** "That sounds like a portfolio optimisation question. Ask me to review and optimise your allocation, and I'll give you a full set of recommendations."
+**Redirect:** "That sounds like a asset allocation question. Ask me to review and optimise your allocation, and I'll give you a full set of recommendations."
 
 ### 2. Goal Planning or SIP Calculations
 The client is asking about achieving a specific financial goal, calculating SIP amounts, or planning for a future target corpus.

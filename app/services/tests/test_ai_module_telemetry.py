@@ -23,7 +23,7 @@ class RecordAiModuleRunPayloadTests(unittest.TestCase):
             db,
             user_id=uuid.uuid4(),
             session_id=uuid.uuid4(),
-            module="goal_based_allocation",
+            module="asset_allocation",
             reason="full_pipeline_run",
             input_payload={"corpus": 8_000_000},
             output_payload={"allocation_result": {"grand_total": 8_000_000}},
