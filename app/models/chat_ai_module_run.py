@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,6 +42,12 @@ class ChatAiModuleRun(Base):
     extra: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     input_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     output_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+
+    formatter_invoked: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    formatter_succeeded: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    formatter_latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    formatter_error_class: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    action_mode: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
