@@ -8,6 +8,7 @@ seeding all the rows the service needs to short-circuit on the cache hit.
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -38,7 +39,20 @@ async def test_rebalancing_chat_dispatch_returns_sectioned_markdown(
         active_intent="rebalancing",
     )
 
-    result = await dispatch_chat("rebalancing", ctx)
+    _formatter_reply = (
+        "Here's how I'd rebalance your portfolio — a few trades across your "
+        "holdings. Worth a sanity check on exit loads and tax before you pull "
+        "the trigger."
+    )
+
+    with patch(
+        "app.services.ai_bridge.rebalancing.chat.format_answer",
+        new=AsyncMock(return_value=_formatter_reply),
+    ), patch(
+        "app.services.ai_bridge.rebalancing.chat.record_ai_module_run",
+        new=AsyncMock(return_value=None),
+    ):
+        result = await dispatch_chat("rebalancing", ctx)
 
     text_lower = result.text.lower()
     # Cache hit → soft lead line is omitted.

@@ -69,6 +69,9 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
         "compute_rebalancing_result",
         AsyncMock(return_value=fake_outcome),
     )
+    monkeypatch.setattr(rb_chat, "format_answer", AsyncMock(return_value="OK plan"))
+    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _: {})
+    monkeypatch.setattr(rb_chat, "record_ai_module_run", AsyncMock(return_value=None))
 
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "OK plan"
@@ -116,6 +119,10 @@ def test_handle_forwards_chart_payload_when_present(monkeypatch):
         rb_chat, "compute_rebalancing_result",
         AsyncMock(return_value=fake),
     )
+    monkeypatch.setattr(rb_chat, "format_answer", AsyncMock(return_value="ok"))
+    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _: {})
+    monkeypatch.setattr(rb_chat, "record_ai_module_run", AsyncMock(return_value=None))
+
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert isinstance(result.chart, dict)
     assert result.chart["chart_type"] == "category_gap_bar"
@@ -150,6 +157,77 @@ class DetectRebalActionTests(unittest.TestCase):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("keep fund Y")))
         self.assertEqual(action.mode, "redirect")
         self.assertIn("lock", action.redirect_reason)
+
+
+class HandleRoutingTests(unittest.TestCase):
+
+    def test_first_turn_runs_engine_and_calls_formatter(self):
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=uuid.uuid4(),
+            recommendation_id=uuid.uuid4(),
+            chart=None,
+        )
+        with patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch("app.services.ai_bridge.rebalancing.chat.format_answer",
+                   new=AsyncMock(return_value="tailored")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.rebalancing.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("rebalance my portfolio")))
+        self.assertEqual(result.text, "tailored")
+
+    def test_followup_clarify_bypasses_formatter(self):
+        action = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch("app.services.ai_bridge.rebalancing.chat.format_answer",
+                   new=AsyncMock()) as fmt:
+            result = asyncio.run(mod.handle(_ctx("change something", last_run=_agent_run())))
+        self.assertEqual(result.text, "Which fund?")
+        fmt.assert_not_called()
+
+    def test_followup_narrate_does_not_re_run_engine(self):
+        action = mod.RebalanceAction(mode="narrate")
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock()) as engine, \
+             patch.object(mod, "_rehydrate_response", return_value=MagicMock()), \
+             patch("app.services.ai_bridge.rebalancing.chat.format_answer",
+                   new=AsyncMock(return_value="explained")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.rebalancing.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("why?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        self.assertEqual(result.text, "explained")
+        engine.assert_not_called()
+
+    def test_followup_recompute_re_runs_engine(self):
+        action = mod.RebalanceAction(mode="recompute")
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=uuid.uuid4(),
+            recommendation_id=uuid.uuid4(),
+            chart=None,
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch("app.services.ai_bridge.rebalancing.chat.format_answer",
+                   new=AsyncMock(return_value="redone")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.rebalancing.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("redo", last_run=_agent_run())))
+        self.assertEqual(result.text, "redone")
 
 
 if __name__ == "__main__":
