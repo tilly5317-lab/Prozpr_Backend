@@ -97,7 +97,7 @@ def assemble_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Async LLM call (filled in in Task 3)
+# Async LLM call
 # ---------------------------------------------------------------------------
 
 async def format_answer(
@@ -110,5 +110,44 @@ async def format_answer(
     history: list[dict[str, Any]],
     profile: dict[str, Any],
 ) -> str:
-    """Stub — Task 3 wires the LangChain Anthropic call."""
-    raise NotImplementedError("format_answer is wired in Task 3")
+    """Async Haiku call. Raises FormatterFailure on any failure mode.
+
+    Caller is expected to wrap in try/except and fall back to a templated brief.
+    """
+    prompt = assemble_prompt(
+        question=question, action_mode=action_mode, module_name=module_name,
+        facts_pack=facts_pack, body_prompt=body_prompt,
+        history=history, profile=profile,
+    )
+    try:
+        text = await _invoke_llm(prompt["system"], prompt["user"])
+    except Exception as exc:
+        raise FormatterFailure(f"formatter_llm_call_failed: {type(exc).__name__}") from exc
+
+    if not text or not text.strip():
+        raise FormatterFailure("formatter_llm_returned_empty")
+    return text
+
+
+async def _invoke_llm(system_text: str, user_text: str) -> str:
+    """Single Haiku 4.5 call; isolated so tests can patch it."""
+    # Imported lazily to keep test stubs cheap.
+    from langchain_anthropic import ChatAnthropic
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from app.config import get_settings
+
+    api_key = get_settings().get_anthropic_asset_allocation_key()
+    llm = ChatAnthropic(
+        model="claude-haiku-4-5-20251001",
+        api_key=api_key,
+        max_tokens=600,
+    )
+    messages = [
+        SystemMessage(content=[
+            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
+        ]),
+        HumanMessage(content=user_text),
+    ]
+    raw = await asyncio.to_thread(llm.invoke, messages)
+    return getattr(raw, "content", "") or ""
