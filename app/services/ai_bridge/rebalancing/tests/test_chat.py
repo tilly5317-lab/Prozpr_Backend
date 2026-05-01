@@ -3,25 +3,40 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import importlib
+import unittest
 import uuid
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.ai_bridge.chat_dispatcher import _HANDLERS
-from app.services.chat_core.turn_context import TurnContext
+from app.services.ai_bridge.rebalancing import chat as mod
+from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 
 
-def _ctx(question: str = "rebalance my portfolio") -> TurnContext:
+def _agent_run(payload: dict | None = None) -> AgentRunRecord:
+    return AgentRunRecord(
+        id=uuid.uuid4(),
+        module="rebalancing",
+        intent_detected="rebalancing",
+        input_payload={},
+        output_payload=payload or {"trades": []},
+        created_at=datetime.datetime.utcnow(),
+    )
+
+
+def _ctx(question: str = "rebalance my portfolio", *, last_run: AgentRunRecord | None = None) -> TurnContext:
+    last_runs = {"rebalancing": last_run} if last_run else {}
     return TurnContext(
-        user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), id=uuid.uuid4()),
+        user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
         user_question=question,
         conversation_history=[],
         client_context=None,
         session_id=uuid.uuid4(),
         db=MagicMock(),
         effective_user_id=uuid.uuid4(),
-        last_agent_runs={},
+        last_agent_runs=last_runs,
         active_intent="rebalancing",
     )
 
@@ -106,3 +121,36 @@ def test_handle_forwards_chart_payload_when_present(monkeypatch):
     assert result.chart["chart_type"] == "category_gap_bar"
     assert result.chart["title"] == "Gap chart"
     assert result.chart["data"]["categories"] == ["Large Cap Fund"]
+
+
+class DetectRebalActionTests(unittest.TestCase):
+
+    def test_narrate_mode_for_explanation_question(self):
+        with patch.object(mod, "_ainvoke",
+                          new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate"))):
+            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("why are you selling X?")))
+        self.assertEqual(action.mode, "narrate")
+
+    def test_recompute_mode_for_explicit_rerun(self):
+        with patch.object(mod, "_ainvoke",
+                          new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute"))):
+            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("redo the trades")))
+        self.assertEqual(action.mode, "recompute")
+
+    def test_clarify_mode_carries_question(self):
+        ret = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
+        with patch.object(mod, "_ainvoke", new=AsyncMock(return_value=ret)):
+            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("change something")))
+        self.assertEqual(action.mode, "clarify")
+        self.assertEqual(action.clarification_question, "Which fund?")
+
+    def test_redirect_mode_carries_reason(self):
+        ret = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+        with patch.object(mod, "_ainvoke", new=AsyncMock(return_value=ret)):
+            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("keep fund Y")))
+        self.assertEqual(action.mode, "redirect")
+        self.assertIn("lock", action.redirect_reason)
+
+
+if __name__ == "__main__":
+    unittest.main()
