@@ -183,16 +183,9 @@ async def build_rebalancing_input_for_user(
     held_by_isin: dict[str, HoldingLedgerEntry] = {e.isin: e for e in ledger}
 
     # 2. Sub-asset-group targets from allocation.
-    #
-    # Prefer ``fund_mapping.asset_subgroup`` over ``r.subgroup``: the persist
-    # layer overwrites ``subgroup`` with the customer-facing label (SEBI
-    # sub_category like "Large Cap Fund") before saving, but ``fund_mapping``
-    # is left untouched and carries the canonical asset_subgroup key
-    # ("low_beta_equities") that the fund-rank CSV is keyed on.
     target_by_subgroup: dict[str, Decimal] = {}
     for r in allocation_output.aggregated_subgroups:
-        key = r.fund_mapping.asset_subgroup if r.fund_mapping else r.subgroup
-        target_by_subgroup[key] = Decimal(str(r.total))
+        target_by_subgroup[r.subgroup] = Decimal(str(r.total))
 
     # 3. Fund-rank table.
     ranking = get_fund_ranking()

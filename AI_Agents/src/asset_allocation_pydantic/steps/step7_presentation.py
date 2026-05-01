@@ -17,11 +17,9 @@ from ..models import (
     Step3Output,
     Step4Output,
     Step5Output,
-    Step6Output,
     SubgroupBreakdown,
     SubgroupBucketAllocation,
     SubgroupBucketSplit,
-    SubgroupFundMapping,
 )
 from . import _rationale_llm
 from ._rationale_llm import RationaleResponse
@@ -241,36 +239,18 @@ def _asset_class_breakdown(
     )
 
 
-def _aggregated_subgroups(
-    step5: Step5Output, step6: Step6Output
-) -> List[AggregatedSubgroupRow]:
-    mapping_by_subgroup = {fm.asset_subgroup: fm for fm in step6.fund_mappings}
-    rows: List[AggregatedSubgroupRow] = []
-    for r in step5.rows:
-        fm = mapping_by_subgroup.get(r.subgroup)
-        fund_mapping: Optional[SubgroupFundMapping] = None
-        sub_category: Optional[str] = None
-        if fm is not None:
-            sub_category = fm.sub_category
-            fund_mapping = SubgroupFundMapping(
-                asset_class=fm.asset_class,
-                asset_subgroup=fm.asset_subgroup,
-                sub_category=fm.sub_category,
-                recommended_fund=fm.recommended_fund,
-                isin=fm.isin,
-                amount=fm.total_amount,
-            )
-        rows.append(AggregatedSubgroupRow(
+def _aggregated_subgroups(step5: Step5Output) -> List[AggregatedSubgroupRow]:
+    return [
+        AggregatedSubgroupRow(
             subgroup=r.subgroup,
-            sub_category=sub_category,
             emergency=r.emergency,
             short_term=r.short_term,
             medium_term=r.medium_term,
             long_term=r.long_term,
             total=r.total,
-            fund_mapping=fund_mapping,
-        ))
-    return rows
+        )
+        for r in step5.rows
+    ]
 
 
 def run(
@@ -280,12 +260,11 @@ def run(
     step3: Step3Output,
     step4: Step4Output,
     step5: Step5Output,
-    step6: Step6Output,
     rationale_fn: Optional[RationaleFn] = None,
 ) -> GoalAllocationOutput:
     client_summary = _client_summary(inp)
     bucket_allocations = _bucket_allocations(inp, step1, step2, step3, step4)
-    aggregated_subgroups = _aggregated_subgroups(step5, step6)
+    aggregated_subgroups = _aggregated_subgroups(step5)
 
     future_investments_summary: List[FutureInvestment] = [
         b.future_investment for b in bucket_allocations if b.future_investment is not None
