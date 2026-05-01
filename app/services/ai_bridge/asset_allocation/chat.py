@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Literal, Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -471,7 +472,6 @@ async def _format_or_fallback(
 
     Records a ChatAiModuleRun row with formatter timing and success/failure.
     """
-    import time
     started = time.monotonic()
     formatter_succeeded = False
     formatter_error_class: str | None = None
