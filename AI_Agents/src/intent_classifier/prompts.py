@@ -25,20 +25,28 @@ Example questions:
 - "Should I add midcap to my portfolio?"
 - "Is gold a good addition for my allocation?"
 
+**Goal-mention does not flip intent.** A question that mentions a goal as context but whose primary ask is "where should I invest" stays in `asset_allocation`. Examples:
+- "I have ₹50k/month and want ₹10 crore in 15 years — where should I invest?" → `asset_allocation` (primary ask is allocation; goal is context)
+- "Should I add midcap to my portfolio for my retirement goal?" → `asset_allocation`
+
 ---
 
 ### 2. goal_planning
-The customer has a **specific financial goal** and wants to know if it is achievable, how much to save/invest, or what allocation strategy to follow to meet that goal.
+The customer's **primary ask is feasibility, achievability, or required-savings math** — questions whose natural answer is a number or a yes/no about whether a future target is reachable. The hallmark is that the answer requires running future-value math (and possibly probability bands), not producing an allocation.
 
-Triggers when the customer mentions:
-- A future financial target (buying a house, retirement, child's education, wedding, vacation, car, emergency fund)
-- A timeline and a target amount or life event
+Triggers when the customer is asking:
+- Whether a future financial target (retirement corpus, child's education, house down-payment, vacation, car, emergency fund) is achievable on their current trajectory
+- How much they need to save / invest each month to reach a target by a date
+- What corpus they will end up with given a current SIP and horizon
 - Whether their current savings rate is sufficient to meet a goal
-- How to structure investments to reach a goal by a certain date
 
 Example questions:
 - "I want to retire in 15 years with ₹5 crore — is that possible?"
 - "How much do I need to save monthly for my daughter's college in 10 years?"
+- "At my current ₹50k/month SIP, what corpus will I have in 20 years?"
+- "Will my current SIP be enough to hit ₹2 crore by 2040?"
+
+Key distinction from asset_allocation: `asset_allocation` answers **"where should I put my money?"**; `goal_planning` answers **"is the target reachable, and what does it take?"**. A goal mention alone does not flip the intent — only a feasibility / required-savings ask does.
 
 ---
 
@@ -212,6 +220,7 @@ Triggers:
 - The clearest distinction: portfolio_query = "tell me what I have", asset_allocation = "tell me what I should do with MY money/portfolio", general_market_query = "tell me about the market (including whether a segment looks attractive)".
 - Generic "good time to invest in <segment>?" questions (no reference to the customer's own portfolio, money, or situation) go to `general_market_query` — they are answerable from market commentary. Only route to `asset_allocation` when the question has a personal hook (mentions their portfolio, a specific amount of their money, their SIP, or their allocation).
 - Direct stock pick questions (buy/sell a named company's shares) always go to `stock_advice`, not `asset_allocation`.
+- If a question contains BOTH a feasibility / required-savings ask AND an allocation ask ("at ₹50k/month, can I hit ₹10cr in 15 years, and where should I invest?"), classify as `goal_planning`. The feasibility component is the part that requires math we cannot yet do well; the honest redirect is better than a partial allocation answer that ignores the feasibility question.
 - Trade-list / "execute the rebalance" questions (give me the buy/sell list, what trades should I make, rebalance my portfolio) go to `rebalancing`, not `asset_allocation`. `asset_allocation` is for deciding the target allocation; `rebalancing` is for producing the trades that get there.
 - If conversation history is provided, use it to resolve ambiguous follow-up questions (e.g. "what about gold?" after a asset allocation discussion → asset_allocation).
 - Always return a confidence score between 0.0 and 1.0.
