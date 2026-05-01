@@ -6,6 +6,7 @@ import asyncio
 import unittest
 import uuid
 from datetime import date, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.ai_bridge.asset_allocation import chat as mod
@@ -85,7 +86,9 @@ class FirstTurnTests(unittest.TestCase):
                           new=AsyncMock(return_value=outcome)), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
-                   new=AsyncMock(return_value="brief text")):
+                   new=AsyncMock(return_value="brief text")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
         self.assertIsInstance(result, ChatHandlerResult)
@@ -119,6 +122,8 @@ class NarrateModeTests(unittest.TestCase):
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
                    new=AsyncMock(return_value="narration text")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)), \
              patch.object(mod, "compute_allocation_result",
                           new=AsyncMock()) as engine:
             result = asyncio.run(mod.handle(_ctx("is this too aggressive?", last_alloc=_agent_run())))
@@ -137,6 +142,8 @@ class EducateModeTests(unittest.TestCase):
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
                    new=AsyncMock(return_value="educational text")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)), \
              patch.object(mod, "compute_allocation_result",
                           new=AsyncMock()) as engine:
             result = asyncio.run(mod.handle(_ctx("what does multi-cap mean?", last_alloc=_agent_run())))
@@ -163,7 +170,9 @@ class CounterfactualExploreTests(unittest.TestCase):
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
-                   new=AsyncMock(return_value="hypothetical text")):
+                   new=AsyncMock(return_value="hypothetical text")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("what if risk were 7?", last_alloc=_agent_run())))
 
         self.assertEqual(result.text, "hypothetical text")
@@ -217,7 +226,9 @@ class RecomputeFullTests(unittest.TestCase):
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
-                   new=AsyncMock(return_value="updated brief")):
+                   new=AsyncMock(return_value="updated brief")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             ctx = _ctx("redo my plan", last_alloc=_agent_run())
             result = asyncio.run(mod.handle(ctx))
 
@@ -244,7 +255,9 @@ class RecomputeWithOverridesTests(unittest.TestCase):
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
-                   new=AsyncMock(return_value="updated brief")):
+                   new=AsyncMock(return_value="updated brief")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("lock in risk 7", last_alloc=_agent_run())))
 
         self.assertTrue(captured["persist"])
@@ -284,7 +297,9 @@ class FallbackTests(unittest.TestCase):
              patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
                    new=AsyncMock(side_effect=FormatterFailure("boom"))), \
              patch("app.services.ai_bridge.asset_allocation.chat.build_fallback_brief",
-                   return_value="fallback brief text"):
+                   return_value="fallback brief text"), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
         self.assertEqual(result.text, "fallback brief text")
@@ -303,6 +318,57 @@ class RehydrateFallbackTests(unittest.TestCase):
             result = asyncio.run(mod.handle(_ctx("explain my mix", last_alloc=_agent_run())))
         self.assertIn("redo the plan", result.text)
         fmt.assert_not_called()
+
+
+class FormatterTelemetryTests(unittest.TestCase):
+
+    def test_first_turn_records_formatter_columns_on_success(self):
+        outcome = _engine_outcome_with_ids()
+        captured: dict[str, Any] = {}
+
+        async def fake_record(*args, **kwargs):
+            captured.update(kwargs)
+            return uuid.uuid4()
+
+        with patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
+                   new=AsyncMock(return_value="tailored answer")), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   side_effect=fake_record):
+            asyncio.run(mod.handle(_ctx("plan my retirement")))
+
+        self.assertEqual(captured.get("action_mode"), "compute")
+        self.assertTrue(captured.get("formatter_invoked"))
+        self.assertTrue(captured.get("formatter_succeeded"))
+        self.assertIsNone(captured.get("formatter_error_class"))
+        self.assertIsNotNone(captured.get("formatter_latency_ms"))
+
+    def test_first_turn_records_formatter_columns_on_failure(self):
+        from app.services.ai_bridge.answer_formatter import FormatterFailure
+        outcome = _engine_outcome_with_ids()
+        captured: dict[str, Any] = {}
+
+        async def fake_record(*args, **kwargs):
+            captured.update(kwargs)
+            return uuid.uuid4()
+
+        with patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.asset_allocation.chat.format_answer",
+                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
+             patch("app.services.ai_bridge.asset_allocation.chat.build_fallback_brief",
+                   return_value="fallback"), \
+             patch("app.services.ai_bridge.asset_allocation.chat.record_ai_module_run",
+                   side_effect=fake_record):
+            asyncio.run(mod.handle(_ctx("plan my retirement")))
+
+        self.assertEqual(captured.get("action_mode"), "compute")
+        self.assertTrue(captured.get("formatter_invoked"))
+        self.assertFalse(captured.get("formatter_succeeded"))
+        self.assertEqual(captured.get("formatter_error_class"), "FormatterFailure")
 
 
 if __name__ == "__main__":
