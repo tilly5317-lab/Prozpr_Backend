@@ -235,6 +235,70 @@ def build_fallback_brief(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def build_aa_facts_pack(output: GoalAllocationOutput) -> dict[str, Any]:
+    """Curated facts the LLM is allowed to cite.
+
+    Keep small. Customer-tellable fields only — no internal subgroup keys,
+    no fund/ISIN, no SEBI sub-categories.
+    """
+    cs = output.client_summary
+    acb = output.asset_class_breakdown
+    actual = acb.actual
+
+    by_horizon = []
+    for split in actual.per_bucket:
+        if (split.equity + split.debt + split.others) <= 0:
+            continue
+        by_horizon.append({
+            "horizon": split.bucket,
+            "amount_inr": split.equity + split.debt + split.others,
+            "mix_pct": {
+                "equity": split.equity_pct,
+                "debt": split.debt_pct,
+                "others": split.others_pct,
+            },
+        })
+
+    goals = []
+    for b in output.bucket_allocations:
+        for g in b.goals:
+            goals.append({
+                "name": g.goal_name,
+                "amount_needed_inr": g.amount_needed,
+                "horizon_months": g.time_to_goal_months,
+                "bucket": b.bucket,
+                "rationale": b.goal_rationales.get(g.goal_name),
+            })
+
+    future = [
+        {
+            "horizon": fi.bucket,
+            "monthly_inr": fi.future_investment_amount,
+            "purpose": fi.message,
+        }
+        for fi in output.future_investments_summary
+    ]
+
+    return {
+        "risk_score": cs.effective_risk_score,
+        "age": cs.age,
+        "total_corpus_inr": output.grand_total,
+        "asset_class_mix_pct": {
+            "equity": actual.equity_total_pct,
+            "debt": actual.debt_total_pct,
+            "others": actual.others_total_pct,
+        },
+        "asset_class_mix_inr": {
+            "equity": actual.equity_total,
+            "debt": actual.debt_total,
+            "others": actual.others_total,
+        },
+        "by_horizon": by_horizon,
+        "goals": goals,
+        "future_investments": future,
+    }
+
+
 def _format_allocation_answer_long(
     output: GoalAllocationOutput, user_question: str
 ) -> str:
