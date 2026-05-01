@@ -14,6 +14,7 @@ from app.routers.ai_modules.intent_classifier import router as intent_classifier
 from app.routers.ai_modules.market_commentary import router as market_commentary_router
 from app.routers.ai_modules.mutual_fund_status import router as mutual_fund_status_router
 from app.routers.ai_modules.portfolio_query import router as portfolio_query_router
+from app.routers.ai_modules.rebalancing import router as rebalancing_router
 from app.routers.ai_modules.risk_profile import router as risk_profile_router
 
 router = APIRouter(prefix="/ai-modules")
@@ -25,5 +26,6 @@ router.include_router(risk_profile_router)
 router.include_router(asset_allocation_router)
 router.include_router(drift_analyzer_router)
 router.include_router(mutual_fund_status_router)
+router.include_router(rebalancing_router)
 
 __all__ = ["router"]

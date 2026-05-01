@@ -26,7 +26,7 @@ classifies intent, routes to the appropriate AI bridge, and returns a
 1. Start timer and step list for telemetry.
 2. Classify intent via `classify_user_message`.
 3. Branch on intent: `general_market_query` → optional `generate_market_commentary`
-   then `generate_general_chat_response`; `portfolio_optimisation` / `goal_planning`
+   then `generate_general_chat_response`; `asset_allocation` / `goal_planning`
    → portfolio path; `portfolio_query` → `generate_portfolio_query_response` from
    loaded User; else general chat.
 4. Portfolio path: `detect_spine_mode`, then `build_ailax_spine` →

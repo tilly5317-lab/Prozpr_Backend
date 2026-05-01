@@ -1,6 +1,6 @@
 # AI_Agents/src/market_commentary
 
-Produces a monthly Indian-market commentary. Pulls raw macro indicator data, uses Claude to extract structured values into a `MacroSnapshot`, and then generates a markdown commentary document from that snapshot. Output is consumed downstream by `goal_based_allocation_pydantic/` via caller-supplied score fields.
+Produces a monthly Indian-market commentary. Pulls raw macro indicator data, uses Claude to extract structured values into a `MacroSnapshot`, and then generates a markdown commentary document from that snapshot. Output is consumed downstream by `asset_allocation_pydantic/` via caller-supplied score fields.
 
 ## Files
 

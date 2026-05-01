@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the 7-step LangChain LCEL pipeline (`goal_based_allocation/`) with a fully deterministic Python/pydantic implementation under `goal_based_allocation_pydantic/`. Only Step 7 retains a single scoped LLM call, used purely to generate personalized rationale strings; all numeric/allocation logic is deterministic.
+**Goal:** Replace the 7-step LangChain LCEL pipeline (`goal_based_allocation/`) with a fully deterministic Python/pydantic implementation under `asset_allocation_pydantic/`. Only Step 7 retains a single scoped LLM call, used purely to generate personalized rationale strings; all numeric/allocation logic is deterministic.
 
 **Architecture:** One module per step under `steps/`. Shared pydantic types in `models.py`. Lookup tables (risk score → bounds, horizon → E/D split, fund mapping) in `tables.py`. Pipeline orchestrator in `pipeline.py` exposes `run_allocation(AllocationInput) -> GoalAllocationOutput`. Each step is a pure function `run(step_input) -> step_output`. Tests under `Testing/` mirror `steps/` 1:1.
 
@@ -28,7 +28,7 @@ The original LLM implementation lives at `../goal_based_allocation/` — read it
 ## File Structure
 
 ```
-goal_based_allocation_pydantic/
+asset_allocation_pydantic/
 ├── __init__.py                    # re-exports run_allocation, AllocationInput, GoalAllocationOutput
 ├── models.py                      # shared types: AllocationInput, Goal, step I/O models, final output
 ├── tables.py                      # risk bounds, horizon split, fund mapping — pure data
@@ -222,7 +222,7 @@ def proportional_scale(values: list[float], target_sum: float) -> list[float]:
 - [ ] Test `ceil_to_half`: 7.19→7.5, 7.5→7.5, 7.01→7.5, 10.0→10.0, 10.1→10.0, 1.0→1.0, 0.5→1.0.
 - [ ] Test `proportional_scale`: `[1,1,1]` target 100 → `[33.33…, 33.33…, 33.33…]` within 1e-9; zero input returns zeros.
 
-**Verification command:** `cd goal_based_allocation_pydantic && python -m pytest Testing/test_utils.py -v`
+**Verification command:** `cd asset_allocation_pydantic && python -m pytest Testing/test_utils.py -v`
 
 Commit: `feat(gba_py): scaffold package, shared models, utilities`
 
@@ -742,12 +742,12 @@ Commit: `feat(gba_py): pipeline orchestrator and end-to-end tests`
 
 ## Task 16 — Callsite migration
 
-- Grep: `rg "from goal_based_allocation" --glob '!goal_based_allocation_pydantic/**'`
-- For each callsite, switch import to `goal_based_allocation_pydantic`.
+- Grep: `rg "from goal_based_allocation" --glob '!asset_allocation_pydantic/**'`
+- For each callsite, switch import to `asset_allocation_pydantic`.
 - Old package stays in place for now; add a DeprecationWarning in its `__init__.py`.
 - Run the full test suite to confirm.
 
-Commit: `refactor: switch callsites to goal_based_allocation_pydantic`
+Commit: `refactor: switch callsites to asset_allocation_pydantic`
 
 ---
 

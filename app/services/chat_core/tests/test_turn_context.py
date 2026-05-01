@@ -40,8 +40,8 @@ class TurnContextBuilderTests(unittest.TestCase):
 
         alloc_row = MagicMock(
             id=uuid.uuid4(),
-            module="goal_based_allocation",
-            intent_detected="portfolio_optimisation",
+            module="asset_allocation",
+            intent_detected="asset_allocation",
             input_payload={"corpus": 8_000_000},
             output_payload={"allocation_result": {"grand_total": 8_000_000}},
             created_at=datetime(2026, 4, 27, 9, 0),
@@ -49,7 +49,7 @@ class TurnContextBuilderTests(unittest.TestCase):
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
             _StubResult([alloc_row]),
-            _StubResult(["portfolio_optimisation"]),           # last intent_detected (scalar)
+            _StubResult(["asset_allocation"]),           # last intent_detected (scalar)
         ])
 
         turn = MagicMock(
@@ -65,11 +65,11 @@ class TurnContextBuilderTests(unittest.TestCase):
 
         ctx = asyncio.run(build_turn_context(turn))
 
-        self.assertIn("goal_based_allocation", ctx.last_agent_runs)
-        rec: AgentRunRecord = ctx.last_agent_runs["goal_based_allocation"]
-        self.assertEqual(rec.module, "goal_based_allocation")
+        self.assertIn("asset_allocation", ctx.last_agent_runs)
+        rec: AgentRunRecord = ctx.last_agent_runs["asset_allocation"]
+        self.assertEqual(rec.module, "asset_allocation")
         self.assertEqual(rec.input_payload, {"corpus": 8_000_000})
-        self.assertEqual(ctx.active_intent, "portfolio_optimisation")
+        self.assertEqual(ctx.active_intent, "asset_allocation")
 
     def test_empty_session_returns_empty_runs(self):
         sid = uuid.uuid4()

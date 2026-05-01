@@ -191,7 +191,12 @@ async def send_message(
     await db.rollback()
 
     # Persist assistant reply.
-    assistant_msg = ChatMessage(session_id=session_id, role=ChatMessageRole.assistant, content=brain_result.content)
+    assistant_msg = ChatMessage(
+        session_id=session_id,
+        role=ChatMessageRole.assistant,
+        content=brain_result.content,
+        chart_payloads=[brain_result.chart] if brain_result.chart else None,
+    )
     db.add(assistant_msg)
 
     await db.commit()

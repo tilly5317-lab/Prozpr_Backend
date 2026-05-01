@@ -1,6 +1,6 @@
 # AI_Agents/src/intent_classifier
 
-Classifies a customer's financial question into one of six intents — `portfolio_optimisation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `out_of_scope` — using Claude Haiku with structured output and Anthropic prompt caching. For redirect-eligible intents, also returns a canned customer-facing message.
+Classifies a customer's financial question into one of six intents — `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `out_of_scope` — using Claude Haiku with structured output and Anthropic prompt caching. For redirect-eligible intents, also returns a canned customer-facing message.
 
 ## Files
 

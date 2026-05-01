@@ -1,4 +1,4 @@
-# AI_Agents/src/goal_based_allocation_pydantic
+# AI_Agents/src/asset_allocation_pydantic
 
 Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes emergency carve-out, short-term, medium-term, and long-term goals, then aggregates, applies guardrails, and assembles the final presentation. LLM use is isolated to an optional rationale function injected at the presentation step.
 
@@ -27,7 +27,7 @@ Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes
 
 ## Tests
 
-- Command: `pytest AI_Agents/src/goal_based_allocation_pydantic/Testing -v`
+- Command: `pytest AI_Agents/src/asset_allocation_pydantic/Testing -v`
 - Key suites: `test_pipeline.py` (end-to-end), `test_step1_emergency.py` … `test_step7_presentation.py` (per-step), `test_tables.py`, `test_utils.py`
 
 ## Don't read

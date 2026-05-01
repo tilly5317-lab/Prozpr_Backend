@@ -3,7 +3,7 @@
 > This package sits between the FastAPI routers and the `AI_Agents/src`
 > packages.  It handles API key resolution, async ↔ thread bridging,
 > user-context mapping, and markdown formatting so that the AI engine
-> modules (`goal_based_allocation_pydantic`, `intent_classifier`,
+> modules (`asset_allocation_pydantic`, `intent_classifier`,
 > `market_commentary`, `risk_profiling`) stay untouched.
 
 ---
@@ -91,7 +91,7 @@
 │  │    ensure_ai_agents_path()                                                │  │
 │  │      Adds AI_Agents/src to sys.path so agent packages are importable.     │  │
 │  │      Called at module load time by every service that imports from         │  │
-│  │      AI_Agents (intent_classifier, goal_based_allocation_pydantic, etc.). │  │
+│  │      AI_Agents (intent_classifier, asset_allocation_pydantic, etc.). │  │
 │  │                                                                           │  │
 │  │    build_history_block(history: list[dict]) → str                         │  │
 │  │      IN:  last N chat turns [{role, content}, ...]                        │  │
@@ -122,7 +122,7 @@
 │  │    OUT: ClassificationResult { intent, confidence, reasoning }            │  │
 │  │                                                                           │  │
 │  │    Intent enum values:                                                    │  │
-│  │      portfolio_optimisation | goal_planning | portfolio_query             │  │
+│  │      asset_allocation | goal_planning | portfolio_query             │  │
 │  │      general_market_query   | out_of_scope                               │  │
 │  │                                                                           │  │
 │  │    API calls:                                                             │  │
@@ -263,7 +263,7 @@
 │  │    2. Call goal_allocation_input_builder                                  │  │
 │  │         .build_goal_allocation_input_for_user()                           │  │
 │  │    3. Resolve Anthropic API key from settings                             │  │
-│  │    4. Call goal_based_allocation_pydantic.pipeline                       │  │
+│  │    4. Call asset_allocation_pydantic.pipeline                       │  │
 │  │         .run_allocation_with_state() in a thread (asyncio.to_thread),     │  │
 │  │         passing generate_rationales as the optional LLM rationale step    │  │
 │  │    5. Trace all 7 pipeline steps to [AILAX_TRACE]                         │  │
@@ -273,10 +273,10 @@
 │  │    Renders: risk score, target mix (%), carve-outs, fund-level rows,      │  │
 │  │    unallocated gap, grand total reconciliation — all to 0.01 precision    │  │
 │  │                                                                           │  │
-│  │  generate_portfolio_optimisation_response(user, question, db)             │  │
+│  │  generate_asset_allocation_response(user, question, db)             │  │
 │  │    Wrapper for standalone HTTP use (not via chat flow).                   │  │
 │  │                                                                           │  │
-│  │  Pipeline steps (run inside goal_based_allocation_pydantic):              │  │
+│  │  Pipeline steps (run inside asset_allocation_pydantic):              │  │
 │  │    Step 1: Emergency fund carve-out                                       │  │
 │  │    Step 2: Short-term goal allocation                                     │  │
 │  │    Step 3: Medium-term goal allocation                                    │  │
@@ -401,7 +401,7 @@
 | ------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------- |
 | `compute_allocation_result(user, q, db, ...)`           | `User, str → AllocationRunOutcome` | **Anthropic (Claude)** via pydantic pipeline rationale step |
 | `format_allocation_chat_brief(output, mode)`            | `GoalAllocationOutput, str → str`  | None (pure formatting)                               |
-| `generate_portfolio_optimisation_response(user, q, db)` | `User, str → str`                  | Same as `compute_allocation_result`                  |
+| `generate_asset_allocation_response(user, q, db)` | `User, str → str`                  | Same as `compute_allocation_result`                  |
 
 
 ### `goal_allocation_input_builder.py`
@@ -471,7 +471,7 @@ User types message
   │    │  returns: markdown Answer + Justification                   │ │   │
   │    └─────────────────────────────────────────────────────────────┘ │   │
   │                                                                    │   │
-  │    ┌─ portfolio_optimisation / goal_planning ────────────────────┐ │   │
+  │    ┌─ asset_allocation / goal_planning ────────────────────┐ │   │
   │    │  ailax_flow.detect_spine_mode(question) → SpineMode         │ │   │
   │    │                                                             │ │   │
   │    │  if CASH_OUT:                                               │ │   │
@@ -484,7 +484,7 @@ User types message
   │    │          .build_goal_allocation_input_for_user()             │ │   │
   │    │        → reads risk_profile + investment_profile + goals     │ │   │
   │    │        → returns AllocationInput + debug                     │ │   │
-  │    │      → goal_based_allocation_pydantic.pipeline               │ │   │
+  │    │      → asset_allocation_pydantic.pipeline               │ │   │
   │    │          .run_allocation_with_state()                        │ │   │
   │    │        → 7 pure-Python steps + optional Anthropic Claude     │ │   │
   │    │          rationale via generate_rationales                   │ │   │

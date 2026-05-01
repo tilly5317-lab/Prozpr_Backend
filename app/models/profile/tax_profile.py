@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,14 @@ class TaxProfile(Base):
     income_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     capital_gains_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    tax_regime: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    carryforward_st_loss_inr: Mapped[float] = mapped_column(
+        Numeric(15, 2), nullable=False, server_default="0"
+    )
+    carryforward_lt_loss_inr: Mapped[float] = mapped_column(
+        Numeric(15, 2), nullable=False, server_default="0"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
