@@ -51,3 +51,49 @@ def test_formatter_failure_is_an_exception():
     err = FormatterFailure("boom")
     assert isinstance(err, Exception)
     assert "boom" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# LLM call tests (Task 3)
+# ---------------------------------------------------------------------------
+
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+from app.services.ai_bridge.answer_formatter import format_answer
+
+
+def test_format_answer_returns_text_on_success():
+    with patch(
+        "app.services.ai_bridge.answer_formatter.formatter._invoke_llm",
+        new=AsyncMock(return_value="Here's your tailored answer."),
+    ):
+        out = asyncio.run(format_answer(
+            question="?", action_mode="narrate", module_name="x",
+            facts_pack={"k": 1}, body_prompt="b", history=[], profile={},
+        ))
+    assert out == "Here's your tailored answer."
+
+
+def test_format_answer_raises_formatter_failure_on_empty_response():
+    with patch(
+        "app.services.ai_bridge.answer_formatter.formatter._invoke_llm",
+        new=AsyncMock(return_value=""),
+    ):
+        with pytest.raises(FormatterFailure):
+            asyncio.run(format_answer(
+                question="?", action_mode="narrate", module_name="x",
+                facts_pack={}, body_prompt="b", history=[], profile={},
+            ))
+
+
+def test_format_answer_raises_formatter_failure_on_llm_exception():
+    with patch(
+        "app.services.ai_bridge.answer_formatter.formatter._invoke_llm",
+        new=AsyncMock(side_effect=RuntimeError("api down")),
+    ):
+        with pytest.raises(FormatterFailure):
+            asyncio.run(format_answer(
+                question="?", action_mode="narrate", module_name="x",
+                facts_pack={}, body_prompt="b", history=[], profile={},
+            ))
