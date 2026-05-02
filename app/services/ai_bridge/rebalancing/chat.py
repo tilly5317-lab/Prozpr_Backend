@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
+from app.services.ai_bridge.common import build_detect_history_block
 from app.services.ai_bridge.rebalancing.service import (
     build_rebal_facts_pack,
     compute_rebalancing_result,
@@ -29,9 +30,48 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class RebalanceAction(BaseModel):
-    mode: Literal["narrate", "recompute", "clarify", "redirect"]
+    mode: Literal[
+        "narrate",
+        "educate",
+        "counterfactual_explore",
+        "save_last_counterfactual",
+        "recompute",
+        "clarify",
+        "redirect",
+    ]
+    overrides: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "For counterfactual_explore. Allowed keys: effective_tax_rate, "
+            "stcg_offset_budget_inr, carryforward_st_loss_inr, "
+            "carryforward_lt_loss_inr."
+        ),
+    )
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
+
+
+# Maps RebalanceAction.overrides keys → transient User attribute names that
+# input_builder reads. Mirrors AA's _OVERRIDE_KEY_TO_USER_ATTR pattern.
+_REBAL_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
+    "effective_tax_rate":        "_chat_rebal_tax_rate_override",
+    "stcg_offset_budget_inr":    "_chat_rebal_stcg_budget_override",
+    "carryforward_st_loss_inr":  "_chat_rebal_carryforward_st_override",
+    "carryforward_lt_loss_inr":  "_chat_rebal_carryforward_lt_override",
+    # additional_cash_inr forwards to AA's same-named user attr — AA's
+    # input_builder reads it and adjusts the corpus before producing the
+    # allocation that rebalancing then runs against. See
+    # asset_allocation/input_builder.py for the read site.
+    "additional_cash_inr":       "_chat_additional_cash_override",
+}
+
+_INVALID_OVERRIDE_TEMPLATE = (
+    "I can only run 'what if' scenarios on a small set of inputs from chat "
+    "right now (tax rate, STCG offset budget, carry-forward losses, additional "
+    "cash to deploy). Other changes — like deferring the rebalance — aren't "
+    "supported yet. If you'd like a 'what if' on the supported inputs, just "
+    "say so."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +79,102 @@ class RebalanceAction(BaseModel):
 # ---------------------------------------------------------------------------
 
 _DETECT_REBAL_SYSTEM = """You decide how to handle a chat turn about a customer's
-mutual fund rebalancing recommendation. Pick exactly one of four modes:
+mutual fund rebalancing recommendation. Pick exactly one mode from the list below.
 
-- "narrate" — they're asking about the existing recommendation
-  ("why are you selling X?", "what's the tax impact?").
+- "narrate" — the question asks about THIS customer's current rebalancing
+  recommendation or its specific trades/numbers ("why are you selling X?",
+  "what's the tax impact?", "explain this exit", "is this a lot of trades?").
+  The answer's substantive content is the customer's specific values
+  (sub_categories, ₹ amounts, tax estimates).
+- "educate" — the question asks what a term or mechanism MEANS in general
+  ("what is exit load?", "what's STCG vs LTCG?", "what does 'partial exit'
+  mean?", "why does tax matter for rebalancing?"). The answer leads with a
+  plain-English definition; the customer's data is illustration anchored at
+  the end. Tie-break (narrate vs educate): if the question references the
+  customer's specific values ("why am I charged exit load on fund X?"),
+  prefer narrate.
+- "counterfactual_explore" — ANY question expressing a constraint or
+  hypothetical with at least one concrete value the customer wants to
+  test. This covers BOTH "what if" curiosity ("what if my tax rate were
+  20%?") AND commit-shaped requests ("save with 20% tax rate", "lock
+  this in with ₹2L more"). Don't try to disambiguate verb intent —
+  always emit counterfactual_explore here. The handler runs the engine
+  and offers the customer a chance to save; if they confirm in the next
+  turn, classify that as `save_last_counterfactual`. Must specify
+  `overrides`. Allowed override keys (others → redirect):
+    effective_tax_rate:        number 0-100 (% — overrides customer's tax bracket)
+    stcg_offset_budget_inr:    number ≥ 0 (₹ — STCG offset budget for this run)
+    carryforward_st_loss_inr:  number ≥ 0 (₹ — short-term carryforward losses)
+    carryforward_lt_loss_inr:  number ≥ 0 (₹ — long-term carryforward losses)
+    additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
+  Multiple keys are allowed in one action ("what if my tax rate were 20%
+  AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
+- "save_last_counterfactual" — the customer is committing the most
+  recent counterfactual as their saved recommendation. Triggered by
+  terse approvals after a counterfactual: "save", "save it", "lock it
+  in", "lock in", "yes", "yeah do that", "go ahead", "make this my
+  plan", "keep this", "do it". No `overrides` field needed — the system
+  loads the previous turn's overrides and re-runs with persist=True.
+  Only emit this mode when the IMMEDIATELY PRECEDING turn was a
+  counterfactual_explore; if there's no recent counterfactual in the
+  conversation history, this is misclassified — prefer narrate or
+  redirect.
 - "recompute" — they explicitly ask to re-run with current portfolio state
-  ("rebalance again", "redo this with my latest holdings").
+  ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
   Compose a concise clarification question in `clarification_question`.
 - "redirect" — they want something we can't do from chat (lock specific funds,
-  change tax preferences, edit holdings). Set `redirect_reason` to a short
-  description.
+  edit holdings, hypothetical "what if" with override inputs OUTSIDE the
+  allow-list above — e.g. "what if I delayed by 3 months" — those aren't
+  supported yet). Set `redirect_reason` to a short description.
+
+Examples:
+
+narrate (anchored in the customer's specific values):
+- "why are you selling Mid Cap?"            → narrate
+- "what's the tax impact of these sells?"   → narrate
+- "is this a lot of trades?"                → narrate
+- "why am I charged exit load on this?"     → narrate
+                                              (references the customer's specific
+                                              fund/charge — tie-break favors narrate)
+
+educate (asking what a term or mechanism MEANS in general):
+- "what's an exit load?"                    → educate
+- "what's STCG vs LTCG?"                    → educate
+- "why does tax matter for rebalancing?"    → educate
+
+counterfactual_explore (hypothetical with at least one concrete value):
+- "what if my tax rate were 20%?"           → counterfactual_explore,
+                                              overrides={effective_tax_rate: 20}
+- "what if I had ₹50K in carry-forward
+  short-term losses?"                       → counterfactual_explore, overrides=
+                                              {carryforward_st_loss_inr: 50000}
+- "what if I had ₹2L more to deploy?"       → counterfactual_explore,
+                                              overrides={additional_cash_inr: 200000}
+- "save with 20% tax rate"                  → counterfactual_explore,
+                                              overrides={effective_tax_rate: 20}
+                                              (commit-shaped — still emit explore;
+                                              the system offers a save next turn)
+- "what if my tax were 20% AND I had ₹50K
+  in short-term losses?"                    → counterfactual_explore, overrides=
+                                              {effective_tax_rate: 20,
+                                               carryforward_st_loss_inr: 50000}
+
+save_last_counterfactual (terse approval right after a counterfactual_explore):
+- "save it" / "lock it in"                  → save_last_counterfactual
+- "yes, do that" / "make this my plan"      → save_last_counterfactual
+
+recompute:
+- "rebalance my portfolio"                  → recompute
+- "redo with my latest holdings"            → recompute
+
+redirect (out of scope, or override outside the allow-list):
+- "what if I delayed by 3 months?"          → redirect, "delay rebalance by N months"
+- "don't sell my HDFC Top 100"              → redirect, "lock specific holdings"
+
+clarify (direction without an actionable value):
+- "I want to reduce tax"                    → clarify, "Your effective tax rate
+                                              is X% — would 20% feel right?"
 """
 
 _REBAL_FORMATTER_BODY = """You are answering a customer's question about a
@@ -57,24 +182,68 @@ mutual-fund rebalancing recommendation. The shared house-style rules above apply
 
 The FACTS_PACK has this shape (treat fields not present as unknown):
 
-  total_portfolio_inr: number — total invested corpus across all holdings
-  buys_total_inr: number — sum of recommended buy amounts
-  sells_total_inr: number — sum of recommended sell amounts
-  tax_impact_inr: number — estimated tax payable on the sells
+  total_portfolio_inr / total_portfolio_indian — total invested corpus across all holdings
+  buys_total_inr / buys_total_indian — sum of recommended buy amounts
+  sells_total_inr / sells_total_indian — sum of recommended sell amounts
+  tax_impact_inr / tax_impact_indian — estimated tax payable on the sells
   trade_count: int — number of distinct buy/sell trades in the recommendation
-  buckets: list of {asset_subgroup, goal_target_inr, current_holding_inr,
-                    suggested_final_inr, rebalance_inr}
-           — per-subgroup amounts; rebalance_inr can be negative (sell) or positive (buy)
+
+  asset_class_mix_pct: {equity, debt, others} as percentages of total
+  asset_class_mix_inr: {equity, debt, others} as ₹ amounts
+  asset_class_mix_indian: {equity, debt, others} pre-formatted strings
+
+  buckets: list of one entry per (sub_category) the customer holds or trades.
+    Fields per bucket:
+      sub_category    — SEBI category name, e.g. "Large Cap Fund", "Liquid Fund".
+                        THIS is the customer-facing label; copy verbatim.
+      asset_subgroup  — internal engine grouping (e.g. "low_beta_equities").
+                        DO NOT surface this to the customer; it's context only.
+      current_inr / current_indian       — present holding in this sub_category
+      buy_inr     / buy_indian           — amount being bought
+      sell_inr    / sell_indian          — amount being sold (always non-negative)
+      planned_final_inr / planned_final_indian — current + buy − sell
+
   warnings: list of short human-readable strings (up to 5)
 
-ACTION_MODE tells you the situation:
-  compute    — first-time rebalancing recommendation; introduce it shaped by
-               the customer's question. If trade_count is 0, lead with that.
-  narrate    — they're asking about the existing recommendation.
-               Cite specific subgroups / amounts to ground the answer.
-  recompute  — they asked to re-run; acknowledge and lead with what changed.
+ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
+which is set by the system on a fresh first-turn recommendation (it is not
+produced by the classifier). Per-mode behavior:
 
-Answer the customer's question. Do not list every bucket unless asked.
+  compute    — first-time rebalancing recommendation; introduce it shaped by
+               the customer's question. Cover: the headline (trade_count, total
+               trade volume from buys_total_indian / sells_total_indian, and
+               tax_impact_indian if non-zero), the 1-2 biggest moves at
+               sub_category level, the resulting asset_class_mix_indian, and
+               any warning that meaningfully shapes the picture. Lead with the
+               headline unless the customer's question is specifically about
+               tax or a specific fund — then lead with that. If trade_count is
+               0, skip the trade details — lead with the alignment fact (e.g.,
+               "your portfolio is already aligned with your target mix") and
+               briefly mention current asset_class_mix_indian. Length: 8-12
+               sentences (3-5 for trade_count=0).
+  narrate    — they're asking about the existing recommendation. Anchor in
+               2-3 specific sub_categories / amounts directly tied to the
+               question; do NOT list every bucket. Length: 4-7 sentences.
+  educate    — they're asking what a term or mechanism MEANS (e.g. exit
+               load, STCG/LTCG, partial exit). Lead with a one-line plain-
+               English definition, then anchor it in at least one specific
+               from FACTS_PACK (a sub_category, a trade, a tax/exit-load
+               amount). Length: 4-7 sentences.
+  recompute  — re-ran with current state. Acknowledge the re-run briefly
+               and lead with what changed since the last run. Length: 6-10
+               sentences.
+  counterfactual_explore — hypothetical-only result. Make clear this is a
+               hypothetical for comparison, not the saved recommendation;
+               reference the saved recommendation as the baseline but
+               don't reprint it in full. End the response with an explicit
+               save offer like "Want me to save this as your active
+               recommendation? Just say 'save' or 'lock it in'." Length:
+               6-10 sentences (including the save offer).
+  save_last_counterfactual — the customer is committing the most recent
+               counterfactual as their saved recommendation. Lead with
+               "Saved." then briefly state what was committed (which
+               override(s) were applied) and the resulting trades / mix.
+               Length: 4-6 sentences.
 """
 
 _REDIRECT_TEMPLATE = (
@@ -185,7 +354,13 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
                                  snapshot_id=None, rebalancing_recommendation_id=None,
                                  chart=None)
 
-    # narrate or recompute — both go through formatter; recompute also re-runs.
+    if action.mode == "counterfactual_explore":
+        return await _counterfactual_explore(ctx, action.overrides or {})
+
+    if action.mode == "save_last_counterfactual":
+        return await _save_last_counterfactual(ctx)
+
+    # narrate / educate / recompute — all go through formatter; recompute also re-runs.
     if action.mode == "recompute":
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
@@ -209,9 +384,10 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
         )
 
-    # narrate — use last_run.output_payload as the source. The persisted shape
-    # is {"rebalancing_response": <model_dump>, "correlation_ids": {...}}; see
-    # rebalancing/service.py compute_rebalancing_result telemetry write.
+    # narrate / educate — both use last_run.output_payload as the source.
+    # The persisted shape is {"rebalancing_response": <model_dump>,
+    # "correlation_ids": {...}}; see rebalancing/service.py
+    # compute_rebalancing_result telemetry write.
     response_payload = (last_run.output_payload or {}).get("rebalancing_response") or {}
     response = _rehydrate_response(response_payload)
     # No persisted formatted_text — rebuild the templated fallback inline if
@@ -226,30 +402,271 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     except (AttributeError, TypeError, ValueError):
         fallback = _NARRATE_DEGRADED_FALLBACK
     text = await _format_or_fallback_rebal(
-        ctx=ctx, response=response, fallback_brief=fallback, action_mode="narrate",
+        ctx=ctx, response=response, fallback_brief=fallback,
+        action_mode=action.mode,   # "narrate" or "educate"
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
                              rebalancing_recommendation_id=None, chart=None)
 
 
 # ---------------------------------------------------------------------------
+# Override helpers (counterfactual_explore)
+# ---------------------------------------------------------------------------
+
+def _validate_overrides(overrides: dict[str, Any]) -> bool:
+    """All override keys must be in the allow-list."""
+    return all(k in _REBAL_OVERRIDE_KEY_TO_USER_ATTR for k in overrides.keys())
+
+
+def _apply_overrides(user: Any, overrides: dict[str, Any]) -> None:
+    for key, val in overrides.items():
+        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
+        if attr is None:
+            continue
+        setattr(user, attr, val)
+
+
+def _clear_overrides(user: Any, overrides: dict[str, Any]) -> None:
+    for key in overrides.keys():
+        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
+        if attr is None:
+            continue
+        try:
+            delattr(user, attr)
+        except AttributeError:
+            pass
+
+
+async def _counterfactual_explore(
+    ctx: TurnContext, overrides: dict[str, Any],
+) -> ChatHandlerResult:
+    """Run engine with overrides, do NOT persist, narrate as hypothetical.
+
+    Writes a chat_ai_module_runs row capturing the overrides so a follow-up
+    `save_last_counterfactual` turn can re-run with persist=True without
+    re-classifying the original constraint. The formatter prompt instructs
+    the LLM to end the response with an explicit save offer.
+    """
+    if not overrides or not _validate_overrides(overrides):
+        return ChatHandlerResult(
+            text=_INVALID_OVERRIDE_TEMPLATE,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+            chart=None,
+        )
+
+    user = ctx.user_ctx
+    _apply_overrides(user, overrides)
+    # AA-affecting overrides (currently: additional_cash_inr) require the AA
+    # cache to be skipped so AA re-runs with the override applied. Tax-only
+    # overrides don't change AA's output; cache is fine.
+    needs_fresh_aa = "additional_cash_inr" in overrides
+    try:
+        outcome = await compute_rebalancing_result(
+            user=user,
+            user_question=ctx.user_question,
+            db=ctx.db,
+            acting_user_id=ctx.effective_user_id,
+            chat_session_id=ctx.session_id,
+            persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
+            force_fresh_allocation=needs_fresh_aa,
+        )
+    finally:
+        _clear_overrides(user, overrides)
+
+    if outcome.blocking_message is not None:
+        return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
+                                 rebalancing_recommendation_id=None, chart=None)
+    if outcome.response is None:
+        return ChatHandlerResult(
+            text="I couldn't compute that hypothetical right now.",
+            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+        )
+
+    # Capture overrides for a potential save_last_counterfactual follow-up.
+    # Best-effort — if the write fails, the customer can still re-state the
+    # constraint to save.
+    if ctx.db is not None:
+        try:
+            from app.services.ai_module_telemetry import record_ai_module_run
+            await record_ai_module_run(
+                ctx.db,
+                user_id=ctx.effective_user_id,
+                session_id=ctx.session_id,
+                module="rebalancing",
+                reason="counterfactual_overrides",
+                input_payload={
+                    "overrides": overrides,
+                    "needs_fresh_aa": needs_fresh_aa,
+                },
+                emit_standard_log=False,
+            )
+        except Exception as exc:
+            logger.warning("counterfactual_overrides_capture_failed: %s", exc)
+
+    text = await _format_or_fallback_rebal(
+        ctx=ctx, response=outcome.response,
+        fallback_brief=outcome.formatted_text or "",
+        action_mode="counterfactual_explore",
+    )
+    return ChatHandlerResult(text=text, snapshot_id=None,
+                             rebalancing_recommendation_id=None, chart=None)
+
+
+async def _save_last_counterfactual(
+    ctx: TurnContext,
+) -> ChatHandlerResult:
+    """Commit the most recent counterfactual_explore as the saved recommendation.
+
+    Loads the overrides captured by ``_counterfactual_explore`` from the
+    most recent chat_ai_module_runs row in this session with
+    ``reason='counterfactual_overrides'``, re-runs the engine with those
+    overrides AND persist=True, and returns a 'Saved.'-led response.
+    """
+    payload = await _load_last_counterfactual_payload(ctx)
+    if payload is None:
+        return ChatHandlerResult(
+            text=(
+                "There's no recent 'what if' to save in this conversation. "
+                "If you'd like to lock in a change, tell me what you'd like "
+                "different (e.g., 'what if I had ₹2L more?') and I'll show "
+                "you the result first — then you can save it."
+            ),
+            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+        )
+
+    overrides = payload.get("overrides", {})
+    needs_fresh_aa = bool(payload.get("needs_fresh_aa", False))
+
+    user = ctx.user_ctx
+    _apply_overrides(user, overrides)
+    try:
+        outcome = await compute_rebalancing_result(
+            user=user,
+            user_question=ctx.user_question,
+            db=ctx.db,
+            acting_user_id=ctx.effective_user_id,
+            chat_session_id=ctx.session_id,
+            persist=True,    # commit
+            force_fresh_allocation=needs_fresh_aa,
+        )
+    finally:
+        _clear_overrides(user, overrides)
+
+    if outcome.blocking_message is not None:
+        return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
+                                 rebalancing_recommendation_id=None, chart=None)
+    if outcome.response is None:
+        return ChatHandlerResult(
+            text="I couldn't save that recommendation right now. Please try again.",
+            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+        )
+    text = await _format_or_fallback_rebal(
+        ctx=ctx, response=outcome.response,
+        fallback_brief=outcome.formatted_text or "",
+        action_mode="save_last_counterfactual",
+    )
+    return ChatHandlerResult(
+        text=text,
+        snapshot_id=outcome.allocation_snapshot_id,
+        rebalancing_recommendation_id=outcome.recommendation_id,
+        chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
+    )
+
+
+async def _load_last_counterfactual_payload(
+    ctx: TurnContext,
+) -> Optional[dict[str, Any]]:
+    """Find the overrides + flags used by the most recent counterfactual in this session."""
+    if ctx.db is None or ctx.session_id is None:
+        return None
+    from sqlalchemy import select
+    from app.models.chat_ai_module_run import ChatAiModuleRun
+    stmt = (
+        select(ChatAiModuleRun)
+        .where(ChatAiModuleRun.session_id == ctx.session_id)
+        .where(ChatAiModuleRun.module == "rebalancing")
+        .where(ChatAiModuleRun.reason == "counterfactual_overrides")
+        .order_by(ChatAiModuleRun.created_at.desc())
+        .limit(1)
+    )
+    try:
+        result = await ctx.db.execute(stmt)
+        row = result.scalar_one_or_none()
+    except Exception as exc:
+        logger.warning("load_last_counterfactual_payload_failed: %s", exc)
+        return None
+    if row is None:
+        return None
+    payload = row.input_payload or {}
+    overrides = payload.get("overrides")
+    if not isinstance(overrides, dict) or not overrides:
+        return None
+    return payload
+
+
+# ---------------------------------------------------------------------------
 # LLM call — classifier for follow-up turns
 # ---------------------------------------------------------------------------
+
+_DETECT_SNAPSHOT_BUDGET = 6000
+
+
+def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Reduce the persisted rebalancing snapshot to facts the classifier needs.
+
+    Reuses ``build_rebal_facts_pack`` so the classifier sees the same curated
+    view as the formatter — totals, asset-class mix, per-sub_category buckets,
+    warnings — and drops verbose engine internals (per-action ISINs, raw rows,
+    optimizer state).
+    """
+    if not output_payload:
+        return {}
+    payload = output_payload.get("rebalancing_response") if isinstance(
+        output_payload, dict
+    ) else None
+    if not payload:
+        return {}
+    response = _rehydrate_response(payload)
+    if isinstance(response, dict):
+        # Validation drift — fall back to the raw response payload.
+        return payload
+    try:
+        return build_rebal_facts_pack(response)
+    except Exception as exc:
+        logger.warning("rebal_slim_snapshot_failed: %s", exc)
+        return {}
+
 
 async def _detect_rebal_action(
     last_run: AgentRunRecord, ctx: TurnContext,
 ) -> RebalanceAction:
     """One Haiku call returning a RebalanceAction."""
-    api_key = get_settings().get_anthropic_asset_allocation_key()
+    api_key = get_settings().get_anthropic_rebalancing_key()
     llm = ChatAnthropic(
         model="claude-haiku-4-5-20251001",
         api_key=api_key,
         max_tokens=300,
     ).with_structured_output(RebalanceAction)
-    snapshot = json.dumps(last_run.output_payload, default=str)[:6000]
+
+    slim = _slim_snapshot(last_run.output_payload)
+    snapshot_json = json.dumps(slim, default=str)
+    if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
+        logger.info(
+            "detect_rebal_action_snapshot_truncated original_len=%d budget=%d",
+            len(snapshot_json), _DETECT_SNAPSHOT_BUDGET,
+        )
+        snapshot_json = snapshot_json[:_DETECT_SNAPSHOT_BUDGET]
+
+    history_block = build_detect_history_block(ctx.conversation_history)
+    history_section = (
+        f"\n\nRecent conversation (oldest → newest):\n{history_block}"
+        if history_block else ""
+    )
     user_block = (
         f"Customer's question: {ctx.user_question}\n\n"
-        f"Most recent rebalancing snapshot (truncated):\n{snapshot}"
+        f"Saved rebalancing snapshot (slim):\n{snapshot_json}"
+        f"{history_section}"
     )
     return await _ainvoke(llm, _DETECT_REBAL_SYSTEM, user_block)
 

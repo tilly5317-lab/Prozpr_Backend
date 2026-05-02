@@ -95,3 +95,31 @@ def test_facts_pack_does_not_contain_internal_subgroup_keys(sample_output):
     for forbidden in ("low_beta_equities", "high_beta_equities", "arbitrage_plus_income",
                       "tax_efficient_equities", "multi_asset"):
         assert forbidden not in blob, f"facts pack leaks internal subgroup key {forbidden}"
+
+
+def test_facts_pack_has_indian_siblings_for_every_inr_field(sample_output):
+    """Drift guard: every ``*_inr`` rupee key must have a matching ``*_indian``
+    pre-formatted sibling so the chat formatter LLM never has to compute
+    lakh/crore conversions (Haiku reliably gets these wrong by an order of
+    magnitude).
+
+    Walk the facts pack recursively. For each dict key ending in ``_inr``,
+    assert a sibling key with the same prefix ending in ``_indian`` exists
+    inside the same dict.
+    """
+    pack = build_aa_facts_pack(sample_output)
+
+    def walk(node, path="root"):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k.endswith("_inr"):
+                    sibling = k[: -len("_inr")] + "_indian"
+                    assert sibling in node, (
+                        f"{path}: key {k!r} present but {sibling!r} sibling is missing"
+                    )
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+
+    walk(pack)

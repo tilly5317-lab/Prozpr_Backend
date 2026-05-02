@@ -26,7 +26,3 @@ Computes a client's risk profile: deterministic Python scoring (risk capacity, O
 
 - `__pycache__/`
 - `customer_test_output.json`, `customer_test_output.csv` — captured run artifacts, not schemas
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

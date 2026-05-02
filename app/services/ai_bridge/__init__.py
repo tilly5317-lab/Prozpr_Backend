@@ -1,10 +1,9 @@
-"""Public surface of the ai_bridge package — re-exports the five main service functions."""
+"""Public surface of the ai_bridge package — re-exports the main service functions."""
 
 
 from app.services.ai_bridge.asset_allocation import (
     generate_asset_allocation_response,
 )
-from app.services.ai_bridge.follow_up_service import generate_follow_up_response
 from app.services.ai_bridge.general_chat_service import generate_general_chat_response
 from app.services.ai_bridge.intent_classifier_service import (
     classify_user_message,
@@ -16,7 +15,6 @@ from app.services.ai_bridge.portfolio_query_service import generate_portfolio_qu
 __all__ = [
     "classify_user_message",
     "format_intent_response",
-    "generate_follow_up_response",
     "generate_general_chat_response",
     "generate_market_commentary",
     "generate_asset_allocation_response",

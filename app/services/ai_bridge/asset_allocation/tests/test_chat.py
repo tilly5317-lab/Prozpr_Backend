@@ -238,9 +238,10 @@ class RecomputeFullTests(unittest.TestCase):
         self.assertIsNotNone(result.rebalancing_recommendation_id)
 
 
-class RecomputeWithOverridesTests(unittest.TestCase):
+class SaveLastCounterfactualTests(unittest.TestCase):
 
-    def test_recompute_with_overrides_persists_with_override_applied(self):
+    def test_save_last_counterfactual_persists_with_loaded_overrides(self):
+        """save_last_counterfactual loads overrides from chat_ai_module_runs and re-runs with persist=True."""
         captured = {}
 
         async def fake_compute(user, question, **kwargs):
@@ -248,21 +249,71 @@ class RecomputeWithOverridesTests(unittest.TestCase):
             captured["risk_override_seen"] = getattr(user, "_chat_risk_score_override", None)
             return _engine_outcome_with_ids()
 
-        action = mod.ChatAction(mode="recompute_with_overrides",
-                                 overrides={"effective_risk_score": 7.0})
+        action = mod.ChatAction(mode="save_last_counterfactual")
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_overrides",
+                          new=AsyncMock(return_value={"effective_risk_score": 7.0})), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="updated brief")), \
+                   new=AsyncMock(return_value="Saved. Your plan now has risk 7.")), \
              patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
                    new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("lock in risk 7", last_alloc=_agent_run())))
+            result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
 
         self.assertTrue(captured["persist"])
         self.assertEqual(captured["risk_override_seen"], 7.0)
         self.assertIsNotNone(result.snapshot_id)
+
+    def test_save_with_no_prior_counterfactual_responds_gracefully(self):
+        """save_last_counterfactual with no recent counterfactual returns guidance."""
+        action = mod.ChatAction(mode="save_last_counterfactual")
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_overrides",
+                          new=AsyncMock(return_value=None)), \
+             patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock()) as engine:
+            result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
+        self.assertIn("no recent 'what if'", result.text)
+        engine.assert_not_called()
+
+
+class CounterfactualCapturesOverridesTests(unittest.TestCase):
+
+    def test_counterfactual_writes_overrides_for_save(self):
+        """counterfactual_explore writes a chat_ai_module_runs row capturing overrides."""
+        captured_records: list[dict] = []
+
+        async def fake_record(_db, **kwargs):
+            captured_records.append(kwargs)
+            return None
+
+        action = mod.ChatAction(mode="counterfactual_explore",
+                                 overrides={"effective_risk_score": 7.0})
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=_engine_outcome_with_ids())), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_module_telemetry.record_ai_module_run",
+                   side_effect=fake_record), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            asyncio.run(mod.handle(_ctx("what if risk 7?", last_alloc=_agent_run())))
+
+        # At least one record_ai_module_run call from chat.py with our reason
+        chat_records = [r for r in captured_records if r.get("reason") == "counterfactual_overrides"]
+        self.assertGreaterEqual(len(chat_records), 1)
+        rec = chat_records[0]
+        self.assertEqual(rec.get("module"), "asset_allocation")
+        self.assertEqual(
+            (rec.get("input_payload") or {}).get("overrides"),
+            {"effective_risk_score": 7.0},
+        )
 
 
 class RedirectModeTests(unittest.TestCase):

@@ -28,7 +28,3 @@ one agent domain exposed under `app/routers/ai_modules/`.
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

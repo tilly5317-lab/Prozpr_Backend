@@ -172,6 +172,36 @@ def test_facts_pack_omits_fund_and_isin():
         assert forbidden not in blob
 
 
+def test_facts_pack_has_indian_siblings_for_every_inr_field():
+    """Drift guard: every ``*_inr`` rupee key must have a matching ``*_indian``
+    pre-formatted sibling so the chat formatter LLM never has to compute
+    lakh/crore conversions (Haiku reliably gets these wrong by an order of
+    magnitude).
+
+    Walk the facts pack recursively. For each dict key ending in ``_inr``,
+    assert a sibling key with the same prefix ending in ``_indian`` exists
+    inside the same dict.
+    """
+    from app.services.ai_bridge.rebalancing.service import build_rebal_facts_pack
+
+    pack = build_rebal_facts_pack(_build_response_with_subgroup(1_000_000))
+
+    def walk(node, path="root"):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k.endswith("_inr"):
+                    sibling = k[: -len("_inr")] + "_indian"
+                    assert sibling in node, (
+                        f"{path}: key {k!r} present but {sibling!r} sibling is missing"
+                    )
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+
+    walk(pack)
+
+
 def test_facts_pack_under_token_budget():
     from app.services.ai_bridge.rebalancing.service import build_rebal_facts_pack
 

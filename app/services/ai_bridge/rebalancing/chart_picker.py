@@ -4,9 +4,6 @@ Mirrors ``app/services/ai_bridge/asset_allocation/chat.py:_detect_action``:
 one Haiku call with structured Pydantic output. Sees the customer's question
 and a compact summary of the candidate charts (titles + key signals), and
 picks the most useful one to surface alongside the markdown brief.
-
-Reuses the asset_allocation Anthropic key getter; once rebalancing has its
-own provisioning, swap in a dedicated key.
 """
 
 from __future__ import annotations
@@ -14,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -27,29 +24,53 @@ from app.services.ai_bridge.rebalancing.charts import ChartSpec, ChartType
 logger = logging.getLogger(__name__)
 
 
-_DETECT_SYSTEM = """You pick the single most useful chart to render alongside a rebalancing trade plan in chat.
+# Single source of truth for chart-type → trigger guidance. Adding a new
+# chart_type just means adding an entry here; the system prompt below updates
+# automatically via f-string interpolation. Keep keys aligned to ``ChartType``.
+_CHART_TRIGGERS: dict[str, str] = {
+    "category_gap_bar": (
+        "the user asks about gaps, drift, \"how off am I\", \"what should I be "
+        "holding\", or generic \"rebalance my portfolio\" with no specific framing."
+    ),
+    "planned_donut": (
+        "the user asks about the resulting/final portfolio shape, \"what will it "
+        "look like\", or proportions."
+    ),
+    "tax_cost_bar": (
+        "the user asks about cost, taxes, exit loads, \"is it worth it\", or "
+        "trade-offs."
+    ),
+}
+
+_PREFERENCES = "\n".join(
+    f"- ``{name}`` when {desc}" for name, desc in _CHART_TRIGGERS.items()
+)
+
+_DETECT_SYSTEM = f"""You pick the single most useful chart to render alongside a rebalancing trade plan in chat.
 
 Consider:
 - The customer's question (what they want to understand).
 - The set of available charts and their key signals.
 
 Pick exactly one chart. Prefer:
-- ``category_gap_bar`` when the user asks about gaps, drift, "how off am I", "what should I be holding", or generic "rebalance my portfolio" with no specific framing.
-- ``planned_donut`` when the user asks about the resulting/final portfolio shape, "what will it look like", or proportions.
-- ``tax_cost_bar`` when the user asks about cost, taxes, exit loads, "is it worth it", or trade-offs.
+{_PREFERENCES}
 
-If none of the above clearly fits, default to ``category_gap_bar``.
+If none of the above clearly fits this question, return null for `chart_type` — no chart will be rendered.
 """
 
 
 class ChartChoice(BaseModel):
     """LLM-picked chart selection."""
 
-    chart_type: ChartType = Field(
-        ..., description="The chart type to render. Must be one of the available types."
+    chart_type: Optional[ChartType] = Field(
+        default=None,
+        description=(
+            "The chart type to render. Must be one of the available types, OR "
+            "null if no chart is genuinely useful for this question."
+        ),
     )
     reason: str = Field(
-        ..., description="One short sentence on why this chart fits the question.",
+        ..., description="One short sentence on why this chart fits — or why none fits — the question.",
         max_length=240,
     )
 
@@ -89,9 +110,10 @@ async def pick_chart(
 ) -> ChartSpec | None:
     """Pick one chart from ``candidates`` based on ``user_question``.
 
-    Returns None if there are no candidates. On any LLM failure, falls back
-    to the first candidate (``category_gap_bar`` by computation order) so a
-    chart still renders — silent fallback, never raises.
+    Returns ``None`` when (a) there are no candidates, or (b) the LLM concludes
+    no chart is genuinely useful for the question (``chart_type=null``). On any
+    LLM failure or unavailable-chart-type response, falls back to the first
+    candidate so a chart still renders — silent fallback, never raises.
     """
     if not candidates:
         return None
@@ -101,7 +123,7 @@ async def pick_chart(
     by_type: dict[str, ChartSpec] = {c.chart_type: c for c in candidates}
 
     try:
-        api_key = get_settings().get_anthropic_asset_allocation_key()
+        api_key = get_settings().get_anthropic_rebalancing_key()
         llm = ChatAnthropic(
             model="claude-haiku-4-5-20251001",
             api_key=api_key,
@@ -111,10 +133,13 @@ async def pick_chart(
         summaries = [_summarise(c) for c in candidates]
         user_block = (
             f"Customer's question: {user_question}\n\n"
-            f"Available charts (pick exactly one chart_type):\n"
+            f"Available charts (pick exactly one chart_type, OR set chart_type to null if none fits):\n"
             f"{json.dumps(summaries, default=str)}"
         )
         choice = await _ainvoke(llm, _DETECT_SYSTEM, user_block)
+        if choice.chart_type is None:
+            logger.info("rebalancing chart_picker chose no-chart reason=%s", choice.reason)
+            return None
         picked = by_type.get(choice.chart_type)
         if picked is not None:
             logger.info(

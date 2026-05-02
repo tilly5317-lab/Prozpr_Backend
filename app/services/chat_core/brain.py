@@ -46,6 +46,24 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
     ) or ("invalid x-api-key" in msg)
 
 
+def _enrich_client_context_with_first_name(
+    ctx: dict[str, Any] | None, user_ctx: Any,
+) -> dict[str, Any] | None:
+    """Inject ``first_name`` from the User ORM into a shallow copy of ``ctx``.
+
+    The frontend-supplied ``client_context`` does not include the customer's
+    name today; the general-chat prompt's personalization rule needs it for
+    occasional warm responses. Returns the original ``ctx`` unchanged when no
+    first_name is available; never mutates the input dict.
+    """
+    first_name = getattr(user_ctx, "first_name", None) if user_ctx is not None else None
+    if not first_name:
+        return ctx
+    enriched = dict(ctx) if ctx else {}
+    enriched["first_name"] = first_name
+    return enriched
+
+
 class ChatBrain:
     """
     Orchestrates one chat turn. Stateless: safe to instantiate per request.
@@ -77,6 +95,7 @@ class ChatBrain:
                 user_id=uid,
                 session_id=sid,
                 intent=intent_value,
+                intent_confidence=intent_confidence,
                 steps=flow,
                 duration_ms=ms,
             )
@@ -180,7 +199,9 @@ class ChatBrain:
                 user_question=turn.user_question,
                 classification=classification,
                 conversation_history=turn.conversation_history,
-                client_context=turn.client_context,
+                client_context=_enrich_client_context_with_first_name(
+                    turn.client_context, turn.user_ctx,
+                ),
             )
             trace_response_preview("general_chat_service response", content)
             return await finalize(content)
@@ -235,7 +256,9 @@ class ChatBrain:
                 classification=classification,
                 market_commentary=market_doc,
                 conversation_history=turn.conversation_history,
-                client_context=turn.client_context,
+                client_context=_enrich_client_context_with_first_name(
+                    turn.client_context, turn.user_ctx,
+                ),
             )
             trace_response_preview("general_chat_service response", reply)
             return reply
@@ -245,7 +268,9 @@ class ChatBrain:
                 user_question=turn.user_question,
                 classification=classification,
                 conversation_history=turn.conversation_history,
-                client_context=turn.client_context,
+                client_context=_enrich_client_context_with_first_name(
+                    turn.client_context, turn.user_ctx,
+                ),
             )
             trace_response_preview("general_chat_service response (fallback)", reply)
             return reply

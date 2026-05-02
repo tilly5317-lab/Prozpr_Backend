@@ -8,7 +8,12 @@ classifies intent, routes to the appropriate AI bridge, and returns a
 
 - `types.py` — `ChatTurnInput`, `ChatBrainResult` Pydantic models (turn input/output DTOs).
 - `brain.py` — `ChatBrain.run_turn` orchestrator; owns intent-branch routing and telemetry.
+- `turn_context.py` — `AgentRunRecord` plus per-turn context bundle (history + last `ChatAiModuleRun` per module + active intent), built once per turn from `ChatTurnInput` and consumed by routing and downstream handlers.
 - `__init__.py` — re-exports `ChatBrain`, `ChatTurnInput`, `ChatBrainResult`.
+
+## Tests
+
+- `tests/` — pytest suites for `ChatBrain` and turn-context plumbing.
 
 ## Entry point
 
@@ -37,7 +42,3 @@ classifies intent, routes to the appropriate AI bridge, and returns a
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.
