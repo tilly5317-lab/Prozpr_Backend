@@ -5,7 +5,7 @@ Ask Tilly is an AI-powered financial advisor. This package is the backend: FastA
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (allocation, intent, market commentary, portfolio query, risk profiling, goal-based allocation, drift analysis); integrated via `sys.path` injection.
+- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling, chart_selector); integrated via `sys.path` injection. `router/` is a stub placeholder.
 - **alembic/** — Database migrations.
 - **wealth_core/** — LEGACY; pre-app/ orchestration modules.
 - **MF_Logics/** — LEGACY; historical MF data extraction and mapping work.
@@ -21,6 +21,10 @@ Ask Tilly is an AI-powered financial advisor. This package is the backend: FastA
 - `Dockerfile` — container image definition used to build the deployable backend image.
 - `pyrightconfig.json` — Pyright static type-checker configuration for the repo.
 - `ruff.toml` — Ruff linter/formatter configuration applied across the project.
+
+## Conventions
+
+- **LLM calls go through LangChain.** All Claude calls must use `langchain-anthropic` (`ChatAnthropic` directly or via LCEL chains). Do not import `anthropic` for `messages.create` — the only permitted raw `anthropic` imports are exception classes (e.g. `from anthropic import AuthenticationError`) for `except` clauses, since those live only in the SDK.
 
 ## Flows
 
@@ -40,4 +44,4 @@ Cross-cutting flows live with their home folders:
 
 ## Refresh
 
-If this file looks stale after a structural change, run `/refresh-context` from this folder.
+If any CLAUDE.md in this tree looks stale after a structural change, run `/refresh-context` from that folder. (Leaf CLAUDE.mds intentionally omit a per-file refresh note — this is the canonical one.)

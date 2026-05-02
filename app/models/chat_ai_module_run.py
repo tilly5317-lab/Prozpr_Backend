@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,7 @@ class ChatAiModuleRun(Base):
     module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     intent_detected: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    intent_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     spine_mode: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     extra: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)

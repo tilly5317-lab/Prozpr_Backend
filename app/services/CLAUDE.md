@@ -8,14 +8,16 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 
 - **chat_core/** — chat-turn orchestration; `ChatBrain.run_turn` is the entry
   point that drives intent → branch → telemetry.
-- **chat_brain/** — standalone mirror of `chat_core.ChatBrain`; not imported by the live
-  chat router — keep behavior in sync when touching portfolio/allocation flow.
 - **ai_bridge/** — adapters between ChatBrain and AI_Agents orchestrators; one
   file per intent branch (intent, market, portfolio query, allocation, spine,
-  liquidity gate, general chat).
+  general chat) plus child packages for asset_allocation, rebalancing, and
+  the shared answer_formatter.
 - **effective_risk_profile/** — persistence and calculation helpers for the
   user's effective risk assessment; distinct from deterministic scoring in
   `risk_profiling`.
+- **visualization_tools/** — chart-tool registry (`registry.CHART_TOOLS`) and
+  per-domain chart builders (e.g. `asset_allocation/`); read by
+  `ai_bridge/chart_selector_service` and dispatched by `chat_core.brain`.
 - **archive/** — retired service code kept for reference; not imported by
   active paths.
 
@@ -45,7 +47,15 @@ telemetry), and ingest adapters (Finvu, SimBanks).
   `MfTransaction` rows with dedup fingerprints.
 - `allocation_recommendation_persist.py` — persists goal-based allocation
   outputs for rebalancing UI and portfolio snapshots.
-- `__init__.py`.
+- `rebalancing_recommendation_persist.py` — persists a rebalancing-engine
+  response as a `RebalancingRecommendation` (REBALANCING_TRADES) row.
+
+## Watch out for
+
+- `simbanks_service.py` is large (~1100 lines). Grep for handler function
+  names rather than reading top-to-bottom.
+- `chat_service.py` is a thin re-export shim over `ai_bridge/`. Refactoring
+  what it exports usually means changing the underlying bridge module too.
 
 ## Flows
 
@@ -65,8 +75,3 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 
 - `__pycache__/`.
 - `archive/` — retired; not on active import paths.
-
-## Refresh
-
-If this file looks stale after a structural change, run `/refresh-context`
-from this folder.

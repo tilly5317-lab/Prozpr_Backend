@@ -1,12 +1,12 @@
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from .models import ClassificationInput, ClassificationResult, ConversationMessage, FollowUpType, Intent
+from .models import ClassificationInput, ClassificationResult, ConversationMessage, Intent
 from .prompts import GOAL_PLANNING_MESSAGE, OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
 
 load_dotenv()
@@ -14,24 +14,35 @@ load_dotenv()
 _MAX_HISTORY_MESSAGES = 6
 
 
+# NOTE: keep ``_IntentLiteral`` in sync with the ``Intent`` enum in
+# ``models.py``. It is hard-coded here (rather than derived) because Python 3.9
+# does not support ``Literal[*tuple(...)]`` unpacking. A drift test in
+# ``app/services/ai_bridge/tests/test_intent_classifier_schema.py`` will fail
+# loudly if the two get out of sync.
+_IntentLiteral = Literal[
+    "asset_allocation",
+    "goal_planning",
+    "stock_advice",
+    "portfolio_query",
+    "general_market_query",
+    "rebalancing",
+    "out_of_scope",
+]
+
+
 class _LLMOutput(BaseModel):
-    """Structured output schema returned by the LLM."""
-    intent: str = Field(description="The classified intent category.")
+    """Structured output schema returned by the LLM.
+
+    Constraining ``intent`` to a literal causes the Anthropic tool schema to
+    enforce the enum at the API level — the LLM physically cannot emit an
+    unknown intent string, which avoids silently falling back to OpenAI on
+    typos / hallucinated categories.
+    """
+    intent: _IntentLiteral = Field(description="The classified intent category.")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0.")
     is_follow_up: bool = Field(
         default=False,
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
-    )
-    follow_up_type: Optional[str] = Field(
-        default=None,
-        description=(
-            "Only set when is_follow_up is true. 'meta' = the question asks "
-            "about something the assistant itself said earlier (e.g. 'why did "
-            "you suggest X', 'explain that', 'what did you mean'). "
-            "'continuation' = the customer is continuing the same topic with "
-            "new substance (e.g. 'what about gold?' after an allocation "
-            "discussion). Null when is_follow_up is false."
-        ),
     )
     reasoning: str = Field(description="One or two sentences explaining why this intent was chosen.")
 
@@ -123,18 +134,10 @@ class IntentClassifier:
             Intent.STOCK_ADVICE:  STOCK_ADVICE_MESSAGE,
         }
 
-        fu_type: Optional[FollowUpType] = None
-        if raw.is_follow_up and raw.follow_up_type:
-            try:
-                fu_type = FollowUpType(raw.follow_up_type)
-            except ValueError:
-                fu_type = None
-
         return ClassificationResult(
             intent=intent,
             confidence=raw.confidence,
             is_follow_up=raw.is_follow_up,
-            follow_up_type=fu_type,
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
         )

@@ -1,6 +1,12 @@
-# AI_Agents/src/allocation
+# AI_Agents/archive/allocation — ARCHIVED
 
-Asset-allocation advisor pipeline. Takes a client profile (and optionally a current portfolio), loads the fund house's monthly market outlook, and produces guardrail-enforced ideal allocation ranges per asset class, a delta vs. the current portfolio, and a narrative recommendation via Claude Haiku.
+Historical asset-allocation advisor pipeline. Took a client profile (and optionally a current portfolio), loaded the fund house's monthly market outlook, and produced guardrail-enforced ideal allocation ranges per asset class, a delta vs. the current portfolio, and a narrative recommendation via Claude Haiku.
+
+Archived 2026-04-25 after being decoupled from `portfolio_query/`. The active goal-based allocation pipeline lives at `AI_Agents/src/asset_allocation_pydantic/`.
+
+## Imported by active code?
+
+NO
 
 ## Files
 
@@ -26,7 +32,3 @@ Asset-allocation advisor pipeline. Takes a client profile (and optionally a curr
 
 - `__pycache__/`
 - `skills/guardrails.md`, `skills/ideal_allocation.md`, `skills/recommendation.md` — runtime prompt sources, not documentation
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

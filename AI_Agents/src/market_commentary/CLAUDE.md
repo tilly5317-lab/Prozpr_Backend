@@ -27,7 +27,3 @@ Produces a monthly Indian-market commentary. Pulls raw macro indicator data, use
 
 - `__pycache__/`
 - `_archive/` — historical snapshots and retired scraper
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

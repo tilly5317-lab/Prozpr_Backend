@@ -12,13 +12,13 @@ portfolio-query topics without duplication.
 
 from __future__ import annotations
 
-import httpx
+import anthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import get_settings
 from app.services.ai_bridge.common import build_history_block, ensure_ai_agents_path
 from app.services.ai_bridge.general_chat_service import (
-    _RETURN_REPLY_TOOL,
-    _extract_return_reply,
     _render_reply,
     _strip_cite_tags,
 )
@@ -29,7 +29,7 @@ from intent_classifier import Intent
 
 
 _UNIVERSAL_BASE = (
-    "You are Prozpr, an Indian-market financial assistant. The customer is asking a "
+    "You are Tilly, an Indian-market financial assistant at Prozpr, a SEBI-registered wealth-management platform. The customer is asking a "
     "follow-up question about something YOU (the assistant) said earlier — for example "
     "'why did you say X', 'why so much in Y', 'explain that point', 'what did you mean'.\n"
     "\n"
@@ -66,8 +66,8 @@ _UNIVERSAL_BASE = (
     "- If the anchor turn genuinely lacks the context needed to explain the 'why' "
     "(rare), give one honest sentence about the typical role of the subject matter "
     "and offer to answer fresh if the customer re-asks with more detail.\n"
-    "- Money formatting: Indian notation — lakhs ('L') and crores ('Cr'). Never "
-    "'million' or 'billion'.\n"
+    "- Money formatting: copy rupee figures verbatim from the anchor turn (don't "
+    "reconvert to/from lakh/crore). NEVER say 'million' or 'billion' for INR amounts.\n"
     "\n"
     "Response contract (MANDATORY):\n"
     "- Finalize by calling `return_reply` exactly once.\n"
@@ -131,10 +131,49 @@ _INTENT_CLAUSES: dict[Intent, str] = {
 }
 
 
+# Follow-up-specific tool spec. Tool ``name`` is kept as ``return_reply`` so the
+# system prompt's "Finalize by calling `return_reply`" reference still matches.
+# Description is tailored to follow-up's contract (80 words, 2-4 sentences, no
+# source-citation guidance) — distinct from general_chat's ``_RETURN_REPLY_TOOL``.
+_FOLLOW_UP_REPLY_TOOL = {
+    "name": "return_reply",
+    "description": (
+        "Return the final explanation for the customer's meta follow-up question. "
+        "Call this exactly once at the end. The reply is assembled from these "
+        "fields; do not emit any free-text response outside this tool call."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "answer": {
+                "type": "string",
+                "description": (
+                    "Conversational prose explanation grounded in the anchor turn. "
+                    "2-4 short sentences, max 80 words. No preamble, no greeting, "
+                    "no heading, no echoing the question."
+                ),
+            },
+            "justification_bullets": {
+                "type": ["array", "null"],
+                "items": {"type": "string"},
+                "maxItems": 3,
+                "description": (
+                    "Up to 3 short bullets, each ≤ 15 words. Include ONLY when the "
+                    "rationale has multiple distinct components (e.g. goal fit + tax "
+                    "efficiency + volatility fit). Set to null when a single clean "
+                    "sentence is enough."
+                ),
+            },
+        },
+        "required": ["answer"],
+    },
+}
+
+
 def _build_system_prompt(prior_intent: Intent | None) -> str:
     clause = _INTENT_CLAUSES.get(prior_intent) if prior_intent else None
     if clause:
-        return f"{_UNIVERSAL_BASE}\n\n---\n\n{clause}"
+        return f"{_UNIVERSAL_BASE}\n\n{clause}"
     return _UNIVERSAL_BASE
 
 
@@ -152,11 +191,12 @@ async def generate_follow_up_response(
 
     if not conversation_history:
         return (
-            "I don't have earlier turns to refer back to in this conversation yet. "
-            "Could you rephrase your question with the details you'd like me to address?"
+            "I don't have any earlier turns to refer back to yet — this looks like "
+            "the start of our conversation. Could you ask your question directly, "
+            "with the details you'd like me to address?"
         )
 
-    api_key = get_settings().get_anthropic_key()
+    api_key = get_settings().get_anthropic_follow_up_key()
     if not api_key:
         return (
             "I can't reach the language model right now — the Anthropic API key isn't "
@@ -170,42 +210,47 @@ async def generate_follow_up_response(
         f"Answer from the conversation history above. Do not invent new figures."
     ).strip()
 
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 400,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-        "tools": [_RETURN_REPLY_TOOL],
-        "tool_choice": {"type": "tool", "name": "return_reply"},
-    }
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=payload,
-        )
-    if resp.status_code == 401:
+    llm = ChatAnthropic(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        api_key=api_key,
+    ).bind_tools(
+        [_FOLLOW_UP_REPLY_TOOL],
+        tool_choice={"type": "tool", "name": "return_reply"},
+    )
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ])
+    except anthropic.AuthenticationError:
         return (
             "I couldn't reach the language model — Anthropic returned a 401 Unauthorized. "
             "Please set a valid `ANTHROPIC_API_KEY` in `.env` and restart the API server."
         )
-    resp.raise_for_status()
 
-    blocks = resp.json().get("content", [])
-    parsed = _extract_return_reply(blocks)
-    if parsed is not None:
-        answer, bullets = parsed
-        return _render_reply(answer, bullets)
+    # Forced tool_choice → response should always have a return_reply tool_call.
+    for tool_call in response.tool_calls:
+        if tool_call["name"] == "return_reply":
+            args = tool_call["args"] or {}
+            answer = args.get("answer")
+            if isinstance(answer, str) and answer.strip():
+                bullets = args.get("justification_bullets")
+                if not isinstance(bullets, list):
+                    bullets = None
+                return _render_reply(answer, bullets)
+            break
 
-    fallback_text = _strip_cite_tags(
-        "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-    )
+    # Fallback for the rare case where the tool call is missing or malformed.
+    content = response.content
+    if isinstance(content, list):
+        text_parts = [
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+    else:
+        text_parts = [str(content)] if content else []
+    fallback_text = _strip_cite_tags("".join(text_parts))
     if fallback_text:
         return fallback_text
     return "I couldn't produce a reply in the expected format. Please try rephrasing your question."

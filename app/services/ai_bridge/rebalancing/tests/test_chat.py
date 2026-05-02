@@ -142,6 +142,12 @@ class DetectRebalActionTests(unittest.TestCase):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("why are you selling X?")))
         self.assertEqual(action.mode, "narrate")
 
+    def test_educate_mode_for_concept_question(self):
+        with patch.object(mod, "_ainvoke",
+                          new=AsyncMock(return_value=mod.RebalanceAction(mode="educate"))):
+            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("what is exit load?")))
+        self.assertEqual(action.mode, "educate")
+
     def test_recompute_mode_for_explicit_rerun(self):
         with patch.object(mod, "_ainvoke",
                           new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute"))):
@@ -209,6 +215,173 @@ class HandleRoutingTests(unittest.TestCase):
                    new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("why?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
         self.assertEqual(result.text, "explained")
+        engine.assert_not_called()
+
+    def test_followup_educate_does_not_re_run_engine(self):
+        action = mod.RebalanceAction(mode="educate")
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock()) as engine, \
+             patch.object(mod, "_rehydrate_response", return_value=MagicMock()), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="defined")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("what is exit load?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        self.assertEqual(result.text, "defined")
+        engine.assert_not_called()
+
+    def test_followup_counterfactual_runs_engine_no_persist(self):
+        action = mod.RebalanceAction(
+            mode="counterfactual_explore",
+            overrides={"effective_tax_rate": 20},
+        )
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=None,
+            recommendation_id=None,        # no persist
+            chart=None,
+            formatted_text="",
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)) as engine, \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("what if my tax rate were 20%?",
+                                                 last_run=_agent_run())))
+        self.assertEqual(result.text, "hypothetical")
+        # Engine called with persist=False
+        engine.assert_called_once()
+        kwargs = engine.call_args.kwargs
+        self.assertFalse(kwargs.get("persist", True))
+        # No persist → no recommendation_id, no snapshot_id
+        self.assertIsNone(result.rebalancing_recommendation_id)
+        self.assertIsNone(result.snapshot_id)
+
+    def test_counterfactual_with_additional_cash_forces_fresh_allocation(self):
+        """additional_cash_inr is AA-affecting; cache must be skipped so AA re-runs."""
+        action = mod.RebalanceAction(
+            mode="counterfactual_explore",
+            overrides={"additional_cash_inr": 200000},
+        )
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=None,
+            recommendation_id=None,
+            chart=None,
+            formatted_text="",
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)) as engine, \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            asyncio.run(mod.handle(_ctx("what if I had ₹2L more?",
+                                         last_run=_agent_run())))
+        kwargs = engine.call_args.kwargs
+        self.assertFalse(kwargs.get("persist", True))
+        self.assertTrue(kwargs.get("force_fresh_allocation", False))
+
+    def test_counterfactual_with_tax_only_override_does_not_force_fresh_allocation(self):
+        """Tax-only overrides don't change AA's output; cache is OK."""
+        action = mod.RebalanceAction(
+            mode="counterfactual_explore",
+            overrides={"effective_tax_rate": 20},
+        )
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=None,
+            recommendation_id=None,
+            chart=None,
+            formatted_text="",
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)) as engine, \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            asyncio.run(mod.handle(_ctx("what if my tax rate were 20%?",
+                                         last_run=_agent_run())))
+        kwargs = engine.call_args.kwargs
+        self.assertFalse(kwargs.get("force_fresh_allocation", False))
+
+    def test_save_last_counterfactual_persists_with_loaded_overrides(self):
+        """save_last_counterfactual loads overrides from chat_ai_module_runs and re-runs with persist=True."""
+        action = mod.RebalanceAction(mode="save_last_counterfactual")
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=uuid.uuid4(),
+            recommendation_id=uuid.uuid4(),
+            chart=None,
+            formatted_text="",
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_payload",
+                          new=AsyncMock(return_value={
+                              "overrides": {"effective_tax_rate": 20},
+                              "needs_fresh_aa": False,
+                          })), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock(return_value=outcome)) as engine, \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="Saved. Plan locked in.")), \
+             patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
+                   return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
+        kwargs = engine.call_args.kwargs
+        self.assertTrue(kwargs.get("persist", False))
+        self.assertIsNotNone(result.rebalancing_recommendation_id)
+
+    def test_save_with_no_prior_counterfactual_responds_gracefully(self):
+        """save_last_counterfactual with no recent counterfactual returns guidance."""
+        action = mod.RebalanceAction(mode="save_last_counterfactual")
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_payload",
+                          new=AsyncMock(return_value=None)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock()) as engine:
+            result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
+        self.assertIn("no recent 'what if'", result.text)
+        engine.assert_not_called()
+
+    def test_counterfactual_with_invalid_override_returns_template(self):
+        action = mod.RebalanceAction(
+            mode="counterfactual_explore",
+            overrides={"unknown_key": 1},
+        )
+        with patch.object(mod, "_detect_rebal_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_rebalancing_result",
+                          new=AsyncMock()) as engine:
+            result = asyncio.run(mod.handle(_ctx("what if?", last_run=_agent_run())))
+        self.assertIn("'what if'", result.text)
         engine.assert_not_called()
 
     def test_followup_recompute_re_runs_engine(self):
