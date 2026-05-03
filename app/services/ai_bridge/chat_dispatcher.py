@@ -26,7 +26,7 @@ class ChatHandlerResult:
     text: str
     snapshot_id: uuid.UUID | None = None
     rebalancing_recommendation_id: uuid.UUID | None = None
-    chart: dict[str, Any] | None = None
+    rebalancing_response: Any | None = None
 
 
 Handler = Callable[["TurnContext"], Awaitable[ChatHandlerResult]]

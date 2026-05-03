@@ -93,29 +93,22 @@ def test_handle_returns_blocking_message(monkeypatch):
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "No DOB"
     assert result.rebalancing_recommendation_id is None
-    assert result.chart is None
+    # Blocking path has no engine response; rebalancing_response must be None.
+    assert result.rebalancing_response is None
 
 
-def test_handle_forwards_chart_payload_when_present(monkeypatch):
-    """When the service picks a chart, the handler converts it to a JSON dict
-    on ChatHandlerResult.chart so the brain → router → frontend chain can
-    surface it without re-importing pydantic models downstream.
+def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
+    """The handler passes the engine response as rebalancing_response so the
+    brain's central chart selector can build payloads without re-running the engine.
     """
     from app.services.ai_bridge.rebalancing import chat as rb_chat
-    from app.services.ai_bridge.rebalancing.charts import ChartSpec
     from app.services.ai_bridge.rebalancing.service import RebalancingRunOutcome
 
-    chart = ChartSpec(
-        chart_type="category_gap_bar",
-        title="Gap chart",
-        caption="caption",
-        data={"categories": ["Large Cap Fund"], "series": []},
-    )
+    fake_response = MagicMock()
     fake = RebalancingRunOutcome(
-        response=None,
+        response=fake_response,
         formatted_text="ok",
         recommendation_id=uuid.uuid4(),
-        chart=chart,
     )
     monkeypatch.setattr(
         rb_chat, "compute_rebalancing_result",
@@ -128,10 +121,7 @@ def test_handle_forwards_chart_payload_when_present(monkeypatch):
          patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
                new=AsyncMock(return_value=None)):
         result = asyncio.run(rb_chat.handle(_ctx()))
-    assert isinstance(result.chart, dict)
-    assert result.chart["chart_type"] == "category_gap_bar"
-    assert result.chart["title"] == "Gap chart"
-    assert result.chart["data"]["categories"] == ["Large Cap Fund"]
+    assert result.rebalancing_response is fake_response
 
 
 class DetectRebalActionTests(unittest.TestCase):
@@ -177,7 +167,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=uuid.uuid4(),
             recommendation_id=uuid.uuid4(),
-            chart=None,
         )
         with patch.object(mod, "compute_rebalancing_result",
                           new=AsyncMock(return_value=outcome)), \
@@ -244,7 +233,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=None,
             recommendation_id=None,        # no persist
-            chart=None,
             formatted_text="",
         )
         with patch.object(mod, "_detect_rebal_action",
@@ -279,7 +267,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=None,
             recommendation_id=None,
-            chart=None,
             formatted_text="",
         )
         with patch.object(mod, "_detect_rebal_action",
@@ -309,7 +296,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=None,
             recommendation_id=None,
-            chart=None,
             formatted_text="",
         )
         with patch.object(mod, "_detect_rebal_action",
@@ -335,7 +321,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=uuid.uuid4(),
             recommendation_id=uuid.uuid4(),
-            chart=None,
             formatted_text="",
         )
         with patch.object(mod, "_detect_rebal_action",
@@ -391,7 +376,6 @@ class HandleRoutingTests(unittest.TestCase):
             blocking_message=None,
             allocation_snapshot_id=uuid.uuid4(),
             recommendation_id=uuid.uuid4(),
-            chart=None,
         )
         with patch.object(mod, "_detect_rebal_action",
                           new=AsyncMock(return_value=action)), \

@@ -28,8 +28,6 @@ from app.services.ai_bridge.common import (
     format_inr_indian,
     trace_line,
 )
-from app.services.ai_bridge.rebalancing.chart_picker import pick_chart
-from app.services.ai_bridge.rebalancing.charts import ChartSpec, available_charts
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
 from app.services.ai_bridge.rebalancing.input_builder import (
     build_rebalancing_input_for_user,
@@ -80,7 +78,6 @@ class RebalancingRunOutcome:
     allocation_snapshot_id: Optional[uuid.UUID] = None
     source_allocation_id: Optional[uuid.UUID] = None
     used_cached_allocation: bool = False
-    chart: Optional[ChartSpec] = None
 
 
 def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, Any]:
@@ -368,7 +365,6 @@ async def compute_rebalancing_result(
         )
 
     rec_id: Optional[uuid.UUID] = None
-    chart = None
     if persist:
         rec_id = await persist_rebalancing_recommendation(
             db,
@@ -404,12 +400,6 @@ async def compute_rebalancing_result(
         except Exception as exc:
             logger.warning("ai_module_telemetry skipped (non-fatal): %s", exc)
 
-        # Pick a chart to surface alongside the brief. Picker is silent-fail —
-        # if Haiku can't decide we still ship the first candidate, and if no
-        # candidates apply (degenerate response) we ship no chart.
-        candidates = available_charts(response)
-        chart = await pick_chart(candidates, user_question)
-
     formatted = build_fallback_rebal_brief(
         response, used_cached_allocation=used_cache,
     )
@@ -421,5 +411,4 @@ async def compute_rebalancing_result(
         allocation_snapshot_id=allocation_snapshot_id,
         source_allocation_id=source_allocation_id,
         used_cached_allocation=used_cache,
-        chart=chart,
     )

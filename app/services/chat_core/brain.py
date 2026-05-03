@@ -21,7 +21,10 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
+from app.services.ai_bridge.chart_selector_service import select_charts
 from app.services.ai_bridge.common import trace_line, trace_response_preview
+from app.services.visualization_tools.build_aa import build_charts_for_aa
+from app.services.visualization_tools.build_rebalancing import build_charts_for_rebalancing
 from app.services.chat_core.turn_context import build_turn_context, TurnContext
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
@@ -146,11 +149,41 @@ class ChatBrain:
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
                 flow.append("dispatch_chat → asset_allocation_chat")
                 trace_line("next module: chat_dispatcher → asset_allocation_chat")
+
+                # Kick off chart selection in parallel with the formatter LLM.
+                selector_task = asyncio.create_task(
+                    select_charts(turn.user_question, intent_value)
+                )
+
                 result = await dispatch_chat(intent_value, turn_context)
+
+                # Wait for the selector with a soft 3s ceiling — if it's still running
+                # because the formatter returned fast, cancel and ship without charts
+                # rather than block the response.
+                try:
+                    chart_names = await asyncio.wait_for(selector_task, timeout=3.0)
+                except asyncio.TimeoutError:
+                    logger.warning("AA chart selector timed out; shipping without charts")
+                    selector_task.cancel()
+                    chart_names = []
+                except Exception as exc:
+                    logger.warning("AA chart selector failed (%s); shipping without charts", exc)
+                    chart_names = []
+
+                chart_payloads: list[dict[str, Any]] | None = None
+                if chart_names and db is not None:
+                    try:
+                        payloads = await build_charts_for_aa(db, uid, chart_names)
+                        if payloads:
+                            chart_payloads = [p.model_dump(mode="json") for p in payloads]
+                    except Exception:
+                        logger.exception("AA chart builder failed; shipping without charts")
+
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                    chart_payloads=chart_payloads,
                 )
 
             if intent_value == "goal_planning":
@@ -171,12 +204,47 @@ class ChatBrain:
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
                 flow.append("dispatch_chat → rebalancing_chat")
                 trace_line("next module: chat_dispatcher → rebalancing_chat")
+
+                # Dispatch the rebalancing chat handler (runs the engine + formatter
+                # internally). After it returns, kick off chart selection, build
+                # payloads from the engine response, and attach to the reply.
+                #
+                # Note: the formatter LLM lives inside dispatch_chat, so the selector
+                # here cannot truly run parallel to it without a deeper refactor.
+                # The Plan 2 win is removing the chart_picker LLM from the critical
+                # path entirely (it used to run AFTER the formatter); the selector
+                # is comparable in latency to the picker it replaces.
                 result = await dispatch_chat(intent_value, turn_context)
+
+                response = getattr(result, "rebalancing_response", None)
+                chart_payloads: list[dict[str, Any]] | None = None
+                if response is not None:
+                    selector_task = asyncio.create_task(
+                        select_charts(turn.user_question, intent_value)
+                    )
+                    try:
+                        chart_names = await asyncio.wait_for(selector_task, timeout=3.0)
+                    except asyncio.TimeoutError:
+                        logger.warning("Rebal chart selector timed out; shipping without charts")
+                        selector_task.cancel()
+                        chart_names = []
+                    except Exception as exc:
+                        logger.warning("Rebal chart selector failed (%s); shipping without charts", exc)
+                        chart_names = []
+
+                    if chart_names:
+                        try:
+                            payloads = await build_charts_for_rebalancing(response, chart_names)
+                            if payloads:
+                                chart_payloads = [p.model_dump(mode="json") for p in payloads]
+                        except Exception:
+                            logger.exception("Rebal chart builder failed; shipping without charts")
+
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
-                    chart_payloads=[result.chart] if result.chart else None,
+                    chart_payloads=chart_payloads,
                 )
 
             if intent_value == "portfolio_query":
