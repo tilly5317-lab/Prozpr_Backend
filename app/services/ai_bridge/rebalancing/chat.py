@@ -323,7 +323,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     rebalancing_recommendation_id=None, chart=None)
+                                     rebalancing_recommendation_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
@@ -333,7 +333,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             text=text,
             snapshot_id=outcome.allocation_snapshot_id,
             rebalancing_recommendation_id=outcome.recommendation_id,
-            chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
+            rebalancing_response=outcome.response,
         )
 
     # Follow-up → classify.
@@ -346,13 +346,12 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "clarify":
         text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
         return ChatHandlerResult(text=text, snapshot_id=None,
-                                 rebalancing_recommendation_id=None, chart=None)
+                                 rebalancing_recommendation_id=None)
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
         return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason),
-                                 snapshot_id=None, rebalancing_recommendation_id=None,
-                                 chart=None)
+                                 snapshot_id=None, rebalancing_recommendation_id=None)
 
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
@@ -371,7 +370,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     rebalancing_recommendation_id=None, chart=None)
+                                     rebalancing_recommendation_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
@@ -381,7 +380,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             text=text,
             snapshot_id=outcome.allocation_snapshot_id,
             rebalancing_recommendation_id=outcome.recommendation_id,
-            chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
+            rebalancing_response=outcome.response,
         )
 
     # narrate / educate — both use last_run.output_payload as the source.
@@ -406,7 +405,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         action_mode=action.mode,   # "narrate" or "educate"
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             rebalancing_recommendation_id=None, chart=None)
+                             rebalancing_recommendation_id=None)
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +451,6 @@ async def _counterfactual_explore(
             text=_INVALID_OVERRIDE_TEMPLATE,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
-            chart=None,
         )
 
     user = ctx.user_ctx
@@ -476,11 +474,11 @@ async def _counterfactual_explore(
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 rebalancing_recommendation_id=None, chart=None)
+                                 rebalancing_recommendation_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't compute that hypothetical right now.",
-            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
     # Capture overrides for a potential save_last_counterfactual follow-up.
@@ -510,7 +508,7 @@ async def _counterfactual_explore(
         action_mode="counterfactual_explore",
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             rebalancing_recommendation_id=None, chart=None)
+                             rebalancing_recommendation_id=None)
 
 
 async def _save_last_counterfactual(
@@ -532,7 +530,7 @@ async def _save_last_counterfactual(
                 "different (e.g., 'what if I had ₹2L more?') and I'll show "
                 "you the result first — then you can save it."
             ),
-            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
     overrides = payload.get("overrides", {})
@@ -555,11 +553,11 @@ async def _save_last_counterfactual(
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 rebalancing_recommendation_id=None, chart=None)
+                                 rebalancing_recommendation_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't save that recommendation right now. Please try again.",
-            snapshot_id=None, rebalancing_recommendation_id=None, chart=None,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=outcome.response,
@@ -570,7 +568,7 @@ async def _save_last_counterfactual(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
         rebalancing_recommendation_id=outcome.recommendation_id,
-        chart=outcome.chart.model_dump(mode="json") if outcome.chart else None,
+        rebalancing_response=outcome.response,
     )
 
 
