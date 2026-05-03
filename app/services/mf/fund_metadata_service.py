@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf import MfFundMetadata
@@ -61,3 +61,60 @@ async def delete_metadata(db: AsyncSession, metadata_id: uuid.UUID) -> None:
     row = await get_metadata(db, metadata_id)
     await db.delete(row)
     await db.commit()
+
+
+async def search_metadata(
+    db: AsyncSession,
+    *,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    sub_category: Optional[str] = None,
+    asset_class: Optional[str] = None,
+    amc_name: Optional[str] = None,
+    active_only: bool = True,
+    limit: int = 20,
+    offset: int = 0,
+) -> Tuple[list[MfFundMetadata], int]:
+    # Bounded paging — prevents unbounded scans from the public-ish search endpoint.
+    offset, limit = clamp_skip_limit(offset, limit)
+    if limit > 50:
+        limit = 50
+
+    stmt = select(MfFundMetadata)
+    count_stmt = select(func.count(MfFundMetadata.id))
+
+    conditions = []
+    if active_only:
+        conditions.append(MfFundMetadata.is_active.is_(True))
+
+    if q:
+        token = q.strip()
+        if token:
+            pattern = f"%{token}%"
+            conditions.append(
+                or_(
+                    MfFundMetadata.scheme_name.ilike(pattern),
+                    MfFundMetadata.amc_name.ilike(pattern),
+                    MfFundMetadata.scheme_code.ilike(pattern),
+                    MfFundMetadata.isin.ilike(pattern),
+                )
+            )
+
+    if category:
+        conditions.append(MfFundMetadata.category == category)
+    if sub_category:
+        conditions.append(MfFundMetadata.sub_category == sub_category)
+    if asset_class:
+        conditions.append(MfFundMetadata.asset_class == asset_class)
+    if amc_name:
+        conditions.append(MfFundMetadata.amc_name == amc_name)
+
+    for cond in conditions:
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
+
+    stmt = stmt.order_by(MfFundMetadata.scheme_name).offset(offset).limit(limit)
+
+    rows = list((await db.execute(stmt)).scalars().all())
+    total = (await db.execute(count_stmt)).scalar() or 0
+    return rows, int(total)

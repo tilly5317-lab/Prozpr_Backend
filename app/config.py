@@ -305,6 +305,15 @@ class Settings:
         return True
 
     @staticmethod
+    def skip_startup_db_ddl() -> bool:
+        """Skip ``create_all_tables`` and Postgres schema patches on startup (faster against RDS).
+
+        Default OFF. When true, run ``alembic upgrade head`` (or ensure tables exist) separately.
+        """
+        raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
         v = (_getenv("OPENAI_API_KEY") or "").strip()

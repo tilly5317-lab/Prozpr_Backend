@@ -10,8 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
-from app.schemas.mf import MfFundMetadataCreate, MfFundMetadataResponse, MfFundMetadataUpdate
-from app.services.mf import fund_metadata_service
+from app.schemas.mf import (
+    MfFundInvestorDetailResponse,
+    MfFundMetadataCreate,
+    MfFundMetadataListItem,
+    MfFundMetadataResponse,
+    MfFundMetadataSearchResponse,
+    MfFundMetadataUpdate,
+)
+from app.services.mf import fund_metadata_service, mf_investor_detail_service
 
 router = APIRouter(prefix="/fund-metadata", tags=["MF Data"])
 
@@ -28,6 +35,61 @@ async def list_fund_metadata(
     return await fund_metadata_service.list_metadata(
         db, skip=skip, limit=limit, scheme_code=scheme_code, category=category
     )
+
+
+@router.get("/search", response_model=MfFundMetadataSearchResponse)
+async def search_fund_metadata(
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(None, description="Free-text search across scheme name, AMC, scheme code and ISIN"),
+    category: Optional[str] = Query(None),
+    sub_category: Optional[str] = Query(None),
+    asset_class: Optional[str] = Query(None),
+    amc_name: Optional[str] = Query(None),
+    active_only: bool = Query(True),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+):
+    """Paginated search over the AMFI universe stored in ``mf_fund_metadata``.
+
+    Drives the Discover page search bar and the temporary "Explore all funds"
+    sheet. Returns a slim response shape so each page stays small enough for
+    smooth infinite scroll on mobile clients.
+    """
+    rows, total = await fund_metadata_service.search_metadata(
+        db,
+        q=q,
+        category=category,
+        sub_category=sub_category,
+        asset_class=asset_class,
+        amc_name=amc_name,
+        active_only=active_only,
+        limit=limit,
+        offset=offset,
+    )
+    items = [MfFundMetadataListItem.model_validate(r) for r in rows]
+    return MfFundMetadataSearchResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset + len(items)) < total,
+    )
+
+
+@router.get(
+    "/{metadata_id}/investor-detail",
+    response_model=MfFundInvestorDetailResponse,
+    summary="Fund detail for investors (NAV-based returns + chart)",
+    description=(
+        "Returns scheme facts and performance derived from stored NAV history (rolling windows). "
+        "Also echoes headline returns from metadata when present. Public — no auth required."
+    ),
+)
+async def get_fund_investor_detail(
+    metadata_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await mf_investor_detail_service.build_investor_detail(db, metadata_id)
 
 
 @router.get("/{metadata_id}", response_model=MfFundMetadataResponse)
