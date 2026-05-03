@@ -2,13 +2,13 @@
 
 Handles the `portfolio_query` intent: answers client questions about their own portfolio using three context sources — the fund house's market commentary, the client profile, and the client's current portfolio (asset-class, sub-category, and per-fund detail). Applies scope guardrails and returns either a factual in-scope answer or a canned redirect.
 
-Self-contained module — does not import from any other `AI_Agents/src/` package.
+Self-contained module — does not import from any peer agent module under `AI_Agents/src/`. Imports the shared `common.format_inr_indian` helper (deterministic Indian-notation rupee formatter) so the LLM never has to convert raw rupees at inference time.
 
 ## Files
 
 - `orchestrator.py` — `PortfolioQueryOrchestrator`; entry point. Also contains `_load_market_commentary()` reading `AI_Agents/Reference_docs/market_commentary_latest.md`.
 - `models.py` — pydantic models: `ConversationTurn`, `PortfolioQueryResponse`, `ClientContext`, `PortfolioContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`.
-- `llm_client.py` — `LLMClient`; thin Anthropic SDK wrapper with prompt caching.
+- `llm_client.py` — `LLMClient`; thin `langchain-anthropic` (`ChatAnthropic`) wrapper with prompt caching and forced tool-use.
 - `skill_executor.py` — `SkillExecutor`; loads markdown skill files (YAML front matter + system/user templates) and runs them through the LLM.
 - `dev_run.py` — developer smoke-test covering in-scope multi-turn and guardrail-trigger scenarios.
 - `portfolio_query.md` — prompt-adjacent skill source (system + user prompts) loaded at runtime; not documentation.
@@ -21,7 +21,7 @@ Self-contained module — does not import from any other `AI_Agents/src/` packag
 
 ## Depends on
 
-- `anthropic` SDK (Claude Haiku); `ANTHROPIC_API_KEY` env var.
+- `langchain-anthropic` → Claude Haiku; `ANTHROPIC_API_KEY` env var.
 - `pyyaml`, `python-dotenv`.
 - `AI_Agents/Reference_docs/market_commentary_latest.md` (written by the `market_commentary` agent).
 
@@ -29,7 +29,3 @@ Self-contained module — does not import from any other `AI_Agents/src/` packag
 
 - `__pycache__/`
 - `portfolio_query.md`, `guardrails.md` — runtime prompt/rule sources, not documentation.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

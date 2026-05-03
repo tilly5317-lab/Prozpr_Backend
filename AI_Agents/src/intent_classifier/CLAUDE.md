@@ -22,7 +22,3 @@ Classifies a customer's financial question into one of six intents — `asset_al
 ## Don't read
 
 - `__pycache__/`
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

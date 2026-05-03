@@ -7,6 +7,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 
+from common import format_inr_indian
+
 from .models import MacroSnapshot
 from .prompts import DOCUMENT_GENERATION_PROMPT
 
@@ -57,7 +59,10 @@ def _build_prompt_vars(inputs: dict) -> dict:
         "nifty_smallcap250_pe": _fmt(snapshot.nifty_smallcap250_pe, precision=1),
         # Commodities
         "brent_crude_usd": _fmt(snapshot.brent_crude_usd, precision=1),
-        "gold_price_inr_per_10g": _fmt(snapshot.gold_price_inr_per_10g, precision=0),
+        # Pre-formatted in Indian notation so the LLM never converts raw rupees
+        # to lakh/crore at inference time (Haiku's known order-of-magnitude bug).
+        # System prompt instructs the model to copy this string verbatim.
+        "gold_price_inr_per_10g": format_inr_indian(snapshot.gold_price_inr_per_10g) or "N/A",
         "gold_price_usd_per_oz": _fmt(snapshot.gold_price_usd_per_oz, precision=0),
         # Flows & FX
         "fii_net_flows_cr_inr": _fmt(snapshot.fii_net_flows_cr_inr, precision=0),

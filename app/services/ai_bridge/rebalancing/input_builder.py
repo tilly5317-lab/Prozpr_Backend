@@ -183,16 +183,9 @@ async def build_rebalancing_input_for_user(
     held_by_isin: dict[str, HoldingLedgerEntry] = {e.isin: e for e in ledger}
 
     # 2. Sub-asset-group targets from allocation.
-    #
-    # Prefer ``fund_mapping.asset_subgroup`` over ``r.subgroup``: the persist
-    # layer overwrites ``subgroup`` with the customer-facing label (SEBI
-    # sub_category like "Large Cap Fund") before saving, but ``fund_mapping``
-    # is left untouched and carries the canonical asset_subgroup key
-    # ("low_beta_equities") that the fund-rank CSV is keyed on.
     target_by_subgroup: dict[str, Decimal] = {}
     for r in allocation_output.aggregated_subgroups:
-        key = r.fund_mapping.asset_subgroup if r.fund_mapping else r.subgroup
-        target_by_subgroup[key] = Decimal(str(r.total))
+        target_by_subgroup[r.subgroup] = Decimal(str(r.total))
 
     # 3. Fund-rank table.
     ranking = get_fund_ranking()
@@ -280,14 +273,37 @@ async def build_rebalancing_input_for_user(
     )).scalar_one_or_none()
     tax_inputs = _resolve_tax_inputs(tax_profile)
 
+    # 8b. Optional counterfactual-explore overrides set as transient
+    # ``_chat_rebal_*_override`` attrs on the user object by the chat handler
+    # (see app/services/ai_bridge/rebalancing/chat.py). When None, fall back
+    # to the resolved tax-profile values.
+    tax_rate_override = getattr(user, "_chat_rebal_tax_rate_override", None)
+    stcg_budget_override = getattr(user, "_chat_rebal_stcg_budget_override", None)
+    carryforward_st_override = getattr(user, "_chat_rebal_carryforward_st_override", None)
+    carryforward_lt_override = getattr(user, "_chat_rebal_carryforward_lt_override", None)
+
     request = RebalancingComputeRequest(
         total_corpus=total_corpus,
         tax_regime=tax_inputs["tax_regime"],
-        effective_tax_rate_pct=tax_inputs["effective_tax_rate_pct"],
+        effective_tax_rate_pct=(
+            float(tax_rate_override) if tax_rate_override is not None
+            else tax_inputs["effective_tax_rate_pct"]
+        ),
         rounding_step=_ROUNDING_STEP,
-        stcg_offset_budget_inr=None,
-        carryforward_st_loss_inr=tax_inputs["carryforward_st_loss_inr"],
-        carryforward_lt_loss_inr=tax_inputs["carryforward_lt_loss_inr"],
+        stcg_offset_budget_inr=(
+            Decimal(str(stcg_budget_override))
+            if stcg_budget_override is not None else None
+        ),
+        carryforward_st_loss_inr=(
+            Decimal(str(carryforward_st_override))
+            if carryforward_st_override is not None
+            else tax_inputs["carryforward_st_loss_inr"]
+        ),
+        carryforward_lt_loss_inr=(
+            Decimal(str(carryforward_lt_override))
+            if carryforward_lt_override is not None
+            else tax_inputs["carryforward_lt_loss_inr"]
+        ),
         rows=rows,
     )
     debug = {

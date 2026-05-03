@@ -34,8 +34,3 @@ by `app/main.py`.
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If this file looks stale after a structural change, run `/refresh-context`
-from this folder.

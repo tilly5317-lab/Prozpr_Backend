@@ -6,6 +6,7 @@ import asyncio
 import unittest
 import uuid
 from datetime import date, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.ai_bridge.asset_allocation import chat as mod
@@ -83,8 +84,11 @@ class FirstTurnTests(unittest.TestCase):
 
         with patch.object(mod, "compute_allocation_result",
                           new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "format_allocation_chat_brief",
-                          return_value="brief text"):
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="brief text")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
         self.assertIsInstance(result, ChatHandlerResult)
@@ -114,8 +118,12 @@ class NarrateModeTests(unittest.TestCase):
         action = mod.ChatAction(mode="narrate")
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
-             patch.object(mod, "_narrate_with_llm",
-                          new=AsyncMock(return_value="narration text")), \
+             patch.object(mod, "_rehydrate_last_alloc_output", return_value=MagicMock()), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="narration text")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)), \
              patch.object(mod, "compute_allocation_result",
                           new=AsyncMock()) as engine:
             result = asyncio.run(mod.handle(_ctx("is this too aggressive?", last_alloc=_agent_run())))
@@ -130,8 +138,12 @@ class EducateModeTests(unittest.TestCase):
         action = mod.ChatAction(mode="educate")
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
-             patch.object(mod, "_educate_with_llm",
-                          new=AsyncMock(return_value="educational text")), \
+             patch.object(mod, "_rehydrate_last_alloc_output", return_value=MagicMock()), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="educational text")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)), \
              patch.object(mod, "compute_allocation_result",
                           new=AsyncMock()) as engine:
             result = asyncio.run(mod.handle(_ctx("what does multi-cap mean?", last_alloc=_agent_run())))
@@ -156,8 +168,11 @@ class CounterfactualExploreTests(unittest.TestCase):
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "_narrate_counterfactual",
-                          new=AsyncMock(return_value="hypothetical text")):
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical text")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("what if risk were 7?", last_alloc=_agent_run())))
 
         self.assertEqual(result.text, "hypothetical text")
@@ -209,8 +224,11 @@ class RecomputeFullTests(unittest.TestCase):
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "format_allocation_chat_brief",
-                          return_value="updated brief"):
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="updated brief")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             ctx = _ctx("redo my plan", last_alloc=_agent_run())
             result = asyncio.run(mod.handle(ctx))
 
@@ -220,9 +238,10 @@ class RecomputeFullTests(unittest.TestCase):
         self.assertIsNotNone(result.rebalancing_recommendation_id)
 
 
-class RecomputeWithOverridesTests(unittest.TestCase):
+class SaveLastCounterfactualTests(unittest.TestCase):
 
-    def test_recompute_with_overrides_persists_with_override_applied(self):
+    def test_save_last_counterfactual_persists_with_loaded_overrides(self):
+        """save_last_counterfactual loads overrides from chat_ai_module_runs and re-runs with persist=True."""
         captured = {}
 
         async def fake_compute(user, question, **kwargs):
@@ -230,18 +249,71 @@ class RecomputeWithOverridesTests(unittest.TestCase):
             captured["risk_override_seen"] = getattr(user, "_chat_risk_score_override", None)
             return _engine_outcome_with_ids()
 
-        action = mod.ChatAction(mode="recompute_with_overrides",
-                                 overrides={"effective_risk_score": 7.0})
+        action = mod.ChatAction(mode="save_last_counterfactual")
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_overrides",
+                          new=AsyncMock(return_value={"effective_risk_score": 7.0})), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "format_allocation_chat_brief",
-                          return_value="updated brief"):
-            result = asyncio.run(mod.handle(_ctx("lock in risk 7", last_alloc=_agent_run())))
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="Saved. Your plan now has risk 7.")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
 
         self.assertTrue(captured["persist"])
         self.assertEqual(captured["risk_override_seen"], 7.0)
         self.assertIsNotNone(result.snapshot_id)
+
+    def test_save_with_no_prior_counterfactual_responds_gracefully(self):
+        """save_last_counterfactual with no recent counterfactual returns guidance."""
+        action = mod.ChatAction(mode="save_last_counterfactual")
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_load_last_counterfactual_overrides",
+                          new=AsyncMock(return_value=None)), \
+             patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock()) as engine:
+            result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
+        self.assertIn("no recent 'what if'", result.text)
+        engine.assert_not_called()
+
+
+class CounterfactualCapturesOverridesTests(unittest.TestCase):
+
+    def test_counterfactual_writes_overrides_for_save(self):
+        """counterfactual_explore writes a chat_ai_module_runs row capturing overrides."""
+        captured_records: list[dict] = []
+
+        async def fake_record(_db, **kwargs):
+            captured_records.append(kwargs)
+            return None
+
+        action = mod.ChatAction(mode="counterfactual_explore",
+                                 overrides={"effective_risk_score": 7.0})
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=_engine_outcome_with_ids())), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_module_telemetry.record_ai_module_run",
+                   side_effect=fake_record), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            asyncio.run(mod.handle(_ctx("what if risk 7?", last_alloc=_agent_run())))
+
+        # At least one record_ai_module_run call from chat.py with our reason
+        chat_records = [r for r in captured_records if r.get("reason") == "counterfactual_overrides"]
+        self.assertGreaterEqual(len(chat_records), 1)
+        rec = chat_records[0]
+        self.assertEqual(rec.get("module"), "asset_allocation")
+        self.assertEqual(
+            (rec.get("input_payload") or {}).get("overrides"),
+            {"effective_risk_score": 7.0},
+        )
 
 
 class RedirectModeTests(unittest.TestCase):
@@ -257,13 +329,97 @@ class RedirectModeTests(unittest.TestCase):
 
 class DetectActionFailureTests(unittest.TestCase):
 
-    def test_detect_action_failure_falls_back_to_narrate(self):
+    def test_detect_action_failure_returns_degraded_text(self):
         with patch.object(mod, "_detect_action",
-                          new=AsyncMock(side_effect=RuntimeError("LLM down"))), \
-             patch.object(mod, "_narrate_with_llm",
-                          new=AsyncMock(return_value="best-effort narration")):
+                          new=AsyncMock(side_effect=RuntimeError("LLM down"))):
             result = asyncio.run(mod.handle(_ctx("what?", last_alloc=_agent_run())))
-        self.assertEqual(result.text, "best-effort narration")
+        self.assertIn("rephrase", result.text)
+
+
+class FallbackTests(unittest.TestCase):
+
+    def test_first_turn_falls_back_to_brief_on_formatter_failure(self):
+        outcome = _engine_outcome_with_ids()
+        from app.services.ai_bridge.answer_formatter import FormatterFailure
+
+        with patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(side_effect=FormatterFailure("boom"))), \
+             patch.object(mod, "build_fallback_brief",
+                          return_value="fallback brief text"), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
+            result = asyncio.run(mod.handle(_ctx("plan my retirement")))
+
+        self.assertEqual(result.text, "fallback brief text")
+
+
+class RehydrateFallbackTests(unittest.TestCase):
+
+    def test_rehydration_failure_returns_degraded_text(self):
+        action = mod.ChatAction(mode="narrate")
+        with patch.object(mod, "_detect_action",
+                          new=AsyncMock(return_value=action)), \
+             patch.object(mod, "_rehydrate_last_alloc_output",
+                          side_effect=ValueError("schema drift")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock()) as fmt:
+            result = asyncio.run(mod.handle(_ctx("explain my mix", last_alloc=_agent_run())))
+        self.assertIn("redo the plan", result.text)
+        fmt.assert_not_called()
+
+
+class FormatterTelemetryTests(unittest.TestCase):
+
+    def test_first_turn_records_formatter_columns_on_success(self):
+        outcome = _engine_outcome_with_ids()
+        captured: dict[str, Any] = {}
+
+        async def fake_record(*args, **kwargs):
+            captured.update(kwargs)
+            return uuid.uuid4()
+
+        with patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="tailored answer")), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   side_effect=fake_record):
+            asyncio.run(mod.handle(_ctx("plan my retirement")))
+
+        self.assertEqual(captured.get("action_mode"), "compute")
+        self.assertTrue(captured.get("formatter_invoked"))
+        self.assertTrue(captured.get("formatter_succeeded"))
+        self.assertIsNone(captured.get("formatter_error_class"))
+        self.assertIsNotNone(captured.get("formatter_latency_ms"))
+
+    def test_first_turn_records_formatter_columns_on_failure(self):
+        from app.services.ai_bridge.answer_formatter import FormatterFailure
+        outcome = _engine_outcome_with_ids()
+        captured: dict[str, Any] = {}
+
+        async def fake_record(*args, **kwargs):
+            captured.update(kwargs)
+            return uuid.uuid4()
+
+        with patch.object(mod, "compute_allocation_result",
+                          new=AsyncMock(return_value=outcome)), \
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
+             patch.object(mod, "build_fallback_brief",
+                          return_value="fallback"), \
+             patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
+                   side_effect=fake_record):
+            asyncio.run(mod.handle(_ctx("plan my retirement")))
+
+        self.assertEqual(captured.get("action_mode"), "compute")
+        self.assertTrue(captured.get("formatter_invoked"))
+        self.assertFalse(captured.get("formatter_succeeded"))
+        self.assertEqual(captured.get("formatter_error_class"), "FormatterFailure")
 
 
 if __name__ == "__main__":

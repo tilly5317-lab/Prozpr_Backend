@@ -64,6 +64,24 @@ class ChatOverrideTests(unittest.TestCase):
         alloc_input, _ = build_goal_allocation_input_for_user(user)
         self.assertEqual(alloc_input.total_corpus, 12_000_000.0)
 
+    def test_additional_cash_override_adds_to_baseline(self):
+        """_chat_additional_cash_override should ADD to the baseline corpus.
+
+        Baseline (from minimal user fixture) is 8_000_000; +200_000 → 8_200_000.
+        """
+        user = self._build_minimal_user()
+        user._chat_additional_cash_override = 200_000.0
+        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        self.assertEqual(alloc_input.total_corpus, 8_200_000.0)
+
+    def test_additional_cash_override_stacks_with_total_corpus_override(self):
+        """If both overrides are set, additional_cash adds on top of the absolute total_corpus."""
+        user = self._build_minimal_user()
+        user._chat_total_corpus_override = 5_000_000.0
+        user._chat_additional_cash_override = 200_000.0
+        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        self.assertEqual(alloc_input.total_corpus, 5_200_000.0)
+
     def test_annual_income_override(self):
         """_chat_annual_income_override should override annual_income."""
         user = self._build_minimal_user()

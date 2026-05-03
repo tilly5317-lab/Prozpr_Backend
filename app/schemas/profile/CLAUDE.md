@@ -30,7 +30,3 @@ personal info, risk, tax, investment preferences, constraints, review cadence, a
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
@@ -14,9 +14,31 @@ load_dotenv()
 _MAX_HISTORY_MESSAGES = 6
 
 
+# NOTE: keep ``_IntentLiteral`` in sync with the ``Intent`` enum in
+# ``models.py``. It is hard-coded here (rather than derived) because Python 3.9
+# does not support ``Literal[*tuple(...)]`` unpacking. A drift test in
+# ``app/services/ai_bridge/tests/test_intent_classifier_schema.py`` will fail
+# loudly if the two get out of sync.
+_IntentLiteral = Literal[
+    "asset_allocation",
+    "goal_planning",
+    "stock_advice",
+    "portfolio_query",
+    "general_market_query",
+    "rebalancing",
+    "out_of_scope",
+]
+
+
 class _LLMOutput(BaseModel):
-    """Structured output schema returned by the LLM."""
-    intent: str = Field(description="The classified intent category.")
+    """Structured output schema returned by the LLM.
+
+    Constraining ``intent`` to a literal causes the Anthropic tool schema to
+    enforce the enum at the API level — the LLM physically cannot emit an
+    unknown intent string, which avoids silently falling back to OpenAI on
+    typos / hallucinated categories.
+    """
+    intent: _IntentLiteral = Field(description="The classified intent category.")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0.")
     is_follow_up: bool = Field(
         default=False,
@@ -32,7 +54,7 @@ def _format_history(history: list[ConversationMessage]) -> str:
     recent = history[-_MAX_HISTORY_MESSAGES:]
     lines = ["--- Recent Conversation History ---"]
     for msg in recent:
-        label = "Customer" if msg.role == "user" else "Prozper"
+        label = "Customer" if msg.role == "user" else "Prozpr"
         lines.append(f"{label}: {msg.content}")
     lines.append("---")
     return "\n".join(lines)

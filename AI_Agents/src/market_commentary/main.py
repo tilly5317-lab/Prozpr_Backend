@@ -6,8 +6,9 @@ import time
 from datetime import datetime
 from typing import Optional
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from .document_generator import document_generation_chain
@@ -63,7 +64,19 @@ def _to_snapshot(extraction: _MacroExtraction) -> MacroSnapshot:
     return MacroSnapshot(**raw, data_gaps=gaps)
 
 
-_anthropic_client = Anthropic()
+_extraction_llm = ChatAnthropic(
+    model=_EXTRACTION_MODEL,
+    max_tokens=_EXTRACTION_MAX_TOKENS,
+).bind_tools(
+    [
+        {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": _WEBSEARCH_MAX_USES,
+        },
+        EXTRACT_MACRO_DATA_TOOL,
+    ]
+)
 
 
 def run_websearch_extraction() -> MacroSnapshot:
@@ -75,30 +88,17 @@ def run_websearch_extraction() -> MacroSnapshot:
     MacroSnapshot if the model does not finalise (so the caller's cache-fallback
     path kicks in).
     """
-    response = _anthropic_client.messages.create(
-        model=_EXTRACTION_MODEL,
-        max_tokens=_EXTRACTION_MAX_TOKENS,
-        system=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH,
-        tools=[
-            {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": _WEBSEARCH_MAX_USES,
-            },
-            EXTRACT_MACRO_DATA_TOOL,
-        ],
-        messages=[{
-            "role": "user",
-            "content": (
-                "Gather current values for all 14 Indian macro indicators and "
-                "return them via the extract_macro_data tool."
-            ),
-        }],
-    )
+    response = _extraction_llm.invoke([
+        SystemMessage(content=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH),
+        HumanMessage(content=(
+            "Gather current values for all 14 Indian macro indicators and "
+            "return them via the extract_macro_data tool."
+        )),
+    ])
 
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "extract_macro_data":
-            extraction = _MacroExtraction(**block.input)
+    for tool_call in response.tool_calls:
+        if tool_call["name"] == "extract_macro_data":
+            extraction = _MacroExtraction(**tool_call["args"])
             return _to_snapshot(extraction)
 
     # Model did not finalise — caller should rely on cache fallback.

@@ -37,7 +37,3 @@ Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes
 - `Master_testing/results/` — sweep output, not source of truth
 - `references/` — domain markdown consumed by prompts; not product docs
 - `simulation_website/goal_allocation_explorer.html` — standalone HTML explorer, not source code
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

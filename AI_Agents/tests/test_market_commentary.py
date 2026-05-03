@@ -269,7 +269,7 @@ class TestMarketCommentaryAgent(unittest.TestCase):
 class TestChatQA(unittest.TestCase):
 
     _SAMPLE_COMMENTARY = """\
-# Prozper Asset Management — Market Commentary | April 2026
+# Prozpr Asset Management — Market Commentary | April 2026
 
 ## Executive Summary
 - RBI repo rate held at 6.5% with neutral stance.

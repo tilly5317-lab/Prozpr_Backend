@@ -64,7 +64,7 @@ async def list_session_ai_module_runs(
     current_user: CurrentUser = Depends(get_effective_user),
     limit: int = 50,
 ):
-    """AILAX audit trail for a session's AI module invocations."""
+    """Prozpr audit trail for a session's AI module invocations."""
     await _get_user_session(session_id, db, current_user.id)
     rows = (
         await db.execute(
@@ -169,9 +169,6 @@ async def send_message(
     # Persist user message.
     user_msg = ChatMessage(session_id=session_id, role=ChatMessageRole.user, content=payload.content)
     db.add(user_msg)
-    await db.commit()
-    await db.refresh(user_msg)
-    user_response = ChatMessageResponse.model_validate(user_msg)
 
     # Run the AI brain.
     brain_result = await ChatBrain().run_turn(
@@ -186,20 +183,17 @@ async def send_message(
         )
     )
 
-    # Reset request session state after AI-module execution. Some downstream modules
-    # swallow DB errors and return fallback text, but still leave the transaction aborted.
-    await db.rollback()
-
     # Persist assistant reply.
     assistant_msg = ChatMessage(
         session_id=session_id,
         role=ChatMessageRole.assistant,
         content=brain_result.content,
-        chart_payloads=[brain_result.chart] if brain_result.chart else None,
+        chart_payloads=brain_result.chart_payloads,
     )
     db.add(assistant_msg)
 
     await db.commit()
+    await db.refresh(user_msg)
     await db.refresh(assistant_msg)
 
     assistant_response = ChatMessageResponse.model_validate(assistant_msg)
@@ -208,7 +202,7 @@ async def send_message(
     assistant_response.intent_reasoning = brain_result.intent_reasoning
 
     return ChatSendMessageResponse(
-        user_message=user_response,
+        user_message=ChatMessageResponse.model_validate(user_msg),
         assistant_message=assistant_response,
         ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,

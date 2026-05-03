@@ -13,15 +13,6 @@ class AssetClassBounds:
     others_max: int
 
 
-@dataclass(frozen=True)
-class FundMapRow:
-    asset_class: str
-    asset_subgroup: str
-    sub_category: str
-    recommended_fund: str
-    isin: str
-
-
 # ── Phase 1 — asset class min/max by effective_risk_score ─────────────────────
 # Source: references/long-term-goals.md lines 46-66
 PHASE1_RISK_BOUNDS: dict[float, AssetClassBounds] = {
@@ -101,48 +92,30 @@ MEDIUM_TERM_SPLIT: dict[tuple[int, str], tuple[int, int]] = {
 }
 
 
-# ── Fund mapping per asset_subgroup ───────────────────────────────────────────
-# Source: references/scheme_classification.md
-_FUND_ROWS: list[FundMapRow] = [
-    FundMapRow("equity", "low_beta_equities", "Large Cap Fund",
-               "Nippon India Large Cap Fund - Growth Plan - Growth Option", "INF204K01562"),
-    FundMapRow("equity", "medium_beta_equities", "Flexi Cap Fund",
-               "Parag Parikh Flexi Cap Fund - Direct Plan - Growth", "INF879O01027"),
-    FundMapRow("equity", "high_beta_equities", "Small Cap Fund",
-               "Nippon India Small Cap Fund - Growth Plan - Growth Option", "INF204K01HY3"),
-    FundMapRow("equity", "value_equities", "Contra Fund",
-               "SBI Contra Fund - Direct Plan - Growth", "INF200K01RA0"),
-    FundMapRow("equity", "dividend_equities", "Dividend Yield Fund",
-               "ICICI Prudential Dividend Yield Equity Fund - Growth Option", "INF109KA1TX4"),
-    FundMapRow("equity", "tax_efficient_equities", "ELSS Tax Saver Fund",
-               "Motilal Oswal ELSS Tax Saver Fund - Regular Plan - Growth Option", "INF247L01544"),
-    FundMapRow("equity", "sector_equities", "Sectoral Fund",
-               "Tata Digital India Fund - Regular Plan - Growth", "INF277K01Z44"),
-    FundMapRow("equity", "us_equities", "US Linked (FoF)",
-               "Kotak US Specific Equity Passive FOF - Direct Plan - Growth", "INF174KA1FQ7"),
-    FundMapRow("equity", "multi_asset", "Multi Cap Fund",
-               "ICICI Prudential Multicap Fund - Growth", "INF109K01613"),
-    FundMapRow("debt", "debt_subgroup", "Liquid Fund",
-               "Canara Robeco Liquid Fund - Regular Plan - Growth Option", "INF760K01CW9"),
-    FundMapRow("debt", "short_debt", "Ultra Short to Short Term Fund (6-12 months)",
-               "HDFC Low Duration Fund - Direct Plan - Growth", "INF179K01VF7"),
-    FundMapRow("debt", "arbitrage", "Arbitrage Fund",
-               "Nippon India Arbitrage Fund - Direct Plan - Growth", "INF204K01XZ7"),
-    FundMapRow("debt", "arbitrage_plus_income", "Arbitrage Fund",
-               "HDFC Arbitrage Fund - Wholesale Growth", "INF179KB1HP6"),
-    FundMapRow("others", "gold_commodities", "Gold ETF",
-               "ICICI Prudential Gold ETF", "INF109KC1NT3"),
-    FundMapRow("others", "silver_commodities", "Silver Linked (Index/ETF)",
-               "ICICI Prudential Silver ETF", "INF109KC1Y56"),
-    FundMapRow("others", "china_equities", "China Linked (FoF)",
-               "Edelweiss Greater China Equity Off-shore Fund - Direct Plan - Growth", "INF843K01138"),
-    FundMapRow("others", "others_fofs", "Others (FoF)",
-               "Motilal Oswal Nasdaq 100 Fund of Fund - Direct Plan Growth", "INF247L01718"),
-    FundMapRow("others", "others", "Others (Index/ETF)",
-               "Motilal Oswal Nasdaq 100 ETF", "INF247L01AP3"),
-]
-
-FUND_MAPPING: dict[str, FundMapRow] = {row.asset_subgroup: row for row in _FUND_ROWS}
+# ── Subgroup → asset class roll-up ────────────────────────────────────────────
+# Used by step6 guardrail messaging and any future internal subgroup→class
+# roll-up. Specific fund/ISIN suggestions live elsewhere (Rebalancing's
+# Prozpr_fund_ranking.csv); allocation only commits to the three asset classes.
+SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
+    "low_beta_equities": "equity",
+    "medium_beta_equities": "equity",
+    "high_beta_equities": "equity",
+    "value_equities": "equity",
+    "dividend_equities": "equity",
+    "tax_efficient_equities": "equity",
+    "sector_equities": "equity",
+    "us_equities": "equity",
+    "multi_asset": "equity",
+    "debt_subgroup": "debt",
+    "short_debt": "debt",
+    "arbitrage": "debt",
+    "arbitrage_plus_income": "debt",
+    "gold_commodities": "others",
+    "silver_commodities": "others",
+    "china_equities": "others",
+    "others_fofs": "others",
+    "others": "others",
+}
 
 
 # ── Policy constants (tuneable without touching step code) ────────────────────

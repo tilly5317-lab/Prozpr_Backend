@@ -13,10 +13,16 @@ from __future__ import annotations
 import json
 import re
 
-import httpx
+import anthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import get_settings
-from app.services.ai_bridge.common import build_history_block, ensure_ai_agents_path
+from app.services.ai_bridge.common import (
+    build_history_block,
+    ensure_ai_agents_path,
+    format_inr_indian,
+)
 
 ensure_ai_agents_path()
 
@@ -28,7 +34,20 @@ from intent_classifier import ClassificationResult
 _MAX_COMMENTARY_CHARS = 7000
 
 _SYSTEM_PROMPT = (
-    "You are AILAX, an Indian-market financial assistant for retail clients in India.\n"
+    "You are Tilly, an Indian-market financial assistant at Prozpr, a SEBI-registered wealth-management platform for retail clients in India. "
+    "Think of yourself as a knowledgeable friend who's good at explaining financial topics in plain, easy language — avoid jargon, dense disclosures, and the formal tone of a typical SEBI RIA report. Tone: friendly, specific, concise.\n"
+    "\n"
+    "Hard rules:\n"
+    "- Never recommend a specific mutual fund, ISIN, or scheme name.\n"
+    "- Never invent numbers. Cite only values present in `client_context` or the `Market commentary context` in your message.\n"
+    "- Money: every rupee field in `client_context` has a sibling `_indian` string "
+    "already formatted in Indian notation (e.g., `annual_income_inr: 4500000` is "
+    "paired with `annual_income_indian: '₹45 lakh'`) — COPY the matching `_indian` "
+    "string verbatim. Figures from the market commentary are pre-formatted by "
+    "upstream — copy those verbatim too. NEVER convert raw rupees to lakh/crore "
+    "yourself. NEVER say 'million' or 'billion'.\n"
+    "- Don't draw charts in text (no ASCII art, no pseudo-bar-charts using `█` characters). The chat UI renders real visualisations alongside your text — write tight prose and let charts show the data.\n"
+    "- This is general information, not personalized advice. Do not promise outcomes.\n"
     "\n"
     "Data source priority (strict — follow in order):\n"
     "1. FIRST, try to answer using the 'Market commentary context' section of the "
@@ -51,7 +70,7 @@ _SYSTEM_PROMPT = (
     "Response contract (MANDATORY):\n"
     "- Finalize your reply by calling the `return_reply` tool exactly once. Do NOT "
     "emit any plain-text reply. All final content goes into the tool arguments.\n"
-    "- `answer`: conversational prose, 2-3 short sentences, MAXIMUM 60 words. Cite the "
+    "- `answer`: in Tilly's voice (friendly, specific, plain-language), 2-3 short sentences, MAXIMUM 60 words. Cite the "
     "source inline (e.g., 'per our daily snapshot' or 'per live web search'). No "
     "preamble, no greeting, no headings like '**Answer**', no acknowledgment, no "
     "reference to prior turns, no meta commentary. Just answer the question directly.\n"
@@ -60,12 +79,8 @@ _SYSTEM_PROMPT = (
     "(e.g., 'should I buy', 'is this a good time', valuation/allocation questions). "
     "Set to null for pure factual lookups (PE ratio, repo rate, FX rate) — those get a "
     "clean one-line answer with no bullets.\n"
-    "- Do NOT refuse to answer on the grounds that the question requires personal "
-    "profile data. If answerable from market commentary, answer it. Portfolio "
-    "optimisation is handled by a separate flow. Stay in your lane.\n"
-    "- Money formatting: use Indian notation — lakhs ('L') and crores ('Cr'). NEVER "
-    "say 'million' or 'billion'. Examples: 'INR 45 L', 'INR 3.2 Cr', '₹12,500 Cr FII "
-    "inflows'.\n"
+    "- Engage with market questions using the data sources above — don't gate the answer on missing personal data, since that's a different flow.\n"
+    "- Personalization: `client_context` may include `first_name`. Use it sparingly to add warmth — at most once per response, and not every turn (repetition feels artificial). For pure factual lookups (PE ratio, repo rate, FX rate), skip the name entirely. If `first_name` is null or missing, work without it.\n"
     "- Do NOT moralize, disclaim, or list what you would need to advise further."
 )
 
@@ -113,20 +128,6 @@ def _render_reply(answer: str, bullets: list[str] | None) -> str:
     return out
 
 
-def _extract_return_reply(content_blocks: list[dict]) -> tuple[str, list[str] | None] | None:
-    """Find the last `return_reply` tool_use block and return its parsed args."""
-    for block in reversed(content_blocks):
-        if block.get("type") == "tool_use" and block.get("name") == "return_reply":
-            args = block.get("input") or {}
-            answer = args.get("answer")
-            if isinstance(answer, str) and answer.strip():
-                bullets = args.get("justification_bullets")
-                if not isinstance(bullets, list):
-                    bullets = None
-                return answer, bullets
-    return None
-
-
 # Anthropic web_search wraps cited passages in <cite index="...">...</cite> tags.
 # Strip them before feeding the research digest into Pass 2 so they don't leak.
 _CITE_TAG_RE = re.compile(r"</?cite\b[^>]*>", re.IGNORECASE)
@@ -134,6 +135,26 @@ _CITE_TAG_RE = re.compile(r"</?cite\b[^>]*>", re.IGNORECASE)
 
 def _strip_cite_tags(text: str) -> str:
     return _CITE_TAG_RE.sub("", text).strip()
+
+
+def _enrich_inr_fields(obj):
+    """Walk a dict/list, add ``*_indian`` siblings to any ``*_inr`` field.
+
+    Indian-notation strings are pre-computed by ``format_inr_indian`` so the LLM
+    never has to convert raw rupees at inference time (Haiku frequently drops
+    an order of magnitude on lakh/crore boundaries). The system prompt
+    instructs the LLM to copy these strings verbatim instead of converting.
+    """
+    if isinstance(obj, dict):
+        out: dict = {}
+        for k, v in obj.items():
+            out[k] = _enrich_inr_fields(v)
+            if isinstance(k, str) and k.endswith("_inr") and v is not None:
+                out[f"{k[:-4]}_indian"] = format_inr_indian(v)
+        return out
+    if isinstance(obj, list):
+        return [_enrich_inr_fields(item) for item in obj]
+    return obj
 
 
 _RESEARCH_SYSTEM_PROMPT = (
@@ -169,7 +190,7 @@ async def generate_general_chat_response(
     if classification.intent == Intent.OUT_OF_SCOPE:
         return classification.out_of_scope_message or OUT_OF_SCOPE_MESSAGE
 
-    api_key = get_settings().get_anthropic_key()
+    api_key = get_settings().get_anthropic_general_chat_key()
     if not api_key:
         return (
             "I can't reach the language model right now — the Anthropic API key isn't "
@@ -185,47 +206,41 @@ async def generate_general_chat_response(
         f"{build_history_block(conversation_history)}\n\n"
         f"User question: {user_question}\n\n"
         f"Client context from profile/portfolio DB: "
-        f"{json.dumps(client_context, ensure_ascii=True) if client_context else 'null'}\n\n"
+        f"{json.dumps(_enrich_inr_fields(client_context), ensure_ascii=True) if client_context else 'null'}\n\n"
         f"Market commentary context (if relevant, use it; if not relevant, ignore):\n"
         f"{commentary}"
     )
 
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
     unauthorised_reply = (
         "I couldn't reach the language model — Anthropic returned a 401 Unauthorized. "
         "Please set a valid `ANTHROPIC_API_KEY` in `.env` and restart the API server."
     )
 
     # --- Pass 1: research (web_search allowed, plain-text digest) ---
-    research_payload = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 600,
-        "system": _RESEARCH_SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_prompt}],
-        "tools": [
-            {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": 3,
-            }
-        ],
-    }
-
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        research_resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=research_payload,
-        )
-    if research_resp.status_code == 401:
+    research_llm = ChatAnthropic(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        api_key=api_key,
+        timeout=90.0,
+    ).bind_tools([
+        {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+    ])
+    try:
+        research_resp = await research_llm.ainvoke([
+            SystemMessage(content=_RESEARCH_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt),
+        ])
+    except anthropic.AuthenticationError:
         return unauthorised_reply
-    research_resp.raise_for_status()
-    research_blocks = research_resp.json().get("content", [])
-    research_raw = "".join(b.get("text", "") for b in research_blocks if b.get("type") == "text")
+
+    content = research_resp.content
+    if isinstance(content, list):
+        research_raw = "".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    else:
+        research_raw = str(content) if content else ""
     research_digest = _strip_cite_tags(research_raw)
     if not research_digest:
         research_digest = "(No additional research data — answer from the market commentary context above.)"
@@ -236,35 +251,45 @@ async def generate_general_chat_response(
         f"Research digest (already gathered; do not call any tools other than "
         f"`return_reply`):\n{research_digest}"
     )
-    compose_payload = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 400,
-        "system": _SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": compose_user_prompt}],
-        "tools": [_RETURN_REPLY_TOOL],
-        "tool_choice": {"type": "tool", "name": "return_reply"},
-    }
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        compose_resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=compose_payload,
-        )
-    if compose_resp.status_code == 401:
-        return unauthorised_reply
-    compose_resp.raise_for_status()
-
-    compose_blocks = compose_resp.json().get("content", [])
-    parsed = _extract_return_reply(compose_blocks)
-    if parsed is not None:
-        answer, bullets = parsed
-        return _render_reply(answer, bullets)
-
-    # Fallback: something went wrong with the forced tool call.
-    fallback_text = _strip_cite_tags(
-        "".join(b.get("text", "") for b in compose_blocks if b.get("type") == "text")
+    compose_llm = ChatAnthropic(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        api_key=api_key,
+        timeout=60.0,
+    ).bind_tools(
+        [_RETURN_REPLY_TOOL],
+        tool_choice={"type": "tool", "name": "return_reply"},
     )
+    try:
+        compose_resp = await compose_llm.ainvoke([
+            SystemMessage(content=_SYSTEM_PROMPT),
+            HumanMessage(content=compose_user_prompt),
+        ])
+    except anthropic.AuthenticationError:
+        return unauthorised_reply
+
+    # Forced tool_choice → response should always have a return_reply tool_call.
+    for tool_call in compose_resp.tool_calls:
+        if tool_call["name"] == "return_reply":
+            args = tool_call["args"] or {}
+            answer = args.get("answer")
+            if isinstance(answer, str) and answer.strip():
+                bullets = args.get("justification_bullets")
+                if not isinstance(bullets, list):
+                    bullets = None
+                return _render_reply(answer, bullets)
+            break
+
+    # Fallback for the rare case where the tool call is missing or malformed.
+    content = compose_resp.content
+    if isinstance(content, list):
+        text_parts = [
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+    else:
+        text_parts = [str(content)] if content else []
+    fallback_text = _strip_cite_tags("".join(text_parts))
     if fallback_text:
         return fallback_text
     return (

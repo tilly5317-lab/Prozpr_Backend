@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from ..models import (
-    FundMapping,
     Step4Output,
     Step5Output,
     Step6Output,
@@ -9,10 +8,10 @@ from ..models import (
 )
 from ..tables import (
     EQUITY_SUBGROUPS,
-    FUND_MAPPING,
     PHASE1_RISK_BOUNDS,
     PHASE5_EQUITY_SUBGROUP_BOUNDS,
     PHASE5_SHARE_TOLERANCE_PP,
+    SUBGROUP_TO_ASSET_CLASS,
 )
 from ..utils import ceil_to_half
 
@@ -64,21 +63,10 @@ def run(step4: Step4Output, step5: Step5Output, score: float) -> Step6Output:
                     f"{sg} share {share:.1f}% of equity_for_subgroups outside [{lo}, {hi}]"
                 )
 
-    # Part 2 — Fund mapping for every non-zero aggregated subgroup.
-    fund_mappings: list[FundMapping] = []
+    # Part 2 — Every non-zero aggregated subgroup must roll up to a known asset class.
     for agg_row in step5.rows:
-        fund = FUND_MAPPING.get(agg_row.subgroup)
-        if fund is None:
+        if agg_row.total > 0 and agg_row.subgroup not in SUBGROUP_TO_ASSET_CLASS:
             violations.append(f"unmapped subgroup: {agg_row.subgroup}")
-            continue
-        fund_mappings.append(FundMapping(
-            asset_class=fund.asset_class,  # type: ignore[arg-type]
-            asset_subgroup=agg_row.subgroup,
-            sub_category=fund.sub_category,
-            recommended_fund=fund.recommended_fund,
-            isin=fund.isin,
-            total_amount=agg_row.total,
-        ))
 
     all_rules_pass = len(violations) == 0
 
@@ -88,5 +76,4 @@ def run(step4: Step4Output, step5: Step5Output, score: float) -> Step6Output:
             violations_found=violations,
             adjustments_made=adjustments,
         ),
-        fund_mappings=fund_mappings,
     )

@@ -1,4 +1,4 @@
-"""Public surface of the ai_bridge package — re-exports the five main service functions."""
+"""Public surface of the ai_bridge package — re-exports the main service functions."""
 
 
 from app.services.ai_bridge.asset_allocation import (

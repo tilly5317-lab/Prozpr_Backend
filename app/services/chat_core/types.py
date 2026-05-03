@@ -1,6 +1,6 @@
 """Chat core — `types.py`.
 
-Orchestrates a single user turn: intent classification, branch routing (market, portfolio query, portfolio-style spine with allocation), optional telemetry, and assistant text. Depends on ``services.ai_bridge`` and preloaded ORM user context from ``get_ai_user_context``.
+Orchestrates a single user turn: intent classification, branch routing (market, portfolio query, portfolio-style spine with liquidity gate and allocation), optional telemetry, and assistant text. Depends on ``services.ai_bridge`` and preloaded ORM user context from ``get_ai_user_context``.
 """
 
 
@@ -45,4 +45,4 @@ class ChatBrainResult:
     intent_reasoning: str | None
     ideal_allocation_rebalancing_id: uuid.UUID | None = None
     ideal_allocation_snapshot_id: uuid.UUID | None = None
-    chart: dict[str, Any] | None = None
+    chart_payloads: list[dict[str, Any]] | None = None

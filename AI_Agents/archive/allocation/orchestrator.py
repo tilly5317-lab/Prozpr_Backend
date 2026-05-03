@@ -1,7 +1,7 @@
 """
 orchestrator.py — AllocationOrchestrator
 =========================================
-The central controller for the Prozper allocation advisor pipeline.
+The central controller for the Prozpr allocation advisor pipeline.
 Coordinates all steps from raw client input to a final allocation response.
 
 HOW IT WORKS (7-step pipeline)
