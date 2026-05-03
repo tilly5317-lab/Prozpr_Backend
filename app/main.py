@@ -22,6 +22,8 @@ from sqlalchemy.engine import make_url
 from app.config import get_settings
 from app.database import apply_postgres_schema_patches, create_all_tables, dispose_engine
 from app.routers import all_routers
+from app.routers.tags import OPENAPI_TAG_METADATA
+from app.services.mf.mfapi_scheduler import shutdown_scheduler, start_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,12 +64,21 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.error("Database setup error: %s", e)
 
+    if get_settings().mfapi_scheduler_enabled():
+        try:
+            start_scheduler()
+        except Exception as sched_exc:
+            logger.warning("mfapi scheduler failed to start: %s", sched_exc)
+    else:
+        logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
+
     logger.info("Server ready! Docs at /docs")
     logger.info("=" * 60)
 
     yield
 
     logger.info("Shutting down Ask Tilly API...")
+    await shutdown_scheduler()
     await dispose_engine()
     logger.info("Shutdown complete")
 
@@ -81,6 +92,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    openapi_tags=OPENAPI_TAG_METADATA,
 )
 
 if settings.CORS_ALLOW_ANY_ORIGIN:

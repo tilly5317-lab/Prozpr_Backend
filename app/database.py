@@ -108,7 +108,25 @@ async def apply_postgres_schema_patches() -> None:
                 """
             )
         )
-    logger.info("Postgres schema patches applied (chat_ai_module_runs payload columns + index)")
+        # ORM/column drift: MfFundMetadata.isin* (see alembic f1a2b3c4d5e6)
+        await conn.execute(
+            text("ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin VARCHAR(12)")
+        )
+        await conn.execute(
+            text("ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin_div_reinvest VARCHAR(12)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_mf_fund_metadata_isin ON mf_fund_metadata (isin)")
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_mf_fund_metadata_isin_notnull "
+                "ON mf_fund_metadata (isin) WHERE isin IS NOT NULL"
+            )
+        )
+    logger.info(
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata isin columns)"
+    )
 
 
 async def dispose_engine() -> None:
