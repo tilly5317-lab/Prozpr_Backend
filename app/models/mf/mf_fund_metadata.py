@@ -40,6 +40,8 @@ class MfFundMetadata(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     scheme_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    isin: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, index=True)
+    isin_div_reinvest: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
     scheme_name: Mapped[str] = mapped_column(String(200), nullable=False)
     amc_name: Mapped[str] = mapped_column(String(100), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
