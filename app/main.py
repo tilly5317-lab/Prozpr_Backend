@@ -52,15 +52,21 @@ async def lifespan(application: FastAPI):
             )
         elif parsed.drivername.startswith("sqlite"):
             logger.warning("Database engine: sqlite (ALLOW_SQLITE dev mode only)")
-        await create_all_tables()
-        try:
-            await apply_postgres_schema_patches()
-        except Exception as patch_exc:
-            logger.warning(
-                "Postgres schema patches failed (check DB permissions / table chat_ai_module_runs): %s",
-                patch_exc,
+        if get_settings().skip_startup_db_ddl():
+            logger.info(
+                "Skipping startup DB DDL (SKIP_STARTUP_DB_DDL=true). "
+                "Ensure schema exists (e.g. alembic upgrade head on RDS)."
             )
-        logger.info("Database tables ready (create_all).")
+        else:
+            await create_all_tables()
+            try:
+                await apply_postgres_schema_patches()
+            except Exception as patch_exc:
+                logger.warning(
+                    "Postgres schema patches failed (check DB permissions / table chat_ai_module_runs): %s",
+                    patch_exc,
+                )
+            logger.info("Database tables ready (create_all).")
     except Exception as e:
         logger.error("Database setup error: %s", e)
 

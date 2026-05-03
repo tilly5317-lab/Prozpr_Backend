@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -139,3 +139,95 @@ class MfFundMetadataResponse(BaseModel):
     returns_10y_pct: Optional[float]
     created_at: datetime
     updated_at: datetime
+
+
+class MfFundMetadataListItem(BaseModel):
+    """Slim row used by the Discover search/explorer list — keeps the payload
+    light enough for fast infinite-scroll over the full AMFI universe."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    scheme_code: str
+    isin: Optional[str]
+    scheme_name: str
+    amc_name: str
+    category: str
+    sub_category: Optional[str]
+    asset_class: Optional[str]
+    asset_subgroup: Optional[str]
+    risk_rating_sebi: Optional[str]
+    returns_1y_pct: Optional[float]
+    returns_3y_pct: Optional[float]
+    returns_5y_pct: Optional[float]
+
+
+class MfFundMetadataSearchResponse(BaseModel):
+    items: List[MfFundMetadataListItem]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class MfNavChartPoint(BaseModel):
+    nav_date: date
+    nav: float
+
+
+class MfNavDerivedReturns(BaseModel):
+    """Performance metrics computed from stored NAV rows (point-to-point / CAGR)."""
+
+    return_1y_abs_pct: Optional[float] = None
+    return_3y_cagr_pct: Optional[float] = None
+    return_5y_cagr_pct: Optional[float] = None
+    return_10y_cagr_pct: Optional[float] = None
+    return_inception_abs_pct: Optional[float] = None
+    return_inception_cagr_pct: Optional[float] = None
+    first_nav_date: Optional[date] = None
+    latest_nav: Optional[float] = None
+    latest_nav_date: Optional[date] = None
+    nav_row_count: int = 0
+
+
+class MfMetadataReturnsSnapshot(BaseModel):
+    """Broker-style headline numbers persisted on metadata (may lag NAV-derived figures)."""
+
+    returns_1y_pct: Optional[float] = None
+    returns_3y_pct: Optional[float] = None
+    returns_5y_pct: Optional[float] = None
+    returns_10y_pct: Optional[float] = None
+
+
+class MfFundInvestorDetailResponse(BaseModel):
+    """Fund facts + NAV-based performance for investor-focused UI (e.g. Groww-style detail)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    metadata_id: uuid.UUID
+    scheme_code: str
+    scheme_name: str
+    amc_name: str
+    category: str
+    sub_category: Optional[str]
+    isin: Optional[str]
+    isin_div_reinvest: Optional[str]
+    plan_type: MfPlanType
+    option_type: MfOptionType
+    is_active: bool
+    risk_rating_sebi: Optional[str]
+    asset_class: Optional[str]
+    asset_subgroup: Optional[str]
+    direct_plan_fees: Optional[float]
+    regular_plan_fees: Optional[float]
+    exit_load_percent: Optional[float]
+    exit_load_months: Optional[int]
+    large_cap_equity_pct: Optional[float]
+    mid_cap_equity_pct: Optional[float]
+    small_cap_equity_pct: Optional[float]
+    debt_pct: Optional[float]
+    others_pct: Optional[float]
+    returns_from_nav: MfNavDerivedReturns
+    returns_from_metadata: MfMetadataReturnsSnapshot
+    nav_chart: List[MfNavChartPoint]
+    disclaimers: List[str] = Field(default_factory=list)

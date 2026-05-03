@@ -12,9 +12,15 @@ from app.schemas.mf.aa_import import (
     MfAaTransactionUpdate,
 )
 from app.schemas.mf.fund_metadata import (
+    MfFundInvestorDetailResponse,
     MfFundMetadataCreate,
+    MfFundMetadataListItem,
     MfFundMetadataResponse,
+    MfFundMetadataSearchResponse,
     MfFundMetadataUpdate,
+    MfMetadataReturnsSnapshot,
+    MfNavChartPoint,
+    MfNavDerivedReturns,
 )
 from app.schemas.mf.nav_history import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
 from app.schemas.mf.portfolio_snapshot import (
@@ -40,9 +46,15 @@ __all__ = [
     "MfAaTransactionCreate",
     "MfAaTransactionResponse",
     "MfAaTransactionUpdate",
+    "MfFundInvestorDetailResponse",
     "MfFundMetadataCreate",
+    "MfFundMetadataListItem",
     "MfFundMetadataResponse",
+    "MfFundMetadataSearchResponse",
     "MfFundMetadataUpdate",
+    "MfMetadataReturnsSnapshot",
+    "MfNavChartPoint",
+    "MfNavDerivedReturns",
     "MfNavHistoryCreate",
     "MfNavHistoryResponse",
     "MfNavHistoryUpdate",

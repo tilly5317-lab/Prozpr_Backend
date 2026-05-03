@@ -19,8 +19,10 @@ _AI_AGENTS_SRC = str((Path(__file__).resolve().parents[3] / "AI_Agents" / "src")
 if _AI_AGENTS_SRC not in sys.path:
     sys.path.insert(0, _AI_AGENTS_SRC)
 
-from risk_profiling import risk_profiling_chain  # noqa: E402
-from risk_profiling.scoring import OSI_MAP  # noqa: E402
+# NOTE: Do not import ``risk_profiling`` at module scope. That chain pulls in
+# ``langchain_anthropic`` (ChatAnthropic) and would crash uvicorn on startup if
+# optional AI deps are missing from the active venv. Import lazily inside
+# ``compute_effective_risk_document`` only.
 
 
 OccupationType = Literal[
@@ -48,6 +50,9 @@ class EffectiveRiskComputationInput:
 
 def compute_effective_risk_document(inp: EffectiveRiskComputationInput) -> dict[str, Any]:
     """Run scoring + LLM summary via AI_Agents and return the persisted JSON doc."""
+    from risk_profiling import risk_profiling_chain  # noqa: E402
+    from risk_profiling.scoring import OSI_MAP  # noqa: E402
+
     occ = inp.occupation_type if inp.occupation_type in OSI_MAP else "private_sector"
     payload = {
         "age": int(inp.age),
