@@ -1,6 +1,12 @@
-# AI_Agents/src/drift_analysis
+# AI_Agents/archive/drift_analysis — ARCHIVED
 
-Compares actual portfolio holdings against an ideal allocation, computing drift at the fund, subgroup, and asset-class levels. Produces a structured breakdown of over- and under-weight positions to support rebalancing decisions.
+Historical drift-analysis pipeline. Compared actual portfolio holdings against an ideal allocation, computing drift at the fund, subgroup, and asset-class levels. Retained for reference; not on active import paths.
+
+> **Dangling dependency:** imports `goal_based_allocation_pydantic` (which has been removed from the repo — the active analogue is `AI_Agents/src/asset_allocation_pydantic/`). This archived module will not import as-is.
+
+## Imported by active code?
+
+NO
 
 ## Files
 
@@ -14,22 +20,18 @@ Compares actual portfolio holdings against an ideal allocation, computing drift 
 - Input: `DriftInput`
 - Output: `DriftOutput`
 
-## Depends on
+## Historical dependencies
 
-- `goal_based_allocation_pydantic/` — `tables.FUND_MAPPING` and display-name helpers
+- `goal_based_allocation_pydantic/` — `tables.FUND_MAPPING` and display-name helpers (module no longer exists in the repo)
 - Python stdlib (`collections`, `typing`)
 - No LLM calls; fully deterministic.
 
 ## Tests
 
-- Command: `pytest AI_Agents/src/drift_analysis/Testing -v`
+- Command: `pytest AI_Agents/archive/drift_analysis/Testing -v` (will fail to collect — see dangling dependency note above).
 - Key suites: `test_pipeline.py`
 
 ## Don't read
 
 - `__pycache__/`
 - `Testing/sample_output.json` — captured run artifact, not source of truth
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

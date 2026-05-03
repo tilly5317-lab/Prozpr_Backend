@@ -53,7 +53,7 @@ def _months_between(start: date, end: date) -> int:
     return max(1, months)
 
 
-def _pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
+def pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
     investable = _f(inv, "investable_assets")
     portfolio_value = _f(inv, "portfolio_value")
     primary_value = 0.0
@@ -164,7 +164,7 @@ def build_goal_allocation_input_for_user(
     age = _age_from_dob(user.date_of_birth)
     annual_income = _f(inv, "annual_income")
     monthly_household_expense = _f(inv, "regular_outgoings")
-    total_corpus = _pick_total_corpus(inv, portfolios)
+    total_corpus = pick_total_corpus(inv, portfolios)
 
     if tp is not None and getattr(tp, "income_tax_rate", None) is not None:
         effective_tax_rate = float(tp.income_tax_rate)
@@ -194,6 +194,14 @@ def build_goal_allocation_input_for_user(
     _corpus_override = getattr(user, "_chat_total_corpus_override", None)
     if _corpus_override is not None:
         total_corpus = float(_corpus_override)
+
+    # additional_cash_inr is a relative override — adds to whatever total_corpus
+    # is at this point (baseline OR the absolute override above). Used by both
+    # AA chat ("what if I had ₹2L more?") and rebalancing chat (forwards to AA
+    # when the customer asks the same question against a trade list).
+    _additional_cash = getattr(user, "_chat_additional_cash_override", None)
+    if _additional_cash is not None:
+        total_corpus = total_corpus + float(_additional_cash)
 
     _income_override = getattr(user, "_chat_annual_income_override", None)
     if _income_override is not None:

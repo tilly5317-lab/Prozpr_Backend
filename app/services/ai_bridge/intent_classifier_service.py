@@ -24,16 +24,23 @@ from intent_classifier.prompts import OUT_OF_SCOPE_MESSAGE, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-# Human-readable labels for each intent value.
+# Human-readable labels for each intent value. The dict only contains the
+# intents that have a customer-visible "label" surface; the OpenAI fallback's
+# enum below derives from the full ``Intent`` set so we can never accept
+# fewer intents in the fallback than in the primary classifier.
 _INTENT_LABELS: dict[str, str] = {
     "asset_allocation": "Portfolio Optimisation",
     "goal_planning": "Goal Planning",
+    "stock_advice": "Stock Advice",
     "portfolio_query": "Portfolio Query",
     "general_market_query": "General Market Query",
+    "rebalancing": "Rebalancing",
     "out_of_scope": "Out of Scope",
 }
 
-# OpenAI function-calling schema used in the fallback classifier.
+# OpenAI function-calling schema used in the fallback classifier. The enum is
+# derived from ``Intent`` (not ``_INTENT_LABELS``) so adding a new intent
+# automatically extends the fallback without touching this file.
 _OPENAI_FUNCTION = {
     "type": "function",
     "function": {
@@ -44,7 +51,7 @@ _OPENAI_FUNCTION = {
             "properties": {
                 "intent": {
                     "type": "string",
-                    "enum": list(_INTENT_LABELS.keys()),
+                    "enum": [i.value for i in Intent],
                 },
                 "confidence": {"type": "number"},
                 "reasoning": {"type": "string"},

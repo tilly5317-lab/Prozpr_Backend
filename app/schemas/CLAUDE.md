@@ -26,13 +26,7 @@ contracts.
 - `notification.py` — notification payloads.
 - `rebalancing.py` — rebalancing recommendation payloads.
 - `simbanks.py` — SimBanks sync payloads.
-- `__init__.py`.
 
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If this file looks stale after a structural change, run `/refresh-context`
-from this folder.

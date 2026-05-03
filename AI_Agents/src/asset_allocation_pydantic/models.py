@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from .tables import (
     DEFAULT_MARKET_COMMENTARY_SCORES,
@@ -89,24 +89,6 @@ class FutureInvestment(BaseModel):
     message: Optional[str] = None
 
 
-class SubgroupFundMapping(BaseModel):
-    asset_class: Literal["equity", "debt", "others"]
-
-    @field_validator("asset_class", mode="before")
-    @classmethod
-    def _normalise_asset_class(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            mapping = {"equities": "equity", "debts": "debt"}
-            return mapping.get(v.lower(), v)
-        return v
-
-    asset_subgroup: str
-    sub_category: str
-    recommended_fund: str
-    isin: str
-    amount: float = Field(..., ge=0)
-
-
 class BucketAllocation(BaseModel):
     bucket: Literal["emergency", "short_term", "medium_term", "long_term"]
     goals: List[Goal]
@@ -120,23 +102,11 @@ class BucketAllocation(BaseModel):
 
 class AggregatedSubgroupRow(BaseModel):
     subgroup: str
-    sub_category: Optional[str] = None
     emergency: float = Field(..., ge=0)
     short_term: float = Field(..., ge=0)
     medium_term: float = Field(..., ge=0)
     long_term: float = Field(..., ge=0)
     total: float = Field(..., ge=0)
-    fund_mapping: Optional[SubgroupFundMapping] = None
-
-    @property
-    def customer_label(self) -> str:
-        """Customer-facing label. Prefers SEBI sub-category; falls back to a
-        humanised version of the internal ``subgroup`` key."""
-        if self.fund_mapping and self.fund_mapping.sub_category:
-            return self.fund_mapping.sub_category
-        if self.sub_category:
-            return self.sub_category
-        return self.subgroup.replace("_", " ").strip().title()
 
 
 class ClientSummary(BaseModel):
@@ -197,7 +167,7 @@ class GoalAllocationOutput(BaseModel):
     future_investments_summary: List[FutureInvestment]
     grand_total: float
     all_amounts_in_multiples_of_100: bool
-    asset_class_breakdown: Optional[AssetClassBreakdown] = None
+    asset_class_breakdown: AssetClassBreakdown
 
 
 # ── Per-step output models ────────────────────────────────────────────────────
@@ -308,15 +278,5 @@ class ValidationBlock(BaseModel):
     adjustments_made: List[str] = []
 
 
-class FundMapping(BaseModel):
-    asset_class: Literal["equity", "debt", "others"]
-    asset_subgroup: str
-    sub_category: str
-    recommended_fund: str
-    isin: str
-    total_amount: int
-
-
 class Step6Output(BaseModel):
     validation: ValidationBlock
-    fund_mappings: List[FundMapping]

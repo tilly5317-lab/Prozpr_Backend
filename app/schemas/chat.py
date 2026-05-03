@@ -64,7 +64,7 @@ class UploadStatementResponse(BaseModel):
 
 
 class ChatAiModuleRunResponse(BaseModel):
-    """One row from chat AI module telemetry (grep logs: AILAX_AI_MODULE_RUN)."""
+    """One row from chat AI module telemetry (grep logs: PROZPR_AI_MODULE_RUN)."""
 
     model_config = {"from_attributes": True}
 

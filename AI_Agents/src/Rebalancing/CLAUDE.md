@@ -45,7 +45,3 @@ Pure-Python rebalancing engine. Takes a goal-based ideal allocation plus present
 ## Don't read
 
 - `__pycache__/`, `Reference_docs/` cached artifacts (`*.xlsx` is source-of-truth for the e2e fixture, not application data).
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.
