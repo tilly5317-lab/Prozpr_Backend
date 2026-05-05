@@ -9,6 +9,13 @@ Spec: docs/superpowers/specs/2026-05-02-shared-eval-harness-design.md
 Run manually:
     ANTHROPIC_API_KEY=sk-... python -m pytest \
         AI_Agents/tests/test_intent_classifier_boundary_evals.py -v
+
+Note on env-skip: `unset ANTHROPIC_API_KEY` alone is NOT sufficient to take
+this suite offline. `intent_classifier/classifier.py` calls `load_dotenv()` at
+import time, which puts the key back from a project-level `.env`. For a true
+offline run use either:
+    mv .env .env.bak                              # temporarily move .env aside
+    ANTHROPIC_API_KEY= python -m pytest ...       # explicit empty string
 """
 from __future__ import annotations
 
