@@ -26,7 +26,12 @@ def _agent_run(payload: dict | None = None) -> AgentRunRecord:
     )
 
 
-def _ctx(question: str = "rebalance my portfolio", *, last_run: AgentRunRecord | None = None) -> TurnContext:
+def _ctx(
+    question: str = "rebalance my portfolio",
+    *,
+    last_run: AgentRunRecord | None = None,
+    awaiting_save: bool = False,
+) -> TurnContext:
     last_runs = {"rebalancing": last_run} if last_run else {}
     return TurnContext(
         user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
@@ -38,6 +43,7 @@ def _ctx(question: str = "rebalance my portfolio", *, last_run: AgentRunRecord |
         effective_user_id=uuid.uuid4(),
         last_agent_runs=last_runs,
         active_intent="rebalancing",
+        awaiting_save=awaiting_save,
     )
 
 
@@ -127,33 +133,33 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
 class DetectRebalActionTests(unittest.TestCase):
 
     def test_narrate_mode_for_explanation_question(self):
-        with patch.object(mod, "_ainvoke",
+        with patch.object(mod, "classify_action",
                           new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate"))):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("why are you selling X?")))
         self.assertEqual(action.mode, "narrate")
 
     def test_educate_mode_for_concept_question(self):
-        with patch.object(mod, "_ainvoke",
+        with patch.object(mod, "classify_action",
                           new=AsyncMock(return_value=mod.RebalanceAction(mode="educate"))):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("what is exit load?")))
         self.assertEqual(action.mode, "educate")
 
     def test_recompute_mode_for_explicit_rerun(self):
-        with patch.object(mod, "_ainvoke",
+        with patch.object(mod, "classify_action",
                           new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute"))):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("redo the trades")))
         self.assertEqual(action.mode, "recompute")
 
     def test_clarify_mode_carries_question(self):
         ret = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
-        with patch.object(mod, "_ainvoke", new=AsyncMock(return_value=ret)):
+        with patch.object(mod, "classify_action", new=AsyncMock(return_value=ret)):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("change something")))
         self.assertEqual(action.mode, "clarify")
         self.assertEqual(action.clarification_question, "Which fund?")
 
     def test_redirect_mode_carries_reason(self):
         ret = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
-        with patch.object(mod, "_ainvoke", new=AsyncMock(return_value=ret)):
+        with patch.object(mod, "classify_action", new=AsyncMock(return_value=ret)):
             action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("keep fund Y")))
         self.assertEqual(action.mode, "redirect")
         self.assertIn("lock", action.redirect_reason)
@@ -239,6 +245,7 @@ class HandleRoutingTests(unittest.TestCase):
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_rebalancing_result",
                           new=AsyncMock(return_value=outcome)) as engine, \
+             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="hypothetical")), \
              patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
@@ -277,6 +284,7 @@ class HandleRoutingTests(unittest.TestCase):
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_rebalancing_result",
                           new=AsyncMock(return_value=outcome)) as engine, \
+             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="hypothetical")), \
              patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
@@ -306,6 +314,7 @@ class HandleRoutingTests(unittest.TestCase):
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_rebalancing_result",
                           new=AsyncMock(return_value=outcome)) as engine, \
+             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="hypothetical")), \
              patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
@@ -327,6 +336,7 @@ class HandleRoutingTests(unittest.TestCase):
             recommendation_id=uuid.uuid4(),
             formatted_text="",
         )
+        upsert_mock = AsyncMock()
         with patch.object(mod, "_detect_rebal_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "_load_last_counterfactual_payload",
@@ -336,13 +346,16 @@ class HandleRoutingTests(unittest.TestCase):
                           })), \
              patch.object(mod, "compute_rebalancing_result",
                           new=AsyncMock(return_value=outcome)) as engine, \
+             patch.object(mod, "upsert_awaiting_save", new=upsert_mock), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="Saved. Plan locked in.")), \
              patch("app.services.ai_bridge.rebalancing.chat.build_rebal_facts_pack",
                    return_value={}), \
              patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
                    new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
+            result = asyncio.run(mod.handle(
+                _ctx("save it", last_run=_agent_run(), awaiting_save=True),
+            ))
         kwargs = engine.call_args.kwargs
         self.assertTrue(kwargs.get("persist", False))
         # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
@@ -350,6 +363,10 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertIsNotNone(chat_ctx, "compute_rebalancing_result not called with chat_ctx")
         self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
         self.assertIsNotNone(result.rebalancing_recommendation_id)
+        # State machine: awaiting_save reset to False after successful save.
+        upsert_call = upsert_mock.call_args
+        self.assertIsNotNone(upsert_call, "upsert_awaiting_save not called after save")
+        self.assertEqual(upsert_call.args[2], False)
 
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):
         """save_last_counterfactual with no recent counterfactual returns guidance."""

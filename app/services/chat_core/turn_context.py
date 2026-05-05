@@ -46,6 +46,7 @@ class TurnContext:
     last_agent_runs: dict[str, AgentRunRecord]
     active_intent: str | None
     chat_overrides: dict[str, Any] | None = None
+    awaiting_save: bool = False
 
 
 async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
@@ -56,6 +57,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
     """
     last_runs: dict[str, AgentRunRecord] = {}
     active_intent: str | None = None
+    awaiting_save: bool = False
 
     if turn.db is not None and turn.session_id is not None:
         # Use a savepoint so a failed query (e.g. schema behind ORM, missing columns)
@@ -65,6 +67,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
             async with turn.db.begin_nested():
                 last_runs = await _load_last_agent_runs(turn.db, turn.session_id)
                 active_intent = await _load_active_intent(turn.db, turn.session_id)
+                awaiting_save = await _load_awaiting_save(turn.db, turn.session_id)
         except Exception as exc:
             logger.warning("build_turn_context degraded (%s); using empty context", exc)
 
@@ -79,6 +82,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
         last_agent_runs=last_runs,
         active_intent=active_intent,
         chat_overrides=None,
+        awaiting_save=awaiting_save,
     )
 
 
@@ -120,6 +124,38 @@ async def _load_last_agent_runs(
             created_at=r.created_at,
         )
     return last_by_module
+
+
+async def _load_awaiting_save(
+    db: AsyncSession, session_id: uuid.UUID,
+) -> bool:
+    """Return chat_session_state.awaiting_save for this session, or False if no row."""
+    from app.models.chat_session_state import ChatSessionState
+    stmt = select(ChatSessionState.awaiting_save).where(
+        ChatSessionState.session_id == session_id,
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    return bool(row) if row is not None else False
+
+
+async def upsert_awaiting_save(
+    db: AsyncSession, session_id: uuid.UUID, value: bool,
+) -> None:
+    """Set chat_session_state.awaiting_save for this session. Idempotent.
+
+    Portable across postgres + sqlite (tests): SELECT-then-INSERT-or-UPDATE
+    rather than postgres-specific ON CONFLICT.
+    """
+    from app.models.chat_session_state import ChatSessionState
+    existing = (await db.execute(
+        select(ChatSessionState).where(ChatSessionState.session_id == session_id)
+    )).scalar_one_or_none()
+    if existing is None:
+        db.add(ChatSessionState(session_id=session_id, awaiting_save=value))
+    else:
+        existing.awaiting_save = value
+    await db.flush()
 
 
 async def _load_active_intent(

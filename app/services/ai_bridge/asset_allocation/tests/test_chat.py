@@ -43,7 +43,12 @@ def _agent_run() -> AgentRunRecord:
     )
 
 
-def _ctx(question: str, *, last_alloc: AgentRunRecord | None = None) -> TurnContext:
+def _ctx(
+    question: str,
+    *,
+    last_alloc: AgentRunRecord | None = None,
+    awaiting_save: bool = False,
+) -> TurnContext:
     last_runs = {"asset_allocation": last_alloc} if last_alloc else {}
     return TurnContext(
         user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
@@ -55,6 +60,7 @@ def _ctx(question: str, *, last_alloc: AgentRunRecord | None = None) -> TurnCont
         effective_user_id=uuid.uuid4(),
         last_agent_runs=last_runs,
         active_intent="asset_allocation",
+        awaiting_save=awaiting_save,
     )
 
 
@@ -170,6 +176,7 @@ class CounterfactualExploreTests(unittest.TestCase):
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="hypothetical text")), \
              patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
@@ -253,22 +260,30 @@ class SaveLastCounterfactualTests(unittest.TestCase):
             return _engine_outcome_with_ids()
 
         action = mod.ChatAction(mode="save_last_counterfactual")
+        upsert_mock = AsyncMock()
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "_load_last_counterfactual_overrides",
                           new=AsyncMock(return_value={"effective_risk_score": 7.0})), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch.object(mod, "upsert_awaiting_save", new=upsert_mock), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                    new=AsyncMock(return_value="Saved. Your plan now has risk 7.")), \
              patch("app.services.ai_bridge.answer_formatter.formatter.record_ai_module_run",
                    new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
+            result = asyncio.run(mod.handle(
+                _ctx("save it", last_alloc=_agent_run(), awaiting_save=True),
+            ))
 
         self.assertTrue(captured["persist"])
         # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
         self.assertEqual(captured["chat_ctx_overrides"], {"effective_risk_score": 7.0})
         self.assertIsNotNone(result.snapshot_id)
+        # State machine: awaiting_save reset to False after successful save.
+        upsert_call = upsert_mock.call_args
+        self.assertIsNotNone(upsert_call, "upsert_awaiting_save not called after save")
+        self.assertEqual(upsert_call.args[2], False)
 
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):
         """save_last_counterfactual with no recent counterfactual returns guidance."""
@@ -296,11 +311,13 @@ class CounterfactualCapturesOverridesTests(unittest.TestCase):
 
         action = mod.ChatAction(mode="counterfactual_explore",
                                  overrides={"effective_risk_score": 7.0})
+        upsert_mock = AsyncMock()
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result",
                           new=AsyncMock(return_value=_engine_outcome_with_ids())), \
              patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch.object(mod, "upsert_awaiting_save", new=upsert_mock), \
              patch("app.services.ai_module_telemetry.record_ai_module_run",
                    side_effect=fake_record), \
              patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
@@ -318,6 +335,10 @@ class CounterfactualCapturesOverridesTests(unittest.TestCase):
             (rec.get("input_payload") or {}).get("overrides"),
             {"effective_risk_score": 7.0},
         )
+        # State machine: awaiting_save flipped to True after successful counterfactual.
+        upsert_call = upsert_mock.call_args
+        self.assertIsNotNone(upsert_call, "upsert_awaiting_save not called after counterfactual")
+        self.assertEqual(upsert_call.args[2], True)
 
 
 class RedirectModeTests(unittest.TestCase):

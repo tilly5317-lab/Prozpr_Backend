@@ -6,6 +6,7 @@ Defines a database table mapping, columns, and relationships. Imported by servic
 
 from app.models.chat import ChatMessage, ChatSession
 from app.models.chat_ai_module_run import ChatAiModuleRun
+from app.models.chat_session_state import ChatSessionState
 from app.models.family_member import FamilyMember
 from app.models.fund import Fund
 from app.models.goals import FinancialGoal, GoalContribution, GoalHolding
@@ -43,6 +44,7 @@ __all__ = [
     "ChatAiModuleRun",
     "ChatMessage",
     "ChatSession",
+    "ChatSessionState",
     "CompanyMetadata",
     "FamilyMember",
     "FinancialGoal",

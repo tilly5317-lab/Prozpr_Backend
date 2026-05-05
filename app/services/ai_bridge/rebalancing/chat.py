@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, Literal, Optional
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import build_detect_history_block
+from app.services.ai_bridge.intent_router import classify_action
 from app.services.ai_bridge.rebalancing.service import (
     build_rebal_facts_pack,
     compute_rebalancing_result,
 )
-from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
+from app.services.chat_core.turn_context import (
+    AgentRunRecord,
+    TurnContext,
+    upsert_awaiting_save,
+)
 from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
 from app.services.ai_bridge.rebalancing.overrides import (
@@ -105,10 +107,6 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   in", "lock in", "yes", "yeah do that", "go ahead", "make this my
   plan", "keep this", "do it". No `overrides` field needed — the system
   loads the previous turn's overrides and re-runs with persist=True.
-  Only emit this mode when the IMMEDIATELY PRECEDING turn was a
-  counterfactual_explore; if there's no recent counterfactual in the
-  conversation history, this is misclassified — prefer narrate or
-  redirect.
 - "recompute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
@@ -246,6 +244,13 @@ _DEFAULT_CLARIFY_FALLBACK = (
     "or constraint?"
 )
 
+_NO_PENDING_COUNTERFACTUAL_MESSAGE = (
+    "There's no recent 'what if' to save in this conversation. "
+    "If you'd like to lock in a change, tell me what you'd like "
+    "different (e.g., 'what if I had ₹2L more?') and I'll show "
+    "you the result first — then you can save it."
+)
+
 _NARRATE_DEGRADED_FALLBACK = (
     "I have your latest rebalancing plan but couldn't compose a tailored "
     "explanation right now. Ask me to redo the trades and I'll regenerate "
@@ -347,6 +352,15 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         return await _counterfactual_explore(ctx, action.overrides or {})
 
     if action.mode == "save_last_counterfactual":
+        # State-machine gate: if no counterfactual is pending save in this
+        # session, the classifier guessed wrong. Return guidance instead of
+        # risking a write on stale telemetry.
+        if not ctx.awaiting_save:
+            return ChatHandlerResult(
+                text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
         return await _save_last_counterfactual(ctx)
 
     # narrate / educate / recompute — all go through formatter; recompute also re-runs.
@@ -449,9 +463,9 @@ async def _counterfactual_explore(
             snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
-    # Capture overrides for a potential save_last_counterfactual follow-up.
-    # Best-effort — if the write fails, the customer can still re-state the
-    # constraint to save.
+    # Capture overrides for a potential save_last_counterfactual follow-up,
+    # and mark this session as awaiting save (cross-turn state machine).
+    # Both writes are best-effort — if either fails, the customer can re-state.
     if ctx.db is not None:
         try:
             from app.services.ai_module_telemetry import record_ai_module_run
@@ -469,6 +483,10 @@ async def _counterfactual_explore(
             )
         except Exception as exc:
             logger.warning("counterfactual_overrides_capture_failed: %s", exc)
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, True)
+        except Exception as exc:
+            logger.warning("awaiting_save_upsert_failed: %s", exc)
 
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=outcome.response,
@@ -491,13 +509,10 @@ async def _save_last_counterfactual(
     """
     payload = await _load_last_counterfactual_payload(ctx)
     if payload is None:
+        # Defense-in-depth: state gate said awaiting_save=True, but no
+        # telemetry row found. Same guidance message as the state gate.
         return ChatHandlerResult(
-            text=(
-                "There's no recent 'what if' to save in this conversation. "
-                "If you'd like to lock in a change, tell me what you'd like "
-                "different (e.g., 'what if I had ₹2L more?') and I'll show "
-                "you the result first — then you can save it."
-            ),
+            text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
             snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
@@ -524,6 +539,15 @@ async def _save_last_counterfactual(
             text="I couldn't save that recommendation right now. Please try again.",
             snapshot_id=None, rebalancing_recommendation_id=None,
         )
+
+    # Save succeeded — clear the state-machine flag so a subsequent unrelated
+    # "save it" doesn't re-commit the same recommendation.
+    if ctx.db is not None:
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, False)
+        except Exception as exc:
+            logger.warning("awaiting_save_reset_failed: %s", exc)
+
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
@@ -604,14 +628,7 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
 async def _detect_rebal_action(
     last_run: AgentRunRecord, ctx: TurnContext,
 ) -> RebalanceAction:
-    """One Haiku call returning a RebalanceAction."""
-    api_key = get_settings().get_anthropic_rebalancing_key()
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        max_tokens=300,
-    ).with_structured_output(RebalanceAction)
-
+    """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_run.output_payload)
     snapshot_json = json.dumps(slim, default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
@@ -631,15 +648,12 @@ async def _detect_rebal_action(
         f"Saved rebalancing snapshot (slim):\n{snapshot_json}"
         f"{history_section}"
     )
-    return await _ainvoke(llm, _DETECT_REBAL_SYSTEM, user_block)
+    return await classify_action(
+        action_model=RebalanceAction,
+        system_prompt=_DETECT_REBAL_SYSTEM,
+        user_block=user_block,
+        api_key=get_settings().get_anthropic_rebalancing_key(),
+        max_tokens=300,
+    )
 
 
-async def _ainvoke(llm: Any, system_text: str, user_text: str) -> Any:
-    """Structured-output invocation."""
-    messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-        ]),
-        HumanMessage(content=user_text),
-    ]
-    return await asyncio.to_thread(llm.invoke, messages)
