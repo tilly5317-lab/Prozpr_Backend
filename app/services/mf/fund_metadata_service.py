@@ -3,15 +3,33 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf import MfFundMetadata
+from app.models.mf import MfFundMetadata, MfNavHistory
 from app.schemas.mf import MfFundMetadataCreate, MfFundMetadataUpdate
 from app.services.mf.paging import clamp_skip_limit
+
+# Only expose schemes in list/search when NAV feed has at least one row in this window.
+_RECENT_NAV_LOOKBACK_DAYS = 30
+
+
+def _has_recent_nav():
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RECENT_NAV_LOOKBACK_DAYS)).date()
+    # Correlate so `mf_fund_metadata` in the subquery refers to the outer row only (not a separate scan).
+    inner = (
+        select(MfNavHistory.id)
+        .where(
+            MfNavHistory.scheme_code == MfFundMetadata.scheme_code,
+            MfNavHistory.nav_date >= cutoff,
+        )
+        .correlate(MfFundMetadata)
+    )
+    return exists(inner)
 
 
 async def list_metadata(
@@ -23,7 +41,11 @@ async def list_metadata(
     category: Optional[str] = None,
 ) -> list[MfFundMetadata]:
     skip, limit = clamp_skip_limit(skip, limit)
-    stmt = select(MfFundMetadata).order_by(MfFundMetadata.scheme_code)
+    stmt = (
+        select(MfFundMetadata)
+        .where(_has_recent_nav())
+        .order_by(MfFundMetadata.scheme_code)
+    )
     if scheme_code:
         stmt = stmt.where(MfFundMetadata.scheme_code == scheme_code)
     if category:
@@ -83,7 +105,7 @@ async def search_metadata(
     stmt = select(MfFundMetadata)
     count_stmt = select(func.count(MfFundMetadata.id))
 
-    conditions = []
+    conditions = [_has_recent_nav()]
     if active_only:
         conditions.append(MfFundMetadata.is_active.is_(True))
 

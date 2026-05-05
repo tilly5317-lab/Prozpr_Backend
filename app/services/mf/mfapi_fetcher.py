@@ -72,10 +72,12 @@ _IDCW_RE = re.compile(r"\b(idcw|dividend|payout|reinvest)\b", re.IGNORECASE)
 
 
 def _derive_plan_type(scheme_name: str) -> MfPlanType:
+    """Infer DIRECT vs REGULAR plan from naming patterns."""
     return MfPlanType.DIRECT if _DIRECT_RE.search(scheme_name or "") else MfPlanType.REGULAR
 
 
 def _derive_option_type(scheme_name: str) -> MfOptionType:
+    """Infer GROWTH vs IDCW option from naming patterns; default to GROWTH."""
     name = scheme_name or ""
     if _GROWTH_RE.search(name):
         return MfOptionType.GROWTH
@@ -85,6 +87,7 @@ def _derive_option_type(scheme_name: str) -> MfOptionType:
 
 
 def _coerce_isin(value: object) -> Optional[str]:
+    """Normalize and validate ISIN-like input, returning None when invalid/empty."""
     if not value:
         return None
     s = str(value).strip().upper()
@@ -96,6 +99,7 @@ def _coerce_isin(value: object) -> Optional[str]:
 
 
 async def _request_json(client: httpx.AsyncClient, url: str) -> object:
+    """GET JSON with retry+backoff for transient HTTP/network/parsing failures."""
     last_exc: Optional[Exception] = None
     for attempt in range(1, MFAPI_MAX_RETRIES + 1):
         try:
@@ -115,6 +119,7 @@ async def _request_json(client: httpx.AsyncClient, url: str) -> object:
 
 
 async def fetch_universe(client: httpx.AsyncClient) -> list[UniverseRow]:
+    """Fetch and parse the full MF scheme universe from /mf."""
     payload = await _request_json(client, f"{MFAPI_BASE}/mf")
     if not isinstance(payload, list) or not payload:
         raise MfapiFetchError("mfapi.in /mf returned empty or non-list payload")
@@ -142,6 +147,7 @@ async def fetch_universe(client: httpx.AsyncClient) -> list[UniverseRow]:
 
 
 def _parse_navs(raw: object) -> tuple[list[NavPoint], int]:
+    """Parse raw NAV rows into typed points and count malformed entries."""
     points: list[NavPoint] = []
     errors = 0
     if not isinstance(raw, list):
@@ -160,6 +166,7 @@ def _parse_navs(raw: object) -> tuple[list[NavPoint], int]:
 async def fetch_scheme_detail(
     client: httpx.AsyncClient, scheme_code: str
 ) -> Optional[SchemeDetail]:
+    """Fetch one scheme's meta+NAV history and map it to SchemeDetail."""
     payload = await _request_json(client, f"{MFAPI_BASE}/mf/{scheme_code}")
     if not isinstance(payload, dict):
         raise MfapiFetchError(f"mfapi.in /mf/{scheme_code} returned non-object")
@@ -198,13 +205,14 @@ async def fetch_many_scheme_details(
     *,
     concurrency: int = MFAPI_CONCURRENCY,
 ) -> tuple[list[SchemeDetail], list[str]]:
-    """Fetch many scheme details concurrently. Returns (details, failed_codes)."""
+    """Fetch many scheme details concurrently and return successes with failed codes."""
 
     sem = asyncio.Semaphore(concurrency)
     details: list[SchemeDetail] = []
     failed: list[str] = []
 
     async def _one(code: str) -> None:
+        """Fetch one scheme under semaphore control and record success/failure."""
         async with sem:
             try:
                 detail = await fetch_scheme_detail(client, code)

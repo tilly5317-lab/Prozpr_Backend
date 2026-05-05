@@ -19,6 +19,7 @@ from app.schemas.mf.fund_metadata import (
     MfNavChartPoint,
     MfNavDerivedReturns,
 )
+from app.services.mf.nav_history_service import get_latest_nav_with_source_fallback
 
 CHART_LOOKBACK_DAYS = 800
 CHART_MAX_POINTS = 120
@@ -68,13 +69,8 @@ async def _nav_on_or_before(
 
 
 async def _latest_nav(db: AsyncSession, scheme_code: str) -> Optional[MfNavHistory]:
-    stmt = (
-        select(MfNavHistory)
-        .where(MfNavHistory.scheme_code == scheme_code)
-        .order_by(MfNavHistory.nav_date.desc())
-        .limit(1)
-    )
-    return (await db.execute(stmt)).scalar_one_or_none()
+    # Priority path for fund detail: if DB NAV is stale/missing, fetch from source now.
+    return await get_latest_nav_with_source_fallback(db, scheme_code)
 
 
 async def _first_nav(db: AsyncSession, scheme_code: str) -> Optional[MfNavHistory]:
