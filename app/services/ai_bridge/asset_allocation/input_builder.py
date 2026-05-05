@@ -3,15 +3,19 @@
 Reads from persisted DB rows only — no call into ``risk_profiling.scoring``.
 When an ``effective_risk_assessments`` row is absent, falls back to score 7.0.
 
-Entry: ``build_goal_allocation_input_for_user(user)`` → ``(AllocationInput, debug)``.
+Entry: ``build_goal_allocation_input_for_user(ctx)`` → ``(AllocationInput, debug)``.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from app.services.ai_bridge.common import ensure_ai_agents_path
+from app.services.ai_bridge.asset_allocation.overrides import effective_param
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 
 ensure_ai_agents_path()
 
@@ -105,12 +109,13 @@ def _map_goals(financial_goals: List[Any], total_corpus: float) -> List[Goal]:
 
 
 def build_goal_allocation_input_for_user(
-    user: Any,
+    ctx: TurnContext,
 ) -> tuple[AllocationInput, Dict[str, Any]]:
-    """Return ``(AllocationInput, debug)`` for a User ORM row.
+    """Return ``(AllocationInput, debug)`` for the User in ``ctx.user_ctx``.
 
     Raises ``ValueError("missing_date_of_birth")`` when DOB is absent.
     """
+    user = ctx.user_ctx
     if getattr(user, "date_of_birth", None) is None:
         raise ValueError("missing_date_of_birth")
 
@@ -185,34 +190,30 @@ def build_goal_allocation_input_for_user(
         ]
     )
 
-    # Counterfactual override path: chat-only, transient attributes set by
-    # asset_allocation/chat.py. Each one overrides a specific AllocationInput field.
-    _risk_override = getattr(user, "_chat_risk_score_override", None)
+    # Counterfactual override path: chat-only, read from ctx.chat_overrides.
+    # additional_cash_inr is additive; the others replace.
+    _risk_override = effective_param(ctx, "effective_risk_score", None)
     if _risk_override is not None:
         effective_risk_score = _clamp_score(float(_risk_override))
 
-    _corpus_override = getattr(user, "_chat_total_corpus_override", None)
+    _corpus_override = effective_param(ctx, "total_corpus", None)
     if _corpus_override is not None:
         total_corpus = float(_corpus_override)
 
-    # additional_cash_inr is a relative override — adds to whatever total_corpus
-    # is at this point (baseline OR the absolute override above). Used by both
-    # AA chat ("what if I had ₹2L more?") and rebalancing chat (forwards to AA
-    # when the customer asks the same question against a trade list).
-    _additional_cash = getattr(user, "_chat_additional_cash_override", None)
+    _additional_cash = effective_param(ctx, "additional_cash_inr", None)
     if _additional_cash is not None:
         total_corpus = total_corpus + float(_additional_cash)
 
-    _income_override = getattr(user, "_chat_annual_income_override", None)
+    _income_override = effective_param(ctx, "annual_income", None)
     if _income_override is not None:
         annual_income = float(_income_override)
 
-    _expense_override = getattr(user, "_chat_monthly_expense_override", None)
+    _expense_override = effective_param(ctx, "monthly_household_expense", None)
     if _expense_override is not None:
         monthly_household_expense = float(_expense_override)
 
-    _emergency_override = getattr(user, "_chat_emergency_fund_needed_override", None)
-    _tax_regime_override = getattr(user, "_chat_tax_regime_override", None)
+    _emergency_override = effective_param(ctx, "emergency_fund_needed", None)
+    _tax_regime_override = effective_param(ctx, "tax_regime", None)
 
     # Snap corpus down to a multiple of 100. The asset_allocation pipeline
     # asserts every subgroup amount is a non-negative multiple of 100

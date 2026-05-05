@@ -160,7 +160,8 @@ class CounterfactualExploreTests(unittest.TestCase):
         async def fake_compute(user, question, **kwargs):
             captured["persist"] = kwargs.get("persist_recommendation")
             captured["db"] = kwargs.get("db")
-            captured["risk_override_seen"] = getattr(user, "_chat_risk_score_override", None)
+            chat_ctx = kwargs.get("chat_ctx")
+            captured["chat_ctx_overrides"] = chat_ctx.chat_overrides if chat_ctx else None
             return _engine_outcome_with_ids()
 
         action = mod.ChatAction(mode="counterfactual_explore",
@@ -178,7 +179,8 @@ class CounterfactualExploreTests(unittest.TestCase):
         self.assertEqual(result.text, "hypothetical text")
         self.assertFalse(captured["persist"])
         self.assertIsNone(captured["db"])
-        self.assertEqual(captured["risk_override_seen"], 7.0)
+        # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
+        self.assertEqual(captured["chat_ctx_overrides"], {"effective_risk_score": 7.0})
         self.assertIsNone(result.snapshot_id)
 
     def test_counterfactual_with_invalid_override_falls_to_redirect(self):
@@ -246,7 +248,8 @@ class SaveLastCounterfactualTests(unittest.TestCase):
 
         async def fake_compute(user, question, **kwargs):
             captured["persist"] = kwargs.get("persist_recommendation")
-            captured["risk_override_seen"] = getattr(user, "_chat_risk_score_override", None)
+            chat_ctx = kwargs.get("chat_ctx")
+            captured["chat_ctx_overrides"] = chat_ctx.chat_overrides if chat_ctx else None
             return _engine_outcome_with_ids()
 
         action = mod.ChatAction(mode="save_last_counterfactual")
@@ -263,7 +266,8 @@ class SaveLastCounterfactualTests(unittest.TestCase):
             result = asyncio.run(mod.handle(_ctx("save it", last_alloc=_agent_run())))
 
         self.assertTrue(captured["persist"])
-        self.assertEqual(captured["risk_override_seen"], 7.0)
+        # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
+        self.assertEqual(captured["chat_ctx_overrides"], {"effective_risk_score": 7.0})
         self.assertIsNotNone(result.snapshot_id)
 
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):

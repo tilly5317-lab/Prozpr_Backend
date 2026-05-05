@@ -12,10 +12,13 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 
 from app.models.rebalancing import RebalancingRecommendation, RecommendationType
 from app.services.ai_bridge.asset_allocation.service import (
@@ -278,6 +281,7 @@ async def compute_rebalancing_result(
     chat_session_id: Optional[uuid.UUID],
     persist: bool = True,
     force_fresh_allocation: bool = False,
+    chat_ctx: "TurnContext | None" = None,
 ) -> RebalancingRunOutcome:
     """Top-level orchestrator: cache → builder → engine → persist → format.
 
@@ -288,9 +292,9 @@ async def compute_rebalancing_result(
     outcome shape; ``recommendation_id`` is None.
 
     When ``force_fresh_allocation=True``, the AA cache lookup is skipped and
-    AA is always re-run inline. Used when the chat layer has set transient
-    AA overrides (e.g., ``_chat_additional_cash_override``) that the cached
-    AA result wouldn't reflect.
+    AA is always re-run inline. Used when the chat layer has set chat_ctx
+    overrides (e.g., ``additional_cash_inr``) that the cached AA result
+    wouldn't reflect.
     """
     trace_line("module: rebalancing — start")
 
@@ -302,6 +306,22 @@ async def compute_rebalancing_result(
     if not await _user_has_mf_holdings(db, acting_user_id):
         return RebalancingRunOutcome(
             response=None, blocking_message=_MSG_NO_HOLDINGS,
+        )
+
+    if chat_ctx is None:
+        from app.services.chat_core.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+
+        chat_ctx = TurnContext(
+            user_ctx=user,
+            user_question=user_question,
+            conversation_history=[],
+            client_context=None,
+            session_id=chat_session_id or uuid.uuid4(),
+            db=db,
+            effective_user_id=acting_user_id,
+            last_agent_runs={},
+            active_intent=None,
+            chat_overrides=None,
         )
 
     if force_fresh_allocation:
@@ -328,6 +348,7 @@ async def compute_rebalancing_result(
             acting_user_id=acting_user_id,
             chat_session_id=chat_session_id,
             spine_mode="rebalance_chained",
+            chat_ctx=chat_ctx,
         )
         if alloc_outcome.blocking_message is not None:
             return RebalancingRunOutcome(
@@ -344,7 +365,7 @@ async def compute_rebalancing_result(
 
     try:
         request, debug = await build_rebalancing_input_for_user(
-            user, cached_output, db,
+            chat_ctx, cached_output,
         )
     except Exception as exc:
         logger.exception("rebalancing input builder failed: %s", exc)

@@ -45,6 +45,7 @@ class TurnContext:
     effective_user_id: uuid.UUID
     last_agent_runs: dict[str, AgentRunRecord]
     active_intent: str | None
+    chat_overrides: dict[str, Any] | None = None
 
 
 async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
@@ -77,6 +78,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
         effective_user_id=turn.effective_user_id,
         last_agent_runs=last_runs,
         active_intent=active_intent,
+        chat_overrides=None,
     )
 
 

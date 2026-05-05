@@ -12,7 +12,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,9 @@ from app.config import get_settings
 from app.services.ai_bridge.common import format_inr_indian, trace_line
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.ai_module_telemetry import record_ai_module_run
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 
 ensure_ai_agents_path()
 
@@ -501,16 +504,32 @@ async def compute_allocation_result(
     acting_user_id: uuid.UUID | None = None,
     chat_session_id: uuid.UUID | None = None,
     spine_mode: str | None = None,
+    chat_ctx: TurnContext | None = None,
 ) -> AllocationRunOutcome:
     """Build inputs, run the 7-step pipeline, optionally persist, and return."""
-    del user_question  # reserved for future carve-out hints from chat
     trace_line("module: asset_allocation — building inputs")
 
     if getattr(user, "date_of_birth", None) is None:
         return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 
+    if chat_ctx is None:
+        from app.services.chat_core.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+
+        chat_ctx = TurnContext(
+            user_ctx=user,
+            user_question=user_question,
+            conversation_history=[],
+            client_context=None,
+            session_id=chat_session_id or uuid.uuid4(),
+            db=db,
+            effective_user_id=acting_user_id or getattr(user, "id", uuid.uuid4()),
+            last_agent_runs={},
+            active_intent=None,
+            chat_overrides=None,
+        )
+
     try:
-        alloc_input, build_debug = build_goal_allocation_input_for_user(user)
+        alloc_input, build_debug = build_goal_allocation_input_for_user(chat_ctx)
     except ValueError:
         return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 

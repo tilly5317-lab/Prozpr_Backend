@@ -1,10 +1,10 @@
-"""Materialise a RebalancingComputeRequest from User + GoalAllocationOutput + DB."""
+"""Materialise a RebalancingComputeRequest from TurnContext + GoalAllocationOutput."""
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.mf.mf_fund_metadata import MfFundMetadata
 from app.models.mf.mf_nav_history import MfNavHistory
 from app.models.profile.tax_profile import TaxProfile
-from app.models.user import User
 from app.services.ai_bridge.common import ensure_ai_agents_path
+from app.services.ai_bridge.rebalancing.overrides import effective_param
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 from app.services.ai_bridge.rebalancing.fund_rank import FundRankRow, get_fund_ranking
 from app.services.ai_bridge.rebalancing.holdings_ledger import (
     HoldingLedgerEntry,
@@ -171,11 +174,12 @@ def _build_row(
 
 
 async def build_rebalancing_input_for_user(
-    user: User,
+    ctx: "TurnContext",
     allocation_output: GoalAllocationOutput,
-    db: AsyncSession,
 ) -> tuple[RebalancingComputeRequest, dict[str, Any]]:
     """Return ``(request, debug_dict)`` for ``run_rebalancing(...)``."""
+    user = ctx.user_ctx
+    db = ctx.db
     asof = date.today()
 
     # 1. Holdings ledger.
@@ -273,14 +277,12 @@ async def build_rebalancing_input_for_user(
     )).scalar_one_or_none()
     tax_inputs = _resolve_tax_inputs(tax_profile)
 
-    # 8b. Optional counterfactual-explore overrides set as transient
-    # ``_chat_rebal_*_override`` attrs on the user object by the chat handler
-    # (see app/services/ai_bridge/rebalancing/chat.py). When None, fall back
-    # to the resolved tax-profile values.
-    tax_rate_override = getattr(user, "_chat_rebal_tax_rate_override", None)
-    stcg_budget_override = getattr(user, "_chat_rebal_stcg_budget_override", None)
-    carryforward_st_override = getattr(user, "_chat_rebal_carryforward_st_override", None)
-    carryforward_lt_override = getattr(user, "_chat_rebal_carryforward_lt_override", None)
+    # 8b. Optional counterfactual-explore overrides — read from ctx.chat_overrides.
+    # When None, fall back to the resolved tax-profile values.
+    tax_rate_override = effective_param(ctx, "effective_tax_rate", None)
+    stcg_budget_override = effective_param(ctx, "stcg_offset_budget_inr", None)
+    carryforward_st_override = effective_param(ctx, "carryforward_st_loss_inr", None)
+    carryforward_lt_override = effective_param(ctx, "carryforward_lt_loss_inr", None)
 
     request = RebalancingComputeRequest(
         total_corpus=total_corpus,

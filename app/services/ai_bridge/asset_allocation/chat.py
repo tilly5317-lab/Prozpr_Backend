@@ -45,6 +45,10 @@ from app.services.ai_bridge.common import (
     trace_line,
 )
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
+from app.services.ai_bridge.asset_allocation.overrides import (
+    _ALLOWED_OVERRIDE_KEYS,
+    with_chat_overrides,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,22 +84,6 @@ class ChatAction(BaseModel):
         description="When mode='redirect', a short description of what the user wants.",
     )
 
-
-# ---------------------------------------------------------------------------
-# Override allow-list
-# ---------------------------------------------------------------------------
-
-# Maps ChatAction.overrides keys → transient User attribute names that
-# input_builder reads.
-_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
-    "effective_risk_score":      "_chat_risk_score_override",
-    "total_corpus":              "_chat_total_corpus_override",
-    "additional_cash_inr":       "_chat_additional_cash_override",
-    "annual_income":             "_chat_annual_income_override",
-    "monthly_household_expense": "_chat_monthly_expense_override",
-    "emergency_fund_needed":     "_chat_emergency_fund_needed_override",
-    "tax_regime":                "_chat_tax_regime_override",
-}
 
 _REDIRECT_TEMPLATE = (
     "To {reason}, head to your **Profile** section and update the relevant "
@@ -429,19 +417,16 @@ async def _counterfactual_explore(
     if not overrides or not _validate_overrides(overrides):
         return ChatHandlerResult(text=_INVALID_OVERRIDE_TEMPLATE)
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_allocation_result(
-            user, ctx.user_question,
-            db=None,                          # NO writes
-            persist_recommendation=False,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            spine_mode="counterfactual",
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_allocation_result(
+        ctx.user_ctx, ctx.user_question,
+        db=None,                          # NO writes
+        persist_recommendation=False,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        spine_mode="counterfactual",
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -501,19 +486,16 @@ async def _save_last_counterfactual(
             )
         )
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_allocation_result(
-            user, ctx.user_question,
-            db=ctx.db,                        # persist
-            persist_recommendation=ctx.db is not None,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            spine_mode="full",
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_allocation_result(
+        ctx.user_ctx, ctx.user_question,
+        db=ctx.db,                        # persist
+        persist_recommendation=ctx.db is not None,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        spine_mode="full",
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -572,26 +554,7 @@ async def _load_last_counterfactual_overrides(
 
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
-    return all(k in _OVERRIDE_KEY_TO_USER_ATTR for k in overrides.keys())
-
-
-def _apply_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key, val in overrides.items():
-        attr = _OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        setattr(user, attr, val)
-
-
-def _clear_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key in overrides.keys():
-        attr = _OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        try:
-            delattr(user, attr)
-        except AttributeError:
-            pass
+    return all(k in _ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
 
 
 # ---------------------------------------------------------------------------
