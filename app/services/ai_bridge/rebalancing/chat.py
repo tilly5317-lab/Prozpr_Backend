@@ -21,6 +21,10 @@ from app.services.ai_bridge.rebalancing.service import (
 from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
 from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
+from app.services.ai_bridge.rebalancing.overrides import (
+    _REBAL_ALLOWED_OVERRIDE_KEYS,
+    with_chat_overrides,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +54,6 @@ class RebalanceAction(BaseModel):
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
 
-
-# Maps RebalanceAction.overrides keys → transient User attribute names that
-# input_builder reads. Mirrors AA's _OVERRIDE_KEY_TO_USER_ATTR pattern.
-_REBAL_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
-    "effective_tax_rate":        "_chat_rebal_tax_rate_override",
-    "stcg_offset_budget_inr":    "_chat_rebal_stcg_budget_override",
-    "carryforward_st_loss_inr":  "_chat_rebal_carryforward_st_override",
-    "carryforward_lt_loss_inr":  "_chat_rebal_carryforward_lt_override",
-    # additional_cash_inr forwards to AA's same-named user attr — AA's
-    # input_builder reads it and adjusts the corpus before producing the
-    # allocation that rebalancing then runs against. See
-    # asset_allocation/input_builder.py for the read site.
-    "additional_cash_inr":       "_chat_additional_cash_override",
-}
 
 _INVALID_OVERRIDE_TEMPLATE = (
     "I can only run 'what if' scenarios on a small set of inputs from chat "
@@ -414,26 +404,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
-    return all(k in _REBAL_OVERRIDE_KEY_TO_USER_ATTR for k in overrides.keys())
-
-
-def _apply_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key, val in overrides.items():
-        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        setattr(user, attr, val)
-
-
-def _clear_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key in overrides.keys():
-        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        try:
-            delattr(user, attr)
-        except AttributeError:
-            pass
+    return all(k in _REBAL_ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
 
 
 async def _counterfactual_explore(
@@ -453,24 +424,21 @@ async def _counterfactual_explore(
             rebalancing_recommendation_id=None,
         )
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
     # AA-affecting overrides (currently: additional_cash_inr) require the AA
     # cache to be skipped so AA re-runs with the override applied. Tax-only
     # overrides don't change AA's output; cache is fine.
     needs_fresh_aa = "additional_cash_inr" in overrides
-    try:
-        outcome = await compute_rebalancing_result(
-            user=user,
-            user_question=ctx.user_question,
-            db=ctx.db,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
-            force_fresh_allocation=needs_fresh_aa,
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    outcome = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
+        force_fresh_allocation=needs_fresh_aa,
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
@@ -536,20 +504,17 @@ async def _save_last_counterfactual(
     overrides = payload.get("overrides", {})
     needs_fresh_aa = bool(payload.get("needs_fresh_aa", False))
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_rebalancing_result(
-            user=user,
-            user_question=ctx.user_question,
-            db=ctx.db,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            persist=True,    # commit
-            force_fresh_allocation=needs_fresh_aa,
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=True,    # commit
+        force_fresh_allocation=needs_fresh_aa,
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,

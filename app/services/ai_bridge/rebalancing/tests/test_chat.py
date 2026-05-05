@@ -252,6 +252,10 @@ class HandleRoutingTests(unittest.TestCase):
         engine.assert_called_once()
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("persist", True))
+        # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
+        chat_ctx = kwargs.get("chat_ctx")
+        self.assertIsNotNone(chat_ctx, "compute_rebalancing_result not called with chat_ctx")
+        self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
         # No persist → no recommendation_id, no snapshot_id
         self.assertIsNone(result.rebalancing_recommendation_id)
         self.assertIsNone(result.snapshot_id)
@@ -341,6 +345,10 @@ class HandleRoutingTests(unittest.TestCase):
             result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
         kwargs = engine.call_args.kwargs
         self.assertTrue(kwargs.get("persist", False))
+        # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
+        chat_ctx = kwargs.get("chat_ctx")
+        self.assertIsNotNone(chat_ctx, "compute_rebalancing_result not called with chat_ctx")
+        self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
         self.assertIsNotNone(result.rebalancing_recommendation_id)
 
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):
