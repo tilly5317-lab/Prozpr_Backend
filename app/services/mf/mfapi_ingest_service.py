@@ -85,12 +85,14 @@ _NAV_CHUNK = 1000
 
 
 def _truncate(value: Optional[str], length: int) -> Optional[str]:
+    """Trim string fields to DB-safe lengths while preserving None."""
     if value is None:
         return None
     return value[:length] if len(value) > length else value
 
 
 def _split_category(scheme_category: str) -> tuple[str, Optional[str]]:
+    """Split category into (category, sub_category) using ' - ' when present."""
     if not scheme_category:
         return "Unknown", None
     if " - " in scheme_category:
@@ -103,6 +105,7 @@ async def _resolve_universe_codes(
     client: httpx.AsyncClient,
     scheme_codes: Optional[list[str]],
 ) -> list[str]:
+    """Use explicit scheme codes if provided, otherwise fetch all universe codes."""
     if scheme_codes:
         return [str(c).strip() for c in scheme_codes if str(c).strip()]
     universe = await fetch_universe(client)
@@ -141,6 +144,7 @@ async def _universe_codes_after_last_in_db(
 async def _high_water_marks(
     db: AsyncSession, scheme_codes: list[str]
 ) -> dict[str, date]:
+    """Return per-scheme latest NAV date to support incremental inserts."""
     if not scheme_codes:
         return {}
     rows = await db.execute(
@@ -156,6 +160,7 @@ async def _high_water_marks(
 async def _existing_scheme_codes(
     db: AsyncSession, scheme_codes: Iterable[str]
 ) -> set[str]:
+    """Fetch the subset of provided scheme codes that already exist in metadata."""
     codes = list(scheme_codes)
     if not codes:
         return set()
@@ -197,6 +202,7 @@ def _dedup_isin(
 
 
 def _build_metadata_row(detail: SchemeDetail) -> dict:
+    """Map one fetched scheme detail into an mf_fund_metadata upsert row."""
     category, sub_category = _split_category(detail.scheme_category)
     return {
         "scheme_code": _truncate(detail.scheme_code, 20) or detail.scheme_code,
@@ -219,6 +225,7 @@ async def _upsert_metadata(
     *,
     dry_run: bool,
 ) -> tuple[int, int]:
+    """Upsert fund metadata in chunks and return estimated (inserted, updated) counts."""
     inserted = 0
     updated = 0
     if not details:
@@ -260,6 +267,7 @@ def _build_nav_rows(
     *,
     since_exclusive: Optional[date],
 ) -> list[dict]:
+    """Build NAV insert rows for one scheme, optionally filtering old dates."""
     mf_type = " | ".join(p for p in (detail.scheme_type, detail.scheme_category) if p) or "Unknown"
     out: list[dict] = []
     for point in detail.navs:
@@ -286,7 +294,7 @@ async def _insert_navs(
     mode: IngestMode,
     dry_run: bool,
 ) -> tuple[int, int, int]:
-    """Returns (inserted_count, skipped_duplicate_count, candidate_count)."""
+    """Insert NAV rows in chunks and return (inserted, skipped_duplicates, candidates)."""
     candidate_rows: list[dict] = []
     for d in details:
         since = high_water.get(d.scheme_code) if mode is IngestMode.INCREMENTAL else None
@@ -322,6 +330,7 @@ async def ingest_mfapi(
     resume_from_last_in_db: bool = False,
     metadata_only: bool = False,
 ) -> MfapiIngestResult:
+    """Run end-to-end mfapi ingest: fetch, dedup, upsert metadata, and insert NAVs."""
     started_at = datetime.now(timezone.utc)
     result = MfapiIngestResult(
         mode=mode.value, started_at=started_at, finished_at=started_at, dry_run=dry_run
