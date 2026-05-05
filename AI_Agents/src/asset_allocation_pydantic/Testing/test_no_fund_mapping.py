@@ -12,11 +12,7 @@ import json
 import pytest
 
 from asset_allocation_pydantic import AllocationInput, Goal, run_allocation
-from asset_allocation_pydantic.steps._rationale_llm import _fallback_response
-
-
-def _no_llm(_client_summary, bucket_allocations, _aggregated_subgroups):
-    return _fallback_response(bucket_allocations)
+from asset_allocation_pydantic.steps._rationale_llm import no_llm_rationale_fn
 
 
 def _profile_with_long_term_goal() -> AllocationInput:
@@ -79,7 +75,7 @@ def _profile_with_mixed_horizons() -> AllocationInput:
 
 @pytest.fixture(params=[_profile_with_long_term_goal, _profile_with_mixed_horizons])
 def output(request):
-    return run_allocation(request.param(), rationale_fn=_no_llm)
+    return run_allocation(request.param(), rationale_fn=no_llm_rationale_fn)
 
 
 _FORBIDDEN_KEYS = {
