@@ -95,10 +95,13 @@ async def _run() -> None:
                 print(f"  -- {label:24} (no match)")
         print(f"\nFOUND {len(found)} of {len(PATTERNS)}")
         # de-dup by scheme_code
-        seen = set(); uniq = []
+        seen = set()
+        uniq = []
         for f in found:
-            if f[1] in seen: continue
-            seen.add(f[1]); uniq.append(f)
+            if f[1] in seen:
+                continue
+            seen.add(f[1])
+            uniq.append(f)
         print(f"UNIQUE schemes: {len(uniq)}")
     await dispose_engine()
 

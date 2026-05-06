@@ -1,6 +1,7 @@
 """Sanity check: NAV growth for the funds we picked over the last 24 months."""
 from __future__ import annotations
-import asyncio, sys
+import asyncio
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 

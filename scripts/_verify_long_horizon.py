@@ -7,7 +7,8 @@ For each profile, prints:
 - Min/max history dates and value range.
 """
 from __future__ import annotations
-import asyncio, sys
+import asyncio
+import sys
 from datetime import date
 from pathlib import Path
 
