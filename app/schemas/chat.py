@@ -45,7 +45,6 @@ class ChatMessageResponse(BaseModel):
     intent: Optional[str] = None
     intent_confidence: Optional[float] = None
     intent_reasoning: Optional[str] = None
-    chart_payloads: Optional[list[dict[str, Any]]] = None
     created_at: datetime
 
 

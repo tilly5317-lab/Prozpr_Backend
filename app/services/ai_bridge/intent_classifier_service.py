@@ -20,7 +20,12 @@ from intent_classifier import (
     IntentClassifier,
 )
 from intent_classifier.models import Intent
-from intent_classifier.prompts import OUT_OF_SCOPE_MESSAGE, SYSTEM_PROMPT
+from intent_classifier.prompts import (
+    GOAL_PLANNING_MESSAGE,
+    OUT_OF_SCOPE_MESSAGE,
+    STOCK_ADVICE_MESSAGE,
+    SYSTEM_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +133,40 @@ async def _classify_via_openai(
     )
 
 
+def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Drop (user, assistant) pairs where the assistant returned a canned redirect.
+
+    The classifier reads recent history; if a refusal-style redirect sits in
+    there (out_of_scope, goal_planning-not-yet-built, or stock_advice-redirect),
+    the LLM anchors on it and biases subsequent turns toward the same refusal.
+    Other agents still see the full history — this trim is classifier-only.
+    """
+    # Lazily import the tailored OOS replies + the goal-planning sentinel so
+    # we don't pull in the LLM-call modules at classifier import time.
+    from app.services.ai_bridge.general_chat_service import _OOS_REPLIES_BY_SUBREASON
+    from app.services.chat_core.brain import _GOAL_PLANNING_SENTINEL
+
+    canned_prefixes = (
+        OUT_OF_SCOPE_MESSAGE,
+        GOAL_PLANNING_MESSAGE,
+        STOCK_ADVICE_MESSAGE,
+        *(_OOS_REPLIES_BY_SUBREASON.values()),
+    )
+    drop: set[int] = set()
+    for i, m in enumerate(history):
+        content = m.get("content") or ""
+        if m.get("role") != "assistant":
+            continue
+        is_canned = any(content.startswith(p) for p in canned_prefixes) or (
+            _GOAL_PLANNING_SENTINEL in content
+        )
+        if is_canned:
+            drop.add(i)
+            if i > 0 and history[i - 1].get("role") == "user":
+                drop.add(i - 1)
+    return [m for i, m in enumerate(history) if i not in drop]
+
+
 async def classify_user_message(
     customer_question: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -140,9 +179,10 @@ async def classify_user_message(
     toward returning the same intent on follow-ups. Raises ``ValueError`` if
     the string is not a valid ``Intent`` enum value.
     """
+    filtered_history = _strip_canned_redirect_turns(conversation_history or [])
     history = [
         ConversationMessage(role=m["role"], content=m["content"])
-        for m in (conversation_history or [])
+        for m in filtered_history
     ]
     active = Intent(active_intent) if active_intent else None
     try:
@@ -153,7 +193,7 @@ async def classify_user_message(
 
     # NOTE: active_intent is intentionally not forwarded to the OpenAI fallback;
     # the bias is a small loss when the system is already degraded to recovery.
-    return await _classify_via_openai(customer_question, conversation_history)
+    return await _classify_via_openai(customer_question, filtered_history)
 
 
 def format_intent_response(result: ClassificationResult) -> str:

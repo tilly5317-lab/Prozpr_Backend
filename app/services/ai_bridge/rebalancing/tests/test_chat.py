@@ -75,7 +75,7 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
         "compute_rebalancing_result",
         AsyncMock(return_value=fake_outcome),
     )
-    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _: {})
+    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
 
     with patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                new=AsyncMock(return_value="OK plan")), \
@@ -120,7 +120,7 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
         rb_chat, "compute_rebalancing_result",
         AsyncMock(return_value=fake),
     )
-    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _: {})
+    monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
 
     with patch("app.services.ai_bridge.answer_formatter.formatter.format_answer",
                new=AsyncMock(return_value="ok")), \

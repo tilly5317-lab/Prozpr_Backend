@@ -11,7 +11,6 @@ and formats the reply for chat.
 - `market_commentary_service.py` — `generate_market_commentary`; wraps market commentary agent.
 - `general_chat_service.py` — `generate_general_chat_response`; general-chat reply generator.
 - `portfolio_query_service.py` — `generate_portfolio_query_response`; wraps portfolio query agent.
-- `chart_selector_service.py` — caller for the `chart_selector` agent; runs in parallel with text generation against the live catalogue from `app/services/visualization_tools/registry.CHART_TOOLS`.
 - `chat_dispatcher.py` — per-intent chat handler registry (`@register`, `dispatch_chat`).
 - `ailax_flow.py` — `detect_spine_mode`, `build_ailax_spine`; portfolio spine orchestration.
 - `__init__.py` — re-exports bridge entry points consumed by `chat_core`.
@@ -44,8 +43,7 @@ and formats the reply for chat.
 ## Depends on
 
 - `AI_Agents/src/*` — each bridge calls into one agent (intent, market commentary,
-  portfolio query, allocation, rebalancing, chart_selector).
-- `app/services/visualization_tools/registry` — `chart_selector_service` reads `CHART_TOOLS`.
+  portfolio query, allocation, rebalancing).
 - `app/models/*` — reads ORM User / portfolio / goals data.
 
 ## Tests

@@ -26,6 +26,7 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
             selectinload(User.effective_risk_assessment),
             selectinload(User.tax_profile),
             selectinload(User.financial_goals),
+            selectinload(User.mf_transactions),
             selectinload(User.portfolios).selectinload(Portfolio.allocations),
             selectinload(User.portfolios)
             .selectinload(Portfolio.holdings)

@@ -161,11 +161,19 @@ async def upsert_awaiting_save(
 async def _load_active_intent(
     db: AsyncSession, session_id: uuid.UUID,
 ) -> str | None:
-    """Most-recent intent_detected for this session, regardless of module."""
+    """Most-recent intent_detected for this session, excluding canned-redirect intents.
+
+    out_of_scope, goal_planning, and stock_advice all surface a canned redirect
+    rather than engaging with the user's real topic. Feeding any of them back
+    as active_intent biases the classifier to keep refusing/redirecting on the
+    next turn, which mis-routes legitimate follow-ups.
+    """
+    canned_redirect_intents = ("out_of_scope", "goal_planning", "stock_advice")
     stmt = (
         select(ChatAiModuleRun.intent_detected)
         .where(ChatAiModuleRun.session_id == session_id)
         .where(ChatAiModuleRun.intent_detected.isnot(None))
+        .where(ChatAiModuleRun.intent_detected.notin_(canned_redirect_intents))
         .order_by(ChatAiModuleRun.created_at.desc())
         .limit(1)
     )

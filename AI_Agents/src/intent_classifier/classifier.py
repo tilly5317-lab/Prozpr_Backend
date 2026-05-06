@@ -6,12 +6,18 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from .models import ClassificationInput, ClassificationResult, ConversationMessage, Intent
+from .models import (
+    ClassificationInput,
+    ClassificationResult,
+    ConversationMessage,
+    Intent,
+    OutOfScopeSubreason,
+)
 from .prompts import GOAL_PLANNING_MESSAGE, OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
 
 load_dotenv()
 
-_MAX_HISTORY_MESSAGES = 6
+_MAX_HISTORY_MESSAGES = 12
 
 
 # NOTE: keep ``_IntentLiteral`` in sync with the ``Intent`` enum in
@@ -27,6 +33,15 @@ _IntentLiteral = Literal[
     "general_market_query",
     "rebalancing",
     "out_of_scope",
+]
+
+_OutOfScopeSubreasonLiteral = Literal[
+    "gibberish",
+    "identity_or_meta",
+    "security_or_credentials",
+    "chat_summary",
+    "off_topic",
+    "other",
 ]
 
 
@@ -45,6 +60,13 @@ class _LLMOutput(BaseModel):
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
     )
     reasoning: str = Field(description="One or two sentences explaining why this intent was chosen.")
+    out_of_scope_subreason: Optional[_OutOfScopeSubreasonLiteral] = Field(
+        default=None,
+        description=(
+            "Required when intent='out_of_scope': one of gibberish, identity_or_meta, "
+            "security_or_credentials, chat_summary, off_topic, other. Null otherwise."
+        ),
+    )
 
 
 def _format_history(history: list[ConversationMessage]) -> str:
@@ -134,10 +156,19 @@ class IntentClassifier:
             Intent.STOCK_ADVICE:  STOCK_ADVICE_MESSAGE,
         }
 
+        subreason: Optional[OutOfScopeSubreason] = None
+        if intent == Intent.OUT_OF_SCOPE:
+            subreason = (
+                OutOfScopeSubreason(raw.out_of_scope_subreason)
+                if raw.out_of_scope_subreason
+                else OutOfScopeSubreason.OTHER
+            )
+
         return ClassificationResult(
             intent=intent,
             confidence=raw.confidence,
             is_follow_up=raw.is_follow_up,
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
+            out_of_scope_subreason=subreason,
         )
