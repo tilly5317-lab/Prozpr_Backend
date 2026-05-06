@@ -22,6 +22,8 @@ from sqlalchemy.engine import make_url
 from app.config import get_settings
 from app.database import apply_postgres_schema_patches, create_all_tables, dispose_engine
 from app.routers import all_routers
+from app.routers.tags import OPENAPI_TAG_METADATA
+from app.services.mf.mfapi_scheduler import shutdown_scheduler, start_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,17 +52,31 @@ async def lifespan(application: FastAPI):
             )
         elif parsed.drivername.startswith("sqlite"):
             logger.warning("Database engine: sqlite (ALLOW_SQLITE dev mode only)")
-        await create_all_tables()
-        try:
-            await apply_postgres_schema_patches()
-        except Exception as patch_exc:
-            logger.warning(
-                "Postgres schema patches failed (check DB permissions / table chat_ai_module_runs): %s",
-                patch_exc,
+        if get_settings().skip_startup_db_ddl():
+            logger.info(
+                "Skipping startup DB DDL (SKIP_STARTUP_DB_DDL=true). "
+                "Ensure schema exists (e.g. alembic upgrade head on RDS)."
             )
-        logger.info("Database tables ready (create_all).")
+        else:
+            await create_all_tables()
+            try:
+                await apply_postgres_schema_patches()
+            except Exception as patch_exc:
+                logger.warning(
+                    "Postgres schema patches failed (check DB permissions / table chat_ai_module_runs): %s",
+                    patch_exc,
+                )
+            logger.info("Database tables ready (create_all).")
     except Exception as e:
         logger.error("Database setup error: %s", e)
+
+    if get_settings().mfapi_scheduler_enabled():
+        try:
+            start_scheduler()
+        except Exception as sched_exc:
+            logger.warning("mfapi scheduler failed to start: %s", sched_exc)
+    else:
+        logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
 
     logger.info("Server ready! Docs at /docs")
     logger.info("=" * 60)
@@ -68,6 +84,7 @@ async def lifespan(application: FastAPI):
     yield
 
     logger.info("Shutting down Ask Tilly API...")
+    await shutdown_scheduler()
     await dispose_engine()
     logger.info("Shutdown complete")
 
@@ -81,6 +98,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    openapi_tags=OPENAPI_TAG_METADATA,
 )
 
 if settings.CORS_ALLOW_ANY_ORIGIN:
