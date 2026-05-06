@@ -1,24 +1,25 @@
 """SQLAlchemy ORM model — `mf_fund_metadata.py`.
 
-Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
+Source-of-truth scheme catalogue populated from the upstream feed (mfapi.in /
+AMFI). Holds only the static fields the source provides — identifiers, names,
+plan/option type, and active flag. Internal ratings, fee schedules, sector
+breakdowns, and other curated/dynamic data live alongside this row in
+``mf_fund_rating`` (joined by ``scheme_code`` and/or ``isin``). Period returns
+are not persisted here; they are derived from ``mf_nav_history``.
 """
 
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Optional, TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    Date,
     DateTime,
     Enum as SAEnum,
-    Integer,
-    Numeric,
     String,
-    Text,
     UniqueConstraint,
     func,
 )
@@ -29,9 +30,13 @@ from app.database import Base
 
 from app.models.mf.enums import MfOptionType, MfPlanType
 
+if TYPE_CHECKING:
+    from app.models.mf.mf_fund_rating import MfFundRating
+    from app.models.mf.mf_nav_history import MfNavHistory
+
 
 class MfFundMetadata(Base):
-    """One row per AMFI scheme; join key is scheme_code."""
+    """One row per AMFI scheme; static, source-fed fields only."""
 
     __tablename__ = "mf_fund_metadata"
     __table_args__ = (UniqueConstraint("scheme_code", name="uq_mf_fund_metadata_scheme_code"),)
@@ -54,36 +59,6 @@ class MfFundMetadata(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
-    risk_rating_sebi: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    asset_class_sebi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    asset_class: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    asset_subgroup: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    portfolio_managers_current: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    portfolio_managers_history: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    portfolio_manager_change_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    rating_external_agency_1: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    rating_external_agency_2: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    our_rating_parameter_1: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_parameter_2: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_parameter_3: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_history_parameter_1: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    our_rating_history_parameter_2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    our_rating_history_parameter_3: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    direct_plan_fees: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    regular_plan_fees: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    entry_load_percent: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    exit_load_percent: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    exit_load_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    large_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    mid_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    small_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    debt_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    others_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    returns_1y_pct: Mapped[Optional[float]] = mapped_column(Numeric(8, 4), nullable=True)
-    returns_3y_pct: Mapped[Optional[float]] = mapped_column(Numeric(8, 4), nullable=True)
-    returns_5y_pct: Mapped[Optional[float]] = mapped_column(Numeric(8, 4), nullable=True)
-    returns_10y_pct: Mapped[Optional[float]] = mapped_column(Numeric(8, 4), nullable=True)
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -92,3 +67,8 @@ class MfFundMetadata(Base):
     )
 
     nav_rows: Mapped[List["MfNavHistory"]] = relationship(back_populates="fund_meta")
+    rating: Mapped[Optional["MfFundRating"]] = relationship(
+        back_populates="fund_meta",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )

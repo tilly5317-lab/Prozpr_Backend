@@ -14,10 +14,12 @@ from app.models.linked_account import LinkedAccount
 from app.models.meeting_note import MeetingNote, MeetingNoteItem
 from app.models.mf import (
     MfFundMetadata,
+    MfFundRating,
     MfNavHistory,
     MfSipMandate,
     MfTransaction,
     PortfolioAllocationSnapshot,
+    UserMfLatestSnapshot,
     UserInvestmentList,
 )
 from app.models.notification import Notification
@@ -56,6 +58,7 @@ __all__ = [
     "MeetingNote",
     "MeetingNoteItem",
     "MfFundMetadata",
+    "MfFundRating",
     "MfNavHistory",
     "MfSipMandate",
     "MfTransaction",
@@ -64,6 +67,7 @@ __all__ = [
     "Portfolio",
     "PortfolioAllocation",
     "PortfolioAllocationSnapshot",
+    "UserMfLatestSnapshot",
     "PortfolioHistory",
     "PortfolioHolding",
     "RebalancingRecommendation",

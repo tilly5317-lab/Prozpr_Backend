@@ -1,4 +1,10 @@
-"""Fund catalog (AMFI scheme metadata)."""
+"""Fund catalog (AMFI scheme metadata) and curated rating data.
+
+The metadata schemas mirror the static fields fed from the upstream source
+(mfapi.in / AMFI). Internal ratings, fees, sector splits, etc. live in the
+``MfFundRating*`` schemas; period returns are not persisted — see
+``MfNavDerivedReturns`` for NAV-derived performance.
+"""
 
 from __future__ import annotations
 
@@ -22,35 +28,6 @@ class MfFundMetadataCreate(BaseModel):
     plan_type: MfPlanType
     option_type: MfOptionType
     is_active: bool = True
-    risk_rating_sebi: Optional[str] = Field(None, max_length=50)
-    asset_class_sebi: Optional[str] = Field(None, max_length=100)
-    asset_class: Optional[str] = Field(None, max_length=100)
-    asset_subgroup: Optional[str] = Field(None, max_length=100)
-    portfolio_managers_current: Optional[str] = None
-    portfolio_managers_history: Optional[str] = None
-    portfolio_manager_change_date: Optional[date] = None
-    rating_external_agency_1: Optional[str] = Field(None, max_length=50)
-    rating_external_agency_2: Optional[str] = Field(None, max_length=50)
-    our_rating_parameter_1: Optional[str] = Field(None, max_length=100)
-    our_rating_parameter_2: Optional[str] = Field(None, max_length=100)
-    our_rating_parameter_3: Optional[str] = Field(None, max_length=100)
-    our_rating_history_parameter_1: Optional[str] = None
-    our_rating_history_parameter_2: Optional[str] = None
-    our_rating_history_parameter_3: Optional[str] = None
-    direct_plan_fees: Optional[float] = None
-    regular_plan_fees: Optional[float] = None
-    entry_load_percent: Optional[float] = None
-    exit_load_percent: Optional[float] = None
-    exit_load_months: Optional[int] = None
-    large_cap_equity_pct: Optional[float] = None
-    mid_cap_equity_pct: Optional[float] = None
-    small_cap_equity_pct: Optional[float] = None
-    debt_pct: Optional[float] = None
-    others_pct: Optional[float] = None
-    returns_1y_pct: Optional[float] = None
-    returns_3y_pct: Optional[float] = None
-    returns_5y_pct: Optional[float] = None
-    returns_10y_pct: Optional[float] = None
 
 
 class MfFundMetadataUpdate(BaseModel):
@@ -63,35 +40,6 @@ class MfFundMetadataUpdate(BaseModel):
     plan_type: Optional[MfPlanType] = None
     option_type: Optional[MfOptionType] = None
     is_active: Optional[bool] = None
-    risk_rating_sebi: Optional[str] = Field(None, max_length=50)
-    asset_class_sebi: Optional[str] = Field(None, max_length=100)
-    asset_class: Optional[str] = Field(None, max_length=100)
-    asset_subgroup: Optional[str] = Field(None, max_length=100)
-    portfolio_managers_current: Optional[str] = None
-    portfolio_managers_history: Optional[str] = None
-    portfolio_manager_change_date: Optional[date] = None
-    rating_external_agency_1: Optional[str] = Field(None, max_length=50)
-    rating_external_agency_2: Optional[str] = Field(None, max_length=50)
-    our_rating_parameter_1: Optional[str] = Field(None, max_length=100)
-    our_rating_parameter_2: Optional[str] = Field(None, max_length=100)
-    our_rating_parameter_3: Optional[str] = Field(None, max_length=100)
-    our_rating_history_parameter_1: Optional[str] = None
-    our_rating_history_parameter_2: Optional[str] = None
-    our_rating_history_parameter_3: Optional[str] = None
-    direct_plan_fees: Optional[float] = None
-    regular_plan_fees: Optional[float] = None
-    entry_load_percent: Optional[float] = None
-    exit_load_percent: Optional[float] = None
-    exit_load_months: Optional[int] = None
-    large_cap_equity_pct: Optional[float] = None
-    mid_cap_equity_pct: Optional[float] = None
-    small_cap_equity_pct: Optional[float] = None
-    debt_pct: Optional[float] = None
-    others_pct: Optional[float] = None
-    returns_1y_pct: Optional[float] = None
-    returns_3y_pct: Optional[float] = None
-    returns_5y_pct: Optional[float] = None
-    returns_10y_pct: Optional[float] = None
 
 
 class MfFundMetadataResponse(BaseModel):
@@ -108,6 +56,103 @@ class MfFundMetadataResponse(BaseModel):
     plan_type: MfPlanType
     option_type: MfOptionType
     is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class MfFundMetadataListItem(BaseModel):
+    """Slim row used by the Discover search/explorer list — keeps the payload
+    light enough for fast infinite-scroll over the full AMFI universe."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    scheme_code: str
+    isin: Optional[str]
+    scheme_name: str
+    amc_name: str
+    category: str
+    sub_category: Optional[str]
+
+
+class MfFundMetadataSearchResponse(BaseModel):
+    items: List[MfFundMetadataListItem]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+# ---------------------------------------------------------------------------
+# Rating / curated data (mf_fund_ratings)
+# ---------------------------------------------------------------------------
+
+
+class MfFundRatingCreate(BaseModel):
+    scheme_code: str = Field(..., max_length=20)
+    isin: Optional[str] = Field(None, max_length=12)
+    risk_rating_sebi: Optional[str] = Field(None, max_length=50)
+    asset_class_sebi: Optional[str] = Field(None, max_length=100)
+    asset_class: Optional[str] = Field(None, max_length=100)
+    asset_subgroup: Optional[str] = Field(None, max_length=100)
+    portfolio_managers_current: Optional[str] = None
+    portfolio_managers_history: Optional[str] = None
+    portfolio_manager_change_date: Optional[date] = None
+    rating_external_agency_1: Optional[str] = Field(None, max_length=50)
+    rating_external_agency_2: Optional[str] = Field(None, max_length=50)
+    our_rating_parameter_1: Optional[str] = Field(None, max_length=100)
+    our_rating_parameter_2: Optional[str] = Field(None, max_length=100)
+    our_rating_parameter_3: Optional[str] = Field(None, max_length=100)
+    our_rating_history_parameter_1: Optional[str] = None
+    our_rating_history_parameter_2: Optional[str] = None
+    our_rating_history_parameter_3: Optional[str] = None
+    direct_plan_fees: Optional[float] = None
+    regular_plan_fees: Optional[float] = None
+    entry_load_percent: Optional[float] = None
+    exit_load_percent: Optional[float] = None
+    exit_load_months: Optional[int] = None
+    large_cap_equity_pct: Optional[float] = None
+    mid_cap_equity_pct: Optional[float] = None
+    small_cap_equity_pct: Optional[float] = None
+    debt_pct: Optional[float] = None
+    others_pct: Optional[float] = None
+
+
+class MfFundRatingUpdate(BaseModel):
+    isin: Optional[str] = Field(None, max_length=12)
+    risk_rating_sebi: Optional[str] = Field(None, max_length=50)
+    asset_class_sebi: Optional[str] = Field(None, max_length=100)
+    asset_class: Optional[str] = Field(None, max_length=100)
+    asset_subgroup: Optional[str] = Field(None, max_length=100)
+    portfolio_managers_current: Optional[str] = None
+    portfolio_managers_history: Optional[str] = None
+    portfolio_manager_change_date: Optional[date] = None
+    rating_external_agency_1: Optional[str] = Field(None, max_length=50)
+    rating_external_agency_2: Optional[str] = Field(None, max_length=50)
+    our_rating_parameter_1: Optional[str] = Field(None, max_length=100)
+    our_rating_parameter_2: Optional[str] = Field(None, max_length=100)
+    our_rating_parameter_3: Optional[str] = Field(None, max_length=100)
+    our_rating_history_parameter_1: Optional[str] = None
+    our_rating_history_parameter_2: Optional[str] = None
+    our_rating_history_parameter_3: Optional[str] = None
+    direct_plan_fees: Optional[float] = None
+    regular_plan_fees: Optional[float] = None
+    entry_load_percent: Optional[float] = None
+    exit_load_percent: Optional[float] = None
+    exit_load_months: Optional[int] = None
+    large_cap_equity_pct: Optional[float] = None
+    mid_cap_equity_pct: Optional[float] = None
+    small_cap_equity_pct: Optional[float] = None
+    debt_pct: Optional[float] = None
+    others_pct: Optional[float] = None
+
+
+class MfFundRatingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    scheme_code: str
+    isin: Optional[str]
     risk_rating_sebi: Optional[str]
     asset_class_sebi: Optional[str]
     asset_class: Optional[str]
@@ -133,41 +178,13 @@ class MfFundMetadataResponse(BaseModel):
     small_cap_equity_pct: Optional[float]
     debt_pct: Optional[float]
     others_pct: Optional[float]
-    returns_1y_pct: Optional[float]
-    returns_3y_pct: Optional[float]
-    returns_5y_pct: Optional[float]
-    returns_10y_pct: Optional[float]
     created_at: datetime
     updated_at: datetime
 
 
-class MfFundMetadataListItem(BaseModel):
-    """Slim row used by the Discover search/explorer list — keeps the payload
-    light enough for fast infinite-scroll over the full AMFI universe."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    scheme_code: str
-    isin: Optional[str]
-    scheme_name: str
-    amc_name: str
-    category: str
-    sub_category: Optional[str]
-    asset_class: Optional[str]
-    asset_subgroup: Optional[str]
-    risk_rating_sebi: Optional[str]
-    returns_1y_pct: Optional[float]
-    returns_3y_pct: Optional[float]
-    returns_5y_pct: Optional[float]
-
-
-class MfFundMetadataSearchResponse(BaseModel):
-    items: List[MfFundMetadataListItem]
-    total: int
-    limit: int
-    offset: int
-    has_more: bool
+# ---------------------------------------------------------------------------
+# NAV-derived performance (computed, not persisted on metadata or rating)
+# ---------------------------------------------------------------------------
 
 
 class MfNavChartPoint(BaseModel):
@@ -188,15 +205,6 @@ class MfNavDerivedReturns(BaseModel):
     latest_nav: Optional[float] = None
     latest_nav_date: Optional[date] = None
     nav_row_count: int = 0
-
-
-class MfMetadataReturnsSnapshot(BaseModel):
-    """Broker-style headline numbers persisted on metadata (may lag NAV-derived figures)."""
-
-    returns_1y_pct: Optional[float] = None
-    returns_3y_pct: Optional[float] = None
-    returns_5y_pct: Optional[float] = None
-    returns_10y_pct: Optional[float] = None
 
 
 class MfFundInvestorDetailResponse(BaseModel):
@@ -228,6 +236,5 @@ class MfFundInvestorDetailResponse(BaseModel):
     debt_pct: Optional[float]
     others_pct: Optional[float]
     returns_from_nav: MfNavDerivedReturns
-    returns_from_metadata: MfMetadataReturnsSnapshot
     nav_chart: List[MfNavChartPoint]
     disclaimers: List[str] = Field(default_factory=list)
