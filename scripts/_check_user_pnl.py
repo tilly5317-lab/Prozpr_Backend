@@ -1,7 +1,7 @@
 """Per-fund PnL check for a user."""
 from __future__ import annotations
-import asyncio, sys
-from datetime import date
+import asyncio
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import text
@@ -31,7 +31,8 @@ async def _run() -> None:
             pnl = cv - float(inv)
             pnl_pct = pnl / float(inv) * 100
             print(f"  {sc:>8} {(nm or '')[:45]:45} | inv={float(inv):>12,.0f} | cv={cv:>12,.0f} | pnl={pnl:>+10,.0f} ({pnl_pct:+5.1f}%) | {n} txns | {fd}->{ld}")
-            total_inv += float(inv); total_cv += cv
+            total_inv += float(inv)
+            total_cv += cv
         print(f"\n  TOTAL: invested={total_inv:,.0f}  cv={total_cv:,.0f}  pnl={total_cv-total_inv:+,.0f} ({(total_cv-total_inv)/total_inv*100:+.2f}%)")
 
         # First and last txn for one fund — show NAV at first txn vs latest

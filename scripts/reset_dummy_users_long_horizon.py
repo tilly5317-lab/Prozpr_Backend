@@ -45,7 +45,7 @@ import asyncio
 import json
 import sys
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

@@ -1,6 +1,7 @@
 """Check how many funds in our hand-picked universe have NAV history going back 5/7/9 years."""
 from __future__ import annotations
-import asyncio, sys
+import asyncio
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
