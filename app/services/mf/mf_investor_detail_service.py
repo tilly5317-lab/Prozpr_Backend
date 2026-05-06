@@ -12,10 +12,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf import MfFundMetadata, MfNavHistory
+from app.models.mf import MfFundMetadata, MfFundRating, MfNavHistory
 from app.schemas.mf.fund_metadata import (
     MfFundInvestorDetailResponse,
-    MfMetadataReturnsSnapshot,
     MfNavChartPoint,
     MfNavDerivedReturns,
 )
@@ -149,12 +148,23 @@ def _cagr_window(
     return cagr, None
 
 
+def _f(value: object) -> Optional[float]:
+    """Coerce numeric DB values to float, preserving None."""
+    return float(value) if value is not None else None
+
+
 async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfFundInvestorDetailResponse:
     meta = (
         await db.execute(select(MfFundMetadata).where(MfFundMetadata.id == metadata_id))
     ).scalar_one_or_none()
     if not meta:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund metadata not found")
+
+    rating = (
+        await db.execute(
+            select(MfFundRating).where(MfFundRating.scheme_code == meta.scheme_code)
+        )
+    ).scalar_one_or_none()
 
     scheme = meta.scheme_code
     latest = await _latest_nav(db, scheme)
@@ -176,13 +186,6 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
         nav_row_count=n_points,
     )
 
-    meta_snap = MfMetadataReturnsSnapshot(
-        returns_1y_pct=float(meta.returns_1y_pct) if meta.returns_1y_pct is not None else None,
-        returns_3y_pct=float(meta.returns_3y_pct) if meta.returns_3y_pct is not None else None,
-        returns_5y_pct=float(meta.returns_5y_pct) if meta.returns_5y_pct is not None else None,
-        returns_10y_pct=float(meta.returns_10y_pct) if meta.returns_10y_pct is not None else None,
-    )
-
     chart: List[MfNavChartPoint] = []
 
     if not latest:
@@ -199,20 +202,19 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
             plan_type=meta.plan_type,
             option_type=meta.option_type,
             is_active=meta.is_active,
-            risk_rating_sebi=meta.risk_rating_sebi,
-            asset_class=meta.asset_class,
-            asset_subgroup=meta.asset_subgroup,
-            direct_plan_fees=float(meta.direct_plan_fees) if meta.direct_plan_fees is not None else None,
-            regular_plan_fees=float(meta.regular_plan_fees) if meta.regular_plan_fees is not None else None,
-            exit_load_percent=float(meta.exit_load_percent) if meta.exit_load_percent is not None else None,
-            exit_load_months=meta.exit_load_months,
-            large_cap_equity_pct=float(meta.large_cap_equity_pct) if meta.large_cap_equity_pct is not None else None,
-            mid_cap_equity_pct=float(meta.mid_cap_equity_pct) if meta.mid_cap_equity_pct is not None else None,
-            small_cap_equity_pct=float(meta.small_cap_equity_pct) if meta.small_cap_equity_pct is not None else None,
-            debt_pct=float(meta.debt_pct) if meta.debt_pct is not None else None,
-            others_pct=float(meta.others_pct) if meta.others_pct is not None else None,
+            risk_rating_sebi=rating.risk_rating_sebi if rating else None,
+            asset_class=rating.asset_class if rating else None,
+            asset_subgroup=rating.asset_subgroup if rating else None,
+            direct_plan_fees=_f(rating.direct_plan_fees) if rating else None,
+            regular_plan_fees=_f(rating.regular_plan_fees) if rating else None,
+            exit_load_percent=_f(rating.exit_load_percent) if rating else None,
+            exit_load_months=rating.exit_load_months if rating else None,
+            large_cap_equity_pct=_f(rating.large_cap_equity_pct) if rating else None,
+            mid_cap_equity_pct=_f(rating.mid_cap_equity_pct) if rating else None,
+            small_cap_equity_pct=_f(rating.small_cap_equity_pct) if rating else None,
+            debt_pct=_f(rating.debt_pct) if rating else None,
+            others_pct=_f(rating.others_pct) if rating else None,
             returns_from_nav=returns,
-            returns_from_metadata=meta_snap,
             nav_chart=chart,
             disclaimers=disclaimers,
         )
@@ -278,20 +280,19 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
         plan_type=meta.plan_type,
         option_type=meta.option_type,
         is_active=meta.is_active,
-        risk_rating_sebi=meta.risk_rating_sebi,
-        asset_class=meta.asset_class,
-        asset_subgroup=meta.asset_subgroup,
-        direct_plan_fees=float(meta.direct_plan_fees) if meta.direct_plan_fees is not None else None,
-        regular_plan_fees=float(meta.regular_plan_fees) if meta.regular_plan_fees is not None else None,
-        exit_load_percent=float(meta.exit_load_percent) if meta.exit_load_percent is not None else None,
-        exit_load_months=meta.exit_load_months,
-        large_cap_equity_pct=float(meta.large_cap_equity_pct) if meta.large_cap_equity_pct is not None else None,
-        mid_cap_equity_pct=float(meta.mid_cap_equity_pct) if meta.mid_cap_equity_pct is not None else None,
-        small_cap_equity_pct=float(meta.small_cap_equity_pct) if meta.small_cap_equity_pct is not None else None,
-        debt_pct=float(meta.debt_pct) if meta.debt_pct is not None else None,
-        others_pct=float(meta.others_pct) if meta.others_pct is not None else None,
+        risk_rating_sebi=rating.risk_rating_sebi if rating else None,
+        asset_class=rating.asset_class if rating else None,
+        asset_subgroup=rating.asset_subgroup if rating else None,
+        direct_plan_fees=_f(rating.direct_plan_fees) if rating else None,
+        regular_plan_fees=_f(rating.regular_plan_fees) if rating else None,
+        exit_load_percent=_f(rating.exit_load_percent) if rating else None,
+        exit_load_months=rating.exit_load_months if rating else None,
+        large_cap_equity_pct=_f(rating.large_cap_equity_pct) if rating else None,
+        mid_cap_equity_pct=_f(rating.mid_cap_equity_pct) if rating else None,
+        small_cap_equity_pct=_f(rating.small_cap_equity_pct) if rating else None,
+        debt_pct=_f(rating.debt_pct) if rating else None,
+        others_pct=_f(rating.others_pct) if rating else None,
         returns_from_nav=returns,
-        returns_from_metadata=meta_snap,
         nav_chart=chart,
         disclaimers=disclaimers,
     )

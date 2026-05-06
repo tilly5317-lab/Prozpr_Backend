@@ -17,11 +17,13 @@ from app.models.mf.enums import (
     UserInvestmentListKind,
 )
 from app.models.mf.mf_fund_metadata import MfFundMetadata
+from app.models.mf.mf_fund_rating import MfFundRating
 from app.models.mf.mf_nav_history import MfNavHistory
 from app.models.mf.mf_sip_mandate import MfSipMandate
 from app.models.mf.mf_aa_import import MfAaImport, MfAaSummary, MfAaTransaction
 from app.models.mf.mf_transaction import MfTransaction
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
+from app.models.mf.user_mf_latest_snapshot import UserMfLatestSnapshot
 from app.models.mf.user_investment_list import UserInvestmentList
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "MfAaSummary",
     "MfAaTransaction",
     "MfFundMetadata",
+    "MfFundRating",
     "MfNavHistory",
     "MfOptionType",
     "MfPlanType",
@@ -41,6 +44,7 @@ __all__ = [
     "MfTransactionSource",
     "MfTransactionType",
     "PortfolioAllocationSnapshot",
+    "UserMfLatestSnapshot",
     "PortfolioSnapshotKind",
     "UserInvestmentList",
     "UserInvestmentListKind",
