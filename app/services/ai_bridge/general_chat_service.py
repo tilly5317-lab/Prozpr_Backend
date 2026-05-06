@@ -26,9 +26,59 @@ from app.services.ai_bridge.common import (
 
 ensure_ai_agents_path()
 
-from intent_classifier.models import Intent
+from intent_classifier.models import Intent, OutOfScopeSubreason
 from intent_classifier.prompts import OUT_OF_SCOPE_MESSAGE
 from intent_classifier import ClassificationResult
+
+
+# Tailored canned replies per OOS sub-reason. Keep them short and human;
+# repeated identical canned text is the bug we're fixing here.
+_OOS_REPLIES_BY_SUBREASON: dict[OutOfScopeSubreason, str] = {
+    OutOfScopeSubreason.GIBBERISH: (
+        "I didn't catch that — could you rephrase? You can ask me about your "
+        "portfolio, your asset allocation, rebalancing, or what's happening in "
+        "the markets."
+    ),
+    OutOfScopeSubreason.IDENTITY_OR_META: (
+        "I'm Tilly — an AI assistant from Prozpr, here to help you with your "
+        "investments. I'm not a human; ask me anything about your portfolio, "
+        "allocation, or the markets."
+    ),
+    OutOfScopeSubreason.SECURITY_OR_CREDENTIALS: (
+        "I can't help with passwords, login details, or other account "
+        "credentials — that's strictly a security matter. If you've lost "
+        "access, please use the app's account recovery flow or reach out to "
+        "Prozpr support."
+    ),
+    OutOfScopeSubreason.CHAT_SUMMARY: (
+        "Session summaries aren't built in yet — you can scroll up to review "
+        "what we've covered. If you'd like, I can pick up where we left off "
+        "on any specific topic."
+    ),
+    OutOfScopeSubreason.OFF_TOPIC: (
+        "That's outside what I can help with — I'm built for portfolio, "
+        "allocation, rebalancing, and Indian-market questions. Ask me about "
+        "any of those and I'll dive in."
+    ),
+    OutOfScopeSubreason.OTHER: OUT_OF_SCOPE_MESSAGE,
+}
+
+
+def _oos_reply(classification: ClassificationResult) -> str:
+    """Pick a tailored OOS response by sub-reason, falling back to the canned text."""
+    if classification.out_of_scope_message and (
+        classification.out_of_scope_subreason is None
+        or classification.out_of_scope_subreason == OutOfScopeSubreason.OTHER
+    ):
+        # Goal-planning / stock-advice still inject specific canned messages
+        # via out_of_scope_message; honour that when sub-reason is unset / other.
+        return classification.out_of_scope_message
+    if classification.out_of_scope_subreason is not None:
+        return _OOS_REPLIES_BY_SUBREASON.get(
+            classification.out_of_scope_subreason,
+            OUT_OF_SCOPE_MESSAGE,
+        )
+    return OUT_OF_SCOPE_MESSAGE
 
 # Keep market commentary under this limit so the prompt fits the context window.
 _MAX_COMMENTARY_CHARS = 7000
@@ -186,9 +236,9 @@ async def generate_general_chat_response(
 ) -> str:
     """Generate a concise answer with justification for general/market intents."""
 
-    # Out-of-scope: return the canned message immediately.
+    # Out-of-scope: return a sub-reason-tailored message immediately.
     if classification.intent == Intent.OUT_OF_SCOPE:
-        return classification.out_of_scope_message or OUT_OF_SCOPE_MESSAGE
+        return _oos_reply(classification)
 
     api_key = get_settings().get_anthropic_general_chat_key()
     if not api_key:

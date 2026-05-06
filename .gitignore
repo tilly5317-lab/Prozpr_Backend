@@ -81,6 +81,9 @@ docs/superpowers/
 /.claude/commands/*
 !/.claude/commands/refresh-context.md
 
+# Agent audit runs (local test harness only)
+Agent_audit/
+
 # Cache files
 market_commentary_cache.json
 AI_Agents/src/market_commentary/market_commentary_latest.json

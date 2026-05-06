@@ -5,7 +5,7 @@ Ask Tilly is an AI-powered financial advisor. This package is the backend: FastA
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling, chart_selector); integrated via `sys.path` injection. `router/` is a stub placeholder.
+- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling); integrated via `sys.path` injection. `router/` is a stub placeholder.
 - **alembic/** — Database migrations.
 - **wealth_core/** — LEGACY; pre-app/ orchestration modules.
 - **MF_Logics/** — LEGACY; historical MF data extraction and mapping work.

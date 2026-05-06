@@ -193,6 +193,47 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
 
   warnings: list of short human-readable strings (up to 5)
 
+  fund_actions: list of per-fund actions for the customer's specific funds
+    (top 30 by exposure; if more, ``more_holdings_count`` carries the
+    overflow count for "and N other smaller holdings"). Each entry:
+      fund_name        — the customer-facing scheme name (e.g. "HDFC Top 100").
+                         Cite this verbatim when answering fund-specific
+                         questions ("why are you trimming HDFC Top 100?",
+                         "what funds will I hold after this?").
+      sub_category     — SEBI category for context (e.g. "Large Cap Fund").
+      asset_subgroup   — internal engine grouping; do NOT surface.
+      current_inr / current_indian       — present holding in this fund
+      buy_inr     / buy_indian           — amount being bought into this fund
+      sell_inr    / sell_indian          — amount being sold from this fund
+      planned_final_inr / planned_final_indian — current + buy − sell
+    When the customer asks about a specific fund or specific trades, name
+    the fund(s). When showing a "what will I hold after?" view, list funds
+    with planned_final > 0, biggest first. For category-level questions,
+    prefer the aggregated ``buckets`` field — fund-level detail is only
+    needed when the question is fund-specific.
+
+  goal_buckets: optional list — present when the rebalancing was driven by the
+    customer's goals. One entry per bucket the customer has goals in:
+      bucket             — "emergency" / "short_term" / "medium_term" / "long_term"
+      horizon_label      — customer-friendly label, e.g. "Long-term (> 5 yrs)".
+                           Use this verbatim instead of the raw bucket key.
+      goals: list of {name, horizon_months, amount_needed_inr,
+                      amount_needed_indian, priority}. Priority is
+                      "non_negotiable" or "negotiable" — phrase as
+                      "must-meet" / "flexible" rather than the raw label.
+      total_goal_amount_indian / allocated_amount_indian — pre-formatted ₹.
+      planned_split_pct  — {equity, debt, others} % the AA engine targeted for
+                           this bucket based on the goals' horizons. THIS is
+                           why each bucket has the equity/debt mix it does.
+
+  When goal_buckets is present and it makes the answer clearer, tie trades
+  back to the bucket and its goal(s): e.g. "we're trimming equity in your
+  short-term bucket because your house-down-payment goal is ~18 months away,
+  so the engine targets ~30% equity / 70% debt there." Do NOT enumerate every
+  bucket on every turn — only surface the bucket(s) the customer's question
+  touches. If goal_buckets is absent, answer purely from the trade/asset-class
+  facts as before.
+
 ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
 which is set by the system on a fresh first-turn recommendation (it is not
 produced by the classifier). Per-mode behavior:
@@ -268,11 +309,12 @@ async def _format_or_fallback_rebal(
     response: Any,
     fallback_brief: str,
     action_mode: str,
+    goal_buckets: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_rebal_facts_pack(response),
+        facts_pack=build_rebal_facts_pack(response, goal_buckets=goal_buckets),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
         action_mode=action_mode,
@@ -323,6 +365,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="compute",
+            goal_buckets=outcome.goal_buckets,
         )
         return ChatHandlerResult(
             text=text,
@@ -379,6 +422,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="recompute",
+            goal_buckets=outcome.goal_buckets,
         )
         return ChatHandlerResult(
             text=text,
@@ -389,9 +433,12 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     # narrate / educate — both use last_run.output_payload as the source.
     # The persisted shape is {"rebalancing_response": <model_dump>,
-    # "correlation_ids": {...}}; see rebalancing/service.py
-    # compute_rebalancing_result telemetry write.
-    response_payload = (last_run.output_payload or {}).get("rebalancing_response") or {}
+    # "goal_buckets": <list|None>, "correlation_ids": {...}}; see
+    # rebalancing/service.py compute_rebalancing_result telemetry write.
+    # ``goal_buckets`` may be absent on rows persisted before this field shipped.
+    persisted_payload = last_run.output_payload or {}
+    response_payload = persisted_payload.get("rebalancing_response") or {}
+    persisted_goal_buckets = persisted_payload.get("goal_buckets")
     response = _rehydrate_response(response_payload)
     # No persisted formatted_text — rebuild the templated fallback inline if
     # the formatter fails. If the response is dict-shaped (validation drift) or
@@ -407,6 +454,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=response, fallback_brief=fallback,
         action_mode=action.mode,   # "narrate" or "educate"
+        goal_buckets=persisted_goal_buckets,
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
                              rebalancing_recommendation_id=None)
@@ -492,6 +540,7 @@ async def _counterfactual_explore(
         ctx=ctx, response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="counterfactual_explore",
+        goal_buckets=outcome.goal_buckets,
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
                              rebalancing_recommendation_id=None)
@@ -552,6 +601,7 @@ async def _save_last_counterfactual(
         ctx=ctx, response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="save_last_counterfactual",
+        goal_buckets=outcome.goal_buckets,
     )
     return ChatHandlerResult(
         text=text,

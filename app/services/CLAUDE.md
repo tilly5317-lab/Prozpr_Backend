@@ -15,9 +15,6 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 - **effective_risk_profile/** — persistence and calculation helpers for the
   user's effective risk assessment; distinct from deterministic scoring in
   `risk_profiling`.
-- **visualization_tools/** — chart-tool registry (`registry.CHART_TOOLS`) and
-  per-domain chart builders (e.g. `asset_allocation/`); read by
-  `ai_bridge/chart_selector_service` and dispatched by `chat_core.brain`.
 - **archive/** — retired service code kept for reference; not imported by
   active paths.
 
