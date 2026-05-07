@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf import MfFundMetadata, MfFundRating, MfNavHistory, MfTransaction, UserMfLatestSnapshot
@@ -207,6 +207,27 @@ async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> 
     return len(rows)
 
 
+async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]:
+    """Rebuild latest snapshot rows for every user who has MF transactions.
+
+    Returns:
+        tuple[int, int]: (users_processed, total_snapshot_rows_written)
+    """
+    user_ids = list(
+        (
+            await db.execute(
+                select(MfTransaction.user_id).distinct()
+            )
+        ).scalars().all()
+    )
+    users_processed = 0
+    total_rows = 0
+    for user_id in user_ids:
+        total_rows += await rebuild_user_latest_snapshot(db, user_id)
+        users_processed += 1
+    return users_processed, total_rows
+
+
 async def list_user_latest_snapshot(
     db: AsyncSession, user_id: uuid.UUID, *, skip: int = 0, limit: int = 100
 ) -> list[UserMfLatestSnapshot]:
@@ -218,19 +239,4 @@ async def list_user_latest_snapshot(
         .offset(skip)
         .limit(limit)
     )
-    rows = list((await db.execute(stmt)).scalars().all())
-    if rows:
-        return rows
-    count = int(
-        (
-            await db.execute(
-                select(func.count()).select_from(MfTransaction).where(MfTransaction.user_id == user_id)
-            )
-        ).scalar()
-        or 0
-    )
-    if count == 0:
-        return []
-    await rebuild_user_latest_snapshot(db, user_id)
-    rows = list((await db.execute(stmt)).scalars().all())
-    return rows
+    return list((await db.execute(stmt)).scalars().all())
