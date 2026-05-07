@@ -20,6 +20,7 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.services.mf.latest_snapshot_service import rebuild_all_users_latest_snapshot
 from app.services.mf.mfapi_ingest_service import IngestMode, MfapiIngestError, ingest_mfapi
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ MFAPI_LOCK_KEY = 7421100  # constant chosen once; pg_advisory_lock namespace
 MFAPI_TIMEZONE = "Asia/Kolkata"
 MFAPI_DAILY_HOUR = 0
 MFAPI_DAILY_MINUTE = 5
+MF_LATEST_SNAPSHOT_DAILY_HOUR = 0
+MF_LATEST_SNAPSHOT_DAILY_MINUTE = 45
 MFAPI_MISSING_NAV_CHECK_MINUTES = 30
 MFAPI_MISSING_NAV_LOOKBACK_DAYS = 30
 
@@ -85,6 +88,9 @@ async def run_missing_nav_autofill_job() -> None:
                 logger.info("mfapi missing-nav job: lock held by another worker; skipping")
                 return
             try:
+                # mfapi.in only serves numeric AMFI scheme codes; AA imports
+                # store AMC-internal labels (e.g. "01", "44T", "ACGPG") in
+                # scheme_code, so filter those out to avoid wasted 400s.
                 rows = await db.execute(
                     text(
                         "SELECT DISTINCT x.scheme_code "
@@ -97,7 +103,8 @@ async def run_missing_nav_autofill_job() -> None:
                         "  SELECT scheme_code, MAX(nav_date) AS max_nav_date "
                         "  FROM mf_nav_history GROUP BY scheme_code"
                         ") h ON h.scheme_code = x.scheme_code "
-                        "WHERE h.max_nav_date IS NULL OR h.max_nav_date < :cutoff "
+                        "WHERE x.scheme_code ~ '^[0-9]{4,}$' "
+                        "  AND (h.max_nav_date IS NULL OR h.max_nav_date < :cutoff) "
                         "ORDER BY x.scheme_code"
                     ),
                     {"cutoff": cutoff},
@@ -133,6 +140,47 @@ async def run_missing_nav_autofill_job() -> None:
         )
 
 
+async def run_daily_latest_snapshot_job() -> None:
+    """Rebuild user_mf_latest_snapshot once daily after NAV refresh."""
+    from app.database import _get_session_factory
+
+    factory = _get_session_factory()
+    try:
+        async with factory() as db:
+            got_lock = (
+                await db.execute(
+                    text("SELECT pg_try_advisory_lock(:k)"), {"k": MFAPI_LOCK_KEY + 2}
+                )
+            ).scalar()
+            if not got_lock:
+                logger.info("mf latest snapshot daily job: lock held by another worker; skipping")
+                return
+            try:
+                users, rows = await rebuild_all_users_latest_snapshot(db)
+                logger.info(
+                    "mf latest snapshot daily job complete: users_processed=%d rows_written=%d",
+                    users,
+                    rows,
+                )
+            except Exception:
+                logger.exception("mf latest snapshot daily job crashed")
+            finally:
+                try:
+                    await db.execute(
+                        text("SELECT pg_advisory_unlock(:k)"), {"k": MFAPI_LOCK_KEY + 2}
+                    )
+                except SQLAlchemyError:
+                    logger.warning(
+                        "mf latest snapshot daily job: failed to release advisory lock",
+                        exc_info=True,
+                    )
+    except SQLAlchemyError:
+        logger.warning(
+            "mf latest snapshot daily job: database unavailable; will retry on next schedule",
+            exc_info=True,
+        )
+
+
 def start_scheduler() -> Optional[Any]:
     global _scheduler
     if _scheduler is not None:
@@ -163,6 +211,20 @@ def start_scheduler() -> Optional[Any]:
         misfire_grace_time=3600,
     )
     sched.add_job(
+        run_daily_latest_snapshot_job,
+        trigger=CronTrigger(
+            hour=MF_LATEST_SNAPSHOT_DAILY_HOUR,
+            minute=MF_LATEST_SNAPSHOT_DAILY_MINUTE,
+            second=0,
+            timezone=MFAPI_TIMEZONE,
+        ),
+        id="mf_latest_snapshot_daily_refresh",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+    sched.add_job(
         run_missing_nav_autofill_job,
         trigger="interval",
         minutes=MFAPI_MISSING_NAV_CHECK_MINUTES,
@@ -176,8 +238,14 @@ def start_scheduler() -> Optional[Any]:
     sched.start()
     _scheduler = sched
     next_daily = sched.get_job("mfapi_daily_refresh").next_run_time
+    next_snapshot = sched.get_job("mf_latest_snapshot_daily_refresh").next_run_time
     next_heal = sched.get_job("mfapi_missing_nav_autofill").next_run_time
-    logger.info("mfapi scheduler started; next daily=%s, next missing-nav=%s", next_daily, next_heal)
+    logger.info(
+        "mfapi scheduler started; next daily=%s, next latest-snapshot=%s, next missing-nav=%s",
+        next_daily,
+        next_snapshot,
+        next_heal,
+    )
     return sched
 
 
