@@ -1,6 +1,6 @@
 """Public engine entry: 8-stage orchestrator. Imports nothing LLM-related."""
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 
 from goal_planning.models import (
     GoalPlanningInput, GoalPlanningOutput, GoalPropertyDetail,
@@ -134,7 +134,7 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
         nfa_monthly_series=funding.nfa_monthly if full else None,
         mortgage_amortizations=mortgage_schedules,
         warnings=warnings,
-        computed_at=datetime.utcnow(),
+        computed_at=datetime.now(timezone.utc),
     )
 
 
