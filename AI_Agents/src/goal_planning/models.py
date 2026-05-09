@@ -133,3 +133,154 @@ class GoalPlanningInput(BaseModel):
         if dupes:
             raise ValueError(f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Output types (engine → agent / public API)
+# ---------------------------------------------------------------------------
+
+
+class HeadlineStatus(BaseModel):
+    horizon_years: int
+    last_goal_date: date
+    last_fy_end_date: date
+    number_of_goals: int
+    net_financial_assets_today: float
+    sum_fund_today_pv: float
+    present_status: float
+    closing_nfa: float
+    total_shortfall_fv: float
+    total_funded_amount: float
+    is_overall_feasible: bool
+    overall_shortfall_pv: float
+    overall_shortfall_fv: float
+
+
+class RetirementSnapshot(BaseModel):
+    retirement_date: date
+    years_to_retirement: float
+    annual_household_expense_at_retirement: float
+    post_retirement_years: int
+    real_roi_annual: float
+    real_roi_monthly: float
+    corpus_required_computed: float
+    corpus_required_user_override: float | None
+    corpus_required_used: float
+
+
+class GoalFundingStatus(BaseModel):
+    name: str
+    goal_type: GoalType
+    goal_date: date
+    amount_pv: float
+    amount_fv: float
+    fund_today_pv: float
+    funded_amount: float
+    is_funded: bool
+    shortfall_fv: float
+    shortfall_pv: float
+    expected_roi: float
+
+
+class OneOffFundingStatus(BaseModel):
+    description: str
+    date: date
+    amount: float
+    funded_amount: float
+    is_funded: bool
+    shortfall: float
+
+
+class AnnualCashflowRow(BaseModel):
+    fy_end_date: date
+    fy_label: str
+    income: float
+    income_tax: float
+    household_expense: float
+    savings_1: float
+    existing_mortgage_emi_total: float
+    goal_mortgage_emi_total: float
+    savings_2: float
+    one_off_in: float
+    one_off_out: float
+    investment_amount: float
+    nfa_opening: float
+    nfa_roi: float
+    nfa_closing: float
+
+
+class MonthlyCashflowRow(BaseModel):
+    month_end_date: date
+    fy_label: str
+    income: float
+    income_tax: float
+    household_expense: float
+    savings_1: float
+    existing_mortgage_emi_total: float
+    goal_mortgage_emi_total: float
+    savings_2: float
+    savings_2_avg: float
+
+
+class MonthlyNFARow(BaseModel):
+    month_end: date
+    fy_label: str
+    nfa_open: float
+    regular_invest: float
+    regular_invest_kind: Literal["user_sip", "savings_sip_fraction", "withdrawal", "zero"]
+    roi: float
+    one_off_in: float
+    goal_outflow_total: float
+    nfa_close: float
+    savings_2_avg: float
+    funded_flag: bool
+
+
+class MortgageAmortizationRow(BaseModel):
+    month_end: date
+    opening_balance: float
+    emi: float
+    interest_portion: float
+    principal_portion: float
+    closing_balance: float
+
+
+class MortgageAmortization(BaseModel):
+    property_ref: str
+    start_date: date
+    monthly_schedule: list[MortgageAmortizationRow]
+
+
+class FundFlowSummary(BaseModel):
+    opening_nfa: float
+    total_investments: float
+    total_roi: float
+    total_one_off_in: float
+    total_one_off_out: float
+    total_goals_paid: float
+    closing_nfa: float
+
+
+class ValidationIssue(BaseModel):
+    field: str
+    message: str
+    severity: Literal["error", "warning"]
+
+
+class GoalPlanningOutput(BaseModel):
+    engine_version: str
+    input_echo: GoalPlanningInput
+    headline: HeadlineStatus
+    retirement: RetirementSnapshot
+    goals: list[GoalFundingStatus]
+    one_off_outflow_status: list[OneOffFundingStatus]
+    annual_cashflow: list[AnnualCashflowRow]
+    fund_flow_summary: FundFlowSummary
+
+    # Detail γ — populated only when detail_level == "full"
+    monthly_cashflow: list[MonthlyCashflowRow] | None = None
+    nfa_monthly_series: list[MonthlyNFARow] | None = None
+    mortgage_amortizations: list[MortgageAmortization] | None = None
+
+    warnings: list[str] = []
+    computed_at: datetime
