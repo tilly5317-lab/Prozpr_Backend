@@ -60,3 +60,27 @@ def test_extracted_event_discriminator():
         },
     })
     assert isinstance(g, ExtractedGoal)
+
+
+def test_dated_field_for_each_kind():
+    from datetime import date
+    g = ExtractedGoal(kind="custom_goal", goal=CustomGoal(
+        name="x", goal_type=GoalType.custom, amount_pv=1_000_000, goal_date=date(2035, 1, 1),
+    ))
+    assert g.dated_field() == date(2035, 1, 1)
+
+    p = ExtractedProperty(kind="property_goal", property=GoalProperty(
+        name="x", target_pv=10_000_000, goal_date=date(2030, 1, 1),
+    ), assumptions_used=[])
+    assert p.dated_field() == date(2030, 1, 1)
+
+    c = ExtractedCashflow(kind="cashflow_event", event=OneOffEvent(
+        description="bonus", amount=100_000, date=date(2027, 3, 1),
+    ), direction="in", confidence="high")
+    assert c.dated_field() == date(2027, 3, 1)
+
+    m = ExtractedMutation(kind="goal_mutation", op="update", goal_name="g", fields={"goal_date": date(2040, 1, 1)})
+    assert m.dated_field() == date(2040, 1, 1)
+
+    m_no_date = ExtractedMutation(kind="goal_mutation", op="update", goal_name="g", fields={"amount_pv": 2_000_000})
+    assert m_no_date.dated_field() is None
