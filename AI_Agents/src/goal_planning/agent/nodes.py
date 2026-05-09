@@ -118,6 +118,8 @@ def ingest_baseline_node(state: AgentState) -> dict:
         "captured_cashflows": state.get("captured_cashflows", []),
         "captured_mutations": state.get("captured_mutations", []),
         "last_levers": [],
+        "actions_taken_this_turn": [],         # NEW: reset each turn
+        "extracted_events_this_turn": [],      # NEW: reset each turn
         "last_output": None if invalidate else last_out,
         "dirty": bool(dropped) or invalidate,
         "error_log": [
