@@ -1,34 +1,30 @@
 import re
-import json
 import yaml
 from pathlib import Path
 
 
-class LLMParsingError(Exception):
-    def __init__(self, raw_response: str):
-        self.raw_response = raw_response
-        super().__init__(f"Failed to parse LLM response: {raw_response[:200]}")
-
-
 class SkillExecutor:
+    """Renders a Markdown skill definition into (system, user) prompts.
+
+    Skill ``.md`` files use YAML front matter for metadata and two sections:
+      ## System Prompt  — the system prompt with ``{{variable}}`` placeholders
+      ## User Prompt    — the user prompt with ``{{variable}}`` placeholders
+
+    Variables use double-brace ``{{variable}}`` syntax to avoid conflicts with
+    JSON examples (single braces) in prompt text.
+
+    The actual LLM call lives outside this class — callers use ``render()`` to
+    get the rendered prompts plus ``meta`` (model, max_tokens, etc.) and then
+    invoke the LLM directly. This keeps response-shape concerns (JSON parsing,
+    forced tool-use, validation) with the orchestrator that owns the schema.
     """
-    Generic skill runner that reads a Markdown skill definition file.
 
-    Skill .md files use YAML front matter for metadata and two sections:
-      ## System Prompt  — the system prompt with {{variable}} placeholders
-      ## User Prompt    — the user prompt with {{variable}} placeholders
-
-    Variables use double-brace {{variable}} syntax to avoid conflicts
-    with JSON examples (single braces) in prompt text.
-    """
-
-    def __init__(self, skill_path: Path, llm_client):
+    def __init__(self, skill_path: Path):
         content = skill_path.read_text()
         self.meta: dict = {}
         self.system_template: str = ""
         self.user_template: str = ""
         self._parse(content)
-        self.llm = llm_client
 
     def _parse(self, content: str) -> None:
         # Extract YAML front matter between first pair of --- delimiters
@@ -59,27 +55,9 @@ class SkillExecutor:
 
         return re.sub(r"\{\{(\w+)\}\}", replacer, template)
 
-    def _parse_json(self, raw: str) -> dict:
-        cleaned = raw.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        if cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            raise LLMParsingError(raw)
-
-    async def run(self, **variables) -> tuple[dict, dict]:
-        system = self._render(self.system_template, variables)
-        user = self._render(self.user_template, variables)
-        raw, usage = await self.llm.call(
-            model=self.meta.get("model", "haiku"),
-            system=system,
-            user=user,
-            max_tokens=self.meta.get("max_tokens", 1024),
+    def render(self, **variables) -> tuple[str, str]:
+        """Return ``(system, user)`` with all ``{{variable}}`` placeholders filled."""
+        return (
+            self._render(self.system_template, variables),
+            self._render(self.user_template, variables),
         )
-        return self._parse_json(raw), usage

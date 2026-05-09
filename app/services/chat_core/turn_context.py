@@ -103,6 +103,12 @@ async def _load_last_agent_runs(
     for r in rows:
         if r.module in last_by_module:
             continue  # already kept the most recent for this module
+        # Skip stub rows with no payload (e.g. formatter telemetry rows that
+        # share a module name with the engine but carry no allocation_result).
+        # SQL `output_payload IS NOT NULL` does not catch JSON-text "null" on
+        # SQLite, which deserializes to Python None — filter again here.
+        if not r.output_payload:
+            continue
         last_by_module[r.module] = AgentRunRecord(
             id=r.id,
             module=r.module,

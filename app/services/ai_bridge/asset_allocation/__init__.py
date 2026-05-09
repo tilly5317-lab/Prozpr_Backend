@@ -9,8 +9,8 @@ side-effect must import ``chat`` lazily (e.g. inside a function body in
 
 from app.services.ai_bridge.asset_allocation.service import (
     compute_allocation_result,
-    format_allocation_chat_brief,
-    generate_portfolio_optimisation_response,
+    build_fallback_brief,
+    generate_asset_allocation_response,
 )
 from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
@@ -19,6 +19,6 @@ from app.services.ai_bridge.asset_allocation.input_builder import (
 __all__ = [
     "build_goal_allocation_input_for_user",
     "compute_allocation_result",
-    "format_allocation_chat_brief",
-    "generate_portfolio_optimisation_response",
+    "build_fallback_brief",
+    "generate_asset_allocation_response",
 ]

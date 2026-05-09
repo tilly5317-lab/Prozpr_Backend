@@ -45,6 +45,7 @@ class ChatMessageResponse(BaseModel):
     intent: Optional[str] = None
     intent_confidence: Optional[float] = None
     intent_reasoning: Optional[str] = None
+    chart_payloads: Optional[list[dict[str, Any]]] = None
     created_at: datetime
 
 
@@ -63,7 +64,7 @@ class UploadStatementResponse(BaseModel):
 
 
 class ChatAiModuleRunResponse(BaseModel):
-    """One row from chat AI module telemetry (grep logs: AILAX_AI_MODULE_RUN)."""
+    """One row from chat AI module telemetry (grep logs: PROZPR_AI_MODULE_RUN)."""
 
     model_config = {"from_attributes": True}
 

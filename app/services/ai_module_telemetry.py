@@ -26,12 +26,19 @@ async def record_ai_module_run(
     module: str,
     reason: str,
     intent_detected: str | None = None,
+    intent_confidence: float | None = None,
     spine_mode: str | None = None,
     duration_ms: int | None = None,
     extra: dict[str, Any] | None = None,
     input_payload: dict[str, Any] | None = None,
     output_payload: dict[str, Any] | None = None,
     emit_standard_log: bool = True,
+    # New formatter telemetry — all nullable.
+    formatter_invoked: bool | None = None,
+    formatter_succeeded: bool | None = None,
+    formatter_latency_ms: int | None = None,
+    formatter_error_class: str | None = None,
+    action_mode: str | None = None,
 ) -> uuid.UUID | None:
     """
     Optionally emit AILAX_AI_MODULE_RUN; always persist one row when db is set.
@@ -60,11 +67,17 @@ async def record_ai_module_run(
                 module=module,
                 reason=reason,
                 intent_detected=intent_detected,
+                intent_confidence=intent_confidence,
                 spine_mode=spine_mode,
                 duration_ms=duration_ms,
                 extra=extra,
                 input_payload=input_payload,
                 output_payload=output_payload,
+                formatter_invoked=formatter_invoked,
+                formatter_succeeded=formatter_succeeded,
+                formatter_latency_ms=formatter_latency_ms,
+                formatter_error_class=formatter_error_class,
+                action_mode=action_mode,
             )
             db.add(row)
             await db.flush()
@@ -85,14 +98,16 @@ async def log_chat_turn_flow_summary(
     intent: str | None,
     steps: list[str],
     duration_ms: int | None = None,
+    intent_confidence: float | None = None,
 ) -> None:
     """One readable line per chat turn (grep: AILAX_CHAT_FLOW). Also stored as module=chat_flow."""
     text = " → ".join(steps)
     logger.info(
-        "AILAX_CHAT_FLOW user_id=%s session_id=%s intent=%s | %s | duration_ms=%s",
+        "AILAX_CHAT_FLOW user_id=%s session_id=%s intent=%s confidence=%s | %s | duration_ms=%s",
         user_id,
         session_id,
         intent,
+        f"{intent_confidence:.2f}" if intent_confidence is not None else None,
         text,
         duration_ms,
     )
@@ -103,6 +118,7 @@ async def log_chat_turn_flow_summary(
         module="chat_flow",
         reason=text,
         intent_detected=intent,
+        intent_confidence=intent_confidence,
         duration_ms=duration_ms,
         emit_standard_log=False,
     )
