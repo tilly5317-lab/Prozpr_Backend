@@ -123,3 +123,27 @@ def test_lever_g_with_active_mortgage():
     if lever is not None:
         assert lever.action.kind == "property_field"
         assert lever.action.field == "early_payoff_date"
+
+
+def test_propose_levers_returns_top_3_ranked():
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import propose_levers
+    levers = propose_levers(inp, out)
+    assert len(levers) <= 3
+
+
+def test_propose_levers_returns_empty_when_feasible():
+    """Plan is already feasible -> no levers needed."""
+    inp = GoalPlanningInput(
+        profile=ClientProfile(
+            latest_update_date=date(2026, 5, 9), annual_income=10_000_000, tax_rate=0.30,
+            financial_assets=200_000_000, financial_liabilities_excl_mortgage=0,
+            monthly_household_expense=80_000, monthly_investment_next_12m=200_000,
+        ),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+    )
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import propose_levers
+    levers = propose_levers(inp, out)
+    assert levers == []
