@@ -244,9 +244,9 @@ def phase4_multi_asset(
     # (e.g. others_gate zeroed it), the excess is funded by shrinking the equity
     # subgroup pool — not by trimming the fund.
     overage = max(0, others_component - others_amount)
-    equity_for_subgroups = max(0, residual_equity_corpus - equity_component - overage)
-    debt_for_subgroups = max(0, debt_amount - debt_component)
-    remaining_others_for_gold = max(0, others_amount - others_component)
+    equity_for_subgroups = round_to_100(max(0, residual_equity_corpus - equity_component - overage))
+    debt_for_subgroups = round_to_100(max(0, debt_amount - debt_component))
+    remaining_others_for_gold = round_to_100(max(0, others_amount - others_component))
 
     return MultiAssetBlock(
         multi_asset_amount=multi_asset_amount,
@@ -435,9 +435,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         }
         largest = max(amounts_by_name, key=lambda k: amounts_by_name[k])
         amounts_by_name[largest] += drift
-        equities_amount = amounts_by_name["eq"]
-        debt_amount = amounts_by_name["dt"]
-        others_amount = amounts_by_name["oth"]
+        equities_amount = round_to_100(amounts_by_name["eq"])
+        debt_amount = round_to_100(amounts_by_name["dt"])
+        others_amount = round_to_100(amounts_by_name["oth"])
 
     elss = phase3_elss(equities_amount, inp.tax_regime, inp.section_80c_utilized)
     multi = phase4_multi_asset(

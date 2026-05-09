@@ -1,0 +1,16 @@
+def test_public_exports():
+    import financial_primitives as fp
+    assert hasattr(fp, "future_value")
+    assert hasattr(fp, "present_value")
+    assert hasattr(fp, "compound")
+    assert hasattr(fp, "pmt")
+    assert hasattr(fp, "rate")
+    assert hasattr(fp, "ipmt")
+    assert hasattr(fp, "RATEConvergenceError")
+    assert hasattr(fp, "inflate")
+    assert hasattr(fp, "real_rate")
+    assert hasattr(fp, "fy_for_date")
+    assert hasattr(fp, "fy_end_after")
+    assert hasattr(fp, "eomonth")
+    assert hasattr(fp, "year_fraction")
+    assert hasattr(fp, "retirement_corpus_pv")
