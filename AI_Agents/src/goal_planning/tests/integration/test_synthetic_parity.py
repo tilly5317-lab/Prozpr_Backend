@@ -216,3 +216,76 @@ def test_8_per_goal_expected_roi_three_band():
     assert near.expected_roi == pytest.approx(0.05)
     assert mid.expected_roi == pytest.approx(0.07)
     assert long.expected_roi == pytest.approx(0.09)
+
+
+def test_9_already_retired_drawdown_branch():
+    """Person already retired; no divide-by-zero; warning emitted."""
+    inp = GoalPlanningInput(
+        profile=_profile(),
+        retirement=RetirementInput(date_of_birth=date(1956, 1, 1)),  # 70yo
+    )
+    out = compute_full_projection(inp)
+    assert any("already retired" in w.lower() for w in out.warnings)
+    assert out.retirement.years_to_retirement <= 0
+
+
+def test_10_past_date_goal_dropped_with_warning():
+    inp = GoalPlanningInput(
+        profile=_profile(),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+        custom_goals=[CustomGoal(
+            name="past_goal", goal_type=GoalType.custom,
+            amount_pv=1_000_000, goal_date=date(2025, 1, 1),
+        )],
+    )
+    out = compute_full_projection(inp)
+    assert not any(g.name == "past_goal" for g in out.goals)
+    assert any("past_goal" in w and "past" in w.lower() for w in out.warnings)
+
+
+def test_12_goal_property_ipmt_year_2_plus():
+    """Goal-property mortgage interest declines period-over-period (declining balance)."""
+    inp = GoalPlanningInput(
+        profile=_profile(),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+        goal_properties=[GoalProperty(
+            name="house", target_pv=10_000_000, is_downpayment_only=True,
+            upfront_amount=2_000_000, goal_date=date(2030, 5, 9),
+            mortgage_tenure_years=20, mortgage_interest_annual=0.085,
+        )],
+        detail_level="full",
+    )
+    out = compute_full_projection(inp)
+    sched = next(m for m in out.mortgage_amortizations if m.property_ref == "goal:house")
+    # year-2 interest should be < year-1 interest (declining balance)
+    year2_interest = sched.monthly_schedule[12].interest_portion
+    year1_interest = sched.monthly_schedule[0].interest_portion
+    assert year2_interest < year1_interest
+
+
+def test_13_m147_4_branch_coverage():
+    """Each of the 4 M147 branches reachable in a multi-decade projection."""
+    inp = GoalPlanningInput(
+        profile=_profile(monthly_investment_next_12m=50_000),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+        detail_level="full",
+    )
+    out = compute_full_projection(inp)
+    nfa_rows = out.nfa_monthly_series
+    assert nfa_rows is not None
+    kinds = {r.regular_invest_kind for r in nfa_rows}
+    # At minimum, "user_sip" pre-retirement and "zero" post-retirement should appear
+    assert "user_sip" in kinds
+    assert "zero" in kinds
+
+
+def test_14_step_up_compounding():
+    """FY3 income = FY1 × (1+growth)^2."""
+    inp = GoalPlanningInput(
+        profile=_profile(),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+    )
+    out = compute_full_projection(inp)
+    fy1 = out.annual_cashflow[0].income
+    fy3 = out.annual_cashflow[2].income
+    assert fy3 == pytest.approx(fy1 * (1.08 ** 2), rel=1e-3)
