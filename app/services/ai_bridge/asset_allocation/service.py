@@ -315,6 +315,7 @@ async def compute_allocation_result(
 
         reb_id, snap_id = await persist_goal_allocation_recommendation(
             db, acting_user_id, output,
+            input_payload=alloc_input.model_dump(mode="json"),
             chat_session_id=chat_session_id,
             user_question=None,
             spine_mode=spine_mode,

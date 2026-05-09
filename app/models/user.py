@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.family_member import FamilyMember
     from app.models.fund import Fund
     from app.models.goals import FinancialGoal
+    from app.models.goals.goal_allocation import GoalAllocationRecommendation
     from app.models.ips import InvestmentPolicyStatement
     from app.models.linked_account import LinkedAccount
     from app.models.meeting_note import MeetingNote
@@ -104,6 +105,9 @@ class User(Base):
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
     financial_goals: Mapped[List["FinancialGoal"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    goal_allocation_recommendations: Mapped[List["GoalAllocationRecommendation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     portfolios: Mapped[List["Portfolio"]] = relationship(
