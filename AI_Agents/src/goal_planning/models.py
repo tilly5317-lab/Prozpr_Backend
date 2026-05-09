@@ -273,6 +273,8 @@ class GoalPlanningOutput(BaseModel):
     one_off_outflow_status: list[OneOffFundingStatus]
     annual_cashflow: list[AnnualCashflowRow]
     fund_flow_summary: FundFlowSummary
+    goal_property_details: list[GoalPropertyDetail] = []   # NEW: full property cost info
+    derived_stats: DerivedStats | None = None              # NEW: pre-computed insights (None until Task 4)
 
     # Detail γ — populated only when detail_level == "full"
     monthly_cashflow: list[MonthlyCashflowRow] | None = None

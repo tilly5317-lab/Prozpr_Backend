@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from goal_planning.models import (
-    GoalPlanningInput, GoalPlanningOutput, MortgageAmortization, ValidationIssue,
+    GoalPlanningInput, GoalPlanningOutput, GoalPropertyDetail,
+    MortgageAmortization, ValidationIssue,
 )
 from goal_planning.engine.profile import build_initial_context
 from goal_planning.engine.retirement import compute_retirement_snapshot
@@ -26,6 +27,35 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
 
     existing_mortgages = build_existing_mortgages(input.current_properties, ctx, warnings)     # 3
     goal_property_outcomes = build_goal_properties(input.goal_properties, ctx, warnings)       # 4
+
+    # Build public-facing GoalPropertyDetail list (lifts internal outcome + source spec).
+    goal_property_details: list[GoalPropertyDetail] = []
+    name_to_goalprop = {gp.name: gp for gp in input.goal_properties}
+    for outcome in goal_property_outcomes:
+        src = name_to_goalprop[outcome.name]
+        if outcome.amortization is not None:
+            emi = outcome.amortization.monthly_rows[0].emi
+            total_interest = sum(r.interest_portion for r in outcome.amortization.monthly_rows)
+            payoff_date = outcome.amortization.monthly_rows[-1].month_end
+        else:
+            emi = None
+            total_interest = None
+            payoff_date = None
+        goal_property_details.append(GoalPropertyDetail(
+            name=outcome.name,
+            target_pv=src.target_pv if src.target_pv is not None else outcome.target_fv,
+            target_fv=outcome.target_fv,
+            payout_amount_fv=outcome.payout_amount_fv,
+            is_downpayment_only=src.is_downpayment_only,
+            upfront_amount=src.upfront_amount,
+            mortgage_amount=outcome.mortgage_amount,
+            mortgage_tenure_years=src.mortgage_tenure_years,
+            mortgage_interest_annual=src.mortgage_interest_annual,
+            mortgage_emi_monthly=emi,
+            mortgage_total_interest=total_interest,
+            mortgage_payoff_date=payoff_date,
+            goal_date=src.goal_date,
+        ))
 
     goals_internal = build_goals_table(
         retirement, goal_property_outcomes, input.custom_goals, ctx, input.assumptions, warnings
@@ -84,6 +114,7 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
         one_off_outflow_status=funding.per_one_off_outflow_status,
         annual_cashflow=annual_cashflow,
         fund_flow_summary=fund_flow,
+        goal_property_details=goal_property_details,
         monthly_cashflow=monthly_cashflow if full else None,
         nfa_monthly_series=funding.nfa_monthly if full else None,
         mortgage_amortizations=mortgage_schedules,
