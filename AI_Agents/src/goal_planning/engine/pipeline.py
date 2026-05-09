@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from goal_planning.models import (
-    GoalPlanningInput, GoalPlanningOutput, ValidationIssue,
+    GoalPlanningInput, GoalPlanningOutput, MortgageAmortization, ValidationIssue,
 )
 from goal_planning.engine.profile import build_initial_context
 from goal_planning.engine.retirement import compute_retirement_snapshot
@@ -60,9 +60,20 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
     )
 
     full = (input.detail_level == "full")
-    mortgage_schedules = (
-        existing_mortgages + [g.amortization for g in goal_property_outcomes if g.amortization]
-    ) if full else None
+    if full:
+        internal_schedules = (
+            existing_mortgages + [g.amortization for g in goal_property_outcomes if g.amortization]
+        )
+        mortgage_schedules: list[MortgageAmortization] | None = [
+            MortgageAmortization(
+                property_ref=s.property_ref,
+                start_date=s.start_date,
+                monthly_schedule=s.monthly_rows,
+            )
+            for s in internal_schedules
+        ]
+    else:
+        mortgage_schedules = None
 
     return GoalPlanningOutput(
         engine_version=ENGINE_VERSION,
