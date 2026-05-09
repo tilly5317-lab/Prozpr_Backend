@@ -12,6 +12,7 @@ import pytest
 from goal_planning.models import (
     ClientProfile,
     CurrentProperty,
+    CustomGoal,
     GoalPlanningInput,
     GoalProperty,
     GoalType,
@@ -126,3 +127,92 @@ def test_5_existing_mortgage_rate_inversion_round_trip():
     inferred_monthly_rate = first.interest_portion / 5_000_000
     pmt_check = npf.pmt(inferred_monthly_rate, 240, -5_000_000)
     assert pmt_check == pytest.approx(43_391, rel=0.02)
+
+
+def test_6_goal_funded_with_huge_nfa():
+    inp = GoalPlanningInput(
+        profile=_profile(financial_assets=100_000_000, financial_liabilities_excl_mortgage=0),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+        custom_goals=[CustomGoal(
+            name="small_goal", goal_type=GoalType.custom,
+            amount_pv=1_000_000, goal_date=date(2030, 5, 9),
+        )],
+    )
+    out = compute_full_projection(inp)
+    g = next(s for s in out.goals if s.name == "small_goal")
+    assert g.is_funded
+    assert g.shortfall_fv == 0
+
+
+def test_7a_two_equal_goals_same_date_proportional_split():
+    inp = GoalPlanningInput(
+        profile=_profile(financial_assets=5_000_000, annual_income=0, monthly_household_expense=0),
+        retirement=RetirementInput(date_of_birth=date(1996, 5, 9)),
+        custom_goals=[
+            CustomGoal(name="g1", goal_type=GoalType.custom, amount_fv=5_000_000, goal_date=date(2027, 6, 1)),
+            CustomGoal(name="g2", goal_type=GoalType.custom, amount_fv=5_000_000, goal_date=date(2027, 6, 1)),
+        ],
+    )
+    out = compute_full_projection(inp)
+    s1 = next(s for s in out.goals if s.name == "g1")
+    s2 = next(s for s in out.goals if s.name == "g2")
+    assert s1.shortfall_fv > 0
+    assert s2.shortfall_fv > 0
+    assert s1.shortfall_fv == pytest.approx(s2.shortfall_fv, rel=0.05)
+
+
+def test_7b_three_goals_total_3x_nfa():
+    inp = GoalPlanningInput(
+        profile=_profile(
+            financial_assets=3_000_000,
+            financial_liabilities_excl_mortgage=0,
+            annual_income=0,
+            monthly_household_expense=0,
+        ),
+        retirement=RetirementInput(date_of_birth=date(1996, 5, 9)),
+        custom_goals=[
+            CustomGoal(name=f"g{i}", goal_type=GoalType.custom, amount_fv=3_000_000, goal_date=date(2027, 6, 1))
+            for i in range(3)
+        ],
+    )
+    out = compute_full_projection(inp)
+    # Each gets 1M, so each is short by 2M ≈ 2/3 of FV
+    for s in out.goals:
+        if s.goal_type == GoalType.custom:
+            assert s.shortfall_fv == pytest.approx(2_000_000, rel=0.10)
+
+
+def test_7c_mixed_goals_plus_oneoff_outflow_same_month():
+    from goal_planning.models import OneOffEvent
+    inp = GoalPlanningInput(
+        profile=_profile(financial_assets=2_000_000, annual_income=0, monthly_household_expense=0),
+        retirement=RetirementInput(date_of_birth=date(1996, 5, 9)),
+        custom_goals=[
+            CustomGoal(name="g1", goal_type=GoalType.custom, amount_fv=1_000_000, goal_date=date(2027, 6, 1)),
+        ],
+        one_off_outflows=[OneOffEvent(description="renovation", amount=2_000_000, date=date(2027, 6, 15))],
+    )
+    out = compute_full_projection(inp)
+    g1 = next(s for s in out.goals if s.name == "g1")
+    reno = next(s for s in out.one_off_outflow_status if s.description == "renovation")
+    assert g1.shortfall_fv > 0
+    assert reno.shortfall > 0
+
+
+def test_8_per_goal_expected_roi_three_band():
+    inp = GoalPlanningInput(
+        profile=_profile(),
+        retirement=RetirementInput(date_of_birth=date(1976, 5, 9)),
+        custom_goals=[
+            CustomGoal(name="near_goal", goal_type=GoalType.custom, amount_pv=1_000_000, goal_date=date(2027, 6, 1)),
+            CustomGoal(name="mid_goal", goal_type=GoalType.custom, amount_pv=1_000_000, goal_date=date(2030, 6, 1)),
+            CustomGoal(name="long_goal", goal_type=GoalType.custom, amount_pv=1_000_000, goal_date=date(2040, 6, 1)),
+        ],
+    )
+    out = compute_full_projection(inp)
+    near = next(g for g in out.goals if g.name == "near_goal")
+    mid = next(g for g in out.goals if g.name == "mid_goal")
+    long = next(g for g in out.goals if g.name == "long_goal")
+    assert near.expected_roi == pytest.approx(0.05)
+    assert mid.expected_roi == pytest.approx(0.07)
+    assert long.expected_roi == pytest.approx(0.09)
