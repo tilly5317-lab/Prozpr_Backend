@@ -14,6 +14,7 @@ from goal_planning.engine.goals_table import build_goals_table
 from goal_planning.engine.cashflow import project_cashflow, compute_horizon_years
 from goal_planning.engine.funding import compute_funding
 from goal_planning.engine.summary import build_headline_status, build_fund_flow_summary
+from goal_planning.engine.derived_stats import compute_derived_stats
 
 ENGINE_VERSION = "0.1.0"
 
@@ -89,21 +90,34 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
         ctx, annual_cashflow, funding, input.one_off_inflows, input.one_off_outflows,
     )
 
-    full = (input.detail_level == "full")
-    if full:
-        internal_schedules = (
-            existing_mortgages + [g.amortization for g in goal_property_outcomes if g.amortization]
+    # Always build the public MortgageAmortization view of all schedules — needed by
+    # derived_stats (for debt_free_date). Whether they're EXPOSED in the output depends
+    # on detail_level below.
+    internal_schedules = (
+        existing_mortgages + [g.amortization for g in goal_property_outcomes if g.amortization]
+    )
+    all_amortizations: list[MortgageAmortization] = [
+        MortgageAmortization(
+            property_ref=s.property_ref,
+            start_date=s.start_date,
+            monthly_schedule=s.monthly_rows,
         )
-        mortgage_schedules: list[MortgageAmortization] | None = [
-            MortgageAmortization(
-                property_ref=s.property_ref,
-                start_date=s.start_date,
-                monthly_schedule=s.monthly_rows,
-            )
-            for s in internal_schedules
-        ]
-    else:
-        mortgage_schedules = None
+        for s in internal_schedules
+    ]
+
+    derived_stats = compute_derived_stats(
+        nfa_monthly_series=funding.nfa_monthly,
+        annual_cashflow=annual_cashflow,
+        mortgage_amortizations=all_amortizations,
+        goals=funding.per_goal_status,
+        retirement=retirement,
+        closing_nfa=funding.closing_nfa,
+        inflation_household_expense=ctx.inflation_household_expense,
+        horizon_years=horizon,
+    )
+
+    full = (input.detail_level == "full")
+    mortgage_schedules: list[MortgageAmortization] | None = all_amortizations if full else None
 
     return GoalPlanningOutput(
         engine_version=ENGINE_VERSION,
@@ -115,6 +129,7 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
         annual_cashflow=annual_cashflow,
         fund_flow_summary=fund_flow,
         goal_property_details=goal_property_details,
+        derived_stats=derived_stats,
         monthly_cashflow=monthly_cashflow if full else None,
         nfa_monthly_series=funding.nfa_monthly if full else None,
         mortgage_amortizations=mortgage_schedules,
