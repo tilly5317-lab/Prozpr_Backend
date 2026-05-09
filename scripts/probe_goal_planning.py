@@ -51,8 +51,10 @@ sys.path.insert(0, str(WORKTREE_ROOT / "AI_Agents" / "src"))
 from goal_planning import (
     GoalPlanningInput, ClientProfile, RetirementInput, Assumptions,
     CustomGoal, GoalProperty, CurrentProperty, OneOffEvent, GoalType,
+    GoalPlanningRequest, GoalPlanningSnapshot,            # NEW
     compute_full_projection, validate_input_only,
-    run_goal_planning_agent, ENGINE_VERSION,
+    run_goal_planning,                                     # was run_goal_planning_agent
+    ENGINE_VERSION,
 )
 
 
@@ -213,19 +215,34 @@ def _print_engine_summary(out) -> None:
     print()
 
 
-def _print_response_summary(label: str, response) -> None:
+def _print_snapshot_summary(label: str, snap) -> None:
     print("=" * 70)
-    print(f"AGENT RESPONSE: {label}")
+    print(f"AGENT SNAPSHOT: {label}")
     print("=" * 70)
-    print(f"  engine_version: {response.engine_version}")
-    print(f"  output:         {'present' if response.output else 'None (Q&A turn)'}")
-    print(f"  levers:         {len(response.levers)}")
-    if response.levers:
-        for i, lev in enumerate(response.levers):
-            print(f"    {i+1}. [{lev.confidence}] {lev.description}")
+    print(f"  engine_version: {snap.engine_version}")
+    print(f"  headline.is_overall_feasible: {snap.headline.is_overall_feasible}")
+    print(f"  headline.total_shortfall_fv: ₹{snap.headline.total_shortfall_fv:,.0f}")
+    print(f"  headline.closing_nfa: ₹{snap.headline.closing_nfa:,.0f}")
     print()
-    print(f"  Narrative:")
-    print("  " + response.narrative.replace("\n", "\n  "))
+    print(f"  actions_taken_this_turn ({len(snap.actions_taken_this_turn)}):")
+    for j, a in enumerate(snap.actions_taken_this_turn):
+        args_str = str(a.arguments)[:80]
+        summary_str = a.summary[:120].replace("\n", " | ")
+        print(f"    {j+1}. {a.tool_name}({args_str})")
+        print(f"       → {summary_str}")
+    print()
+    print(f"  extracted_events_this_turn ({len(snap.extracted_events_this_turn)}):")
+    for ev in snap.extracted_events_this_turn:
+        print(f"    - {ev.kind}: {ev.model_dump_json()[:120]}...")
+    print()
+    print(f"  levers ({len(snap.levers)}):")
+    for j, lev in enumerate(snap.levers):
+        print(f"    {j+1}. [{lev.confidence}] {lev.description}")
+    print()
+    if snap.error_log:
+        print(f"  error_log ({len(snap.error_log)}):")
+        for e in snap.error_log:
+            print(f"    - {e}")
     print()
 
 
@@ -293,21 +310,23 @@ async def main() -> int:
         print(f">>> Turn {i}: {q!r}")
         print()
         try:
-            response = await run_goal_planning_agent(
-                user_message=q,
+            request = GoalPlanningRequest(
+                user_question=q,
                 baseline_input=inp,
                 chat_session_id=session_id,
                 anchor_date=anchor,
+                detail_level="full",
             )
-            _print_response_summary(f"Turn {i}", response)
+            snap = await run_goal_planning(request)
+            _print_snapshot_summary(f"Turn {i}", snap)
             all_responses.append({
                 "turn": i,
-                "user_message": q,
-                "response": response.model_dump(mode="json"),
+                "user_question": q,
+                "snapshot": snap.model_dump(mode="json"),
             })
-            _dump(f"04_agent_turn_{i}", response)
+            _dump(f"04_agent_turn_{i}", snap)
         except Exception as e:  # surface but don't crash the whole probe
-            err = {"turn": i, "user_message": q, "error": f"{type(e).__name__}: {e}"}
+            err = {"turn": i, "user_question": q, "error": f"{type(e).__name__}: {e}"}
             print(f"[ERROR] Turn {i} failed: {err['error']}")
             all_responses.append(err)
             _dump(f"04_agent_turn_{i}_error", err)
