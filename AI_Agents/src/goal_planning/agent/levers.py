@@ -173,3 +173,101 @@ def generate_lever_d_retirement_age(
                 confidence="medium",
             )
     return None
+
+
+def generate_lever_e_step_up(
+    inp: GoalPlanningInput, baseline_out: GoalPlanningOutput, step_up_max_delta_pp: float = 0.20,
+) -> Lever | None:
+    """Lever E: bisect annual_invested_amount_growth from baseline to baseline+max_delta."""
+    if _is_feasible(baseline_out):
+        return None
+    base_rate = inp.assumptions.annual_invested_amount_growth
+    lo, hi = base_rate, base_rate + step_up_max_delta_pp
+    best: tuple[float, GoalPlanningOutput] | None = None
+    for _ in range(8):
+        mid = (lo + hi) / 2
+        new_inp = inp.model_copy(deep=True)
+        new_inp.assumptions = inp.assumptions.model_copy(update={"annual_invested_amount_growth": mid})
+        new_out = compute_full_projection(new_inp)
+        if _is_feasible(new_out):
+            best = (mid, new_out)
+            hi = mid
+        else:
+            lo = mid
+    if best is None:
+        return None
+    rate, target_out = best
+    delta = rate - base_rate
+    confidence = "high" if delta <= 0.05 else ("medium" if delta <= 0.10 else "low")
+    return Lever(
+        description=f"Increase step-up rate from {base_rate:.1%} to {rate:.1%}",
+        action=NumericOverride(kind="numeric", key="step_up_rate", value=rate),
+        projected_outcome=target_out.headline,
+        confidence=confidence,
+    )
+
+
+def generate_lever_f_reduce_expense(
+    inp: GoalPlanningInput, baseline_out: GoalPlanningOutput,
+    reduce_pct_list: tuple[float, ...] = (0.05, 0.10, 0.15),
+) -> Lever | None:
+    """Lever F: try -5/-10/-15% on monthly_household_expense. Confidence: low always."""
+    if _is_feasible(baseline_out):
+        return None
+    base = inp.profile.monthly_household_expense
+    for pct in reduce_pct_list:
+        new_expense = base * (1 - pct)
+        new_inp = inp.model_copy(deep=True)
+        new_inp.profile = inp.profile.model_copy(update={"monthly_household_expense": new_expense})
+        new_out = compute_full_projection(new_inp)
+        if _is_feasible(new_out):
+            return Lever(
+                description=f"Reduce monthly household expense by {int(pct*100)}% (from ₹{base:,.0f} to ₹{new_expense:,.0f})",
+                action=NumericOverride(
+                    kind="numeric", key="monthly_household_expense", value=new_expense,
+                ),
+                projected_outcome=new_out.headline,
+                confidence="low",
+            )
+    return None
+
+
+def generate_lever_g_mortgage_payoff(
+    inp: GoalPlanningInput, baseline_out: GoalPlanningOutput,
+    payoff_years_list: tuple[int, ...] = (1, 3, 5, 10),
+) -> Lever | None:
+    """Lever G: only if user has >=1 active existing mortgage."""
+    active_mortgages = [
+        p for p in inp.current_properties
+        if p.has_mortgage
+        and p.mortgage_last_date is not None
+        and p.mortgage_last_date > inp.profile.latest_update_date
+    ]
+    if not active_mortgages:
+        return None
+    if _is_feasible(baseline_out):
+        return None
+
+    target_property = active_mortgages[0]
+    for years in payoff_years_list:
+        payoff_date = _add_years(inp.profile.latest_update_date, years)
+        new_inp = inp.model_copy(deep=True)
+        for i, p in enumerate(new_inp.current_properties):
+            if p.name == target_property.name:
+                # v1 proxy: shorten mortgage_last_date to payoff date (engine's amortization respects it)
+                new_inp.current_properties[i] = p.model_copy(update={
+                    "mortgage_last_date": payoff_date,
+                })
+                break
+        new_out = compute_full_projection(new_inp)
+        if _is_feasible(new_out):
+            return Lever(
+                description=f"Pay off '{target_property.name}' mortgage by {payoff_date.isoformat()}",
+                action=PropertyFieldOverride(
+                    kind="property_field", property_name=target_property.name,
+                    field="early_payoff_date", value=payoff_date,
+                ),
+                projected_outcome=new_out.headline,
+                confidence="medium",
+            )
+    return None
