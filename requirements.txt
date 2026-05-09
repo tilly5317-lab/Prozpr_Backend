@@ -31,3 +31,8 @@ ddgs>=7.0.0
 # Used by AI_Agents/src/market_commentary/scraper.py (imported at app startup via ai_bridge)
 tavily>=1.0.0
 
+# Goal planning
+numpy-financial>=1.0.0
+rapidfuzz>=3.0
+langgraph>=0.2
+
