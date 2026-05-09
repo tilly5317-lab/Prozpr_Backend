@@ -13,7 +13,7 @@ from goal_planning.models import GoalPlanningInput
 
 
 # Default agent model — overridable via config (Phase 4 will add config.py)
-AGENT_MODEL_DEFAULT = "claude-sonnet-4-6"
+AGENT_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
 
 def _fmt_inr(amount: float) -> str:
