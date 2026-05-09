@@ -1,5 +1,5 @@
 from .graph import (
-    build_graph, get_compiled_graph, run_goal_planning_agent,
+    build_graph, get_compiled_graph, run_goal_planning,
     TOOLS,
 )
 
@@ -8,5 +8,5 @@ goal_planning_graph = get_compiled_graph
 
 __all__ = [
     "goal_planning_graph", "build_graph", "get_compiled_graph",
-    "run_goal_planning_agent", "TOOLS",
+    "run_goal_planning", "TOOLS",
 ]

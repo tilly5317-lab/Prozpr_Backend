@@ -8,7 +8,7 @@ def test_public_api_exports():
 
     # Agent
     assert hasattr(gp, "goal_planning_graph")
-    assert hasattr(gp, "run_goal_planning_agent")
+    assert hasattr(gp, "run_goal_planning")
 
     # Inputs
     for name in ["GoalPlanningInput", "Assumptions", "ClientProfile", "RetirementInput",
