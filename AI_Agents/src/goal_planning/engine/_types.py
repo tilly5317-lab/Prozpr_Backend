@@ -82,6 +82,8 @@ class GoalPropertyOutcome(BaseModel):
     payout_amount_fv: float
     mortgage_amount: float
     amortization: MortgageSchedule | None
+    goal_date: date
+    amount_pv: float
 
 
 class GoalInternal(BaseModel):
