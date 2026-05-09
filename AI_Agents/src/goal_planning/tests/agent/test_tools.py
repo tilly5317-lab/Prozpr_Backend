@@ -35,6 +35,8 @@ def _state() -> AgentState:
         "captured_mutations": [],
         "last_output": None,
         "last_levers": [],
+        "actions_taken_this_turn": [],
+        "extracted_events_this_turn": [],
         "dirty": False,
         "error_log": [],
     }
@@ -63,8 +65,9 @@ def test_clear_overrides_empties_state():
 @pytest.mark.asyncio
 async def test_extract_financial_event_with_stub_returns_error():
     state = _state()
-    summary = await extract_financial_event_impl("buy a house", state)
+    summary, event = await extract_financial_event_impl("buy a house", state)
     assert "not yet implemented" in summary.lower() or "could not" in summary.lower()
+    assert event is None  # extractor stub returns ExtractionError → event is None
 
 
 def test_mutate_goal_appends():
