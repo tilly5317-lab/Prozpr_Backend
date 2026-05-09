@@ -180,6 +180,31 @@ def _print_engine_summary(out) -> None:
         print(f"    − One-off out:      ₹{f.total_one_off_out:>15,.0f}")
         print(f"    − Goals paid:       ₹{f.total_goals_paid:>15,.0f}")
         print(f"    Closing NFA:        ₹{f.closing_nfa:>15,.0f}")
+    if hasattr(out, 'goal_property_details') and out.goal_property_details:
+        print(f"\n  Property details ({len(out.goal_property_details)}):")
+        for d in out.goal_property_details:
+            print(f"    - {d.name}: target_FV ₹{d.target_fv:,.0f}, payout_FV ₹{d.payout_amount_fv:,.0f}, "
+                  f"mortgage ₹{d.mortgage_amount:,.0f}")
+            if d.mortgage_emi_monthly:
+                print(f"      EMI ₹{d.mortgage_emi_monthly:,.0f}/mo, total interest ₹{d.mortgage_total_interest:,.0f}, "
+                      f"payoff {d.mortgage_payoff_date}")
+    if hasattr(out, 'derived_stats') and out.derived_stats:
+        ds = out.derived_stats
+        print(f"\n  Derived stats:")
+        print(f"    Peak NFA:  ₹{ds.peak_nfa_amount:>15,.0f} on {ds.peak_nfa_date}")
+        print(f"    Min NFA:   ₹{ds.min_nfa_amount:>15,.0f} on {ds.min_nfa_date}")
+        if ds.nfa_at_retirement is not None:
+            print(f"    NFA at retirement: ₹{ds.nfa_at_retirement:,.0f}")
+        print(f"    Closing NFA in today's money: ₹{ds.closing_nfa_pv:,.0f}")
+        print(f"    Worst savings year: {ds.worst_savings_fy} (₹{ds.worst_savings_amount:,.0f})")
+        print(f"    Best savings year:  {ds.best_savings_fy} (₹{ds.best_savings_amount:,.0f})")
+        if ds.debt_free_date:
+            print(f"    Debt-free date: {ds.debt_free_date}")
+        if ds.months_corpus_will_last_post_retirement is not None:
+            print(f"    Corpus will last: {ds.months_corpus_will_last_post_retirement} months post-retirement")
+        print(f"    Goals by category:")
+        for cat, agg in ds.goals_by_category.items():
+            print(f"      {cat}: {agg.count} goal(s), shortfall ₹{agg.total_shortfall:,.0f}, all funded: {agg.all_funded}")
     if out.warnings:
         print()
         print(f"  Warnings ({len(out.warnings)}):")
