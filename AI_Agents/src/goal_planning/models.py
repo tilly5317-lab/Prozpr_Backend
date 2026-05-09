@@ -375,11 +375,17 @@ class ExtractedGoal(BaseModel):
     kind: Literal["custom_goal"]
     goal: CustomGoal
 
+    def dated_field(self) -> date | None:
+        return self.goal.goal_date
+
 
 class ExtractedProperty(BaseModel):
     kind: Literal["property_goal"]
     property: GoalProperty
     assumptions_used: list[str] = []
+
+    def dated_field(self) -> date | None:
+        return self.property.goal_date
 
 
 class ExtractedCashflow(BaseModel):
@@ -388,12 +394,19 @@ class ExtractedCashflow(BaseModel):
     direction: Literal["in", "out"]
     confidence: Literal["high", "medium", "low"]
 
+    def dated_field(self) -> date | None:
+        return self.event.date
+
 
 class ExtractedMutation(BaseModel):
     kind: Literal["goal_mutation"]
     op: Literal["add", "remove", "update"]
     goal_name: str
     fields: dict[str, Any] = {}
+
+    def dated_field(self) -> date | None:
+        v = self.fields.get("goal_date")
+        return v if isinstance(v, date) else None
 
 
 ExtractedFinancialEvent = Annotated[
