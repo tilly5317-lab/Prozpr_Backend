@@ -296,6 +296,11 @@ class Settings:
         return Settings._anthropic_key("RISK_PROFILING_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
+    def get_anthropic_goal_planning_key() -> str | None:
+        """Goal planning LangGraph agent + Haiku-based NL extractor."""
+        return Settings._anthropic_key("ANTHROPIC_GOAL_PLANNING_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
     def mfapi_scheduler_enabled() -> bool:
         """Daily 00:00 IST mfapi.in MF master + NAV refresh. Default ON; set
         ``MFAPI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
