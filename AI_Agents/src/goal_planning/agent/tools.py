@@ -18,8 +18,10 @@ from goal_planning.agent.extractor import FinancialEventExtractor
 _extractor = FinancialEventExtractor()
 
 
-async def extract_financial_event_impl(description: str, state: AgentState) -> str:
-    """Parse NL → discriminated-union; route to the right captured_* list."""
+async def extract_financial_event_impl(
+    description: str, state: AgentState,
+) -> tuple[str, ExtractedFinancialEvent | None]:
+    """Returns (summary_for_llm, structured_event_for_audit_or_None_on_error)."""
     existing_names = (
         ["retirement"]
         + [g.name for g in state["baseline_input"].custom_goals]
@@ -31,26 +33,26 @@ async def extract_financial_event_impl(description: str, state: AgentState) -> s
 
     if isinstance(result, ExtractionError):
         state["error_log"].append(result.reason)
-        return f"Could not extract: {result.reason}"
+        return f"Could not extract: {result.reason}", None
 
     state["dirty"] = True
     if isinstance(result, ExtractedGoal):
         state["captured_goals"].append(result.goal)
-        return f"Captured custom goal: {result.goal.name} on {result.goal.goal_date.isoformat()}"
+        return f"Captured custom goal: {result.goal.name} on {result.goal.goal_date.isoformat()}", result
     if isinstance(result, ExtractedProperty):
         state["captured_properties"].append(result.property)
         if result.assumptions_used:
-            return f"Captured property goal: {result.property.name}; assumptions used: {', '.join(result.assumptions_used)}"
-        return f"Captured property goal: {result.property.name}"
+            return f"Captured property goal: {result.property.name}; assumptions used: {', '.join(result.assumptions_used)}", result
+        return f"Captured property goal: {result.property.name}", result
     if isinstance(result, ExtractedCashflow):
         state["captured_cashflows"].append(CapturedCashflow(event=result.event, direction=result.direction))
-        return f"Captured one-off {result.direction}flow: {result.event.description} ₹{result.event.amount:,.0f}"
+        return f"Captured one-off {result.direction}flow: {result.event.description} ₹{result.event.amount:,.0f}", result
     if isinstance(result, ExtractedMutation):
         state["captured_mutations"].append(GoalMutation(
             kind="mutation", op=result.op, goal_name=result.goal_name, fields=result.fields,
         ))
-        return f"Captured mutation on {result.goal_name}: {result.op}"
-    return "Unknown extraction kind"
+        return f"Captured mutation on {result.goal_name}: {result.op}", result
+    return "Unknown extraction kind", None
 
 
 def apply_override_impl(override: OverrideSpec, state: AgentState) -> str:

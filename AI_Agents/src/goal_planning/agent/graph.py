@@ -17,10 +17,10 @@ from goal_planning.agent.tools import (
     extract_financial_event_impl, apply_override_impl, clear_overrides_impl,
     mutate_goal_impl, compute_projection_impl, propose_levers_impl,
 )
-from goal_planning.agent.prompts import _RECURSION_LIMIT_MESSAGE
 from goal_planning.engine import ENGINE_VERSION
 from goal_planning.models import (
-    GoalPlanningInput, GoalPlanningResponse, OverrideSpec,
+    GoalPlanningInput, GoalPlanningOutput, GoalPlanningRequest, GoalPlanningSnapshot,
+    OverrideSpec, TurnAction,
 )
 
 
@@ -38,16 +38,27 @@ def extract_financial_event(
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
     """Parse a natural-language description of a financial goal, property purchase, or one-off cashflow."""
-    summary = asyncio.run(extract_financial_event_impl(description, state))
-    return Command(update={
+    summary, event = asyncio.run(extract_financial_event_impl(description, state))
+    new_action = TurnAction(
+        tool_name="extract_financial_event",
+        arguments={"description": description},
+        summary=summary,
+    )
+    update: dict[str, Any] = {
         "captured_goals": state["captured_goals"],
         "captured_properties": state["captured_properties"],
         "captured_cashflows": state["captured_cashflows"],
         "captured_mutations": state["captured_mutations"],
         "dirty": state["dirty"],
         "error_log": state["error_log"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
-    })
+    }
+    if event is not None:
+        update["extracted_events_this_turn"] = [
+            *state["extracted_events_this_turn"], event,
+        ]
+    return Command(update=update)
 
 
 @tool
@@ -58,11 +69,18 @@ def apply_override(
 ) -> Command:
     """Stage a what-if change to a parameter (income, expense, SIP, rate)."""
     from pydantic import TypeAdapter
+    override_input = override
     parsed = TypeAdapter(OverrideSpec).validate_python(override)
     summary = apply_override_impl(parsed, state)
+    new_action = TurnAction(
+        tool_name="apply_override",
+        arguments={"override": override_input},
+        summary=summary,
+    )
     return Command(update={
         "accumulated_overrides": state["accumulated_overrides"],
         "dirty": state["dirty"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
     })
 
@@ -75,9 +93,15 @@ def clear_overrides(
 ) -> Command:
     """Clear staged overrides (all if keys=None, or specific keys)."""
     summary = clear_overrides_impl(keys, state)
+    new_action = TurnAction(
+        tool_name="clear_overrides",
+        arguments={"keys": keys},
+        summary=summary,
+    )
     return Command(update={
         "accumulated_overrides": state["accumulated_overrides"],
         "dirty": state["dirty"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
     })
 
@@ -92,9 +116,15 @@ def mutate_goal(
 ) -> Command:
     """Add/remove/update a goal (incl. retirement)."""
     summary = mutate_goal_impl(op, goal_name, fields, state)
+    new_action = TurnAction(
+        tool_name="mutate_goal",
+        arguments={"op": op, "goal_name": goal_name, "fields": fields},
+        summary=summary,
+    )
     return Command(update={
         "captured_mutations": state["captured_mutations"],
         "dirty": state["dirty"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
     })
 
@@ -106,9 +136,11 @@ def compute_projection(
 ) -> Command:
     """Run the goal-planning engine. Idempotent."""
     summary = compute_projection_impl(state)
+    new_action = TurnAction(tool_name="compute_projection", arguments={}, summary=summary)
     return Command(update={
         "last_output": state["last_output"],
         "dirty": state["dirty"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
     })
 
@@ -120,8 +152,10 @@ def propose_levers(
 ) -> Command:
     """Generate up to 3 deterministic recommendations to close shortfalls."""
     summary = propose_levers_impl(state)
+    new_action = TurnAction(tool_name="propose_levers", arguments={}, summary=summary)
     return Command(update={
         "last_levers": state["last_levers"],
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
         "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
     })
 
