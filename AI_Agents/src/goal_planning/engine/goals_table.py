@@ -60,10 +60,24 @@ def build_goals_table(
         ),
     ))
 
-    # 2. Goal properties — payout_amount_fv flows in as amount_fv
-    # (Properties carry their own goal_date in the source GoalProperty list, threaded by name match
-    # in the orchestrator. For unit tests this list is empty.)
-    # Pipeline orchestrator wires this; unit tests don't exercise it.
+    # 2. Goal properties — payout_amount_fv flows in as amount_fv (calc #11).
+    # The "real" inflation has already been applied during build_goal_properties when
+    # converting target_pv -> target_fv. The inflation_rate field below is bookkeeping
+    # only; we record the household-expense rate as a neutral placeholder.
+    for o in goal_property_outcomes:
+        roi = expected_roi_for_goal(o.goal_date, ctx)
+        fund_pv = _fund_today_pv(o.payout_amount_fv, roi, ctx, o.goal_date)
+        rows.append(GoalInternal(
+            name=o.name,
+            goal_type=GoalType.property,
+            goal_date=o.goal_date,
+            goal_date_fy=fy_end_after(o.goal_date),
+            amount_pv=o.amount_pv,
+            amount_fv=o.payout_amount_fv,
+            inflation_rate=ctx.inflation_household_expense,
+            expected_roi=roi,
+            fund_today_pv=fund_pv,
+        ))
 
     # 3. Custom goals
     for g in custom_goals:

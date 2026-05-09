@@ -31,10 +31,17 @@ def build_goal_properties(
         else:
             target_fv = _round_thousand(inflate(p.target_pv, inflation, years_to_goal))
 
+        # Source PV — given target_pv if provided, otherwise reverse-derive from FV.
+        if p.target_pv is not None:
+            amount_pv = float(p.target_pv)
+        else:
+            amount_pv = float(target_fv) / ((1 + inflation) ** years_to_goal)
+
         if not p.is_downpayment_only:
             outcomes.append(GoalPropertyOutcome(
                 name=p.name, target_fv=target_fv, payout_amount_fv=target_fv,
                 mortgage_amount=0, amortization=None,
+                goal_date=p.goal_date, amount_pv=amount_pv,
             ))
             continue
 
@@ -62,5 +69,7 @@ def build_goal_properties(
                 monthly_rows=monthly_rows,
                 annual_rows=annual_rows,
             ),
+            goal_date=p.goal_date,
+            amount_pv=amount_pv,
         ))
     return outcomes

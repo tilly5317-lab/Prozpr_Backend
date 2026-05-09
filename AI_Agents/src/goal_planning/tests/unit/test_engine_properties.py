@@ -51,3 +51,10 @@ def test_target_fv_provided_skips_inflation():
     o = outcomes[0]
     # When target_fv given directly, no inflation applied
     assert 14_900_000 <= o.target_fv <= 15_100_000
+
+
+def test_goal_property_outcome_carries_source_date():
+    props = [GoalProperty(name="house", target_pv=10_000_000, goal_date=date(2030, 5, 9))]
+    outcomes = build_goal_properties(props, _ctx(), [])
+    assert outcomes[0].goal_date == date(2030, 5, 9)
+    assert outcomes[0].amount_pv == 10_000_000
