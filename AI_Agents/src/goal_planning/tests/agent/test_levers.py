@@ -75,3 +75,51 @@ def test_lever_d_changes_retirement_age():
         assert lever.action.kind == "mutation"
         assert lever.action.goal_name == "retirement"
         assert "retirement_age" in lever.action.fields
+
+
+def test_lever_e_increases_step_up():
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_e_step_up
+    lever = generate_lever_e_step_up(inp, out, step_up_max_delta_pp=0.20)
+    if lever is not None:
+        assert lever.action.kind == "numeric"
+        assert lever.action.key == "step_up_rate"
+
+
+def test_lever_f_reduces_expense():
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_f_reduce_expense
+    lever = generate_lever_f_reduce_expense(inp, out)
+    if lever is not None:
+        assert lever.action.kind == "numeric"
+        assert lever.action.key == "monthly_household_expense"
+        assert lever.confidence == "low"
+
+
+def test_lever_g_skipped_with_no_existing_mortgage():
+    inp = _shortfall_input()  # no current_properties
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_g_mortgage_payoff
+    lever = generate_lever_g_mortgage_payoff(inp, out)
+    assert lever is None  # silently skipped
+
+
+def test_lever_g_with_active_mortgage():
+    from datetime import date
+    from goal_planning.models import CurrentProperty
+    inp = _shortfall_input()
+    inp = inp.model_copy(update={
+        "current_properties": [CurrentProperty(
+            name="apt", has_mortgage=True,
+            mortgage_balance=3_000_000, mortgage_emi=30_000,
+            mortgage_last_date=date(2046, 1, 1),
+        )],
+    })
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_g_mortgage_payoff
+    lever = generate_lever_g_mortgage_payoff(inp, out)
+    if lever is not None:
+        assert lever.action.kind == "property_field"
+        assert lever.action.field == "early_payoff_date"
