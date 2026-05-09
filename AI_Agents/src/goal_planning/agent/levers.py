@@ -271,3 +271,58 @@ def generate_lever_g_mortgage_payoff(
                 confidence="medium",
             )
     return None
+
+
+CATEGORY_PRIORITY = {
+    "A": 1.0,    # SIP increase — most actionable
+    "B": 0.9,    # defer goal — soft change
+    "E": 0.85,   # step-up — sustainable
+    "C": 0.6,    # reduce target — affects life
+    "G": 0.55,   # mortgage payoff — requires lump sum
+    "D": 0.5,    # delay retirement — affects life
+    "F": 0.4,    # cut expense — hardest
+}
+CONFIDENCE_WEIGHT = {"high": 1.0, "medium": 0.7, "low": 0.4}
+
+
+def _score_lever(lever: Lever, category: str, severity_required: float = 0.5) -> float:
+    return (1.0 / max(severity_required, 0.01)) * CONFIDENCE_WEIGHT[lever.confidence] * CATEGORY_PRIORITY[category]
+
+
+def propose_levers(
+    inp: GoalPlanningInput, baseline_out: GoalPlanningOutput, max_count: int = 3,
+) -> list[Lever]:
+    """Generate up to 7 levers, score, return top N (default 3)."""
+    if _is_feasible(baseline_out):
+        return []
+    candidates: list[tuple[Lever, str]] = []
+    if (l := generate_lever_a_increase_sip(inp, baseline_out)):
+        candidates.append((l, "A"))
+    if (l := generate_lever_b_defer_goal(inp, baseline_out)):
+        candidates.append((l, "B"))
+    if (l := generate_lever_c_reduce_target(inp, baseline_out)):
+        candidates.append((l, "C"))
+    if (l := generate_lever_d_retirement_age(inp, baseline_out)):
+        candidates.append((l, "D"))
+    if (l := generate_lever_e_step_up(inp, baseline_out)):
+        candidates.append((l, "E"))
+    if (l := generate_lever_f_reduce_expense(inp, baseline_out)):
+        candidates.append((l, "F"))
+    if (l := generate_lever_g_mortgage_payoff(inp, baseline_out)):
+        candidates.append((l, "G"))
+
+    candidates.sort(key=lambda lc: _score_lever(lc[0], lc[1]), reverse=True)
+
+    if not candidates:
+        underfunded = [g for g in baseline_out.goals if g.shortfall_fv > 0]
+        if underfunded:
+            largest = max(underfunded, key=lambda g: g.shortfall_fv)
+            return [Lever(
+                description="Even at maximum levers, this isn't feasible — consider reducing scope",
+                action=GoalMutation(
+                    kind="mutation", op="remove", goal_name=largest.name, fields={},
+                ),
+                projected_outcome=baseline_out.headline,
+                confidence="low",
+            )]
+    return [c[0] for c in candidates[:max_count]]
