@@ -371,6 +371,67 @@ class Lever(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+class TurnAction(BaseModel):
+    """Audit log entry: which tool was called this turn, with what args, and the summary it returned."""
+    tool_name: str
+    arguments: dict[str, Any] = {}
+    summary: str
+
+
+class GoalPropertyDetail(BaseModel):
+    """Public-facing property goal details (lifts info from internal GoalPropertyOutcome)."""
+    name: str
+    target_pv: float
+    target_fv: float
+    payout_amount_fv: float                 # what gets paid at goal_date (= upfront FV if mortgage, else target FV)
+    is_downpayment_only: bool
+    upfront_amount: float | None = None
+    mortgage_amount: float                  # 0 if cash purchase
+    mortgage_tenure_years: int
+    mortgage_interest_annual: float
+    mortgage_emi_monthly: float | None = None
+    mortgage_total_interest: float | None = None
+    mortgage_payoff_date: date | None = None
+    goal_date: date
+
+
+class GoalCategoryAggregate(BaseModel):
+    count: int
+    total_amount_pv: float
+    total_amount_fv: float
+    total_funded: float
+    total_shortfall: float
+    all_funded: bool
+
+
+class DerivedStats(BaseModel):
+    """Pre-computed answers to questions that would otherwise require array scans."""
+    # NFA timeline highlights
+    peak_nfa_amount: float
+    peak_nfa_date: date
+    min_nfa_amount: float
+    min_nfa_date: date
+    nfa_at_retirement: float | None         # None if already retired or no DOB
+    closing_nfa_pv: float                   # closing_nfa discounted to today's money
+
+    # Cashflow highlights
+    worst_savings_fy: str                   # FY label with min savings_2
+    worst_savings_amount: float
+    best_savings_fy: str
+    best_savings_amount: float
+
+    # Debt timeline
+    debt_free_date: date | None             # earliest date when ALL mortgages have closing_balance == 0
+                                             # None if no mortgages, or if debt persists past horizon
+
+    # Goal aggregates by goal_type
+    goals_by_category: dict[str, GoalCategoryAggregate]
+
+    # Retirement runway
+    months_corpus_will_last_post_retirement: int | None  # months until NFA hits 0 post-retirement,
+                                                          # None if NFA never hits 0
+
+
 class ExtractedGoal(BaseModel):
     kind: Literal["custom_goal"]
     goal: CustomGoal
@@ -425,3 +486,24 @@ class GoalPlanningResponse(BaseModel):
     output: GoalPlanningOutput | None
     narrative: str
     levers: list[Lever]
+
+
+class GoalPlanningRequest(BaseModel):
+    """What the responder passes in. (Used by Phase 2 agent refactor; kept here for type completeness now.)"""
+    user_question: str
+    baseline_input: GoalPlanningInput
+    chat_session_id: str
+    anchor_date: date
+    detail_level: Literal["default", "full"] = "default"
+
+
+class GoalPlanningSnapshot(GoalPlanningOutput):
+    """Agent return = engine output + per-turn metadata.
+    Inherits all fields of GoalPlanningOutput and adds turn-level info.
+    Phase 2 wires this up; Phase 1 just defines the type.
+    """
+    extracted_events_this_turn: list[ExtractedFinancialEvent] = []
+    actions_taken_this_turn: list[TurnAction] = []
+    levers: list[Lever] = []
+    validation_issues: list[ValidationIssue] = []
+    error_log: list[str] = []
