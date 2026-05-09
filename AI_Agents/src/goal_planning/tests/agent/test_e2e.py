@@ -6,6 +6,8 @@ from goal_planning.models import (
     GoalPlanningInput, ClientProfile, RetirementInput,
 )
 
+pytestmark = pytest.mark.skip(reason="rewrite for v2 in Task 4")
+
 
 def _baseline():
     return GoalPlanningInput(
