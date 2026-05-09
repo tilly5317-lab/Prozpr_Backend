@@ -13,7 +13,7 @@ from app.database import get_db
 from app.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.models.user import User
 from app.schemas.ai_modules import AssetAllocationRequest, AssetAllocationResponse
-from app.services.ai_bridge.asset_allocation import generate_portfolio_optimisation_response
+from app.services.ai_bridge.asset_allocation import generate_asset_allocation_response
 
 router = APIRouter(prefix="/asset-allocation", tags=["AI — Asset allocation"])
 
@@ -25,7 +25,7 @@ async def recommend_allocation(
     current_user: CurrentUser = Depends(get_effective_user),
     user_ctx: User = Depends(get_ai_user_context),
 ):
-    text = await generate_portfolio_optimisation_response(
+    text = await generate_asset_allocation_response(
         user_ctx,
         payload.question,
         db=db,

@@ -52,7 +52,3 @@ SQLAlchemy, and per-request auth/context dependencies. AI workloads are delegate
 
 - `__pycache__/` — compiled cache.
 - `models/__init__.py` table-import bookkeeping (it's just re-exports).
-
-## Refresh
-
-If this file looks stale after a structural change, run `/refresh-context` from this folder.

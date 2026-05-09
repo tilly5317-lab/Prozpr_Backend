@@ -23,7 +23,3 @@ Defines the data contracts between the ingestion routers/services and external A
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

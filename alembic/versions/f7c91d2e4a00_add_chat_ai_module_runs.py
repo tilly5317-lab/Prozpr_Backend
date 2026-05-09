@@ -1,4 +1,4 @@
-"""Add chat_ai_module_runs for AILAX module audit trail.
+"""Add chat_ai_module_runs for Prozpr module audit trail.
 
 Revision ID: f7c91d2e4a00
 Revises: e4f8a2b1c901

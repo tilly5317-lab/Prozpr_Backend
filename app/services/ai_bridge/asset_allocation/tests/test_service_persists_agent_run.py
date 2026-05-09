@@ -55,7 +55,7 @@ class AllocationPersistsAgentRunTests(unittest.TestCase):
                 acting_user_id=uuid.uuid4(), chat_session_id=uuid.uuid4(),
             ))
 
-        self.assertEqual(captured.get("module"), "goal_based_allocation")
+        self.assertEqual(captured.get("module"), "asset_allocation")
         self.assertIn("input_payload", captured)
         self.assertIn("output_payload", captured)
         self.assertEqual(captured["input_payload"], {"corpus": 8_000_000})

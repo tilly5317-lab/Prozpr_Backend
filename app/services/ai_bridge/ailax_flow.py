@@ -1,7 +1,7 @@
-"""AILAX spine: detect portfolio intent mode and run the allocation pipeline.
+"""Prozpr spine: detect portfolio intent mode and run the allocation pipeline.
 
 ``detect_spine_mode`` inspects user wording (cash-in, cash-out, rebalance, etc.)
-and ``build_ailax_spine`` orchestrates allocation + formatting into one chat reply.
+and ``build_prozpr_spine`` orchestrates allocation + formatting into one chat reply.
 """
 
 from __future__ import annotations
@@ -15,13 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.ai_bridge.asset_allocation import (
+    compose_allocation_chat_reply,
     compute_allocation_result,
-    format_allocation_chat_brief,
+    build_fallback_brief,
 )
 
 
 @dataclass
-class AilaxSpineResult:
+class ProzprSpineResult:
     """Chat markdown + optional persisted plan IDs."""
     text: str
     rebalancing_recommendation_id: uuid.UUID | None = None
@@ -59,7 +60,7 @@ def detect_spine_mode(user_question: str) -> SpineMode:
     return SpineMode.FULL
 
 
-async def build_ailax_spine(
+async def build_prozpr_spine(
     user: User,
     user_question: str,
     mode: SpineMode,
@@ -68,7 +69,7 @@ async def build_ailax_spine(
     persist_recommendation: bool = False,
     acting_user_id: uuid.UUID | None = None,
     chat_session_id: uuid.UUID | None = None,
-) -> AilaxSpineResult:
+) -> ProzprSpineResult:
     """Run allocation and return formatted chat markdown + optional persisted IDs."""
     outcome = await compute_allocation_result(
         user, user_question,
@@ -80,9 +81,9 @@ async def build_ailax_spine(
     )
 
     if outcome.blocking_message:
-        return AilaxSpineResult(text=outcome.blocking_message)
+        return ProzprSpineResult(text=outcome.blocking_message)
     if not outcome.result:
-        return AilaxSpineResult(
+        return ProzprSpineResult(
             text="I couldn't produce an allocation summary just now. "
                  "Check your profile is complete and try again in a moment."
         )
@@ -95,9 +96,11 @@ async def build_ailax_spine(
         else "Complete your risk questionnaire when you can — guidance below is broader without it.\n\n"
     )
 
-    body = format_allocation_chat_brief(outcome.result, mode.value)
-    return AilaxSpineResult(
-        text=header + body,
+    body = build_fallback_brief(outcome.result, mode.value)
+    tailored = await compose_allocation_chat_reply(user_question, body, mode.value)
+    final_body = tailored if tailored else body
+    return ProzprSpineResult(
+        text=header + final_body,
         rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
         portfolio_allocation_snapshot_id=outcome.allocation_snapshot_id,
     )

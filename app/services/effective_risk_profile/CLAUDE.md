@@ -32,7 +32,3 @@ Persistence and calculation helpers for the user's effective risk assessment
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.

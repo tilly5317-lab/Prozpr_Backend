@@ -23,7 +23,3 @@ user stock transactions. Column-level detail: `README_DATABASE_SCHEMA.md`.
 ## Don't read
 
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.
