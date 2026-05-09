@@ -169,7 +169,7 @@ def goal_to_response(
         suggested_contribution=None,
         priority=goal.priority.value if hasattr(goal.priority, "value") else str(goal.priority),
         status=goal.status.value if hasattr(goal.status, "value") else str(goal.status),
-        goal_type=goal.goal_type.value if hasattr(goal.goal_type, "value") else str(goal.goal_type),
+        goal_type=None,
         inflation_rate=float(goal.inflation_rate) if goal.inflation_rate is not None else None,
         notes=goal.notes,
         created_at=goal.created_at,

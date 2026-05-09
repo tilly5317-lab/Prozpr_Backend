@@ -9,13 +9,21 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.rebalancing_derived import (
+        RebalancingAssetClassBreakdown,
+        RebalancingBucketRecommendation,
+        RebalancingFutureInvestment,
+        RebalancingRecommendationSummary,
+    )
 
 
 class RebalancingStatus(str, enum.Enum):
@@ -52,4 +60,22 @@ class RebalancingRecommendation(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    derived_summary: Mapped[Optional["RebalancingRecommendationSummary"]] = relationship(
+        back_populates="rebalancing_recommendation",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    bucket_recommendations: Mapped[list["RebalancingBucketRecommendation"]] = relationship(
+        back_populates="rebalancing_recommendation",
+        cascade="all, delete-orphan",
+    )
+    asset_class_breakdowns: Mapped[list["RebalancingAssetClassBreakdown"]] = relationship(
+        back_populates="rebalancing_recommendation",
+        cascade="all, delete-orphan",
+    )
+    future_investments: Mapped[list["RebalancingFutureInvestment"]] = relationship(
+        back_populates="rebalancing_recommendation",
+        cascade="all, delete-orphan",
     )

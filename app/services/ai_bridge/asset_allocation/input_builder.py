@@ -79,15 +79,13 @@ def _map_goals(financial_goals: List[Any], total_corpus: float) -> List[Goal]:
         target = getattr(g, "target_date", None)
         if not target or target <= today:
             continue
-        gt = getattr(g, "goal_type", None)
-        gt_val = gt.value if hasattr(gt, "value") else str(gt or "other")
         mapped.append(
             Goal(
                 goal_name=getattr(g, "goal_name", None) or "goal",
                 time_to_goal_months=_months_between(today, target),
                 amount_needed=float(getattr(g, "present_value_amount", 0.0) or 0.0),
                 goal_priority="non_negotiable",
-                investment_goal=gt_val.lower(),
+                investment_goal="wealth_creation",
             )
         )
     if mapped:

@@ -25,6 +25,7 @@ _INFLOW_TYPES = {
     MfTransactionType.SELL,
     MfTransactionType.SWITCH_OUT,
 }
+_MAX_NAV_LOOKBACK_DAYS = 14
 
 
 def _f(value: object) -> float:
@@ -96,6 +97,27 @@ async def _nav_on_or_before(db: AsyncSession, scheme_code: str, target: date) ->
     ).scalar_one_or_none()
 
 
+async def _nav_on_date(db: AsyncSession, scheme_code: str, target: date) -> Optional[MfNavHistory]:
+    return (
+        await db.execute(
+            select(MfNavHistory)
+            .where(MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date == target)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _nav_by_walking_back(
+    db: AsyncSession, scheme_code: str, anchor: date, *, max_lookback_days: int = _MAX_NAV_LOOKBACK_DAYS
+) -> Optional[MfNavHistory]:
+    """Find nearest active NAV at/behind anchor by walking day-wise backwards."""
+    for days_back in range(max_lookback_days + 1):
+        row = await _nav_on_date(db, scheme_code, anchor - timedelta(days=days_back))
+        if row:
+            return row
+    return None
+
+
 async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> int:
     txns = list(
         (
@@ -142,7 +164,11 @@ async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> 
         rating = (
             await db.execute(select(MfFundRating).where(MfFundRating.scheme_code == scheme_code))
         ).scalar_one_or_none()
-        nav = await _latest_nav_row(db, scheme_code)
+        # Start from today and walk back to the latest active NAV date.
+        nav = await _nav_by_walking_back(db, scheme_code, date.today())
+        if nav is None:
+            # Fallback for sparse history (e.g., very old or backfilled schemes).
+            nav = await _latest_nav_row(db, scheme_code)
         curr_nav = _f(nav.nav) if nav else None
         curr_value = units * curr_nav if curr_nav is not None else 0.0
         pnl = curr_value - invested
@@ -156,9 +182,15 @@ async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> 
 
         one_y = three_y = five_y = None
         if nav:
-            nav_1y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365))
-            nav_3y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 3))
-            nav_5y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 5))
+            nav_1y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365))
+            nav_3y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365 * 3))
+            nav_5y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365 * 5))
+            if nav_1y is None:
+                nav_1y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365))
+            if nav_3y is None:
+                nav_3y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 3))
+            if nav_5y is None:
+                nav_5y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 5))
             if nav_1y:
                 one_y = ((_f(nav.nav) / _f(nav_1y.nav)) - 1.0) * 100.0 if _f(nav_1y.nav) > 0 else None
             if nav_3y:
