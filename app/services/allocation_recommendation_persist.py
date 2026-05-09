@@ -22,7 +22,6 @@ from app.services.portfolio_service import get_or_create_primary_portfolio
 
 ensure_ai_agents_path()
 
-<<<<<<< HEAD
 from goal_based_allocation_pydantic.models import GoalAllocationOutput as PipelineGoalAllocationOutput
 
 
@@ -52,13 +51,6 @@ def _asset_class_pcts_from_subgroups(output: PipelineGoalAllocationOutput) -> tu
         round(totals["debt"] / grand * 100, 2),
         round(totals["others"] / grand * 100, 2),
     )
-=======
-from asset_allocation_pydantic.models import GoalAllocationOutput
-
-
-def _allocation_output_to_jsonable(output: GoalAllocationOutput) -> dict[str, Any]:
-    return output.model_dump(mode="json")
->>>>>>> 671e6143bd3820ec52cf5a27b90cbfbffea1e126
 
 
 def _asset_class_amounts_from_subgroups(
