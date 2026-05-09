@@ -204,9 +204,6 @@ class AnnualCashflowRow(BaseModel):
     one_off_in: float
     one_off_out: float
     investment_amount: float
-    nfa_opening: float
-    nfa_roi: float
-    nfa_closing: float
 
 
 class MonthlyCashflowRow(BaseModel):

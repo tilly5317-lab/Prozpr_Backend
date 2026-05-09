@@ -48,7 +48,7 @@ def project_cashflow(
     Monthly rows divide annual fields by 12 (so the monthly column always shows
     the annualized monthly equivalent). savings_2_avg is the FY's annual savings_2
     divided by the *count of months in that FY* (partial first FY → fewer months).
-    nfa_opening/roi/closing are zeroed here; the funding stage computes real NFA.
+    NFA evolution lives in the funding stage (nfa_monthly_series), not on cashflow rows.
     """
     annual: list[AnnualCashflowRow] = []
     for i in range(horizon_years + 1):
@@ -86,9 +86,6 @@ def project_cashflow(
             one_off_in=one_off_in,
             one_off_out=one_off_out,
             investment_amount=investment_annual,
-            nfa_opening=0.0,
-            nfa_roi=0.0,
-            nfa_closing=0.0,
         ))
 
     # Build monthly rows.
