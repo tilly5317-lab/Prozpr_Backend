@@ -1,10 +1,9 @@
-"""StateGraph definition + compile + run_goal_planning_agent entry."""
+"""StateGraph definition + compile + run_goal_planning entry."""
 from __future__ import annotations
 import asyncio
-from datetime import date
 from typing import Any, Annotated
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
@@ -17,9 +16,8 @@ from goal_planning.agent.tools import (
     extract_financial_event_impl, apply_override_impl, clear_overrides_impl,
     mutate_goal_impl, compute_projection_impl, propose_levers_impl,
 )
-from goal_planning.engine import ENGINE_VERSION
 from goal_planning.models import (
-    GoalPlanningInput, GoalPlanningOutput, GoalPlanningRequest, GoalPlanningSnapshot,
+    GoalPlanningOutput, GoalPlanningRequest, GoalPlanningSnapshot,
     OverrideSpec, TurnAction,
 )
 
@@ -191,32 +189,21 @@ def get_compiled_graph():
     return _compiled_graph
 
 
-def extract_terminal_narrative(messages: list[BaseMessage]) -> str:
-    """Walk backward to find the last AIMessage with no tool_calls."""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
-            content = msg.content
-            return content if isinstance(content, str) else str(content)
-    return "(no narrative)"
+async def run_goal_planning(request: GoalPlanningRequest) -> GoalPlanningSnapshot:
+    """Public entry point: customer question + baseline → structured snapshot for the responder LLM.
 
-
-async def run_goal_planning_agent(
-    user_message: str,
-    baseline_input: GoalPlanningInput,
-    chat_session_id: str,
-    anchor_date: date,
-) -> GoalPlanningResponse:
+    The agent (Haiku-driven LangGraph) routes to tools internally and produces a structured
+    snapshot. There is NO customer-facing narrative here — the cross-module responder LLM
+    writes that, using this snapshot as input.
+    """
     config = {
-        "configurable": {"thread_id": chat_session_id},
+        "configurable": {"thread_id": request.chat_session_id},
         "recursion_limit": 15,
     }
-    # Initialize ALL TypedDict fields. ToolNode's InjectedState validates state shape
-    # against the AgentState schema; missing keys (even those a node will set later)
-    # raise validation errors during the first tool invocation.
     state_update = {
-        "messages": [HumanMessage(content=user_message)],
-        "baseline_input": baseline_input,
-        "anchor_date": anchor_date,
+        "messages": [HumanMessage(content=request.user_question)],
+        "baseline_input": request.baseline_input,
+        "anchor_date": request.anchor_date,
         "accumulated_overrides": [],
         "captured_goals": [],
         "captured_properties": [],
@@ -224,8 +211,8 @@ async def run_goal_planning_agent(
         "captured_mutations": [],
         "last_output": None,
         "last_levers": [],
-        "actions_taken_this_turn": [],         # NEW
-        "extracted_events_this_turn": [],      # NEW
+        "actions_taken_this_turn": [],
+        "extracted_events_this_turn": [],
         "dirty": False,
         "error_log": [],
     }
@@ -233,16 +220,74 @@ async def run_goal_planning_agent(
     try:
         final = await graph.ainvoke(state_update, config)  # type: ignore[arg-type]
     except Exception:
-        return GoalPlanningResponse(
-            engine_version=ENGINE_VERSION,
-            output=None,
-            narrative=_RECURSION_LIMIT_MESSAGE,
-            levers=[],
-        )
+        # Recursion limit hit or unexpected graph error — return an "errors" snapshot
+        return _build_error_snapshot(request, reason="recursion_limit_or_graph_error")
 
-    return GoalPlanningResponse(
-        engine_version=ENGINE_VERSION,
-        output=final.get("last_output"),
-        narrative=extract_terminal_narrative(final["messages"]),
-        levers=final.get("last_levers", []),
+    return _build_snapshot_from_state(request, final)
+
+
+def _build_snapshot_from_state(
+    request: GoalPlanningRequest, final_state: dict,
+) -> GoalPlanningSnapshot:
+    """Build the snapshot from the final agent state."""
+    out: GoalPlanningOutput | None = final_state.get("last_output")
+    if out is None:
+        # Agent didn't run compute_projection. Build an empty snapshot using a fresh engine call
+        # over the baseline so the responder still has structured data to read.
+        # Apply any captured-state-merge if needed; for now use bare baseline.
+        from goal_planning.engine import compute_full_projection
+        out = compute_full_projection(request.baseline_input)
+
+    # Construct snapshot — inherits all GoalPlanningOutput fields + adds per-turn fields
+    return GoalPlanningSnapshot(
+        # All GoalPlanningOutput fields:
+        engine_version=out.engine_version,
+        computed_at=out.computed_at,
+        input_echo=out.input_echo,
+        headline=out.headline,
+        retirement=out.retirement,
+        goals=out.goals,
+        goal_property_details=out.goal_property_details,
+        one_off_outflow_status=out.one_off_outflow_status,
+        annual_cashflow=out.annual_cashflow,
+        fund_flow_summary=out.fund_flow_summary,
+        derived_stats=out.derived_stats,
+        monthly_cashflow=out.monthly_cashflow if request.detail_level == "full" else None,
+        nfa_monthly_series=out.nfa_monthly_series if request.detail_level == "full" else None,
+        mortgage_amortizations=out.mortgage_amortizations if request.detail_level == "full" else None,
+        warnings=out.warnings,
+        # Snapshot-only fields:
+        extracted_events_this_turn=final_state.get("extracted_events_this_turn", []),
+        actions_taken_this_turn=final_state.get("actions_taken_this_turn", []),
+        levers=final_state.get("last_levers", []),
+        validation_issues=[],   # Phase 1 already exposes via validate_input_only; not populated by the agent path
+        error_log=final_state.get("error_log", []),
+    )
+
+
+def _build_error_snapshot(request: GoalPlanningRequest, reason: str) -> GoalPlanningSnapshot:
+    """Fallback snapshot when the graph itself fails (e.g., recursion limit)."""
+    from goal_planning.engine import compute_full_projection
+    out = compute_full_projection(request.baseline_input)
+    return GoalPlanningSnapshot(
+        engine_version=out.engine_version,
+        computed_at=out.computed_at,
+        input_echo=out.input_echo,
+        headline=out.headline,
+        retirement=out.retirement,
+        goals=out.goals,
+        goal_property_details=out.goal_property_details,
+        one_off_outflow_status=out.one_off_outflow_status,
+        annual_cashflow=out.annual_cashflow,
+        fund_flow_summary=out.fund_flow_summary,
+        derived_stats=out.derived_stats,
+        monthly_cashflow=out.monthly_cashflow if request.detail_level == "full" else None,
+        nfa_monthly_series=out.nfa_monthly_series if request.detail_level == "full" else None,
+        mortgage_amortizations=out.mortgage_amortizations if request.detail_level == "full" else None,
+        warnings=out.warnings,
+        extracted_events_this_turn=[],
+        actions_taken_this_turn=[],
+        levers=[],
+        validation_issues=[],
+        error_log=[f"agent_failure: {reason}"],
     )

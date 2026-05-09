@@ -4,7 +4,7 @@ Bridge code imports from here only. Internal types (RunContext, MortgageSchedule
 live in engine/_types.py and are NOT exported.
 """
 from .engine import compute_full_projection, validate_input_only, ENGINE_VERSION
-from .agent import goal_planning_graph, run_goal_planning_agent
+from .agent import goal_planning_graph, run_goal_planning
 from .models import (
     # Inputs
     GoalPlanningInput, Assumptions, ClientProfile, RetirementInput,
@@ -16,6 +16,10 @@ from .models import (
     AnnualCashflowRow, MonthlyCashflowRow, MonthlyNFARow,
     MortgageAmortization, MortgageAmortizationRow,
     ValidationIssue,
+    # v2 types (Phase 2)
+    GoalPlanningRequest, GoalPlanningSnapshot,
+    GoalPropertyDetail, DerivedStats, GoalCategoryAggregate,
+    TurnAction,
     # Agent types
     OverrideSpec, NumericOverride, RateOverride, PerGoalRateOverride, PropertyFieldOverride,
     GoalMutation, LeverAction, Lever,
@@ -27,7 +31,7 @@ from .models import (
 
 __all__ = [
     "compute_full_projection", "validate_input_only", "ENGINE_VERSION",
-    "goal_planning_graph", "run_goal_planning_agent",
+    "goal_planning_graph", "run_goal_planning",
     "GoalPlanningInput", "Assumptions", "ClientProfile", "RetirementInput",
     "CurrentProperty", "GoalProperty", "CustomGoal", "OneOffEvent",
     "GoalPlanningOutput", "GoalPlanningResponse",
@@ -36,6 +40,9 @@ __all__ = [
     "AnnualCashflowRow", "MonthlyCashflowRow", "MonthlyNFARow",
     "MortgageAmortization", "MortgageAmortizationRow",
     "ValidationIssue",
+    "GoalPlanningRequest", "GoalPlanningSnapshot",
+    "GoalPropertyDetail", "DerivedStats", "GoalCategoryAggregate",
+    "TurnAction",
     "OverrideSpec", "NumericOverride", "RateOverride",
     "PerGoalRateOverride", "PropertyFieldOverride",
     "GoalMutation", "LeverAction", "Lever",
