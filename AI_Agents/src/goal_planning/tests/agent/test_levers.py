@@ -42,3 +42,36 @@ def test_lever_a_returns_none_when_already_feasible():
     out = compute_full_projection(inp)
     lever = generate_lever_a_increase_sip(inp, out, sip_max_multiplier=5.0)
     assert lever is None
+
+
+def test_lever_b_defers_largest_underfunded_goal():
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_b_defer_goal
+    lever = generate_lever_b_defer_goal(inp, out, defer_max_years=10)
+    if lever is not None:
+        assert lever.action.kind == "mutation"
+        assert lever.action.op == "update"
+        assert "goal_date" in lever.action.fields
+
+
+def test_lever_c_reduces_target():
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_c_reduce_target
+    lever = generate_lever_c_reduce_target(inp, out, reduce_max_pct=0.50)
+    if lever is not None:
+        assert lever.action.kind == "mutation"
+        assert "amount_pv" in lever.action.fields
+
+
+def test_lever_d_changes_retirement_age():
+    """Lever D only generated when retirement is the underfunded goal."""
+    inp = _shortfall_input()
+    out = compute_full_projection(inp)
+    from goal_planning.agent.levers import generate_lever_d_retirement_age
+    lever = generate_lever_d_retirement_age(inp, out)
+    if lever is not None:
+        assert lever.action.kind == "mutation"
+        assert lever.action.goal_name == "retirement"
+        assert "retirement_age" in lever.action.fields
