@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from goal_planning.models import (
     GoalPlanningInput, GoalPlanningOutput, OneOffEvent,
     OverrideSpec, GoalMutation, CustomGoal, GoalProperty, Lever,
+    TurnAction, ExtractedFinancialEvent,
 )
 
 
@@ -35,6 +36,10 @@ class AgentState(TypedDict):
     # Computed within turn
     last_output: GoalPlanningOutput | None
     last_levers: list[Lever]
+
+    # Per-turn audit (NEW — reset each turn by ingest_baseline_node)
+    actions_taken_this_turn: list[TurnAction]
+    extracted_events_this_turn: list[ExtractedFinancialEvent]
 
     # Control
     dirty: bool

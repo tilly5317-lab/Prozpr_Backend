@@ -19,6 +19,8 @@ def test_agent_state_has_required_keys():
         "messages", "baseline_input", "anchor_date",
         "accumulated_overrides", "captured_goals", "captured_properties",
         "captured_cashflows", "captured_mutations",
-        "last_output", "last_levers", "dirty", "error_log",
+        "last_output", "last_levers",
+        "actions_taken_this_turn", "extracted_events_this_turn",   # NEW
+        "dirty", "error_log",
     ]:
         assert key in hints, f"AgentState missing {key}"

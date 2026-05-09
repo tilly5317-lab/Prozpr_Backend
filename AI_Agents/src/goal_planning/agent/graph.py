@@ -190,6 +190,8 @@ async def run_goal_planning_agent(
         "captured_mutations": [],
         "last_output": None,
         "last_levers": [],
+        "actions_taken_this_turn": [],         # NEW
+        "extracted_events_this_turn": [],      # NEW
         "dirty": False,
         "error_log": [],
     }
