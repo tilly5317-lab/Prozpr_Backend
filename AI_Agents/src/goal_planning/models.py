@@ -284,3 +284,131 @@ class GoalPlanningOutput(BaseModel):
 
     warnings: list[str] = []
     computed_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Agent types (overrides, mutations, levers, NL extractor)
+# ---------------------------------------------------------------------------
+
+
+class NumericOverride(BaseModel):
+    kind: Literal["numeric"]
+    key: Literal[
+        "monthly_investment_next_12m",
+        "annual_income",
+        "monthly_household_expense",
+        "step_up_rate",
+    ]
+    value: float
+
+
+class RateOverride(BaseModel):
+    kind: Literal["rate"]
+    key: Literal[
+        "inflation_household_expense",
+        "inflation_property",
+        "inflation_child_abroad_education",
+        "inflation_child_local_education",
+        "inflation_child_marriage",
+        "roi_long_term_post_tax",
+        "roi_mid_term_post_tax",
+        "roi_near_term_post_tax",
+        "roi_retired_portfolio_annual",
+    ]
+    value: float
+
+
+class PerGoalRateOverride(BaseModel):
+    kind: Literal["per_goal_rate"]
+    goal_name: str
+    rate_kind: Literal["inflation"]
+    value: float
+
+
+class PropertyFieldOverride(BaseModel):
+    kind: Literal["property_field"]
+    property_name: str
+    field: Literal[
+        "mortgage_tenure_years",
+        "mortgage_interest_annual",
+        "upfront_amount",
+        "is_downpayment_only",
+        "goal_date",
+        "early_payoff_date",
+    ]
+    value: float | int | bool | date
+
+
+OverrideSpec = Annotated[
+    Union[NumericOverride, RateOverride, PerGoalRateOverride, PropertyFieldOverride],
+    Field(discriminator="kind"),
+]
+
+
+class GoalMutation(BaseModel):
+    kind: Literal["mutation"]
+    op: Literal["add", "remove", "update"]
+    goal_name: str
+    fields: dict[str, Any] = {}
+
+
+LeverAction = Annotated[
+    Union[
+        NumericOverride,
+        RateOverride,
+        PerGoalRateOverride,
+        PropertyFieldOverride,
+        GoalMutation,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+class Lever(BaseModel):
+    description: str
+    action: LeverAction
+    projected_outcome: HeadlineStatus
+    confidence: Literal["low", "medium", "high"]
+
+
+class ExtractedGoal(BaseModel):
+    kind: Literal["custom_goal"]
+    goal: CustomGoal
+
+
+class ExtractedProperty(BaseModel):
+    kind: Literal["property_goal"]
+    property: GoalProperty
+    assumptions_used: list[str] = []
+
+
+class ExtractedCashflow(BaseModel):
+    kind: Literal["cashflow_event"]
+    event: OneOffEvent
+    direction: Literal["in", "out"]
+    confidence: Literal["high", "medium", "low"]
+
+
+class ExtractedMutation(BaseModel):
+    kind: Literal["goal_mutation"]
+    op: Literal["add", "remove", "update"]
+    goal_name: str
+    fields: dict[str, Any] = {}
+
+
+ExtractedFinancialEvent = Annotated[
+    Union[ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation],
+    Field(discriminator="kind"),
+]
+
+
+class ExtractionError(BaseModel):
+    kind: Literal["error"]
+    reason: str
+
+
+class GoalPlanningResponse(BaseModel):
+    engine_version: str
+    output: GoalPlanningOutput | None
+    narrative: str
+    levers: list[Lever]
