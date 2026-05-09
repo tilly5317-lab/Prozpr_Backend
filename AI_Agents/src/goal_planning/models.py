@@ -107,3 +107,29 @@ class OneOffEvent(BaseModel):
     description: str
     amount: float
     date: date
+
+
+class GoalPlanningInput(BaseModel):
+    assumptions: Assumptions = Field(default_factory=Assumptions)
+    profile: ClientProfile
+    retirement: RetirementInput
+    current_properties: list[CurrentProperty] = []
+    goal_properties: list[GoalProperty] = []
+    custom_goals: list[CustomGoal] = []
+    one_off_inflows: list[OneOffEvent] = []
+    one_off_outflows: list[OneOffEvent] = []
+    detail_level: Literal["default", "full"] = "default"
+
+    @model_validator(mode="after")
+    def _validate_unique_names(self) -> "GoalPlanningInput":
+        names: list[str] = ["retirement"]
+        names.extend(p.name for p in self.current_properties)
+        names.extend(p.name for p in self.goal_properties)
+        names.extend(g.name for g in self.custom_goals)
+        names.extend(e.description for e in self.one_off_inflows)
+        names.extend(e.description for e in self.one_off_outflows)
+        normalized = [n.casefold() for n in names]
+        dupes = {n for n in normalized if normalized.count(n) > 1}
+        if dupes:
+            raise ValueError(f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}")
+        return self
