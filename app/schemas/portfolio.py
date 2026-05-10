@@ -97,4 +97,4 @@ class RecommendedPlanResponse(BaseModel):
     """Latest AI ideal plan for the current user (for dashboards / rebalancing UI)."""
 
     snapshot: Optional[RecommendedPlanSnapshotResponse] = None
-    latest_rebalancing_id: Optional[uuid.UUID] = None
+    latest_goal_allocation_run_id: Optional[uuid.UUID] = None

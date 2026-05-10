@@ -59,7 +59,7 @@ class AllocationRunOutcome:
     """Immutable outcome of one allocation pipeline run."""
     result: GoalAllocationOutput | None
     blocking_message: str | None = None
-    rebalancing_recommendation_id: uuid.UUID | None = None
+    goal_allocation_run_id: uuid.UUID | None = None
     allocation_snapshot_id: uuid.UUID | None = None
 
 
@@ -544,21 +544,21 @@ async def compute_allocation_result(
     trace_line(f"GoalAllocationOutput grand_total={output.grand_total}")
     trace_line(f"input builder debug: {_short_json(build_debug, 600)}")
 
-    reb_id: uuid.UUID | None = None
+    run_id: uuid.UUID | None = None
     snap_id: uuid.UUID | None = None
     if db is not None and persist_recommendation and output is not None and acting_user_id is not None:
         from app.services.allocation_recommendation_persist import (
             persist_goal_allocation_recommendation,
         )
 
-        reb_id, snap_id = await persist_goal_allocation_recommendation(
+        run_id, snap_id = await persist_goal_allocation_recommendation(
             db, acting_user_id, output,
             input_payload=alloc_input.model_dump(mode="json"),
             chat_session_id=chat_session_id,
             user_question=None,
             spine_mode=spine_mode,
         )
-        trace_line(f"persisted: rebalancing_id={reb_id} snapshot_id={snap_id}")
+        trace_line(f"persisted: goal_allocation_run_id={run_id} snapshot_id={snap_id}")
 
     # Persist AgentRun row for follow-up reasoning. Does not replace
     # allocation_recommendation_persist; this captures structured I/O for chat.
@@ -577,7 +577,7 @@ async def compute_allocation_result(
                     "allocation_result": output.model_dump(mode="json"),
                     "correlation_ids": {
                         "snapshot_id": str(snap_id) if snap_id else None,
-                        "rebalancing_recommendation_id": str(reb_id) if reb_id else None,
+                        "goal_allocation_run_id": str(run_id) if run_id else None,
                     },
                 },
                 emit_standard_log=False,
@@ -588,7 +588,7 @@ async def compute_allocation_result(
     return AllocationRunOutcome(
         result=output,
         blocking_message=None,
-        rebalancing_recommendation_id=reb_id,
+        goal_allocation_run_id=run_id,
         allocation_snapshot_id=snap_id,
     )
 
