@@ -10,8 +10,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf import MfSipMandate, MfTransaction
+from app.models.mf import MfFundMetadata, MfFundRating, MfSipMandate, MfTransaction
 from app.schemas.mf import MfTransactionCreate, MfTransactionUpdate
+from app.services.mf.latest_snapshot_service import rebuild_user_latest_snapshot
 from app.services.mf.paging import clamp_skip_limit
 
 
@@ -27,6 +28,22 @@ async def _ensure_sip_owned(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="sip_mandate_id does not belong to this user"
         )
+
+
+async def _enrich_from_fund_tables(db: AsyncSession, row: MfTransaction) -> None:
+    meta = (
+        await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == row.scheme_code))
+    ).scalar_one_or_none()
+    rating = (
+        await db.execute(select(MfFundRating).where(MfFundRating.scheme_code == row.scheme_code))
+    ).scalar_one_or_none()
+    if meta:
+        row.isin = meta.isin
+        row.fund_name = meta.scheme_name
+        row.category = meta.category
+        row.sub_category = meta.sub_category
+    if rating:
+        row.sub_group = rating.asset_subgroup
 
 
 async def list_transactions(
@@ -71,6 +88,7 @@ async def create_transaction(db: AsyncSession, user_id: uuid.UUID, payload: MfTr
     data = payload.model_dump()
     data["user_id"] = user_id
     row = MfTransaction(**data)
+    await _enrich_from_fund_tables(db, row)
     db.add(row)
     try:
         await db.commit()
@@ -81,6 +99,7 @@ async def create_transaction(db: AsyncSession, user_id: uuid.UUID, payload: MfTr
             detail=f"Could not create transaction (duplicate fingerprint?): {exc}",
         ) from exc
     await db.refresh(row)
+    await rebuild_user_latest_snapshot(db, user_id)
     return row
 
 
@@ -93,12 +112,15 @@ async def update_transaction(
         await _ensure_sip_owned(db, data["sip_mandate_id"], user_id)
     for k, v in data.items():
         setattr(row, k, v)
+    if "scheme_code" in data:
+        await _enrich_from_fund_tables(db, row)
     try:
         await db.commit()
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     await db.refresh(row)
+    await rebuild_user_latest_snapshot(db, user_id)
     return row
 
 
@@ -106,3 +128,4 @@ async def delete_transaction(db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.
     row = await get_transaction(db, txn_id, user_id)
     await db.delete(row)
     await db.commit()
+    await rebuild_user_latest_snapshot(db, user_id)

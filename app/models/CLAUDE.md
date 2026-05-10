@@ -31,8 +31,3 @@ One file or subpackage per domain. Column-level detail lives in
 
 - `__pycache__/`.
 - `__init__.py` — bookkeeping imports only (covered by parent convention).
-
-## Refresh
-
-If this file looks stale after a structural change, run `/refresh-context`
-from this folder.

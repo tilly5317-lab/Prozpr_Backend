@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Awaitable, Callable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
@@ -25,7 +25,9 @@ class ChatHandlerResult:
     """Return shape for every chat handler. Forwarded to ChatBrainResult."""
     text: str
     snapshot_id: uuid.UUID | None = None
-    rebalancing_recommendation_id: uuid.UUID | None = None
+    goal_allocation_run_id: uuid.UUID | None = None
+    rebalancing_run_id: uuid.UUID | None = None
+    rebalancing_response: Any | None = None
 
 
 Handler = Callable[["TurnContext"], Awaitable[ChatHandlerResult]]

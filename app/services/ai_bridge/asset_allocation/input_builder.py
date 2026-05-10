@@ -1,4 +1,4 @@
-"""Build a ``goal_based_allocation_pydantic.AllocationInput`` from a User ORM row.
+"""Build a ``asset_allocation_pydantic.AllocationInput`` from a User ORM row.
 
 Reads from persisted DB rows only — no call into ``risk_profiling.scoring``.
 When an ``effective_risk_assessments`` row is absent, falls back to score 7.0.
@@ -15,7 +15,7 @@ from app.services.ai_bridge.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
 
-from goal_based_allocation_pydantic.models import AllocationInput, Goal
+from asset_allocation_pydantic.models import AllocationInput, Goal
 
 
 _DEFAULT_RISK_SCORE = 7.0
@@ -53,7 +53,7 @@ def _months_between(start: date, end: date) -> int:
     return max(1, months)
 
 
-def _pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
+def pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
     investable = _f(inv, "investable_assets")
     portfolio_value = _f(inv, "portfolio_value")
     primary_value = 0.0
@@ -79,15 +79,13 @@ def _map_goals(financial_goals: List[Any], total_corpus: float) -> List[Goal]:
         target = getattr(g, "target_date", None)
         if not target or target <= today:
             continue
-        gt = getattr(g, "goal_type", None)
-        gt_val = gt.value if hasattr(gt, "value") else str(gt or "other")
         mapped.append(
             Goal(
                 goal_name=getattr(g, "goal_name", None) or "goal",
                 time_to_goal_months=_months_between(today, target),
                 amount_needed=float(getattr(g, "present_value_amount", 0.0) or 0.0),
                 goal_priority="non_negotiable",
-                investment_goal=gt_val.lower(),
+                investment_goal="wealth_creation",
             )
         )
     if mapped:
@@ -164,7 +162,7 @@ def build_goal_allocation_input_for_user(
     age = _age_from_dob(user.date_of_birth)
     annual_income = _f(inv, "annual_income")
     monthly_household_expense = _f(inv, "regular_outgoings")
-    total_corpus = _pick_total_corpus(inv, portfolios)
+    total_corpus = pick_total_corpus(inv, portfolios)
 
     if tp is not None and getattr(tp, "income_tax_rate", None) is not None:
         effective_tax_rate = float(tp.income_tax_rate)
@@ -195,6 +193,14 @@ def build_goal_allocation_input_for_user(
     if _corpus_override is not None:
         total_corpus = float(_corpus_override)
 
+    # additional_cash_inr is a relative override — adds to whatever total_corpus
+    # is at this point (baseline OR the absolute override above). Used by both
+    # AA chat ("what if I had ₹2L more?") and rebalancing chat (forwards to AA
+    # when the customer asks the same question against a trade list).
+    _additional_cash = getattr(user, "_chat_additional_cash_override", None)
+    if _additional_cash is not None:
+        total_corpus = total_corpus + float(_additional_cash)
+
     _income_override = getattr(user, "_chat_annual_income_override", None)
     if _income_override is not None:
         annual_income = float(_income_override)
@@ -205,6 +211,13 @@ def build_goal_allocation_input_for_user(
 
     _emergency_override = getattr(user, "_chat_emergency_fund_needed_override", None)
     _tax_regime_override = getattr(user, "_chat_tax_regime_override", None)
+
+    # Snap corpus down to a multiple of 100. The asset_allocation pipeline
+    # asserts every subgroup amount is a non-negative multiple of 100
+    # (step4_long_term._verify_invariants); a fractional input corpus produces
+    # a non-multiple-of-100 drift that propagates to subgroup amounts and trips
+    # the assertion. Sheds at most ₹99.
+    total_corpus = float(int(max(total_corpus, 0.0) // 100 * 100))
 
     # Goals are mapped AFTER the corpus override so synthesized-default goals
     # (used when the user has no explicit goals) reflect the overridden corpus.

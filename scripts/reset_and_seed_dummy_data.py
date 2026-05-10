@@ -288,7 +288,7 @@ async def _seed(session: AsyncSession, rows: list[dict]) -> None:
         session.add(
             GoalHolding(
                 goal_id=goal.id,
-                fund_name="AILAX Balanced Growth Fund",
+                fund_name="Prozpr Balanced Growth Fund",
                 category="Hybrid",
                 invested_amount=portfolio_value * 0.25,
                 current_value=portfolio_value * 0.29,
@@ -323,7 +323,7 @@ async def _seed(session: AsyncSession, rows: list[dict]) -> None:
         session.add(
             PortfolioHolding(
                 portfolio_id=portfolio.id,
-                instrument_name="AILAX Large Cap Fund",
+                instrument_name="Prozpr Large Cap Fund",
                 instrument_type="mutual_fund",
                 ticker_symbol=f"ALCF{idx}",
                 quantity=120 + idx * 3,

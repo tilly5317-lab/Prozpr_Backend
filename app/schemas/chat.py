@@ -45,6 +45,7 @@ class ChatMessageResponse(BaseModel):
     intent: Optional[str] = None
     intent_confidence: Optional[float] = None
     intent_reasoning: Optional[str] = None
+    chart_payloads: Optional[list[dict[str, Any]]] = None
     created_at: datetime
 
 
@@ -53,7 +54,7 @@ class ChatSendMessageResponse(BaseModel):
 
     user_message: ChatMessageResponse
     assistant_message: ChatMessageResponse
-    ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
+    goal_allocation_run_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
 
 
@@ -63,7 +64,7 @@ class UploadStatementResponse(BaseModel):
 
 
 class ChatAiModuleRunResponse(BaseModel):
-    """One row from chat AI module telemetry (grep logs: AILAX_AI_MODULE_RUN)."""
+    """One row from chat AI module telemetry (grep logs: PROZPR_AI_MODULE_RUN)."""
 
     model_config = {"from_attributes": True}
 

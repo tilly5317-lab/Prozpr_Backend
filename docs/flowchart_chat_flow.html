@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prozpr — Chat & AI Agents Deep Dive</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1d222c;
+    --border: #2a3140;
+    --text: #e6eaf2;
+    --muted: #97a0b3;
+    --accent: #6aa9ff;
+    --accent-2: #7fdcb1;
+    --warn: #f0b266;
+    --frontend: #4f8cff;
+    --backend:  #2a9d8f;
+    --ai:       #b48bff;
+    --data:     #d68b3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55; }
+
+  header { padding: 24px 32px 14px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* ---- Tabs ---- */
+  .tabs { display: flex; gap: 6px; padding: 14px 32px 0; border-bottom: 1px solid var(--border);
+    background: var(--panel); }
+  .tab { padding: 10px 16px; border-radius: 8px 8px 0 0; cursor: pointer;
+    color: var(--muted); border: 1px solid transparent; border-bottom: none;
+    font-size: 14px; user-select: none; }
+  .tab.active { background: var(--bg); border-color: var(--border); color: var(--text); }
+  .tab:hover { color: var(--text); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ---- Layout ---- */
+  main { display: grid; grid-template-columns: 1fr; gap: 24px; padding: 24px 32px 12px; }
+
+  .card { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--accent); }
+
+  /* ---- Flowchart canvas ---- */
+  .flow { position: relative; width: 100%; min-height: 540px;
+    overflow: auto; max-width: 100%; }
+  .flow-inner { position: relative; }
+  .flow svg.edges { position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; display: block; }
+  /* nicer scrollbars */
+  .flow::-webkit-scrollbar { height: 10px; width: 10px; }
+  .flow::-webkit-scrollbar-thumb { background: #2a3140; border-radius: 5px; }
+  .flow::-webkit-scrollbar-thumb:hover { background: #3a4150; }
+  .node { position: absolute; padding: 10px 12px; border-radius: 10px; cursor: pointer;
+    background: var(--panel-2); border: 1.5px solid var(--border); color: var(--text);
+    font-size: 13px; line-height: 1.3; transition: transform .12s, box-shadow .12s, border-color .12s;
+    text-align: center; user-select: none; box-shadow: 0 1px 0 rgba(0,0,0,0.2); }
+  .node small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .node:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+  .node.active { outline: 2px solid var(--accent); }
+  .node.frontend { border-color: var(--frontend); }
+  .node.backend  { border-color: var(--backend);  }
+  .node.ai       { border-color: var(--ai);       }
+  .node.data     { border-color: var(--data);     }
+  .node.diamond  { transform: rotate(45deg); width: 120px; height: 80px;
+    display: flex; align-items: center; justify-content: center; padding: 0; }
+  .node.diamond > span { transform: rotate(-45deg); display: block; font-size: 12px; }
+  .node.diamond:hover { transform: rotate(45deg) translateY(-1px); }
+
+  /* edge labels */
+  .edge-label { position: absolute; font-size: 11px; color: var(--muted);
+    background: var(--bg); padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--border); pointer-events: none; }
+
+  /* ---- Side panel ---- */
+  #side, #side2 { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; }
+  #side h2, #side2 h2 { margin: 0 0 6px; font-size: 16px; color: var(--accent); }
+  #side h3, #side2 h3 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--muted); }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 8px;
+    border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--muted); margin-right: 6px; }
+  code { background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1px 6px; font-size: 12.5px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.45; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0 0;
+    color: var(--muted); font-size: 12px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .l-frontend::before { background: var(--frontend); }
+  .l-backend::before  { background: var(--backend);  }
+  .l-ai::before       { background: var(--ai);       }
+  .l-data::before     { background: var(--data);     }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+  /* ---- Examples + stack ---- */
+  .examples { margin: 16px 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 1100px) { .examples { grid-template-columns: 1fr; } }
+  .example h3 { margin: 0 0 6px; color: var(--accent-2); font-size: 15px; }
+  .example .q { font-style: italic; color: var(--muted); margin-bottom: 10px; }
+  .example ol { margin: 0; padding-left: 20px; }
+  .example li { margin-bottom: 6px; font-size: 13.5px; }
+
+  .section-title { margin: 12px 32px 8px; color: var(--muted);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+  .agent-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+  .agent-pill { padding: 6px 12px; border-radius: 999px; background: var(--panel-2);
+    border: 1px solid var(--border); color: var(--text); font-size: 12.5px; cursor: pointer; }
+  .agent-pill.active { background: #2a3a5a; border-color: var(--accent); color: var(--text); }
+
+  /* Agent summary card */
+  .agent-header { background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin: 4px 0 16px;
+    display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; font-size: 13px; }
+  .agent-header .ah-label { color: var(--muted); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.4px; padding-top: 1px; }
+  .agent-header .ah-value { color: var(--text); }
+  .agent-header .ah-value code { font-size: 12px; }
+
+  /* Kind badge on each node */
+  .node .kind { position: absolute; top: -8px; right: -8px; font-size: 10px;
+    padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--muted); white-space: nowrap; }
+  .node .kind.llm    { color: #d8b8ff; border-color: #5c3f99; }
+  .node .kind.python { color: #9cd6c2; border-color: #2a6655; }
+  .node .kind.io     { color: #f0c98a; border-color: #7a5a2e; }
+  .node.diamond .kind { top: 6px; right: 6px; transform: rotate(-45deg); }
+
+  /* Step-through controls */
+  .step-controls { display: flex; align-items: center; gap: 12px;
+    margin: 12px 0 0; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .step-controls button { background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .step-controls button:hover { border-color: var(--accent); }
+  .step-controls button:disabled { opacity: 0.45; cursor: not-allowed; border-color: var(--border); }
+  .step-controls .step-pos { font-variant-numeric: tabular-nums; }
+
+  footer { padding: 20px 32px 40px; color: var(--muted); font-size: 12px; }
+
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Prozpr — Chat & AI Agents Deep Dive</h1>
+  <p>Click any node on the diagrams. The right panel updates with what the step does, the tech behind it, and an example. Updated 2026-05-01.</p>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="flow">1. End-to-end chat flow</div>
+  <div class="tab" data-tab="agents">2. How each AI agent works</div>
+  <div class="tab" data-tab="followups">3. Follow-up handling</div>
+  <div class="tab" data-tab="examples">4. Worked examples</div>
+  <div class="tab" data-tab="stack">5. Tech stack</div>
+</div>
+
+<!-- ===================== TAB 1: END-TO-END FLOW ===================== -->
+<section id="tab-flow" class="tab-panel active">
+  <main>
+    <div class="card">
+      <h2>End-to-end chat turn</h2>
+      <div class="flow" id="flow1"></div>
+      <div class="legend">
+        <span class="l-frontend">Frontend</span>
+        <span class="l-backend">Backend (FastAPI)</span>
+        <span class="l-ai">AI module</span>
+        <span class="l-data">Database / file</span>
+      </div>
+      <p class="hint">Click any box to see what it does.</p>
+    </div>
+
+    <aside id="side">
+      <h2>Pick a step</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        Click any node in the chart to see plain-language explanation, the backend tech behind it,
+        the code location, and an example.
+      </p>
+    </aside>
+  </main>
+</section>
+
+<!-- ===================== TAB 2: AGENT INTERNALS ===================== -->
+<section id="tab-agents" class="tab-panel">
+  <main>
+    <div class="card">
+      <h2>How each AI agent works (inside)</h2>
+      <p style="margin: 4px 0 8px; color: var(--muted); font-size: 13px;">
+        Pick an agent, see its inner pipeline, and click any step.
+      </p>
+      <div class="agent-picker" id="agent-picker"></div>
+      <div id="agent-header"></div>
+      <div class="flow" id="flow2"></div>
+      <div class="step-controls" id="step-controls">
+        <button id="step-prev">◀ Prev</button>
+        <span class="step-pos" id="step-pos">Step –</span>
+        <button id="step-next">Next ▶</button>
+        <button id="step-reset" style="margin-left:auto;">Reset</button>
+      </div>
+    </div>
+
+    <aside id="side2">
+      <h2>Pick an agent step</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        Click a step inside the agent diagram to see how it works.
+      </p>
+    </aside>
+  </main>
+</section>
+
+<!-- ===================== TAB 3: FOLLOW-UPS ===================== -->
+<section id="tab-followups" class="tab-panel">
+  <main>
+    <div class="card">
+      <h2>How follow-up questions are handled</h2>
+      <p style="margin: 4px 0 12px; color: var(--muted); font-size: 13px;">
+        Follow-ups are a critical path. They are detected at two layers and dispatched to either
+        a no-engine "explain what you said" service (<b>meta</b>) or back to the topic pipeline
+        with a sub-classified action (<b>continuation</b>).
+      </p>
+
+      <div class="agent-header" style="margin-bottom: 16px;">
+        <div class="ah-label">Why two layers</div>
+        <div class="ah-value">Layer 1 (intent classifier) decides <i>meta vs continuation</i>. Layer 2 (per-handler sub-classifier) decides <i>narrate / recompute / clarify / redirect</i>.</div>
+
+        <div class="ah-label">Key signal</div>
+        <div class="ah-value"><code>active_intent</code> from the last persisted AgentRun in this session — loaded by <code>build_turn_context</code> before classification.</div>
+
+        <div class="ah-label">Top-level types</div>
+        <div class="ah-value">
+          <b>meta</b> — "why did you say X?" / "explain that point". Answered from history; no engine, no fresh data.<br>
+          <b>continuation</b> — same topic, new substance. Re-enters the topic branch with history as context.
+        </div>
+
+        <div class="ah-label">Action modes</div>
+        <div class="ah-value">
+          AA: <code>narrate</code> · <code>educate</code> · <code>counterfactual_explore</code> · <code>clarify</code> · <code>recompute_full</code> · <code>recompute_with_overrides</code> · <code>redirect</code><br>
+          Rebalancing: <code>narrate</code> · <code>recompute</code> · <code>clarify</code> · <code>redirect</code>
+        </div>
+
+        <div class="ah-label">Code</div>
+        <div class="ah-value">
+          <code>app/services/chat_core/turn_context.py</code> · <code>app/services/ai_bridge/follow_up_service.py</code> · <code>app/services/ai_bridge/asset_allocation/chat.py</code> · <code>app/services/ai_bridge/rebalancing/chat.py</code>
+        </div>
+      </div>
+
+      <div class="flow" id="flow3"></div>
+      <div class="step-controls" id="fu-step-controls">
+        <button id="fu-step-prev">◀ Prev</button>
+        <span class="step-pos" id="fu-step-pos">Walk through the flow</span>
+        <button id="fu-step-next">Start ▶</button>
+        <button id="fu-step-reset" style="margin-left:auto;">Reset</button>
+      </div>
+    </div>
+
+    <aside id="side3">
+      <h2>Pick a step</h2>
+      <p style="color:var(--muted); margin-top:0;">Click any step or use the Next button below to walk through.</p>
+    </aside>
+
+    <div class="card">
+      <h2>Mini examples</h2>
+
+      <h3 style="color: var(--accent-2); font-size: 14px; margin-top: 0;">Example 1 — "Why did you suggest a Gold ETF for retirement?"</h3>
+      <ol style="font-size: 13.5px;">
+        <li><code>build_turn_context</code> sets <code>active_intent = "asset_allocation"</code>.</li>
+        <li>Intent classifier returns <code>intent=asset_allocation</code>, <code>is_follow_up=true</code>, <code>follow_up_type="meta"</code>.</li>
+        <li>ChatBrain routes to <code>follow_up_service.generate_follow_up_response</code>.</li>
+        <li>Universal base + <i>asset_allocation clause</i> assembled; Haiku reads conversation history.</li>
+        <li>Reply is anchored on the prior assistant turn (the one with the gold-ETF recommendation). No engine re-run.</li>
+      </ol>
+
+      <h3 style="color: var(--accent-2); font-size: 14px;">Example 2 — "Now also include 10% gold and re-plan"</h3>
+      <ol style="font-size: 13.5px;">
+        <li><code>active_intent = "asset_allocation"</code>; classifier returns <code>follow_up_type="continuation"</code>.</li>
+        <li>ChatBrain dispatches to the AA chat handler.</li>
+        <li>Sub-classifier picks <code>recompute_with_overrides</code> with <code>overrides = {gold: 0.10}</code>.</li>
+        <li>Engine re-runs with the override; new snapshot is persisted.</li>
+        <li>Reply leads with what changed; old snapshot is no longer the active one.</li>
+      </ol>
+
+      <h3 style="color: var(--accent-2); font-size: 14px;">Example 3 — "Maybe a bit more aggressive?"</h3>
+      <ol style="font-size: 13.5px;">
+        <li>Classifier: <code>follow_up_type="continuation"</code>, intent <code>asset_allocation</code>.</li>
+        <li>Sub-classifier: direction signaled but no actionable value → <code>clarify</code>.</li>
+        <li>Handler returns one short clarifying question (e.g. "By how much — a small tilt or a major shift?").</li>
+        <li>Engine is NOT re-run.</li>
+      </ol>
+
+      <h3 style="color: var(--accent-2); font-size: 14px;">Example 4 — Rebalancing follow-up "Show me again"</h3>
+      <ol style="font-size: 13.5px;">
+        <li>Active intent <code>rebalancing</code>; classifier returns continuation.</li>
+        <li>Rebalancing sub-classifier picks <code>narrate</code>.</li>
+        <li>Handler reads <code>last_agent_runs["rebalancing"].output_payload</code> and re-formats the reply. No re-run.</li>
+      </ol>
+    </div>
+  </main>
+</section>
+
+<!-- ===================== TAB 4: EXAMPLES ===================== -->
+<section id="tab-examples" class="tab-panel">
+  <div class="section-title">Worked examples</div>
+  <div class="examples">
+
+    <div class="card example">
+      <h3>Example A — "How should I invest 10L for retirement in 20 years?"</h3>
+      <p class="q">User asks how to split money across funds.</p>
+      <ol>
+        <li><b>Frontend</b> POSTs the message + session id to <code>/api/v1/chat/send</code>.</li>
+        <li><b>Auth + user loader</b> resolves the JWT and eager-loads the full user graph (profile, goals, portfolio, holdings).</li>
+        <li><b>ChatBrain</b> builds a <code>TurnContext</code> (recent messages + last AI module runs).</li>
+        <li><b>Intent Classifier</b> (Claude Haiku) returns <code>asset_allocation</code>.</li>
+        <li><b>Risk profile</b> is read from the user's effective risk score (computed by the risk_profiling agent earlier).</li>
+        <li><b>Asset Allocation pipeline</b> runs steps 1→7: emergency carve-out, short-term, medium-term, long-term, aggregation, guardrails, presentation.</li>
+        <li>Output is persisted as a snapshot; chat formatter writes a short brief.</li>
+        <li>Telemetry row written; reply + snapshot id sent back; frontend renders.</li>
+      </ol>
+    </div>
+
+    <div class="card example">
+      <h3>Example B — "How is my portfolio doing this month?"</h3>
+      <p class="q">User asks about their existing holdings.</p>
+      <ol>
+        <li><b>Frontend</b> sends message to <code>/api/v1/chat/send</code>.</li>
+        <li><b>Auth + user loader</b> loads user with portfolios → holdings → fund metadata.</li>
+        <li><b>Intent Classifier</b> returns <code>portfolio_query</code>.</li>
+        <li><b>Portfolio Query agent</b> reads <code>market_commentary_latest.md</code> + the client's holdings (asset class, sub-category, per-fund).</li>
+        <li>Skill executor loads <code>portfolio_query.md</code> + <code>guardrails.md</code> and sends a single Claude call with prompt caching.</li>
+        <li>Guardrails decide: in-scope answer or canned redirect.</li>
+        <li>Telemetry row written; reply sent back; frontend renders.</li>
+      </ol>
+    </div>
+
+    <div class="card example">
+      <h3>Example C — "Am I off-balance? Should I rebalance?"</h3>
+      <p class="q">User wants to know what to buy/sell.</p>
+      <ol>
+        <li>Intent classifier returns <code>rebalancing</code>.</li>
+        <li>Input builder maps current holdings + the latest ideal allocation snapshot into a <code>RebalancingComputeRequest</code>.</li>
+        <li>Pipeline runs steps 1→6: cap & spill, compare & decide, tax classification, initial trades under STCG cap, loss-offset top-up, presentation.</li>
+        <li>Engine returns per-fund target / buy / sell amounts plus warnings.</li>
+        <li>Chat handler turns it into text + a chart payload.</li>
+        <li>Frontend renders the message and draws the chart.</li>
+      </ol>
+    </div>
+
+    <div class="card example">
+      <h3>Example D — "What's happening with Indian inflation?"</h3>
+      <p class="q">User asks a general macro question.</p>
+      <ol>
+        <li>Intent classifier returns <code>general_market_query</code>.</li>
+        <li>ChatBrain calls Market Commentary with a 120s timeout (skipped on failure).</li>
+        <li>Market Commentary scrapes indicators, asks Claude to extract a <code>MacroSnapshot</code>, then generates a markdown doc.</li>
+        <li>General Chat module writes the final reply, optionally grounded in the macro doc.</li>
+        <li>Telemetry row written; reply sent back; frontend renders.</li>
+      </ol>
+    </div>
+
+  </div>
+</section>
+
+<!-- ===================== TAB 4: TECH STACK ===================== -->
+<section id="tab-stack" class="tab-panel">
+  <main style="grid-template-columns: 1fr;">
+    <div class="card">
+      <h2>Tech at a glance (high level)</h2>
+      <ul>
+        <li><b>Frontend</b> — React + Vite + Tailwind in <code>Prozpr_Frontend/</code>. Talks to the backend over HTTPS JSON.</li>
+        <li><b>Backend</b> — FastAPI on Python with async PostgreSQL. Hosts <code>/api/v1/*</code> routers.</li>
+        <li><b>Auth</b> — JWT bearer + optional <code>X-Family-Member-Id</code> header to act for a family member.</li>
+        <li><b>AI layer</b> — bundled package <code>AI_Agents/</code>, loaded via <code>sys.path</code> injection. Each agent is self-contained: input → Claude (mostly Haiku) → structured output.</li>
+        <li><b>AI bridges</b> — one adapter per intent in <code>app/services/ai_bridge/</code> that maps DB data to agent inputs and formats the reply.</li>
+        <li><b>Telemetry</b> — every turn writes a flow-summary row (intent, steps, duration). AI module runs also get their own AgentRun rows.</li>
+        <li><b>Files as contracts</b> — Market Commentary writes <code>market_commentary_latest.md</code>, Portfolio Query reads it. No direct import between AI modules.</li>
+        <li><b>Prompt caching</b> — used in intent_classifier and portfolio_query so repeated parts of the prompt don't re-bill on every call.</li>
+        <li><b>Pure-Python pipelines</b> — Asset Allocation and Rebalancing are deterministic (no LLM in the hot path); LLM appears only as an optional "rationale" step.</li>
+      </ul>
+    </div>
+  </main>
+</section>
+
+<footer>
+  Source: <code>app/services/chat_core/brain.py</code>, <code>app/services/ai_bridge/*</code>,
+  <code>AI_Agents/src/*</code>. To extend this page: add a node in <code>FLOW_NODES</code> /
+  <code>FLOW_EDGES</code> or a new agent in <code>AGENTS</code>, plus a matching
+  entry in <code>DETAILS</code>.
+</footer>
+
+<script>
+/* ============================================================
+   1) END-TO-END FLOW — nodes, edges, details
+   ============================================================ */
+
+// Each node: id, label, sublabel, type (frontend/backend/ai/data), x, y, w, h
+const FLOW_NODES = [
+  { id: "u",     label: "User types a question",         sub: "chat UI",            type: "frontend", x: 40,  y: 20  },
+  { id: "fe",    label: "POST /api/v1/chat/send",        sub: "JSON + JWT",         type: "frontend", x: 40,  y: 90  },
+  { id: "auth",  label: "Auth + user loader",            sub: "JWT, eager-load user",type: "backend", x: 40,  y: 170 },
+  { id: "cb",    label: "ChatBrain.run_turn",            sub: "orchestrator",       type: "backend",  x: 40,  y: 250 },
+  { id: "ctx",   label: "Build TurnContext",             sub: "history + last runs",type: "backend",  x: 40,  y: 330 },
+  { id: "ic",    label: "Intent Classifier",             sub: "+ is_follow_up + follow_up_type",  type: "ai",       x: 40,  y: 410 },
+  { id: "fu_gate", label: "Meta follow-up?",             sub: "from classifier",    type: "backend", x: 60,  y: 510, diamond: true },
+  { id: "fu_svc",  label: "follow_up_service",           sub: "answer from history; no engine", type: "ai", x: 280, y: 510 },
+  { id: "route", label: "Branch on intent",              sub: "6 paths (non-meta)", type: "backend",  x: 280, y: 410, diamond: true },
+
+  { id: "gm",    label: "general_market_query",          sub: "branch",             type: "ai", x: 470, y: 40  },
+  { id: "aa",    label: "asset_allocation",              sub: "branch",             type: "ai", x: 470, y: 110 },
+  { id: "gp",    label: "goal_planning",                 sub: "canned redirect",    type: "ai", x: 470, y: 180 },
+  { id: "rb",    label: "rebalancing",                   sub: "branch",             type: "ai", x: 470, y: 250 },
+  { id: "pq",    label: "portfolio_query",               sub: "branch",             type: "ai", x: 470, y: 320 },
+  { id: "gc",    label: "general chat fallback",         sub: "default",            type: "ai", x: 470, y: 390 },
+
+  { id: "mc",     label: "Market Commentary",            sub: "scrape + Claude",    type: "ai", x: 700, y: 40  },
+  { id: "gcfinal",label: "General Chat reply",           sub: "tailored answer",    type: "ai", x: 700, y: 110 },
+  { id: "aasrv",  label: "Asset Allocation engine",      sub: "7-step pipeline",    type: "ai", x: 700, y: 180 },
+  { id: "rbsrv",  label: "Rebalancing engine",           sub: "6-step pipeline",    type: "ai", x: 700, y: 250 },
+  { id: "pqsrv",  label: "Portfolio Query agent",        sub: "skill + guardrails", type: "ai", x: 700, y: 320 },
+  { id: "gpcan",  label: "Canned redirect",              sub: "module pending",     type: "ai", x: 700, y: 390 },
+
+  { id: "out",    label: "Assistant reply",              sub: "+ optional charts",  type: "backend", x: 940, y: 200 },
+  { id: "render", label: "Frontend renders",             sub: "markdown + chart",   type: "frontend", x: 940, y: 290 },
+  { id: "db",     label: "PostgreSQL",                   sub: "users, portfolio, runs", type: "data", x: 940, y: 380 },
+  { id: "tel",    label: "Telemetry write",              sub: "intent, steps, ms",  type: "backend", x: 940, y: 480 },
+];
+
+const FLOW_EDGES = [
+  ["u","fe"], ["fe","auth"], ["auth","cb"], ["cb","ctx"], ["ctx","ic"],
+  ["ic","fu_gate"], ["fu_gate","route"], ["fu_gate","fu_svc"], ["fu_svc","out"],
+  ["route","gm"], ["route","aa"], ["route","gp"], ["route","rb"], ["route","pq"], ["route","gc"],
+  ["gm","mc"], ["mc","gcfinal"], ["gm","gcfinal"],
+  ["aa","aasrv"], ["rb","rbsrv"], ["pq","pqsrv"], ["gp","gpcan"], ["gc","gcfinal"],
+  ["aasrv","out"], ["rbsrv","out"], ["pqsrv","out"], ["gcfinal","out"], ["gpcan","out"],
+  ["out","tel"], ["tel","db"], ["out","render"],
+  ["auth","db", {dashed: true}], ["ctx","db", {dashed: true}],
+  ["aasrv","db", {dashed: true}], ["rbsrv","db", {dashed: true}], ["pqsrv","db", {dashed: true}],
+];
+
+const DETAILS = {
+  u: {
+    title: "User types a question",
+    tags: ["Frontend"],
+    plain: "The starting point. The user types into the chat box and hits send.",
+    tech: "React chat input. Holds the open session id and posts the new message to the backend.",
+    path: "Prozpr_Frontend/src/ (chat UI components)",
+    example: "\"How should I invest 10L for retirement?\""
+  },
+  fe: {
+    title: "POST /api/v1/chat/send",
+    tags: ["Frontend → Backend"],
+    plain: "The chat message becomes an HTTP request: question, session id, auth token go to the backend.",
+    tech: "JSON POST with Authorization: Bearer <jwt>. Optional X-Family-Member-Id header lets a parent ask on behalf of a family member.",
+    path: "Endpoint mounted in app/routers/chat.py at /api/v1/chat/send",
+    example: "Body: { session_id, user_question }"
+  },
+  auth: {
+    title: "Auth + user loader",
+    tags: ["Backend"],
+    plain: "Confirms who you are, then loads everything about you in one go: profile, goals, portfolio, holdings, fund metadata.",
+    tech: "FastAPI dependencies. get_current_user decodes the JWT. get_effective_user swaps to a family member if requested. get_ai_user_context eager-loads the User graph so AI bridges don't re-query.",
+    path: "app/dependencies.py + app/services/user_context.py",
+    example: "user_id=42 → User with goals[], portfolio[].holdings[].fund_metadata loaded."
+  },
+  cb: {
+    title: "ChatBrain.run_turn",
+    tags: ["Backend"],
+    plain: "The conductor. Decides what kind of question this is, calls the right module, collects the reply, logs it.",
+    tech: "Stateless class. Holds a flow list that records each step for telemetry. On error, rolls back DB and returns a safe fallback.",
+    path: "app/services/chat_core/brain.py",
+    example: "Calls: build_turn_context → classify_user_message → branch → finalize."
+  },
+  ctx: {
+    title: "Build TurnContext",
+    tags: ["Backend"],
+    plain: "Gathers conversation history and the last result of each AI module so this turn has memory of what came before.",
+    tech: "build_turn_context reads recent chat messages and last AgentRun rows per module. Provides active_intent so the classifier can see follow-ups.",
+    path: "app/services/chat_core/turn_context.py",
+    example: "If last turn was asset_allocation and user now says \"make it more aggressive\", the topic is preserved."
+  },
+  ic: {
+    title: "Intent Classifier",
+    tags: ["AI"],
+    plain: "Reads the question and recent history, labels it with one of six intents. Also returns is_follow_up + follow_up_type so the gate below knows what to do.",
+    tech: "Claude Haiku via LangChain with structured output and Anthropic prompt caching. Returns intent, confidence, reasoning, optional out_of_scope_message, is_follow_up:bool, follow_up_type: meta | continuation | null.",
+    path: "AI_Agents/src/intent_classifier/classifier.py",
+    example: "\"why did you suggest gold?\" → intent=asset_allocation, is_follow_up=true, follow_up_type='meta'"
+  },
+  fu_gate: {
+    title: "Meta follow-up gate",
+    tags: ["Backend"],
+    plain: "If the classifier said \"meta\" (the user is asking us to explain something we said earlier), we shortcut to follow_up_service instead of running any topic engine. Otherwise we go to the normal branch — continuation follow-ups handle their sub-actions inside the topic handler.",
+    tech: "Plain field check on ClassificationResult.follow_up_type. See Tab 3 for the full follow-up decision tree.",
+    path: "app/services/chat_core/brain.py",
+    example: "follow_up_type=='meta' → fu_svc | else → route"
+  },
+  fu_svc: {
+    title: "follow_up_service",
+    tags: ["AI"],
+    plain: "Answers \"why did you say X?\" purely from conversation history. Does NOT re-run an allocation engine, does NOT fetch fresh market data.",
+    tech: "Direct Anthropic SDK call (httpx) with forced return_reply tool. System prompt = universal base + topic clause (asset_allocation / general_market_query / portfolio_query). 60s timeout. Anchored on the prior assistant turn.",
+    path: "app/services/ai_bridge/follow_up_service.py",
+    example: "Reads history → explains the existing recommendation, ≤80 words."
+  },
+  route: {
+    title: "Branch on intent",
+    tags: ["Backend"],
+    plain: "Simple if/else picking the right path based on the intent label.",
+    tech: "Six branches in run_turn: general_market_query, asset_allocation, goal_planning (canned), rebalancing, portfolio_query, else → general chat.",
+    path: "app/services/chat_core/brain.py — run_turn",
+    example: "intent == 'asset_allocation' → import the AA chat handler and dispatch."
+  },
+  gm: {
+    title: "general_market_query branch",
+    tags: ["AI"],
+    plain: "User is asking about markets in general. We optionally fetch fresh macro context, then answer.",
+    tech: "Two-step: Market Commentary (120s timeout, skipped on failure) → General Chat. If MC fails the answer still goes out, just without macro grounding.",
+    path: "app/services/chat_core/brain.py — _answer_general_market",
+    example: "\"What's happening with Indian inflation?\""
+  },
+  aa: {
+    title: "asset_allocation branch",
+    tags: ["AI"],
+    plain: "User wants help deciding how to split money. Lazy-imports the AA chat handler and dispatches.",
+    tech: "Lazy import triggers @register on the chat handler so dispatch_chat finds it. Returns text + ideal_allocation_snapshot_id.",
+    path: "app/services/ai_bridge/asset_allocation/",
+    example: "\"Where do I put 5L for 3 years?\""
+  },
+  gp: {
+    title: "goal_planning branch",
+    tags: ["AI"],
+    plain: "User wants to plan a goal end-to-end. The dedicated module isn't built yet, so we send a polite redirect.",
+    tech: "Returns classification.out_of_scope_message or a default 'not available yet' line. Will switch to dispatch_chat('goal_planning', ctx) once the module ships.",
+    path: "app/services/chat_core/brain.py",
+    example: "\"Plan my child's education for 2040\" → polite redirect."
+  },
+  rb: {
+    title: "rebalancing branch",
+    tags: ["AI"],
+    plain: "User wants to know what to buy/sell to get back on target.",
+    tech: "Lazy-imports rebalancing chat handler. dispatch_chat('rebalancing', ctx) returns text + optional chart payload + recommendation id.",
+    path: "app/services/ai_bridge/rebalancing/",
+    example: "\"Am I off-balance? Should I rebalance?\""
+  },
+  pq: {
+    title: "portfolio_query branch",
+    tags: ["AI"],
+    plain: "User is asking about their own portfolio. We answer using their holdings and the latest macro doc.",
+    tech: "generate_portfolio_query_response calls the portfolio_query orchestrator. Needs portfolios + holdings + fund_metadata pre-loaded.",
+    path: "app/services/ai_bridge/portfolio_query_service.py",
+    example: "\"Why is my equity allocation high?\""
+  },
+  gc: {
+    title: "general chat fallback",
+    tags: ["AI"],
+    plain: "If no specialist branch matched, write a friendly on-topic reply.",
+    tech: "generate_general_chat_response with question, history, classification, client_context.",
+    path: "app/services/ai_bridge/general_chat_service.py",
+    example: "\"Hello!\" → friendly greeting + nudge to ask a financial question."
+  },
+  mc: {
+    title: "Market Commentary",
+    tags: ["AI"],
+    plain: "Pulls Indian macro indicators, asks Claude to extract a structured snapshot, then writes a markdown doc that other modules can read.",
+    tech: "Scrape → Claude (extraction) → MacroSnapshot → Claude (generation) → markdown file market_commentary_latest.md. The file is the contract — nobody imports market_commentary directly.",
+    path: "AI_Agents/src/market_commentary/main.py (see Tab 2 for inner steps)",
+    example: "Output file consumed by general_market_query and portfolio_query."
+  },
+  gcfinal: {
+    title: "General Chat reply",
+    tags: ["AI"],
+    plain: "Writes the final assistant message in plain English, optionally grounded in the macro doc.",
+    tech: "Single LLM call. Receives question + history + classification + optional market_doc + small client_context.",
+    path: "app/services/ai_bridge/general_chat_service.py",
+    example: "Returns markdown text shown directly in the chat bubble."
+  },
+  aasrv: {
+    title: "Asset Allocation engine",
+    tags: ["AI", "deterministic"],
+    plain: "A 7-step pipeline that decides how to split money across asset classes, sub-categories, and specific funds, then writes a short brief.",
+    tech: "Pure-Python over Pydantic. Steps: emergency carve-out → short-term → medium-term → long-term → aggregation → guardrails → presentation. LLM is only an optional rationale step. Result persisted as a snapshot.",
+    path: "AI_Agents/src/asset_allocation_pydantic/pipeline.py (see Tab 2)",
+    example: "Returns text reply + ideal_allocation_snapshot_id."
+  },
+  rbsrv: {
+    title: "Rebalancing engine",
+    tags: ["AI", "deterministic"],
+    plain: "Compares current portfolio to ideal and tells you what to buy/sell, with tax-aware sell ordering.",
+    tech: "6-step pure-Python pipeline. Returns rows after each step, totals, trades, warnings. Tax knobs (STCG/LTCG, exemption, ST→LT thresholds) are env-overrideable.",
+    path: "AI_Agents/src/Rebalancing/pipeline.py (see Tab 2)",
+    example: "\"Sell 1L of fund X, buy 1L of fund Y\" + a stacked-bar chart payload."
+  },
+  pqsrv: {
+    title: "Portfolio Query agent",
+    tags: ["AI"],
+    plain: "Reads holdings + the macro doc + a skill prompt and answers the user, with guardrails to refuse out-of-scope.",
+    tech: "Class-based orchestrator. Loads market_commentary_latest.md, builds ClientContext + PortfolioContext, executes the portfolio_query.md skill via SkillExecutor, applies guardrails.md.",
+    path: "AI_Agents/src/portfolio_query/orchestrator.py (see Tab 2)",
+    example: "\"How is my portfolio this month?\" → grounded answer with numbers from holdings."
+  },
+  gpcan: {
+    title: "Goal-planning canned redirect",
+    tags: ["AI"],
+    plain: "Placeholder while the goal-planning module is being built.",
+    tech: "Returns classification.out_of_scope_message or a default redirect line.",
+    path: "app/services/chat_core/brain.py",
+    example: "\"Plan my retirement\" → \"Goal planning isn't available yet…\""
+  },
+  out: {
+    title: "Assistant reply (+ optional charts)",
+    tags: ["Backend"],
+    plain: "The single object returned to the frontend: markdown text plus extras like a snapshot id or chart payloads.",
+    tech: "ChatBrainResult Pydantic model. Fields: content, intent, intent_confidence, ideal_allocation_snapshot_id, ideal_allocation_rebalancing_id, chart_payloads.",
+    path: "app/services/chat_core/types.py",
+    example: "{ content, intent: \"asset_allocation\", ideal_allocation_snapshot_id }"
+  },
+  tel: {
+    title: "Per-turn telemetry",
+    tags: ["Backend"],
+    plain: "After every turn we record what happened — which intent, which modules ran, how long the whole thing took.",
+    tech: "log_chat_turn_flow_summary writes a row per turn. Individual AI modules also get their own AgentRun rows.",
+    path: "app/services/ai_module_telemetry.py",
+    example: "{ intent: portfolio_query, steps: [...], duration_ms: 1820 }"
+  },
+  db: {
+    title: "PostgreSQL",
+    tags: ["Data"],
+    plain: "Single source of truth: users, portfolio, holdings, goals, allocation snapshots, rebalancing recommendations, AI telemetry.",
+    tech: "Async PostgreSQL. Schema: user, profile, goals, portfolio, holdings, MF transactions, allocation_snapshot, rebalancing_recommendation, AgentRun.",
+    path: "alembic/ + README_DATABASE_SCHEMA.md",
+    example: "One eager-load on auth → AI bridges read in-memory."
+  },
+  render: {
+    title: "Frontend renders the reply",
+    tags: ["Frontend"],
+    plain: "Chat UI shows the markdown bubble and, if there's a chart payload, draws the chart.",
+    tech: "React renders markdown; chart payloads are drawn with a chart library.",
+    path: "Prozpr_Frontend/src/",
+    example: "User sees the brief plus a stacked-bar chart for rebalancing."
+  }
+};
+
+
+/* ============================================================
+   2) AGENTS — inner pipelines + details
+   ============================================================ */
+
+const AGENTS = {
+  intent_classifier: {
+    title: "Intent Classifier",
+    blurb: "Labels a question with one of six intents. Single Claude Haiku call with structured output and prompt caching.",
+    header: {
+      trigger:    "Every chat turn, before branching",
+      input:      "<code>ClassificationInput</code> { question, history, active_intent }",
+      output:     "<code>ClassificationResult</code> { intent, confidence, reasoning, out_of_scope_message? }",
+      llm_calls:  "1 — Claude Haiku, structured output, with Anthropic prompt caching",
+      depends_on: "<code>langchain-anthropic</code>, <code>ANTHROPIC_API_KEY</code>"
+    },
+    nodes: [
+      { id: "ic_in",     label: "Input",                sub: "question + history + active_intent", type:"backend", kind:"io",     x: 40,  y: 40 },
+      { id: "ic_format", label: "Format history block", sub: "build LangChain messages",  type:"backend", kind:"python", x: 40,  y: 130 },
+      { id: "ic_prompt", label: "System prompt",        sub: "intents + redirect rules",  type:"ai",      kind:"llm",    x: 40,  y: 220 },
+      { id: "ic_call",   label: "Claude Haiku call",    sub: "structured output + cache", type:"ai",      kind:"llm",    x: 320, y: 130 },
+      { id: "ic_parse",  label: "Parse to ClassificationResult", sub: "intent, confidence, reasoning", type:"backend", kind:"python", x: 600, y: 130 },
+      { id: "ic_redir",  label: "Attach canned redirect", sub: "if redirect-eligible",    type:"backend", kind:"python", x: 600, y: 230 },
+      { id: "ic_out",    label: "ClassificationResult", sub: "returned to ChatBrain",     type:"backend", kind:"io",     x: 600, y: 40  },
+    ],
+    edges: [
+      ["ic_in","ic_format"], ["ic_format","ic_call"], ["ic_prompt","ic_call"],
+      ["ic_call","ic_parse"], ["ic_parse","ic_redir"], ["ic_parse","ic_out"], ["ic_redir","ic_out"]
+    ],
+    details: {
+      ic_in: { title:"Input", tags:["Backend"], plain:"What goes in: the user's question, recent conversation history, and the currently active intent (if a previous turn set one).", tech:"ClassificationInput pydantic model. active_intent helps the classifier handle follow-ups.", path:"AI_Agents/src/intent_classifier/models.py", example:"{ question:\"make it more aggressive\", history:[...], active_intent:\"asset_allocation\" }" },
+      ic_format: { title:"Format history block", tags:["Backend"], plain:"Conversation turns are turned into a clean message list the LLM can read.", tech:"IntentClassifier.format_history. Trims to a recent window so cached prefix stays stable.", path:"AI_Agents/src/intent_classifier/classifier.py", example:"[{role:user, content:\"...\"},{role:assistant, content:\"...\"}]" },
+      ic_prompt: { title:"System prompt", tags:["AI"], plain:"A long, stable system prompt that lists the six intents and their redirect rules. Cached so repeated calls are cheap.", tech:"Anthropic prompt caching: the long system prompt is cached, only the user message changes.", path:"AI_Agents/src/intent_classifier/prompts.py", example:"\"Classify the question into one of: asset_allocation | goal_planning | …\"" },
+      ic_call: { title:"Claude Haiku call", tags:["AI"], plain:"One call to Haiku that returns structured fields, not free text.", tech:"LangChain `with_structured_output` bound to ClassificationResult. Haiku chosen for speed/cost.", path:"AI_Agents/src/intent_classifier/classifier.py", example:"raw → {intent, confidence, reasoning, out_of_scope_message?}" },
+      ic_parse: { title:"Parse to ClassificationResult", tags:["Backend"], plain:"Validate the LLM output against the pydantic schema; reject malformed responses.", tech:"Pydantic parsing inside LangChain's structured-output path.", path:"AI_Agents/src/intent_classifier/models.py", example:"intent=Intent.PORTFOLIO_QUERY, confidence=0.94" },
+      ic_redir: { title:"Attach canned redirect", tags:["Backend"], plain:"If the intent is redirect-eligible (e.g. stock_advice, out_of_scope), attach a customer-friendly message.", tech:"Lookup table in prompts.py keyed by intent.", path:"AI_Agents/src/intent_classifier/prompts.py", example:"out_of_scope → \"I can only help with…\"" },
+      ic_out: { title:"ClassificationResult", tags:["Backend"], plain:"The final object handed back to ChatBrain.", tech:"Used by run_turn to choose the branch.", path:"AI_Agents/src/intent_classifier/models.py", example:"{intent:'portfolio_query', confidence:0.94, reasoning:'…'}" },
+    }
+  },
+
+  market_commentary: {
+    title: "Market Commentary",
+    blurb: "Scrape macro data → extract structured snapshot via Claude → generate markdown doc → save to disk.",
+    header: {
+      trigger:    "Tab 1 branch: <code>general_market_query</code>; also on a scheduled refresh",
+      input:      "None — agent self-collects via scrapers",
+      output:     "<code>MacroSnapshot</code> { indicator fields, data_gaps, document_md }",
+      llm_calls:  "2 — extraction (raw → snapshot) + generation (snapshot → markdown)",
+      depends_on: "HTTP scrapers, Claude, writes files to <code>AI_Agents/Reference_docs/</code>"
+    },
+    nodes: [
+      { id: "mc_scrape", label: "Scrape indicators",        sub: "RBI, CPI, GDP, etc.",       type:"backend", kind:"python", x: 40,  y: 60 },
+      { id: "mc_eprompt",label: "Extraction prompt",        sub: "schema-aware",              type:"ai",      kind:"llm",    x: 40,  y: 160 },
+      { id: "mc_extract",label: "Claude extraction call",   sub: "→ MacroSnapshot",           type:"ai",      kind:"llm",    x: 320, y: 110 },
+      { id: "mc_gaps",   label: "Record data_gaps",         sub: "what couldn't be parsed",   type:"backend", kind:"python", x: 320, y: 220 },
+      { id: "mc_gprompt",label: "Generation prompt",        sub: "house style + tone",        type:"ai",      kind:"llm",    x: 600, y: 60 },
+      { id: "mc_gen",    label: "Claude generation call",   sub: "→ document_md",             type:"ai",      kind:"llm",    x: 600, y: 160 },
+      { id: "mc_write",  label: "Write reference files",    sub: "JSON + MD",                 type:"data",    kind:"io",     x: 600, y: 260 },
+      { id: "mc_out",    label: "MacroSnapshot returned",   sub: "to caller",                 type:"backend", kind:"io",     x: 880, y: 160 },
+    ],
+    edges: [
+      ["mc_scrape","mc_extract"], ["mc_eprompt","mc_extract"],
+      ["mc_extract","mc_gaps"], ["mc_extract","mc_gen"],
+      ["mc_gprompt","mc_gen"], ["mc_gen","mc_write"], ["mc_gen","mc_out"]
+    ],
+    details: {
+      mc_scrape: { title:"Scrape indicators", tags:["Backend"], plain:"Pulls raw numbers (rates, inflation, GDP, equity index moves) from public sources.", tech:"HTTP fetch + parsing. No external pydantic input — the agent self-collects.", path:"AI_Agents/src/market_commentary/main.py", example:"raw → { repo_rate:6.5, cpi_yoy:5.1, … }" },
+      mc_eprompt: { title:"Extraction prompt", tags:["AI"], plain:"Tells Claude exactly which fields to fill in MacroSnapshot.", tech:"prompts.py extraction template; field names match models.py.", path:"AI_Agents/src/market_commentary/prompts.py", example:"\"Return JSON matching MacroSnapshot. If a field can't be found, mark it null.\"" },
+      mc_extract: { title:"Claude extraction call", tags:["AI"], plain:"Claude reads the raw data + the prompt and emits a structured snapshot.", tech:"LangChain chain producing MacroSnapshot. Missing fields become null and feed data_gaps.", path:"AI_Agents/src/market_commentary/main.py", example:"→ MacroSnapshot{ … data_gaps:['gdp_qoq'] }" },
+      mc_gaps: { title:"Record data_gaps", tags:["Backend"], plain:"Anything Claude couldn't extract is recorded so callers know what's missing.", tech:"Field on MacroSnapshot; downstream consumers can degrade gracefully.", path:"AI_Agents/src/market_commentary/models.py", example:"data_gaps: ['fii_dii_flows']" },
+      mc_gprompt: { title:"Generation prompt", tags:["AI"], plain:"Tells Claude how to turn the snapshot into a readable markdown commentary.", tech:"prompts.py generation template; encodes house style and section ordering.", path:"AI_Agents/src/market_commentary/prompts.py", example:"\"Write a 4-section commentary: macro, equity, debt, outlook.\"" },
+      mc_gen: { title:"Claude generation call", tags:["AI"], plain:"Second Claude call: snapshot in, markdown out.", tech:"document_generator.document_generation_chain. Output stored on the snapshot's document_md field.", path:"AI_Agents/src/market_commentary/document_generator.py", example:"→ \"# Market commentary — Apr 2026\\n…\"" },
+      mc_write: { title:"Write reference files", tags:["Data"], plain:"Writes the snapshot JSON and markdown doc to a known folder so other agents can read them.", tech:"Files: market_commentary_latest.json, market_commentary_latest.md.", path:"AI_Agents/Reference_docs/", example:"Portfolio Query reads the .md file later." },
+      mc_out: { title:"MacroSnapshot returned", tags:["Backend"], plain:"Returned object includes both the structured fields and the generated markdown.", tech:"MacroSnapshot pydantic; document_md is populated.", path:"AI_Agents/src/market_commentary/models.py", example:"snapshot.document_md is the chat-ready text." },
+    }
+  },
+
+  portfolio_query: {
+    title: "Portfolio Query",
+    blurb: "Self-contained agent. Loads market commentary + client + portfolio, runs a skill, applies guardrails, returns answer-or-redirect.",
+    header: {
+      trigger:    "Tab 1 branch: <code>portfolio_query</code>",
+      input:      "<code>ClientContext</code> + <code>PortfolioContext</code> + question + history",
+      output:     "<code>PortfolioQueryResponse</code> { answer, redirect_message, guardrail_triggered }",
+      llm_calls:  "1 — Haiku via Anthropic SDK with prompt caching on the long system prefix",
+      depends_on: "<code>market_commentary_latest.md</code>, <code>portfolio_query.md</code> (skill), <code>guardrails.md</code>"
+    },
+    nodes: [
+      { id: "pq_in",     label: "Input",                       sub: "ClientContext + PortfolioContext + question + history", type:"backend", kind:"io",     x: 40, y: 40 },
+      { id: "pq_loadmc", label: "Load market commentary",      sub: "read latest .md file",     type:"data",    kind:"io",     x: 40,  y: 140 },
+      { id: "pq_skill",  label: "Load skill file",             sub: "portfolio_query.md",       type:"backend", kind:"python", x: 40,  y: 230 },
+      { id: "pq_guard",  label: "Embed guardrails",            sub: "guardrails.md",            type:"backend", kind:"python", x: 40,  y: 320 },
+      { id: "pq_compose",label: "Compose system + user",       sub: "skill executor",           type:"backend", kind:"python", x: 320, y: 220 },
+      { id: "pq_call",   label: "Claude Haiku call",           sub: "with prompt caching",      type:"ai",      kind:"llm",    x: 600, y: 220 },
+      { id: "pq_decide", label: "In-scope or redirect?",       sub: "guardrail check",          type:"backend", kind:"python", x: 600, y: 330, diamond: true },
+      { id: "pq_out",    label: "PortfolioQueryResponse",      sub: "answer or redirect_message",type:"backend",kind:"io",     x: 880, y: 220 },
+    ],
+    edges: [
+      ["pq_in","pq_loadmc"], ["pq_loadmc","pq_compose"],
+      ["pq_in","pq_compose"], ["pq_skill","pq_compose"], ["pq_guard","pq_compose"],
+      ["pq_compose","pq_call"], ["pq_call","pq_decide"], ["pq_decide","pq_out"]
+    ],
+    details: {
+      pq_in: { title:"Input", tags:["Backend"], plain:"What goes in: a client profile, the current portfolio rolled up at three levels (asset class, sub-category, per-fund), the question, and recent turns.", tech:"Pydantic models in models.py: ClientContext, PortfolioContext (with AllocationRow, SubCategoryAllocationRow, Holding), ConversationTurn.", path:"AI_Agents/src/portfolio_query/models.py", example:"PortfolioContext{ allocations:[…], sub_category:[…], holdings:[…] }" },
+      pq_loadmc: { title:"Load market commentary", tags:["Data"], plain:"Reads the latest macro doc written by the market_commentary agent so the answer can be macro-aware.", tech:"_load_market_commentary() reads AI_Agents/Reference_docs/market_commentary_latest.md. If missing, agent still answers but without macro context.", path:"AI_Agents/src/portfolio_query/orchestrator.py", example:"market_doc = open('market_commentary_latest.md').read()" },
+      pq_skill: { title:"Load skill file", tags:["Backend"], plain:"Loads the markdown skill — system prompt + user prompt template — that drives the LLM.", tech:"SkillExecutor parses YAML front matter and Jinja-style placeholders.", path:"AI_Agents/src/portfolio_query/skill_executor.py + portfolio_query.md", example:"system: \"You are a portfolio assistant…\"; user: \"Question: {{question}}\"" },
+      pq_guard: { title:"Embed guardrails", tags:["Backend"], plain:"Embeds scope rules so the LLM refuses things it shouldn't answer (e.g. stock picks, tax filing).", tech:"guardrails.md is concatenated into the system prompt by the skill executor.", path:"AI_Agents/src/portfolio_query/guardrails.md", example:"\"Do not give individual stock advice. Refuse with a polite redirect.\"" },
+      pq_compose: { title:"Compose system + user", tags:["Backend"], plain:"Combines: skill template + guardrails + market commentary + client context + portfolio + question into the final prompt.", tech:"SkillExecutor.render fills placeholders with the loaded inputs; produces a single LLM payload.", path:"AI_Agents/src/portfolio_query/skill_executor.py", example:"final system prompt ≈ 4–6 KB; user prompt ≈ portfolio + question." },
+      pq_call: { title:"Claude Haiku call", tags:["AI"], plain:"Single Claude call. Prompt caching is used so repeated parts (skill + guardrails) don't re-bill.", tech:"LLMClient is a thin Anthropic SDK wrapper with cache_control on the long system prefix.", path:"AI_Agents/src/portfolio_query/llm_client.py", example:"first call pays full prompt; subsequent calls hit the cache." },
+      pq_decide: { title:"In-scope or redirect?", tags:["Backend"], plain:"Looks at the structured output to decide: did guardrails fire? If yes, send the redirect message; if no, send the answer.", tech:"Output is PortfolioQueryResponse(answer | redirect_message, guardrail_triggered:bool).", path:"AI_Agents/src/portfolio_query/models.py", example:"\"Tell me which stock to buy\" → guardrail_triggered=True → redirect_message." },
+      pq_out: { title:"PortfolioQueryResponse", tags:["Backend"], plain:"The final response handed back to the bridge.", tech:"Pydantic model with fields: answer, redirect_message, guardrail_triggered.", path:"AI_Agents/src/portfolio_query/models.py", example:"{answer:\"Your equity allocation is 62%…\", guardrail_triggered:false}" },
+    }
+  },
+
+  risk_profiling: {
+    title: "Risk Profiling",
+    blurb: "Deterministic Python scoring (no LLM in the math) followed by a one-paragraph LLM summary. Produces effective_risk_score consumed by allocation.",
+    header: {
+      trigger:    "Run when a user's profile changes; output is read by the asset_allocation pipeline",
+      input:      "<code>RiskProfileInput</code> { age, income, savings_rate, occupation, willingness, ... }",
+      output:     "<code>RiskProfileOutput</code> { effective_risk_score, osi, savings_rate_adjustment, summary_text }",
+      llm_calls:  "1 — Haiku writes the human summary only; the math is deterministic",
+      depends_on: "<code>scoring.py</code> rules; <code>ANTHROPIC_API_KEY</code> for the summary"
+    },
+    nodes: [
+      { id: "rp_in",      label: "RiskProfileInput",        sub: "age, income, savings, etc.", type:"backend", kind:"io",     x: 40, y: 40 },
+      { id: "rp_capacity",label: "Risk capacity score",     sub: "deterministic",              type:"backend", kind:"python", x: 40, y: 130 },
+      { id: "rp_osi",     label: "OSI score",               sub: "occupation stability",       type:"backend", kind:"python", x: 40, y: 210 },
+      { id: "rp_savings", label: "Savings-rate adjustment", sub: "boost / damp",               type:"backend", kind:"python", x: 40, y: 290 },
+      { id: "rp_clamp",   label: "Clamp + combine",         sub: "→ effective_risk_score (1–10)", type:"backend", kind:"python", x: 320, y: 210 },
+      { id: "rp_prompt",  label: "Summary prompt",          sub: "tone + structure",           type:"ai",      kind:"llm",    x: 600, y: 130 },
+      { id: "rp_llm",     label: "Claude Haiku summary",    sub: "one paragraph",              type:"ai",      kind:"llm",    x: 600, y: 220 },
+      { id: "rp_out",     label: "RiskProfileOutput",       sub: "score + summary + flags",    type:"backend", kind:"io",     x: 880, y: 220 },
+    ],
+    edges: [
+      ["rp_in","rp_capacity"], ["rp_in","rp_osi"], ["rp_in","rp_savings"],
+      ["rp_capacity","rp_clamp"], ["rp_osi","rp_clamp"], ["rp_savings","rp_clamp"],
+      ["rp_clamp","rp_llm"], ["rp_prompt","rp_llm"], ["rp_llm","rp_out"], ["rp_clamp","rp_out"]
+    ],
+    details: {
+      rp_in: { title:"RiskProfileInput", tags:["Backend"], plain:"Structured profile: age, income, savings rate, dependents, occupation type, willingness flags.", tech:"Pydantic model in models.py.", path:"AI_Agents/src/risk_profiling/models.py", example:"{age:42, income:25L, savings_rate:0.3, occupation:'salaried', willingness:'moderate'}" },
+      rp_capacity: { title:"Risk capacity score", tags:["Backend"], plain:"How much risk this person can take based on age, dependents, income, etc.", tech:"Pure-Python rules in scoring.py — no LLM.", path:"AI_Agents/src/risk_profiling/scoring.py", example:"capacity = 7" },
+      rp_osi: { title:"OSI score", tags:["Backend"], plain:"Occupation Stability Index: how reliable is the income.", tech:"Lookup-driven scoring; returns small integer.", path:"AI_Agents/src/risk_profiling/scoring.py", example:"osi = 2" },
+      rp_savings: { title:"Savings-rate adjustment", tags:["Backend"], plain:"Boosts or damps the score based on how much of income is being saved.", tech:"Continuous adjustment +/- a few points; clamped later.", path:"AI_Agents/src/risk_profiling/scoring.py", example:"+1 if savings > 30%" },
+      rp_clamp: { title:"Clamp + combine", tags:["Backend"], plain:"Sums the components, clamps to 1–10, produces the final effective risk score.", tech:"Deterministic: same inputs always give the same score.", path:"AI_Agents/src/risk_profiling/scoring.py", example:"effective_risk_score = 7" },
+      rp_prompt: { title:"Summary prompt", tags:["AI"], plain:"Tells Claude how to write a one-paragraph human summary of the score.", tech:"summary_prompt template in prompts.py.", path:"AI_Agents/src/risk_profiling/prompts.py", example:"\"Write 80 words explaining what risk score 7 means for this client.\"" },
+      rp_llm: { title:"Claude Haiku summary", tags:["AI"], plain:"Single Claude call that turns the numbers into a friendly paragraph.", tech:"LCEL chain in main.py: scoring → LLM summary.", path:"AI_Agents/src/risk_profiling/main.py", example:"\"You can take above-average risk — long horizon, stable income, healthy savings…\"" },
+      rp_out: { title:"RiskProfileOutput", tags:["Backend"], plain:"Final output combining numeric fields and the summary text.", tech:"Pydantic model. effective_risk_score, osi, savings_rate_adjustment, summary_text are read by the asset_allocation pipeline.", path:"AI_Agents/src/risk_profiling/models.py", example:"{effective_risk_score:7, summary:\"…\"}" },
+    }
+  },
+
+  asset_allocation: {
+    title: "Asset Allocation (goal-based)",
+    blurb: "7-step pure-Python pipeline. LLM only at presentation, and only for an optional rationale.",
+    header: {
+      trigger:    "Tab 1 branch: <code>asset_allocation</code>",
+      input:      "<code>AllocationInput</code> { effective_risk_score, market_commentary scores, goals[], ... }",
+      output:     "<code>GoalAllocationOutput</code> { buckets, subcategories, funds[] }",
+      llm_calls:  "0 by default; 1 if optional rationale is enabled",
+      depends_on: "<code>risk_profiling</code> output, <code>market_commentary</code> scores, <code>tables.py</code> fund mappings"
+    },
+    nodes: [
+      { id: "aa_in",   label: "AllocationInput",        sub: "risk score + market scores + goals", type:"backend", kind:"io",     x: 30,  y: 40 },
+      { id: "aa_s1",   label: "Step 1 — Emergency",     sub: "carve-out for emergencies",   type:"backend", kind:"python", x: 30,  y: 130 },
+      { id: "aa_s2",   label: "Step 2 — Short-term",    sub: "<1y bucket",                  type:"backend", kind:"python", x: 30,  y: 210 },
+      { id: "aa_s3",   label: "Step 3 — Medium-term",   sub: "1–5y bucket",                 type:"backend", kind:"python", x: 30,  y: 290 },
+      { id: "aa_s4",   label: "Step 4 — Long-term",     sub: ">5y bucket",                  type:"backend", kind:"python", x: 30,  y: 370 },
+      { id: "aa_s5",   label: "Step 5 — Aggregation",   sub: "merge buckets",               type:"backend", kind:"python", x: 320, y: 250 },
+      { id: "aa_s6",   label: "Step 6 — Guardrails",    sub: "caps + sanity checks",        type:"backend", kind:"python", x: 600, y: 250 },
+      { id: "aa_llm",  label: "Optional LLM rationale", sub: "one Claude call",             type:"ai",      kind:"llm",    x: 600, y: 360 },
+      { id: "aa_s7",   label: "Step 7 — Presentation",  sub: "fund mappings + output",      type:"backend", kind:"python", x: 880, y: 250 },
+      { id: "aa_out",  label: "GoalAllocationOutput",   sub: "buckets + sub-cats + funds",  type:"backend", kind:"io",     x: 880, y: 360 },
+    ],
+    edges: [
+      ["aa_in","aa_s1"], ["aa_s1","aa_s2"], ["aa_s2","aa_s3"], ["aa_s3","aa_s4"],
+      ["aa_s4","aa_s5"], ["aa_s5","aa_s6"], ["aa_s6","aa_s7"],
+      ["aa_s6","aa_llm"], ["aa_llm","aa_s7"], ["aa_s7","aa_out"]
+    ],
+    details: {
+      aa_in: { title:"AllocationInput", tags:["Backend"], plain:"All inputs the pipeline needs: risk score, OSI, savings adjustment, market commentary scores, and the goals list.", tech:"Pydantic. Caller wires risk fields from risk_profiling and market scores from market_commentary — the pipeline does not import them directly.", path:"AI_Agents/src/asset_allocation_pydantic/models.py", example:"{effective_risk_score:7, market_commentary:{equity:0.6,…}, goals:[…]}" },
+      aa_s1: { title:"Step 1 — Emergency carve-out", tags:["Backend"], plain:"Reserves cash for emergencies before anything else gets allocated.", tech:"Deterministic rule based on monthly expense × multiplier.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step1_emergency.py", example:"emergency = 6 × monthly_expense → cash bucket." },
+      aa_s2: { title:"Step 2 — Short-term goals", tags:["Backend"], plain:"Allocates short-horizon money to safe buckets (cash / debt).", tech:"Per-goal computation; preserves principal.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step2_short_term.py", example:"\"Buy car in 9 months\" → 100% liquid debt." },
+      aa_s3: { title:"Step 3 — Medium-term goals", tags:["Backend"], plain:"Allocates 1–5 year goals with a debt-leaning mix.", tech:"Mix tilts towards debt, with some equity if risk score allows.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step3_medium_term.py", example:"3-year goal → 70% debt / 30% equity." },
+      aa_s4: { title:"Step 4 — Long-term goals", tags:["Backend"], plain:"Allocates >5 year goals with an equity-leaning mix.", tech:"Equity weight scales with risk score and market commentary scores.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step4_long_term.py", example:"20-year retirement → 75% equity / 25% debt." },
+      aa_s5: { title:"Step 5 — Aggregation", tags:["Backend"], plain:"Combines the per-goal allocations into one portfolio-level view.", tech:"Sum across goals; preserve per-goal breakdown.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step5_aggregation.py", example:"buckets = {equity:55%, debt:35%, cash:8%, other:2%}" },
+      aa_s6: { title:"Step 6 — Guardrails", tags:["Backend"], plain:"Applies hard caps and sanity checks (no asset class above its limit, no negative weights, etc.).", tech:"Rule-driven; can adjust weights or raise warnings.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step6_guardrails.py", example:"clamp gold ≤ 10%, REIT ≤ 5%." },
+      aa_llm: { title:"Optional LLM rationale", tags:["AI"], plain:"If enabled, one Claude call writes a short rationale paragraph for the user. Off by default.", tech:"_rationale_llm.py provides an injectable rationale_fn. Engine works without it.", path:"AI_Agents/src/asset_allocation_pydantic/steps/_rationale_llm.py", example:"\"Why 75% equity? You have a long horizon and stable income…\"" },
+      aa_s7: { title:"Step 7 — Presentation", tags:["Backend"], plain:"Picks specific funds for each sub-category from the fund-mapping table and assembles the final output.", tech:"Static tables in tables.py drive the fund choices; result is the customer-facing structure.", path:"AI_Agents/src/asset_allocation_pydantic/steps/step7_presentation.py", example:"large_cap → fund A; flexi_cap → fund B; …" },
+      aa_out: { title:"GoalAllocationOutput", tags:["Backend"], plain:"The pipeline's final output — buckets + sub-categories + per-fund amounts. Persisted as a snapshot.", tech:"Pydantic model. The caller persists this so rebalancing can read it later.", path:"AI_Agents/src/asset_allocation_pydantic/models.py", example:"{buckets:{…}, subcategories:{…}, funds:[{name,amount},…]}" },
+    }
+  },
+
+  rebalancing: {
+    title: "Rebalancing",
+    blurb: "Compare current vs ideal, decide what to sell/buy with tax-aware ordering. Pure-Python; no LLM in the math.",
+    header: {
+      trigger:    "Tab 1 branch: <code>rebalancing</code>",
+      input:      "<code>RebalancingComputeRequest</code> { corpus, tax_state, funds[] (recommended + held) }",
+      output:     "<code>RebalancingComputeResponse</code> { rows, totals, trades, warnings }",
+      llm_calls:  "0 — entirely deterministic",
+      depends_on: "Latest allocation snapshot; env knobs (<code>REBAL_*</code>) for caps and tax rates"
+    },
+    nodes: [
+      { id: "rb_in",  label: "RebalancingComputeRequest", sub: "corpus + tax state + funds", type:"backend", kind:"io",     x: 30,  y: 40 },
+      { id: "rb_s1",  label: "Step 1 — Cap & Spill",      sub: "per-fund caps",              type:"backend", kind:"python", x: 30,  y: 130 },
+      { id: "rb_s2",  label: "Step 2 — Compare & Decide", sub: "buy / hold / sell",          type:"backend", kind:"python", x: 30,  y: 210 },
+      { id: "rb_s3",  label: "Step 3 — Tax classification",sub: "STCG vs LTCG, exit load",   type:"backend", kind:"python", x: 30,  y: 290 },
+      { id: "rb_s4",  label: "Step 4 — Initial trades",   sub: "sells under STCG cap",       type:"backend", kind:"python", x: 320, y: 210 },
+      { id: "rb_s5",  label: "Step 5 — Loss-offset top-up",sub: "use carryforward losses",   type:"backend", kind:"python", x: 600, y: 210 },
+      { id: "rb_s6",  label: "Step 6 — Presentation",     sub: "trade list + warnings",      type:"backend", kind:"python", x: 880, y: 210 },
+      { id: "rb_out", label: "RebalancingComputeResponse",sub: "rows, totals, trades, warns",type:"backend", kind:"io",     x: 880, y: 320 },
+    ],
+    edges: [
+      ["rb_in","rb_s1"], ["rb_s1","rb_s2"], ["rb_s2","rb_s3"],
+      ["rb_s3","rb_s4"], ["rb_s4","rb_s5"], ["rb_s5","rb_s6"], ["rb_s6","rb_out"]
+    ],
+    details: {
+      rb_in: { title:"RebalancingComputeRequest", tags:["Backend"], plain:"Inputs: total corpus, tax state (STCG offset budget, carry-forward losses), and a single list of funds (recommended + held-but-not-recommended).", tech:"Pydantic. The input builder lives in app/services/ai_bridge/rebalancing_input_builder.py and materialises both kinds of fund rows.", path:"AI_Agents/src/Rebalancing/models.py", example:"{corpus:50L, stcg_budget:1L, funds:[…]}" },
+      rb_s1: { title:"Step 1 — Cap & Spill", tags:["Backend"], plain:"Applies per-fund caps so no single fund gets too much; spills excess into the next ranked fund.", tech:"Caps come from env knobs (REBAL_MULTI_FUND_CAP_PCT, REBAL_OTHERS_FUND_CAP_PCT). Multi-cap sub-categories use a different cap.", path:"AI_Agents/src/Rebalancing/steps/step1_cap_and_spill.py", example:"fund A capped at 20%, surplus shifted to fund B." },
+      rb_s2: { title:"Step 2 — Compare & Decide", tags:["Backend"], plain:"Compares current holding to capped target and decides buy / hold / sell.", tech:"Min-change threshold (REBAL_MIN_CHANGE_PCT) suppresses tiny noise trades. Low-rated held funds may be force-exited (REBAL_EXIT_FLOOR_RATING).", path:"AI_Agents/src/Rebalancing/steps/step2_compare_and_decide.py", example:"diff = 1.2% < 10% threshold → hold." },
+      rb_s3: { title:"Step 3 — Tax classification", tags:["Backend"], plain:"Tags each prospective sell as short-term or long-term based on holding period; computes exit-load impact.", tech:"ST→LT thresholds differ for equity (12 months) vs debt FoF (24 months). Uses utils.py for the math.", path:"AI_Agents/src/Rebalancing/steps/step3_tax_classification.py", example:"Sell from fund X → STCG (8 months held)." },
+      rb_s4: { title:"Step 4 — Initial trades under STCG cap", tags:["Backend"], plain:"Plans the first round of sells while keeping STCG within the user's offset budget.", tech:"Greedy under STCG budget. Long-term sells use LTCG exemption (REBAL_LTCG_EXEMPTION_INR) before being taxed.", path:"AI_Agents/src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py", example:"Sell 80k STCG (within 1L budget) + 50k LTCG (within exemption)." },
+      rb_s5: { title:"Step 5 — Loss-offset top-up", tags:["Backend"], plain:"Uses any carry-forward losses to allow extra gains without tax, then tops up the trades.", tech:"Adds tax-free room equal to remaining losses; reschedules sells if room remains.", path:"AI_Agents/src/Rebalancing/steps/step5_loss_offset_top_up.py", example:"30k carry-forward loss → 30k more gains can be realised." },
+      rb_s6: { title:"Step 6 — Presentation", tags:["Backend"], plain:"Builds the final trade list, totals, and warnings for the UI.", tech:"Produces RebalancingComputeResponse fields: rows, totals, trades, warnings, metadata.", path:"AI_Agents/src/Rebalancing/steps/step6_presentation.py", example:"trades=[{fund:'X', action:'sell', amount:80000}, …]" },
+      rb_out: { title:"RebalancingComputeResponse", tags:["Backend"], plain:"The structured output the chat handler turns into text + chart payload.", tech:"Pydantic. Persisted as a recommendation row so the UI can re-render later.", path:"AI_Agents/src/Rebalancing/models.py", example:"{trades:[…], totals:{…}, warnings:[…]}" },
+    }
+  },
+};
+
+
+/* ============================================================
+   2.5) FOLLOW-UPS — nodes, edges, details
+   ============================================================ */
+
+const FOLLOW_UP_NODES = [
+  { id:"fu_q",       label:"User question arrives",       sub:"this turn's message",                     type:"frontend", kind:"io",     x: 40,  y: 20  },
+  { id:"fu_cb",      label:"ChatBrain.run_turn",          sub:"orchestrator",                            type:"backend",  kind:"python", x: 40,  y: 110 },
+  { id:"fu_tc",      label:"build_turn_context",          sub:"history + last runs + active_intent",     type:"backend",  kind:"python", x: 40,  y: 200 },
+  { id:"fu_db",      label:"DB read",                     sub:"chat_ai_module_runs (this session)",      type:"data",     kind:"io",     x: 320, y: 200 },
+  { id:"fu_ic",      label:"Intent Classifier",           sub:"sees active_intent",                      type:"ai",       kind:"llm",    x: 40,  y: 290 },
+  { id:"fu_d1",      label:"is_follow_up?",               sub:"bool",                                    type:"backend",  kind:"python", x: 60,  y: 390, diamond: true },
+  { id:"fu_nb",      label:"Normal intent branch",        sub:"no follow-up handling",                   type:"backend",  kind:"python", x: 320, y: 400 },
+  { id:"fu_d2",      label:"follow_up_type?",             sub:"meta or continuation",                    type:"backend",  kind:"python", x: 60,  y: 510, diamond: true },
+
+  { id:"fu_meta",    label:"follow_up_service",           sub:"generate_follow_up_response",             type:"ai",       kind:"llm",    x: 320, y: 490 },
+  { id:"fu_meta_p",  label:"Universal base + topic clause", sub:"AA / market / portfolio_query clause",  type:"ai",       kind:"llm",    x: 320, y: 580 },
+  { id:"fu_meta_h",  label:"Haiku call",                  sub:"no engine, no fresh data",                type:"ai",       kind:"llm",    x: 320, y: 670 },
+  { id:"fu_meta_r",  label:"Reply from prior turn",       sub:"anchored on assistant message",           type:"backend",  kind:"io",     x: 320, y: 760 },
+
+  { id:"fu_cont",    label:"Topic chat handler",          sub:"AA / rebalancing / portfolio_query",      type:"ai",       kind:"python", x: 620, y: 490 },
+  { id:"fu_subc",    label:"Sub-classifier",              sub:"Haiku tool call → action mode",           type:"ai",       kind:"llm",    x: 620, y: 580 },
+  { id:"fu_am",      label:"Action mode?",                sub:"4–7 modes",                               type:"backend",  kind:"python", x: 640, y: 680, diamond: true },
+
+  { id:"fu_nar",     label:"narrate",                     sub:"reuse last_agent_run, format reply",      type:"ai",       kind:"python", x: 880, y: 620 },
+  { id:"fu_rec",     label:"recompute",                   sub:"re-run pipeline + persist new snapshot",  type:"ai",       kind:"python", x: 880, y: 700 },
+  { id:"fu_clar",    label:"clarify",                     sub:"ask one short question",                  type:"ai",       kind:"llm",    x: 880, y: 780 },
+  { id:"fu_redir",   label:"redirect",                    sub:"polite refusal",                          type:"ai",       kind:"python", x: 880, y: 860 },
+];
+
+const FOLLOW_UP_EDGES = [
+  ["fu_q","fu_cb"], ["fu_cb","fu_tc"], ["fu_tc","fu_db", {dashed:true}], ["fu_tc","fu_ic"], ["fu_ic","fu_d1"],
+  ["fu_d1","fu_nb"], ["fu_d1","fu_d2"],
+  ["fu_d2","fu_meta"], ["fu_d2","fu_cont"],
+  ["fu_meta","fu_meta_p"], ["fu_meta_p","fu_meta_h"], ["fu_meta_h","fu_meta_r"],
+  ["fu_cont","fu_subc"], ["fu_subc","fu_am"],
+  ["fu_am","fu_nar"], ["fu_am","fu_rec"], ["fu_am","fu_clar"], ["fu_am","fu_redir"],
+];
+
+const FOLLOW_UP_DETAILS = {
+  fu_q: { title:"User question arrives", tags:["Frontend"], plain:"The next chat message in an existing session. The session id is the key — without it we cannot tell this is a follow-up.", tech:"POST /api/v1/chat/send with the same session_id as previous turns.", path:"app/routers/chat.py", example:"User asks: \"why did you suggest gold for retirement?\"" },
+  fu_cb: { title:"ChatBrain.run_turn", tags:["Backend"], plain:"Same orchestrator as any other turn. The follow-up logic lives in the steps it calls, not in a separate brain.", tech:"Stateless class. Calls build_turn_context first; only then classifies.", path:"app/services/chat_core/brain.py", example:"flow.append('identified intent: asset_allocation')" },
+  fu_tc: { title:"build_turn_context", tags:["Backend"], plain:"This is where follow-up handling really starts. It pulls history, the last AgentRun per module, and the active_intent (most recent intent on this session).", tech:"Uses a savepoint so a degraded read (e.g. schema mismatch) doesn't poison the outer transaction. On failure it returns an empty context — chat still works, just without follow-up smarts.", path:"app/services/chat_core/turn_context.py", example:"TurnContext { history:[…], last_agent_runs:{aa:Run(…), rebal:Run(…)}, active_intent:'asset_allocation' }" },
+  fu_db: { title:"DB read — chat_ai_module_runs", tags:["Data"], plain:"The persistence layer for follow-ups. Every AI module run writes a row here with intent_detected and output_payload.", tech:"Two queries: (1) latest row per module with output_payload populated → last_agent_runs; (2) latest intent_detected for the session → active_intent. SQLite-safe (no DISTINCT ON).", path:"app/models/chat_ai_module_run.py", example:"SELECT module, intent_detected, output_payload, created_at FROM chat_ai_module_runs WHERE session_id = …" },
+  fu_ic: { title:"Intent Classifier with active_intent", tags:["AI"], plain:"The classifier sees the question, the history, AND the active_intent. With that, it can correctly return is_follow_up + follow_up_type.", tech:"Haiku structured output. Returns intent (still topic-tagged), is_follow_up:bool, follow_up_type:meta|continuation|null. For meta the intent stays on the topic of the prior turn — it's the follow_up_type that tells routing not to re-run.", path:"AI_Agents/src/intent_classifier/", example:"\"why did you say X?\" → intent=asset_allocation, is_follow_up=true, follow_up_type='meta'" },
+  fu_d1: { title:"is_follow_up?", tags:["Backend"], plain:"Branch 1: is this a follow-up at all?", tech:"Plain field check on ClassificationResult.", path:"app/services/chat_core/brain.py", example:"false → normal branch | true → check follow_up_type" },
+  fu_nb: { title:"Normal intent branch", tags:["Backend"], plain:"For new questions (not follow-ups), this is just Tab 1's branch logic.", tech:"Same code path as a fresh turn. Engine runs, snapshot is persisted, intent_detected is written for next turn.", path:"app/services/chat_core/brain.py", example:"intent=asset_allocation → dispatch_chat('asset_allocation', ctx)" },
+  fu_d2: { title:"follow_up_type?", tags:["Backend"], plain:"Branch 2: meta means \"explain what you said\"; continuation means \"same topic, new substance\".", tech:"Routes to follow_up_service for meta; back into the topic chat handler for continuation.", path:"app/services/chat_core/brain.py", example:"meta → fu_meta | continuation → fu_cont" },
+
+  fu_meta: { title:"follow_up_service.generate_follow_up_response", tags:["AI"], plain:"The 'explain what you said' path. Anchors strictly on the prior assistant turn. Never re-runs an engine, never fetches fresh data.", tech:"Direct Anthropic SDK call (httpx) with a forced return_reply tool. 60s timeout. 401 handling returns a friendly message about the API key.", path:"app/services/ai_bridge/follow_up_service.py", example:"\"why did you suggest gold for retirement?\" → grounded explanation tied to the goal." },
+  fu_meta_p: { title:"Universal base + topic clause", tags:["AI"], plain:"The system prompt is built by gluing a universal base to a topic-specific clause based on the prior intent (asset_allocation / general_market_query / portfolio_query). Same service handles all three.", tech:"_build_system_prompt(prior_intent) returns universal_base + '\\n---\\n' + clause. Hard rules in the base block: no denials of past statements, no redirecting to current portfolio, Indian L/Cr money formatting.", path:"app/services/ai_bridge/follow_up_service.py — _UNIVERSAL_BASE + _INTENT_CLAUSES", example:"prior_intent=ASSET_ALLOCATION → AA clause is appended (name the goal, tie instrument to it)." },
+  fu_meta_h: { title:"Haiku call — no engine", tags:["AI"], plain:"One Claude call. Critically: it does NOT re-run the allocation pipeline, does NOT call web search, does NOT fetch fresh market data.", tech:"Forced tool_choice on return_reply. Output: 2-4 sentence answer (≤80 words) + optional bullets. The system prompt forbids inventing fresh figures.", path:"app/services/ai_bridge/follow_up_service.py — generate_follow_up_response", example:"Reads history → explains the existing recommendation → returns text." },
+  fu_meta_r: { title:"Reply from prior turn", tags:["Backend"], plain:"The final reply to the user. Anchored on the earliest assistant turn that originally stated the thing being asked about.", tech:"Same render helpers as general_chat (_render_reply, strip cite tags). Goes back through ChatBrain.finalize → telemetry.", path:"app/services/ai_bridge/follow_up_service.py", example:"\"You suggested gold because retirement is a 20-year goal and gold tempers equity drawdowns…\"" },
+
+  fu_cont: { title:"Topic chat handler (continuation)", tags:["AI"], plain:"For continuation follow-ups, control returns to the same chat handler that owns this topic — AA, rebalancing, or portfolio_query.", tech:"Lazy import of the handler triggers @register so dispatch_chat finds it. The handler receives the full TurnContext including last_agent_runs.", path:"app/services/ai_bridge/asset_allocation/chat.py · rebalancing/chat.py", example:"intent=asset_allocation, follow_up_type=continuation → dispatch_chat('asset_allocation', ctx)" },
+  fu_subc: { title:"Sub-classifier (per handler)", tags:["AI"], plain:"Inside the handler, a second Haiku tool call decides what the user actually wants: explain, ask, re-run, or refuse.", tech:"Different tool schemas per handler. AA: narrate / educate / counterfactual_explore / clarify / recompute_full / recompute_with_overrides / redirect. Rebalancing: narrate / recompute / clarify / redirect.", path:"asset_allocation/chat.py — Action / detect_action(); rebalancing/chat.py — RebalanceAction / detect_rebal_action()", example:"\"include 10% gold and re-plan\" → mode='recompute_with_overrides', overrides={gold:0.10}" },
+  fu_am: { title:"Action mode?", tags:["Backend"], plain:"The branch that decides whether to reuse, re-run, ask, or refuse.", tech:"On sub-classifier failure, defaults to 'narrate' — so worst case we just re-explain what we already had.", path:"asset_allocation/chat.py · rebalancing/chat.py", example:"narrate | educate | counterfactual_explore | clarify | recompute_full | recompute_with_overrides | redirect" },
+
+  fu_nar: { title:"narrate (reuse last_run)", tags:["AI"], plain:"User wants to be told about the existing recommendation again. We do NOT re-run the engine — we re-format from the persisted output.", tech:"Reads ctx.last_agent_runs[\"<module>\"].output_payload, hands it to the formatter to produce a fresh chat brief. Same snapshot id.", path:"asset_allocation/chat.py · rebalancing/chat.py", example:"\"show me again\" → narrate → reply built from saved snapshot." },
+  fu_rec: { title:"recompute (re-run pipeline)", tags:["AI"], plain:"User asked to re-run with current portfolio state or with locked-in overrides. The pipeline runs again and a new snapshot is persisted.", tech:"AA splits into recompute_full (no overrides, persisted) and recompute_with_overrides (engine sees overrides, persisted as new active plan). Rebalancing has a single recompute mode.", path:"asset_allocation/chat.py — _recompute_full / _recompute_with_overrides", example:"\"re-run with my latest holdings\" → recompute_full → new snapshot, reply leads with what changed." },
+  fu_clar: { title:"clarify (ask one question)", tags:["AI"], plain:"User signaled a direction but did not give an actionable value. We ask one short clarifying question instead of guessing.", tech:"Skips the formatter entirely. Returns the clarifying_question field set by the sub-classifier.", path:"asset_allocation/chat.py — clarify path", example:"\"a bit more aggressive?\" → \"By how much — a small tilt or a major shift?\"" },
+  fu_redir: { title:"redirect (polite refusal)", tags:["AI"], plain:"User asked for something the topic handler shouldn't try (e.g. specific stock advice inside an allocation thread). Return a friendly redirect.", tech:"Static or template-driven message; no engine, no LLM call required.", path:"asset_allocation/chat.py · rebalancing/chat.py", example:"\"which Reliance stock should I buy?\" → polite redirect to general guidance." },
+};
+
+/* ============================================================
+   3) Renderers
+   ============================================================ */
+
+function renderFlow(container, nodes, edges, sideEl, detailMap) {
+  container.innerHTML = "";
+  // inner wrapper holds SVG + nodes in one coordinate system; container scrolls.
+  const inner = document.createElement("div");
+  inner.className = "flow-inner";
+  container.appendChild(inner);
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "edges");
+  // size: pick max x+w, max y+h
+  let maxX = 0, maxY = 0;
+  const NW = 200, NH = 56;
+  nodes.forEach(n => {
+    const w = n.diamond ? 120 : NW, h = n.diamond ? 80 : NH;
+    if (n.x + w > maxX) maxX = n.x + w;
+    if (n.y + h > maxY) maxY = n.y + h;
+  });
+  const innerW = maxX + 40, innerH = maxY + 40;
+  inner.style.width  = innerW + "px";
+  inner.style.height = innerH + "px";
+  container.style.height = (innerH + 12) + "px"; // a touch extra for the scrollbar
+  svg.setAttribute("width", innerW);
+  svg.setAttribute("height", innerH);
+  svg.style.width = innerW + "px";
+  svg.style.height = innerH + "px";
+  inner.appendChild(svg);
+
+  // arrow marker defs
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  defs.innerHTML = `
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#97a0b3"/>
+    </marker>`;
+  svg.appendChild(defs);
+
+  // edges first (so nodes paint on top)
+  const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+  function center(n) {
+    const w = n.diamond ? 120 : NW, h = n.diamond ? 80 : NH;
+    return [n.x + w/2, n.y + h/2, w, h];
+  }
+  function anchor(from, to) {
+    const [fx,fy,fw,fh] = center(from);
+    const [tx,ty] = center(to);
+    const dx = tx - fx, dy = ty - fy;
+    const ax = fx + Math.sign(dx) * (fw/2);
+    const ay = fy + Math.sign(dy) * (fh/2);
+    const bx = tx - Math.sign(dx) * ((to.diamond ? 120 : NW)/2);
+    const by = ty - Math.sign(dy) * ((to.diamond ? 80  : NH)/2);
+    // for mostly vertical edges, lock x; for horizontal lock y
+    if (Math.abs(dx) > Math.abs(dy)) {
+      return [fx + Math.sign(dx)*(fw/2), fy, tx - Math.sign(dx)*((to.diamond?120:NW)/2), ty];
+    } else {
+      return [fx, fy + Math.sign(dy)*(fh/2), tx, ty - Math.sign(dy)*((to.diamond?80:NH)/2)];
+    }
+  }
+  edges.forEach(e => {
+    const [a, b, opts={}] = e;
+    const f = nodeMap[a], t = nodeMap[b];
+    if (!f || !t) return;
+    const [x1,y1,x2,y2] = anchor(f, t);
+    // simple curved path
+    const mx = (x1+x2)/2, my = (y1+y2)/2;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#97a0b3");
+    path.setAttribute("stroke-width", opts.dashed ? "1.2" : "1.5");
+    if (opts.dashed) path.setAttribute("stroke-dasharray", "4 4");
+    path.setAttribute("marker-end", "url(#arrow)");
+    path.setAttribute("opacity", "0.75");
+    svg.appendChild(path);
+  });
+
+  // nodes
+  nodes.forEach(n => {
+    const div = document.createElement("div");
+    div.className = "node " + n.type + (n.diamond ? " diamond" : "");
+    div.style.left = n.x + "px";
+    div.style.top  = n.y + "px";
+    if (!n.diamond) div.style.width = NW + "px";
+    div.dataset.id = n.id;
+    const kindLabel = { llm: "🧠 LLM", python: "⚙ Python", io: "📦 I/O" };
+    const badge = n.kind ? `<span class="kind ${n.kind}">${kindLabel[n.kind] || ""}</span>` : "";
+    if (n.diamond) {
+      div.innerHTML = `<span>${n.label}<br><small>${n.sub || ""}</small></span>${badge}`;
+    } else {
+      div.innerHTML = `${n.label}${n.sub ? `<small>${n.sub}</small>` : ""}${badge}`;
+    }
+    div.addEventListener("click", () => {
+      // mark active
+      inner.querySelectorAll(".node").forEach(el => el.classList.remove("active"));
+      div.classList.add("active");
+      showDetail(detailMap[n.id], sideEl);
+    });
+    inner.appendChild(div);
+  });
+}
+
+function showDetail(d, sideEl) {
+  if (!d) {
+    sideEl.innerHTML = `<h2>No details</h2><p style="color:var(--muted);">This node has no extra detail yet.</p>`;
+    return;
+  }
+  const tags = (d.tags || []).map(t => `<span class="tag">${t}</span>`).join("");
+  sideEl.innerHTML = `
+    <h2>${d.title}</h2>
+    <div>${tags}</div>
+    <h3>What it does</h3>
+    <p>${d.plain}</p>
+    <h3>How the tech works</h3>
+    <p>${d.tech}</p>
+    <h3>Code location</h3>
+    <p><code>${d.path}</code></p>
+    <h3>Example</h3>
+    <p>${d.example}</p>
+  `;
+  sideEl.scrollTop = 0;
+}
+
+
+/* ============================================================
+   4) Tabs + agent picker + first paint
+   ============================================================ */
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    document.getElementById("tab-" + t.dataset.tab).classList.add("active");
+    // re-render in case container size changed
+    if (t.dataset.tab === "flow") {
+      renderFlow(document.getElementById("flow1"), FLOW_NODES, FLOW_EDGES, document.getElementById("side"), DETAILS);
+    } else if (t.dataset.tab === "agents") {
+      paintCurrentAgent();
+    } else if (t.dataset.tab === "followups") {
+      paintFollowUps();
+    }
+  });
+});
+
+let fuStepIdx = -1;
+function paintFollowUps() {
+  renderFlow(document.getElementById("flow3"), FOLLOW_UP_NODES, FOLLOW_UP_EDGES, document.getElementById("side3"), FOLLOW_UP_DETAILS);
+  fuStepIdx = -1;
+  document.getElementById("side3").innerHTML = `
+    <h2>Follow-up handling</h2>
+    <p style="color:var(--muted); margin-top:0;">Click any step or use Next ▶ to walk through. The decision tree shows where meta and continuation diverge, and what each topic handler does internally.</p>
+  `;
+  updateFuStepControls();
+}
+function highlightFuStep(idx) {
+  const total = FOLLOW_UP_NODES.length;
+  const clamped = Math.max(0, Math.min(total - 1, idx));
+  fuStepIdx = clamped;
+  const node = FOLLOW_UP_NODES[clamped];
+  const inner = document.querySelector("#flow3 .flow-inner");
+  if (!inner) return;
+  inner.querySelectorAll(".node").forEach(el => el.classList.remove("active"));
+  const target = inner.querySelector(`.node[data-id="${node.id}"]`);
+  if (target) {
+    target.classList.add("active");
+    const flow = document.getElementById("flow3");
+    const targetLeft = target.offsetLeft, targetRight = targetLeft + target.offsetWidth;
+    if (targetLeft < flow.scrollLeft || targetRight > flow.scrollLeft + flow.clientWidth) {
+      flow.scrollTo({ left: Math.max(0, targetLeft - 24), behavior: "smooth" });
+    }
+  }
+  showDetail(FOLLOW_UP_DETAILS[node.id], document.getElementById("side3"));
+  updateFuStepControls();
+}
+function updateFuStepControls() {
+  const total = FOLLOW_UP_NODES.length;
+  const pos = document.getElementById("fu-step-pos");
+  const prev = document.getElementById("fu-step-prev");
+  const next = document.getElementById("fu-step-next");
+  if (fuStepIdx < 0) {
+    pos.textContent = `Walk through ${total} steps`;
+    prev.disabled = true;
+    next.disabled = false;
+    next.textContent = "Start ▶";
+  } else {
+    pos.textContent = `Step ${fuStepIdx + 1} of ${total}: ${FOLLOW_UP_NODES[fuStepIdx].label}`;
+    prev.disabled = fuStepIdx === 0;
+    next.disabled = fuStepIdx === total - 1;
+    next.textContent = "Next ▶";
+  }
+}
+document.getElementById("fu-step-prev").addEventListener("click", () => { if (fuStepIdx > 0) highlightFuStep(fuStepIdx - 1); });
+document.getElementById("fu-step-next").addEventListener("click", () => { highlightFuStep(fuStepIdx < 0 ? 0 : fuStepIdx + 1); });
+document.getElementById("fu-step-reset").addEventListener("click", () => {
+  fuStepIdx = -1;
+  const inner = document.querySelector("#flow3 .flow-inner");
+  if (inner) inner.querySelectorAll(".node").forEach(el => el.classList.remove("active"));
+  document.getElementById("side3").innerHTML = `<h2>Follow-up handling</h2><p style="color:var(--muted); margin-top:0;">Click any step or use Next ▶ to walk through.</p>`;
+  updateFuStepControls();
+});
+
+const picker = document.getElementById("agent-picker");
+let currentAgent = "intent_classifier";
+function paintAgentPicker() {
+  picker.innerHTML = "";
+  Object.entries(AGENTS).forEach(([key, a]) => {
+    const pill = document.createElement("div");
+    pill.className = "agent-pill" + (key === currentAgent ? " active" : "");
+    pill.textContent = a.title;
+    pill.addEventListener("click", () => {
+      currentAgent = key;
+      paintAgentPicker();
+      paintCurrentAgent();
+    });
+    picker.appendChild(pill);
+  });
+}
+let stepIdx = -1;
+
+function paintAgentHeader(a) {
+  const h = a.header;
+  const headerEl = document.getElementById("agent-header");
+  if (!h) { headerEl.innerHTML = ""; return; }
+  headerEl.innerHTML = `
+    <div class="agent-header">
+      <div class="ah-label">Trigger</div>     <div class="ah-value">${h.trigger}</div>
+      <div class="ah-label">Input</div>       <div class="ah-value">${h.input}</div>
+      <div class="ah-label">Output</div>      <div class="ah-value">${h.output}</div>
+      <div class="ah-label">LLM calls</div>   <div class="ah-value">${h.llm_calls}</div>
+      <div class="ah-label">Depends on</div>  <div class="ah-value">${h.depends_on}</div>
+    </div>`;
+}
+
+function highlightStep(idx) {
+  const a = AGENTS[currentAgent];
+  if (!a.nodes.length) return;
+  const clamped = Math.max(0, Math.min(a.nodes.length - 1, idx));
+  stepIdx = clamped;
+  const node = a.nodes[clamped];
+  const inner = document.querySelector("#flow2 .flow-inner");
+  if (!inner) return;
+  inner.querySelectorAll(".node").forEach(el => el.classList.remove("active"));
+  const target = inner.querySelector(`.node[data-id="${node.id}"]`);
+  if (target) {
+    target.classList.add("active");
+    // scroll the chart so the active node is visible
+    const flow = document.getElementById("flow2");
+    const targetLeft = target.offsetLeft, targetRight = targetLeft + target.offsetWidth;
+    if (targetLeft < flow.scrollLeft || targetRight > flow.scrollLeft + flow.clientWidth) {
+      flow.scrollTo({ left: Math.max(0, targetLeft - 24), behavior: "smooth" });
+    }
+  }
+  showDetail(a.details[node.id], document.getElementById("side2"));
+  updateStepControls();
+}
+
+function updateStepControls() {
+  const a = AGENTS[currentAgent];
+  const total = a.nodes.length;
+  const pos = document.getElementById("step-pos");
+  const prev = document.getElementById("step-prev");
+  const next = document.getElementById("step-next");
+  if (stepIdx < 0) {
+    pos.textContent = `Walk through ${total} steps`;
+    prev.disabled = true;
+    next.disabled = false;
+    next.textContent = "Start ▶";
+  } else {
+    pos.textContent = `Step ${stepIdx + 1} of ${total}: ${a.nodes[stepIdx].label}`;
+    prev.disabled = stepIdx === 0;
+    next.disabled = stepIdx === total - 1;
+    next.textContent = "Next ▶";
+  }
+}
+
+document.getElementById("step-prev").addEventListener("click", () => {
+  if (stepIdx > 0) highlightStep(stepIdx - 1);
+});
+document.getElementById("step-next").addEventListener("click", () => {
+  highlightStep(stepIdx < 0 ? 0 : stepIdx + 1);
+});
+document.getElementById("step-reset").addEventListener("click", () => {
+  stepIdx = -1;
+  const inner = document.querySelector("#flow2 .flow-inner");
+  if (inner) inner.querySelectorAll(".node").forEach(el => el.classList.remove("active"));
+  paintCurrentAgentSidePanelDefault();
+  updateStepControls();
+});
+
+function paintCurrentAgentSidePanelDefault() {
+  const a = AGENTS[currentAgent];
+  document.getElementById("side2").innerHTML = `
+    <h2>${a.title}</h2>
+    <p style="color:var(--muted); margin-top:0;">${a.blurb}</p>
+    <h3>How to read this</h3>
+    <p>Click any step in the diagram, or use the <b>Next</b> button below to walk through the steps in order.</p>
+  `;
+}
+
+function paintCurrentAgent() {
+  const a = AGENTS[currentAgent];
+  paintAgentHeader(a);
+  renderFlow(document.getElementById("flow2"), a.nodes, a.edges, document.getElementById("side2"), a.details);
+  stepIdx = -1;
+  paintCurrentAgentSidePanelDefault();
+  updateStepControls();
+}
+
+// initial paint
+renderFlow(document.getElementById("flow1"), FLOW_NODES, FLOW_EDGES, document.getElementById("side"), DETAILS);
+paintAgentPicker();
+paintCurrentAgent();
+</script>
+</body>
+</html>

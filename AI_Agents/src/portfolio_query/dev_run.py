@@ -127,7 +127,7 @@ async def main():
     )
 
     print("=" * 60)
-    print("  Prozper Portfolio Query — Dev Smoke Test")
+    print("  Prozpr Portfolio Query — Dev Smoke Test")
     print("=" * 60)
 
     # ── Scenario A: In-scope multi-turn ───────────────────────────────────────

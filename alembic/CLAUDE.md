@@ -26,7 +26,3 @@ Prefer migrations in shared/prod environments. `app.database.create_all_tables` 
 
 - `versions/*.py` — individual revision files; read `alembic history` output for timeline, not the files.
 - `__pycache__/`.
-
-## Refresh
-
-If stale, run `/refresh-context` from this folder.
