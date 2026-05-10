@@ -204,7 +204,7 @@ async def send_message(
     return ChatSendMessageResponse(
         user_message=ChatMessageResponse.model_validate(user_msg),
         assistant_message=assistant_response,
-        ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
+        goal_allocation_run_id=brain_result.goal_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
     )
 

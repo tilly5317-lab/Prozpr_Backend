@@ -25,7 +25,7 @@ from app.services.ai_bridge.asset_allocation import (
 class ProzprSpineResult:
     """Chat markdown + optional persisted plan IDs."""
     text: str
-    rebalancing_recommendation_id: uuid.UUID | None = None
+    goal_allocation_run_id: uuid.UUID | None = None
     portfolio_allocation_snapshot_id: uuid.UUID | None = None
 
 
@@ -101,6 +101,6 @@ async def build_prozpr_spine(
     final_body = tailored if tailored else body
     return ProzprSpineResult(
         text=header + final_body,
-        rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
+        goal_allocation_run_id=outcome.goal_allocation_run_id,
         portfolio_allocation_snapshot_id=outcome.allocation_snapshot_id,
     )

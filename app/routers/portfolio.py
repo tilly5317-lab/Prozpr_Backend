@@ -13,10 +13,10 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
+from app.models.goals.goal_allocation_run import GoalAllocationRun
 from app.models.mf.enums import PortfolioSnapshotKind
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
-from app.models.rebalancing import RebalancingRecommendation
 from app.schemas.ingest.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
 from app.schemas.portfolio import (
     PortfolioAllocationBulkUpdate,
@@ -43,8 +43,9 @@ async def get_recommended_plan(
     """
     Latest ideal allocation produced by chat or ``/ai-modules/asset-allocation/recommend``.
 
-    Includes the JSON snapshot (class mix + full ``ideal_allocation_output``) and, when
-    present, the matching ``rebalancing_recommendations`` row id for approval flows.
+    Returns the IDEAL ``portfolio_allocation_snapshots`` row (class mix + full
+    pipeline output) and the matching ``goal_allocation_runs`` row id for
+    approval flows.
     """
     uid = current_user.id
     snap_stmt = (
@@ -59,26 +60,20 @@ async def get_recommended_plan(
     )
     snap = (await db.execute(snap_stmt)).scalar_one_or_none()
 
-    reb_stmt = (
-        select(RebalancingRecommendation)
-        .join(Portfolio, Portfolio.id == RebalancingRecommendation.portfolio_id)
-        .where(Portfolio.user_id == uid)
-        .order_by(RebalancingRecommendation.created_at.desc())
-        .limit(15)
+    run_stmt = (
+        select(GoalAllocationRun)
+        .where(
+            GoalAllocationRun.user_id == uid,
+            GoalAllocationRun.spine_mode == "ideal_asset_allocation",
+        )
+        .order_by(GoalAllocationRun.created_at.desc())
+        .limit(1)
     )
-    rebs = (await db.execute(reb_stmt)).scalars().all()
-    latest_ideal = next(
-        (
-            r
-            for r in rebs
-            if (r.recommendation_data or {}).get("source") == "ideal_asset_allocation"
-        ),
-        None,
-    )
+    latest_run = (await db.execute(run_stmt)).scalar_one_or_none()
 
     return RecommendedPlanResponse(
         snapshot=RecommendedPlanSnapshotResponse.model_validate(snap) if snap else None,
-        latest_rebalancing_id=latest_ideal.id if latest_ideal else None,
+        latest_goal_allocation_run_id=latest_run.id if latest_run else None,
     )
 
 

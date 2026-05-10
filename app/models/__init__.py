@@ -9,8 +9,16 @@ from app.models.chat_ai_module_run import ChatAiModuleRun
 from app.models.family_member import FamilyMember
 from app.models.fund import Fund
 from app.models.goals import (
+    AllocationBucketName,
+    AssetClassSplitKind,
     FinancialGoal,
-    GoalAllocationRecommendation,
+    GoalAllocationBucket,
+    GoalAllocationBucketAssetClass,
+    GoalAllocationBucketGoal,
+    GoalAllocationBucketSubgroup,
+    GoalAllocationGoal,
+    GoalAllocationRun,
+    GoalAllocationRunStatus,
     GoalContribution,
     GoalHolding,
 )
@@ -29,14 +37,18 @@ from app.models.mf import (
 )
 from app.models.notification import Notification
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHolding, PortfolioHistory
-from app.models.rebalancing import RebalancingRecommendation
-from app.models.rebalancing_derived import (
-    RebalancingAssetClassBreakdown,
-    RebalancingBucketGoal,
-    RebalancingBucketRecommendation,
-    RebalancingBucketSubgroupAllocation,
-    RebalancingFutureInvestment,
-    RebalancingRecommendationSummary,
+from app.models.rebalancing import (
+    RebalancingFundRow,
+    RebalancingRun,
+    RebalancingRunStatus,
+    RebalancingSubgroupSummary,
+    RebalancingTotals,
+    RebalancingTrade,
+    RebalancingWarning,
+    RebalancingWarningCode,
+    TaxRegime,
+    TradeAction,
+    TradeExecutionStatus,
 )
 from app.models.stocks import CompanyMetadata, StockPriceHistory, StockTransaction
 from app.models.user import User
@@ -53,7 +65,9 @@ from app.models.profile import (
 )
 
 __all__ = [
+    "AllocationBucketName",
     "AssetAllocationConstraint",
+    "AssetClassSplitKind",
     "EffectiveRiskAssessment",
     "ChatAiModuleRun",
     "ChatMessage",
@@ -61,8 +75,14 @@ __all__ = [
     "CompanyMetadata",
     "FamilyMember",
     "FinancialGoal",
-    "GoalAllocationRecommendation",
     "Fund",
+    "GoalAllocationBucket",
+    "GoalAllocationBucketAssetClass",
+    "GoalAllocationBucketGoal",
+    "GoalAllocationBucketSubgroup",
+    "GoalAllocationGoal",
+    "GoalAllocationRun",
+    "GoalAllocationRunStatus",
     "GoalContribution",
     "GoalHolding",
     "InvestmentConstraint",
@@ -78,25 +98,29 @@ __all__ = [
     "MfTransaction",
     "Notification",
     "OtherInvestment",
+    "PersonalFinanceProfile",
     "Portfolio",
     "PortfolioAllocation",
     "PortfolioAllocationSnapshot",
-    "UserMfLatestSnapshot",
     "PortfolioHistory",
     "PortfolioHolding",
-    "RebalancingRecommendation",
-    "RebalancingRecommendationSummary",
-    "RebalancingBucketRecommendation",
-    "RebalancingBucketGoal",
-    "RebalancingBucketSubgroupAllocation",
-    "RebalancingAssetClassBreakdown",
-    "RebalancingFutureInvestment",
+    "RebalancingFundRow",
+    "RebalancingRun",
+    "RebalancingRunStatus",
+    "RebalancingSubgroupSummary",
+    "RebalancingTotals",
+    "RebalancingTrade",
+    "RebalancingWarning",
+    "RebalancingWarningCode",
     "ReviewPreference",
     "RiskProfile",
     "StockPriceHistory",
     "StockTransaction",
     "TaxProfile",
+    "TaxRegime",
+    "TradeAction",
+    "TradeExecutionStatus",
     "User",
     "UserInvestmentList",
-    "PersonalFinanceProfile",
+    "UserMfLatestSnapshot",
 ]

@@ -86,7 +86,7 @@ class ChatBrain:
         async def finalize(
             content: str,
             *,
-            ideal_allocation_rebalancing_id: uuid.UUID | None = None,
+            goal_allocation_run_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
             chart_payloads: list[dict[str, Any]] | None = None,
         ) -> ChatBrainResult:
@@ -107,7 +107,7 @@ class ChatBrain:
                 intent=intent_value,
                 intent_confidence=intent_confidence,
                 intent_reasoning=intent_reasoning,
-                ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
+                goal_allocation_run_id=goal_allocation_run_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
                 chart_payloads=chart_payloads,
             )
@@ -182,7 +182,7 @@ class ChatBrain:
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
-                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                    goal_allocation_run_id=result.goal_allocation_run_id,
                     chart_payloads=chart_payloads,
                 )
 
@@ -243,7 +243,7 @@ class ChatBrain:
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
-                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
+                    goal_allocation_run_id=result.goal_allocation_run_id,
                     chart_payloads=chart_payloads,
                 )
 
