@@ -20,7 +20,7 @@ class ActiveIntentForwardingTests(unittest.TestCase):
 
         def fake_classify(self, inp):
             captured["active_intent"] = inp.active_intent
-            return MagicMock(intent=MagicMock(value="portfolio_optimisation"),
+            return MagicMock(intent=MagicMock(value="asset_allocation"),
                               confidence=0.9, is_follow_up=True,
                               reasoning="...",
                               out_of_scope_message=None)
@@ -34,11 +34,11 @@ class ActiveIntentForwardingTests(unittest.TestCase):
             asyncio.run(classify_user_message(
                 customer_question="is this too aggressive?",
                 conversation_history=[],
-                active_intent="portfolio_optimisation",
+                active_intent="asset_allocation",
             ))
 
         self.assertIsNotNone(captured["active_intent"])
-        self.assertEqual(captured["active_intent"].value, "portfolio_optimisation")
+        self.assertEqual(captured["active_intent"].value, "asset_allocation")
 
 
 if __name__ == "__main__":

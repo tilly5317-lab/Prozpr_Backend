@@ -1,7 +1,7 @@
 """
 Goal-based allocation integration smoke test.
 
-5 profiles (shared across AILAX allocation modules):
+5 profiles (shared across Prozpr allocation modules):
   1. Rajesh Sharma  — 45, public sector,      risk 7.19, corpus ₹33.5L, tax old 20%
   2. Priya Menon    — 31, private sector,      risk 8.28, corpus ₹13.2L, tax new 30%
   3. Amit Rathore   — 39, private sector,      risk 7.82, corpus ₹37L,   tax new 30%

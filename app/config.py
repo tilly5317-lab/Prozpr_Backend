@@ -283,7 +283,7 @@ class Settings:
 
     @staticmethod
     def get_anthropic_asset_allocation_key() -> str | None:
-        """Goal-based allocation (``goal_based_allocation_pydantic`` 7-step pipeline via ``asset_allocation_service``)."""
+        """Goal-based allocation (``asset_allocation_pydantic`` 7-step pipeline via ``asset_allocation_service``)."""
         return Settings._anthropic_key(
             "ASSET_ALLOCATION_API_KEY",
             "PORTFOLIO_QUERY_API_KEY",
@@ -312,6 +312,29 @@ class Settings:
         """
         raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
         return raw in {"1", "true", "yes", "on"}
+    def get_anthropic_rebalancing_key() -> str | None:
+        """Rebalancing chat classifier + chart picker (mutual-fund rebalancing flow)."""
+        return Settings._anthropic_key("REBALANCING_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def get_anthropic_answer_formatter_key() -> str | None:
+        """Shared answer-formatter LLM call (used by AA + rebalancing chat formatters)."""
+        return Settings._anthropic_key("ANSWER_FORMATTER_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def get_anthropic_follow_up_key() -> str | None:
+        """Follow-up suggestion service."""
+        return Settings._anthropic_key("FOLLOW_UP_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def get_anthropic_general_chat_key() -> str | None:
+        """General-chat (out-of-scope / casual) reply generator."""
+        return Settings._anthropic_key("GENERAL_CHAT_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def get_anthropic_chart_selector_key() -> str | None:
+        """Chart-selector LLM call for chat answers."""
+        return Settings._anthropic_key("CHART_SELECTOR_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
     def get_openai_api_key() -> str | None:

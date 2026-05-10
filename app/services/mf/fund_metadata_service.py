@@ -1,4 +1,4 @@
-"""CRUD for ``mf_fund_metadata`` (global scheme catalog)."""
+"""CRUD for ``mf_fund_metadata`` (global scheme catalog — source-fed fields only)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf import MfFundMetadata, MfNavHistory
+from app.models.mf import MfFundMetadata, MfFundRating, MfNavHistory
 from app.schemas.mf import MfFundMetadataCreate, MfFundMetadataUpdate
 from app.services.mf.paging import clamp_skip_limit
 
@@ -105,6 +105,13 @@ async def search_metadata(
     stmt = select(MfFundMetadata)
     count_stmt = select(func.count(MfFundMetadata.id))
 
+    if asset_class:
+        # asset_class lives on the curated rating table — filter via a join.
+        stmt = stmt.join(MfFundRating, MfFundRating.scheme_code == MfFundMetadata.scheme_code)
+        count_stmt = count_stmt.join(
+            MfFundRating, MfFundRating.scheme_code == MfFundMetadata.scheme_code
+        )
+
     conditions = [_has_recent_nav()]
     if active_only:
         conditions.append(MfFundMetadata.is_active.is_(True))
@@ -127,7 +134,7 @@ async def search_metadata(
     if sub_category:
         conditions.append(MfFundMetadata.sub_category == sub_category)
     if asset_class:
-        conditions.append(MfFundMetadata.asset_class == asset_class)
+        conditions.append(MfFundRating.asset_class == asset_class)
     if amc_name:
         conditions.append(MfFundMetadata.amc_name == amc_name)
 

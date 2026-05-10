@@ -22,7 +22,6 @@ from app.models.goals import (
     GoalHolding,
     GoalPriority,
     GoalStatus,
-    GoalType,
 )
 from app.schemas.goal import (
     GoalContributionCreate,
@@ -98,10 +97,6 @@ async def create_goal(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    try:
-        gt = GoalType(payload.goal_type or "OTHER")
-    except ValueError:
-        gt = GoalType.OTHER
     notes_parts = [payload.notes, payload.description]
     notes = next((p for p in notes_parts if p), None)
     infl = payload.inflation_rate if payload.inflation_rate is not None else 6.0
@@ -109,7 +104,6 @@ async def create_goal(
     goal = FinancialGoal(
         user_id=current_user.id,
         goal_name=payload.name.strip()[:100],
-        goal_type=gt,
         present_value_amount=payload.target_amount,
         inflation_rate=infl,
         target_date=td,
@@ -181,11 +175,7 @@ async def update_goal(
     if "suggested_contribution" in data:
         data.pop("suggested_contribution", None)
 
-    if "goal_type" in data and data["goal_type"]:
-        try:
-            goal.goal_type = GoalType(data["goal_type"])
-        except ValueError:
-            pass
+    if "goal_type" in data:
         data.pop("goal_type", None)
 
     if "priority" in data and data["priority"]:

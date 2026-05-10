@@ -18,10 +18,13 @@ from app.schemas.mf.fund_metadata import (
     MfFundMetadataResponse,
     MfFundMetadataSearchResponse,
     MfFundMetadataUpdate,
-    MfMetadataReturnsSnapshot,
+    MfFundRatingCreate,
+    MfFundRatingResponse,
+    MfFundRatingUpdate,
     MfNavChartPoint,
     MfNavDerivedReturns,
 )
+from app.schemas.mf.latest_snapshot import UserMfLatestSnapshotResponse
 from app.schemas.mf.nav_history import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
 from app.schemas.mf.portfolio_snapshot import (
     PortfolioAllocationSnapshotCreate,
@@ -52,7 +55,10 @@ __all__ = [
     "MfFundMetadataResponse",
     "MfFundMetadataSearchResponse",
     "MfFundMetadataUpdate",
-    "MfMetadataReturnsSnapshot",
+    "MfFundRatingCreate",
+    "MfFundRatingResponse",
+    "MfFundRatingUpdate",
+    "UserMfLatestSnapshotResponse",
     "MfNavChartPoint",
     "MfNavDerivedReturns",
     "MfNavHistoryCreate",

@@ -192,6 +192,16 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
     try:
         await _upsert_metadata(db, aa_import)
         await db.flush()
+        metadata_rows = (
+            await db.execute(
+                select(MfFundMetadata).where(
+                    MfFundMetadata.scheme_code.in_(
+                        {_to_scheme_code(t) for t in aa_import.transactions if _to_scheme_code(t)}
+                    )
+                )
+            )
+        ).scalars().all()
+        metadata_by_code = {m.scheme_code: m for m in metadata_rows}
 
         pending_rows: list[tuple[MfTransaction, str]] = []
         for row in aa_import.transactions:
@@ -228,6 +238,22 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
                         units=units,
                         nav=nav,
                         amount=amount,
+                        isin=metadata_by_code.get(scheme_code).isin if metadata_by_code.get(scheme_code) else None,
+                        fund_name=(
+                            metadata_by_code.get(scheme_code).scheme_name
+                            if metadata_by_code.get(scheme_code)
+                            else None
+                        ),
+                        category=(
+                            metadata_by_code.get(scheme_code).category
+                            if metadata_by_code.get(scheme_code)
+                            else None
+                        ),
+                        sub_category=(
+                            metadata_by_code.get(scheme_code).sub_category
+                            if metadata_by_code.get(scheme_code)
+                            else None
+                        ),
                         stamp_duty=_to_float(row.stamp_duty, default=0.0),
                         source_system=MfTransactionSource.AA,
                         source_import_id=aa_import.id,
