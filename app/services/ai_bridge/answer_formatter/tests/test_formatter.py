@@ -13,6 +13,7 @@ from app.services.ai_bridge.answer_formatter import (
     FORMATTER_HOUSE_STYLE,
     FormatterFailure,
     assemble_prompt,
+    format_answer,
 )
 
 
@@ -61,11 +62,6 @@ def test_formatter_failure_is_an_exception():
 # ---------------------------------------------------------------------------
 # LLM call tests (Task 3)
 # ---------------------------------------------------------------------------
-
-import asyncio
-from unittest.mock import AsyncMock, patch
-
-from app.services.ai_bridge.answer_formatter import format_answer
 
 
 def test_format_answer_returns_text_on_success():
