@@ -33,7 +33,6 @@ from app.services.ai_bridge.rebalancing.input_builder import (
     build_rebalancing_input_for_user,
 )
 from app.services.ai_module_telemetry import record_ai_module_run
-from app.services.portfolio_service import get_or_create_primary_portfolio
 from app.services.rebalancing_recommendation_persist import (
     persist_rebalancing_recommendation,
 )

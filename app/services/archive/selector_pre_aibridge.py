@@ -10,7 +10,6 @@ generation, so its latency is hidden behind the slower content path.
 """
 from __future__ import annotations
 
-import json
 import logging
 
 import httpx
