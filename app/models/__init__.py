@@ -6,19 +6,19 @@ Defines a database table mapping, columns, and relationships. Imported by servic
 
 from app.models.chat import ChatMessage, ChatSession
 from app.models.chat_ai_module_run import ChatAiModuleRun
+from app.models.asset_allocation import (
+    AllocationBucketName,
+    AssetAllocationAggregate,
+    AssetAllocationBucket,
+    AssetAllocationBucketSubgroup,
+    AssetAllocationRun,
+    AssetAllocationRunStatus,
+    AssetClassSplitKind,
+)
 from app.models.family_member import FamilyMember
 from app.models.fund import Fund
 from app.models.goals import (
-    AllocationBucketName,
-    AssetClassSplitKind,
     FinancialGoal,
-    GoalAllocationBucket,
-    GoalAllocationBucketAssetClass,
-    GoalAllocationBucketGoal,
-    GoalAllocationBucketSubgroup,
-    GoalAllocationGoal,
-    GoalAllocationRun,
-    GoalAllocationRunStatus,
     GoalContribution,
     GoalHolding,
 )
@@ -66,7 +66,12 @@ from app.models.profile import (
 
 __all__ = [
     "AllocationBucketName",
+    "AssetAllocationAggregate",
+    "AssetAllocationBucket",
+    "AssetAllocationBucketSubgroup",
     "AssetAllocationConstraint",
+    "AssetAllocationRun",
+    "AssetAllocationRunStatus",
     "AssetClassSplitKind",
     "EffectiveRiskAssessment",
     "ChatAiModuleRun",
@@ -76,13 +81,6 @@ __all__ = [
     "FamilyMember",
     "FinancialGoal",
     "Fund",
-    "GoalAllocationBucket",
-    "GoalAllocationBucketAssetClass",
-    "GoalAllocationBucketGoal",
-    "GoalAllocationBucketSubgroup",
-    "GoalAllocationGoal",
-    "GoalAllocationRun",
-    "GoalAllocationRunStatus",
     "GoalContribution",
     "GoalHolding",
     "InvestmentConstraint",

@@ -1,7 +1,7 @@
 """SQLAlchemy ORM — rebalancing engine runs and 1:1 totals roll-up.
 
 One ``rebalancing_runs`` row per execution of the rebalancing engine
-(``AI_Agents/src/Rebalancing``). Every run consumes a goal-allocation run as
+(``AI_Agents/src/Rebalancing``). Every run consumes an asset-allocation run as
 its target — ``source_allocation_run_id`` is non-nullable.
 
 Children:
@@ -36,7 +36,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.chat import ChatSession
-    from app.models.goals.goal_allocation_run import GoalAllocationRun
+    from app.models.asset_allocation.run import AssetAllocationRun
     from app.models.portfolio import Portfolio
     from app.models.rebalancing.rebalancing_fund_row import RebalancingFundRow
     from app.models.rebalancing.rebalancing_subgroup_summary import (
@@ -91,7 +91,7 @@ class RebalancingRun(Base):
     )
     source_allocation_run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("goal_allocation_runs.id", ondelete="RESTRICT"),
+        ForeignKey("asset_allocation_runs.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -164,7 +164,7 @@ class RebalancingRun(Base):
     user: Mapped["User"] = relationship(back_populates="rebalancing_runs")
     portfolio: Mapped["Portfolio"] = relationship()
     chat_session: Mapped[Optional["ChatSession"]] = relationship()
-    source_allocation_run: Mapped["GoalAllocationRun"] = relationship(
+    source_allocation_run: Mapped["AssetAllocationRun"] = relationship(
         back_populates="rebalancing_runs"
     )
     superseded_by: Mapped[Optional["RebalancingRun"]] = relationship(

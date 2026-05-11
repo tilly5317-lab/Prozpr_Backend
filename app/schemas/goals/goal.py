@@ -25,8 +25,13 @@ class GoalCreate(BaseModel):
     inflation_rate: Optional[float] = Field(default=None, ge=0, le=50)
     target_date: Optional[date] = None
     monthly_contribution: Optional[float] = None
-    priority: str = Field(default="PRIMARY")
+    priority: str = Field(default="HIGH")
     notes: Optional[str] = None
+    # Asset-allocation pipeline fields (folded onto the canonical goal row).
+    time_to_goal_months: Optional[int] = Field(default=None, ge=0)
+    amount_needed: Optional[float] = Field(default=None, gt=0)
+    goal_priority: Optional[str] = None  # "negotiable" | "non_negotiable"
+    investment_goal: Optional[str] = None  # "wealth_creation" | "safety" | ...
 
     @field_validator("goal_type", mode="before")
     @classmethod
@@ -39,18 +44,24 @@ class GoalCreate(BaseModel):
     @classmethod
     def normalize_priority(cls, v: Any) -> Any:
         if not isinstance(v, str):
-            return "PRIMARY"
+            return "HIGH"
         x = v.lower()
         if x in ("low",):
-            return "SECONDARY"
+            return "LOW"
         if x in ("medium",):
             return "MEDIUM"
         if x in ("high", "primary"):
-            return "PRIMARY"
+            return "HIGH"
         if x in ("secondary",):
-            return "SECONDARY"
+            return "LOW"
         u = v.upper()
-        return u if u in ("PRIMARY", "SECONDARY", "MEDIUM") else "PRIMARY"
+        if u in ("HIGH", "MEDIUM", "LOW"):
+            return u
+        if u == "PRIMARY":
+            return "HIGH"
+        if u == "SECONDARY":
+            return "LOW"
+        return "HIGH"
 
 
 class GoalUpdate(BaseModel):
@@ -68,6 +79,10 @@ class GoalUpdate(BaseModel):
     priority: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    time_to_goal_months: Optional[int] = Field(None, ge=0)
+    amount_needed: Optional[float] = Field(None, gt=0)
+    goal_priority: Optional[str] = None
+    investment_goal: Optional[str] = None
 
     @field_validator("goal_type", "status", mode="before")
     @classmethod
@@ -85,15 +100,21 @@ class GoalUpdate(BaseModel):
             return v
         x = v.lower()
         if x == "low":
-            return "SECONDARY"
+            return "LOW"
         if x == "medium":
             return "MEDIUM"
         if x in ("high", "primary"):
-            return "PRIMARY"
+            return "HIGH"
         if x == "secondary":
-            return "SECONDARY"
+            return "LOW"
         u = v.upper()
-        return u if u in ("PRIMARY", "SECONDARY", "MEDIUM") else "PRIMARY"
+        if u in ("HIGH", "MEDIUM", "LOW"):
+            return u
+        if u == "PRIMARY":
+            return "HIGH"
+        if u == "SECONDARY":
+            return "LOW"
+        return "HIGH"
 
 
 class GoalResponse(BaseModel):
@@ -110,11 +131,15 @@ class GoalResponse(BaseModel):
     current_value: float = 0
     monthly_contribution: Optional[float] = None
     suggested_contribution: Optional[float] = None
-    priority: str = "PRIMARY"
+    priority: str = "HIGH"
     status: str = "ACTIVE"
     goal_type: Optional[str] = None
     inflation_rate: Optional[float] = None
     notes: Optional[str] = None
+    time_to_goal_months: Optional[int] = None
+    amount_needed: Optional[float] = None
+    goal_priority: Optional[str] = None
+    investment_goal: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -172,6 +197,14 @@ def goal_to_response(
         goal_type=None,
         inflation_rate=float(goal.inflation_rate) if goal.inflation_rate is not None else None,
         notes=goal.notes,
+        time_to_goal_months=getattr(goal, "time_to_goal_months", None),
+        amount_needed=(
+            float(goal.amount_needed)
+            if getattr(goal, "amount_needed", None) is not None
+            else None
+        ),
+        goal_priority=getattr(goal, "goal_priority", None),
+        investment_goal=getattr(goal, "investment_goal", None),
         created_at=goal.created_at,
         updated_at=goal.updated_at,
     )
