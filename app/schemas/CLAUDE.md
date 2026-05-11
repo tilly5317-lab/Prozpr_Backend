@@ -9,7 +9,7 @@ contracts.
 - **profile/** — CompleteProfile API payloads (read + update).
 - **ai_modules/** — request/response bodies for the `/ai-modules` agent test
   routes.
-- **ingest/** — Finvu / AA ingestion payloads.
+- **ingest/** — MF ingestion payloads (CAMS CAS PDF upload; legacy Finvu/AA).
 
 ## Files at this level
 

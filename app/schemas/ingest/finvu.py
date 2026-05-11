@@ -1,5 +1,10 @@
 """Pydantic schema — `finvu.py`.
 
+DEPRECATED / SIDELINED — the Finvu account-aggregator flow is paused (licensing).
+These schemas back the legacy ``POST /portfolio/finvu/sync`` route only; new MF
+ingestion goes through CAMS / KFintech CAS PDF upload (``app/schemas/ingest/cams.py``,
+route ``POST /api/v1/mf-ingest/cams-pdf``).
+
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 

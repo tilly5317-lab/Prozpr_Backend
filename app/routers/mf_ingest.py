@@ -9,12 +9,13 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
 from app.schemas.ingest import (
+    CamsPdfImportResponse,
     MfAaNormalizeOneResponse,
     MfAaNormalizePendingRequest,
     MfAaNormalizePendingResponse,
@@ -24,6 +25,8 @@ from app.schemas.mf.mfapi import (
     MfapiIngestResultSchema,
     MfapiRefreshRequest,
 )
+from app.services.cams_cas_ingest import CamsPdfParseError, ingest_cams_pdf
+from app.services.effective_risk_profile import maybe_recalculate_effective_risk
 from app.services.mf.mfapi_ingest_service import (
     IngestMode,
     MfapiIngestError,
@@ -39,6 +42,103 @@ from app.services.mf_aa_normalizer import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mf-ingest", tags=["MF Ingest"])
+
+# Generous ceiling — a multi-year consolidated CAS rarely exceeds a few MB.
+_MAX_CAS_PDF_BYTES = 20 * 1024 * 1024
+
+
+@router.post("/cams-pdf", response_model=CamsPdfImportResponse)
+async def ingest_cams_statement_pdf(
+    file: UploadFile = File(..., description="CAMS / KFintech Consolidated Account Statement PDF"),
+    password: str = Form(
+        ...,
+        description="Password set when generating the CAS (commonly your PAN in capitals).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Upload a CAMS / KFintech Consolidated Account Statement (CAS) PDF.
+
+    Parses the statement, stores the raw rows in ``mf_aa_imports`` /
+    ``mf_aa_summaries`` / ``mf_aa_transactions``, normalizes them into
+    ``mf_transactions``, and refreshes the primary-portfolio bucket allocation
+    (Cash / Debt / Equity / Other).
+
+    This is the replacement for the (paused) Finvu account-aggregator
+    fetch-by-mobile flow — see ``POST /portfolio/finvu/sync`` (deprecated).
+    """
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".pdf") and file.content_type not in (
+        None,
+        "application/pdf",
+        "application/octet-stream",
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Please upload the Consolidated Account Statement as a PDF file.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file is empty.")
+    if len(data) > _MAX_CAS_PDF_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="The PDF is too large (limit 20 MB).",
+        )
+    if not (password or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A PDF password is required.")
+
+    try:
+        result = await ingest_cams_pdf(
+            db,
+            current_user.id,
+            file_bytes=data,
+            password=password,
+            source_filename=filename or None,
+        )
+    except CamsPdfParseError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST if exc.bad_password else status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            detail=str(exc),
+        ) from exc
+
+    await maybe_recalculate_effective_risk(db, current_user.id, "cams_pdf_ingest")
+    await db.commit()
+
+    if result.status == "FAILED":
+        message = (
+            f"Parsed {result.schemes} scheme(s) across {result.folios} folio(s), but normalization "
+            f"into transactions failed: {result.normalize_error or 'unknown error'}. "
+            "Retry via POST /mf-ingest/normalize/{import_id}."
+        )
+    else:
+        message = (
+            f"Imported {result.schemes} scheme(s) across {result.folios} folio(s); "
+            f"{result.mf_transactions_inserted} transaction(s) added "
+            f"({result.mf_transactions_skipped_duplicate} duplicate(s) skipped). "
+            f"Portfolio value updated to INR {result.total_value_inr:,.2f}."
+        )
+
+    return CamsPdfImportResponse(
+        import_id=result.import_id,
+        status=result.status,
+        cas_file_type=result.cas_file_type,
+        cas_type=result.cas_type,
+        statement_period_from=result.statement_period_from,
+        statement_period_to=result.statement_period_to,
+        folios=result.folios,
+        schemes=result.schemes,
+        aa_transactions_parsed=result.aa_transactions_parsed,
+        mf_transactions_inserted=result.mf_transactions_inserted,
+        mf_transactions_skipped_duplicate=result.mf_transactions_skipped_duplicate,
+        portfolio_allocation_rows=result.portfolio_allocation_rows,
+        total_value_inr=result.total_value_inr,
+        normalize_error=result.normalize_error,
+        message=message,
+    )
 
 
 @router.post("/normalize/{import_id}", response_model=MfAaNormalizeOneResponse)
