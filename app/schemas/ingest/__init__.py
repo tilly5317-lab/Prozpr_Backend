@@ -4,6 +4,7 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. Kep
 """
 
 
+from app.schemas.ingest.cams import CamsPdfImportResponse
 from app.schemas.ingest.finvu import FinvuBucketInput, FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
 from app.schemas.ingest.mf_aa import (
     MfAaNormalizeOneResponse,
@@ -12,6 +13,7 @@ from app.schemas.ingest.mf_aa import (
 )
 
 __all__ = [
+    "CamsPdfImportResponse",
     "FinvuBucketInput",
     "FinvuPortfolioSyncRequest",
     "FinvuPortfolioSyncResponse",

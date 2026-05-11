@@ -1,5 +1,10 @@
 """Application service — `finvu_portfolio_sync.py`.
 
+DEPRECATED / SIDELINED — the Finvu account-aggregator integration is paused for
+licensing reasons. This module is retained for reference and is no longer on an
+active ingestion path. The replacement is CAMS / KFintech CAS PDF upload:
+``app/services/cams_cas_ingest.py`` (route ``POST /api/v1/mf-ingest/cams-pdf``).
+
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 

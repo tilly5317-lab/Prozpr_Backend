@@ -183,15 +183,20 @@ async def get_history(
     return [PortfolioHistoryResponse.model_validate(h) for h in result.scalars().all()]
 
 
-@router.post("/finvu/sync", response_model=FinvuPortfolioSyncResponse)
+@router.post("/finvu/sync", response_model=FinvuPortfolioSyncResponse, deprecated=True)
 async def sync_finvu_bucket_portfolio(
     payload: FinvuPortfolioSyncRequest,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """
-    Ingest Finvu / AA consolidated bucket totals into the primary portfolio.
+    DEPRECATED — the Finvu account-aggregator integration is paused (licensing).
 
+    Kept for reference / backwards compatibility only. To bring in a user's
+    mutual-fund holdings and transactions, upload a CAMS / KFintech Consolidated
+    Account Statement PDF via ``POST /api/v1/mf-ingest/cams-pdf`` instead.
+
+    Ingest Finvu / AA consolidated bucket totals into the primary portfolio.
     Uses the same **Cash / Debt / Equity / Other** asset_class labels as SimBanks sync so
     chat, drift, and allocation modules read a single canonical shape from the DB.
     """
