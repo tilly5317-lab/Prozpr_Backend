@@ -43,6 +43,6 @@ class ChatBrainResult:
     intent: str | None
     intent_confidence: float | None
     intent_reasoning: str | None
-    ideal_allocation_rebalancing_id: uuid.UUID | None = None
+    goal_allocation_run_id: uuid.UUID | None = None
     ideal_allocation_snapshot_id: uuid.UUID | None = None
     chart_payloads: list[dict[str, Any]] | None = None

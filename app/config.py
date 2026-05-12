@@ -296,6 +296,22 @@ class Settings:
         return Settings._anthropic_key("RISK_PROFILING_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
+    def mfapi_scheduler_enabled() -> bool:
+        """Daily 00:00 IST mfapi.in MF master + NAV refresh. Default ON; set
+        ``MFAPI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
+        raw = (_getenv("MFAPI_SCHEDULER_ENABLED") or "").strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return True
+
+    @staticmethod
+    def skip_startup_db_ddl() -> bool:
+        """Skip ``create_all_tables`` and Postgres schema patches on startup (faster against RDS).
+
+        Default OFF. When true, run ``alembic upgrade head`` (or ensure tables exist) separately.
+        """
+        raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
     def get_anthropic_rebalancing_key() -> str | None:
         """Rebalancing chat classifier + chart picker (mutual-fund rebalancing flow)."""
         return Settings._anthropic_key("REBALANCING_API_KEY", "ANTHROPIC_API_KEY")
