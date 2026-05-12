@@ -24,6 +24,12 @@ from app.schemas.mf.fund_metadata import (
     MfNavChartPoint,
     MfNavDerivedReturns,
 )
+from app.schemas.mf.holding_detail import (
+    MfHoldingDetailResponse,
+    MfHoldingNavPoint,
+    MfHoldingPosition,
+    MfHoldingTransactionItem,
+)
 from app.schemas.mf.latest_snapshot import UserMfLatestSnapshotResponse
 from app.schemas.mf.nav_history import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
 from app.schemas.mf.portfolio_snapshot import (
@@ -58,6 +64,10 @@ __all__ = [
     "MfFundRatingCreate",
     "MfFundRatingResponse",
     "MfFundRatingUpdate",
+    "MfHoldingDetailResponse",
+    "MfHoldingNavPoint",
+    "MfHoldingPosition",
+    "MfHoldingTransactionItem",
     "UserMfLatestSnapshotResponse",
     "MfNavChartPoint",
     "MfNavDerivedReturns",

@@ -23,7 +23,7 @@ import asyncio
 import io
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -33,6 +33,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.mf import MfAaImport, MfAaImportStatus, MfAaSummary, MfAaTransaction
 from app.models.portfolio import PortfolioAllocation, PortfolioHolding
+from app.models.user import User
 from app.services.mf_aa_normalizer import normalize_single_import
 from app.services.portfolio_service import get_or_create_primary_portfolio
 
@@ -80,6 +81,9 @@ class CamsIngestResult:
     portfolio_allocation_rows: int
     total_value_inr: float
     normalize_error: Optional[str] = None
+    # Identity fields on the `users` row that were back-filled from the CAS investor
+    # block (only ever fills blanks — never overwrites what the user already set).
+    profile_fields_filled: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -120,16 +124,107 @@ def _split_name(name: Optional[str]) -> tuple[Optional[str], Optional[str], Opti
     return parts[0][:100], " ".join(parts[1:-1])[:100], parts[-1][:100]
 
 
-def _bucket_for_scheme_type(scheme_type: Optional[str]) -> str:
-    """Map a CAS scheme classification onto the Cash / Debt / Equity / Other buckets."""
-    t = (scheme_type or "").upper()
-    if "EQUITY" in t:
-        return "Equity"
-    if any(k in t for k in ("LIQUID", "MONEY", "OVERNIGHT", "CASH")):
-        return "Cash"
-    if any(k in t for k in ("DEBT", "BOND", "GILT", "INCOME", "DURATION")):
+# --------------------------------------------------------------------------- scheme classification
+#
+# casparser only tags a scheme as ``EQUITY`` / ``DEBT`` (or ``N/A`` / ``UNKNOWN``)
+# and it does so purely from a bundled MFCentral ISIN list. Newer schemes, ETFs,
+# index/international funds and NFOs that aren't in that list come back as ``N/A`` —
+# and the *old* roll-up dumped every ``N/A`` scheme into "Other", which is why an
+# all-equity statement showed up on the frontend as e.g. Equity 95% / Other 5%.
+#
+# We now resolve the asset class in two passes:
+#   1. trust casparser's ``type`` when it actually classified the scheme;
+#   2. otherwise infer it from the *scheme name* (the name almost always says what
+#      kind of fund it is — "Flexi Cap", "Nifty 50 Index", "Liquid", "Gilt", …).
+# Only when both fail do we fall back to "Other".
+
+_CASH_NAME_HINTS: tuple[str, ...] = (
+    "liquid", "overnight", "money market", "cash management",
+)
+_DEBT_NAME_HINTS: tuple[str, ...] = (
+    "debt", "bond", "gilt", "g-sec", "gsec", "g sec", "income fund",
+    "corporate bond", "credit risk", "banking & psu", "banking and psu",
+    "psu debt", "psu bond", "dynamic bond", "floater", "floating rate",
+    "short term", "short duration", "low duration", "ultra short",
+    "medium term", "medium duration", "long duration", "constant maturity",
+    "fixed maturity", "fmp", "interval fund", "10 year", "duration fund",
+)
+_HYBRID_NAME_HINTS: tuple[str, ...] = (
+    "hybrid", "balanced", "asset allocation", "multi asset", "multi-asset",
+    "equity savings", "arbitrage", "dynamic asset", "conservative", "aggressive",
+    "regular savings", "equity & debt", "equity and debt", "balanced advantage",
+    "income & growth", "capital protection",
+)
+_COMMODITY_NAME_HINTS: tuple[str, ...] = (
+    "gold", "silver", "commodity", "commodities",
+)
+_EQUITY_NAME_HINTS: tuple[str, ...] = (
+    "equity", "elss", "tax saver", "taxsaver", "tax plan", "bluechip",
+    "blue chip", "flexi cap", "flexicap", "multi cap", "multicap", "large cap",
+    "largecap", "large & mid", "large and mid", "mid cap", "midcap",
+    "small cap", "smallcap", "micro cap", "microcap", "focused", "value fund",
+    "contra", "dividend yield", "opportunit", "special situation", "nifty",
+    "sensex", "nasdaq", "s&p", "msci", "index fund", "etf", "top 100",
+    "top 200", "top 250", "top 500", "consumption", "infrastructure", "infra ",
+    "banking & financial", "banking and financial", "financial services",
+    "pharma", "healthcare", "technology", "digital", "fmcg", "mnc",
+    "psu equity", "manufacturing", "transportation", "logistics",
+    "business cycle", "quant fund", "momentum", "esg", "quality fund",
+    "alpha", "growth fund", "emerging", "long term equity", "capital builder",
+    "wealth builder", "bharat", "india fund", "core equity", "prime equity",
+    "active fund", "champions", "leaders", "frontline", "discovery",
+    "exploration", "innovation", "world fund", "global ", "international",
+    "us equity", "china", "japan", "europe", "energy opportunit",
+)
+
+# casparser ``type`` values that mean "I couldn't classify it" — trigger the name fallback.
+_UNKNOWN_TYPE_TOKENS: frozenset[str] = frozenset({"", "N/A", "NA", "UNKNOWN", "OTHER", "NONE"})
+
+
+def _bucket_from_name(scheme_name: Optional[str]) -> Optional[str]:
+    """Best-effort asset-class guess from a scheme's *name*. ``None`` if undecidable."""
+    name = (scheme_name or "").lower()
+    if not name:
+        return None
+    # Order matters — more specific vocabulary first. "...Equity & Debt Fund" is a
+    # hybrid (not equity); "Gold Savings Fund" is a commodity FoF (not cash); etc.
+    if any(h in name for h in _COMMODITY_NAME_HINTS):
+        return "Other"  # gold/silver/commodity FoFs roll up under "Other" (4-bucket model)
+    if any(h in name for h in _HYBRID_NAME_HINTS):
+        return "Other"  # hybrids / arbitrage / multi-asset → "Other"
+    if any(h in name for h in _DEBT_NAME_HINTS):
         return "Debt"
-    # HYBRID, BALANCED, FOF, SOLUTION, COMMODITY, OTHER, UNKNOWN, …
+    if any(h in name for h in _CASH_NAME_HINTS):
+        return "Cash"
+    if any(h in name for h in _EQUITY_NAME_HINTS):
+        return "Equity"
+    return None
+
+
+def _resolve_asset_bucket(scheme_type: Optional[str], scheme_name: Optional[str]) -> str:
+    """Map a CAS scheme onto the Cash / Debt / Equity / Other buckets.
+
+    Trust casparser's ``type`` when it actually classified the scheme; otherwise
+    fall back to a name-based guess; only then settle for "Other".
+    """
+    t = (scheme_type or "").strip().upper()
+    if t not in _UNKNOWN_TYPE_TOKENS:
+        if t in {"CASH", "DEBT", "EQUITY"}:  # already a bucket name we use verbatim
+            return t.capitalize()
+        if "EQUITY" in t:
+            return "Equity"
+        if any(k in t for k in ("LIQUID", "MONEY", "OVERNIGHT", "CASH", "TREASURY")):
+            return "Cash"
+        if any(k in t for k in ("DEBT", "BOND", "GILT", "INCOME", "DURATION", "GSEC", "G-SEC")):
+            return "Debt"
+        # HYBRID / BALANCED / FOF / SOLUTION / COMMODITY / GOLD / … → Other
+        if any(k in t for k in ("HYBRID", "BALANCED", "ARBITRAGE", "FOF", "SOLUTION", "GOLD", "COMMODITY", "MULTI ASSET")):
+            return "Other"
+    # casparser didn't (or only weakly) classify it — go by the scheme name.
+    guessed = _bucket_from_name(scheme_name)
+    if guessed is not None:
+        return guessed
+    logger.info("CAS ingest: could not classify scheme %r (type=%r) → bucketed as Other", scheme_name, scheme_type)
     return "Other"
 
 
@@ -228,6 +323,7 @@ def _build_import_row(
         mobile=_clean(investor.get("mobile"), limit=20),
         from_date=_clean(period.get("from"), limit=20),
         to_date=_clean(period.get("to"), limit=20),
+        cas_type=_clean(parsed.get("cas_type"), limit=20),
         # synthetic — satisfies uq_mf_aa_import_req_email for uploaded (non-AA-feed) imports
         req_id=uuid.uuid4().hex,
         investor_first_name=first,
@@ -263,8 +359,15 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
             scheme_cost = _num(valuation.get("cost"))
             if scheme_cost > 0:
                 cost_total += scheme_cost
+
+            bucket = _resolve_asset_bucket(stype, scheme_name)
             if market_value > 0:
-                bucket_value[_bucket_for_scheme_type(stype)] += market_value
+                bucket_value[bucket] += market_value
+            # Persist the resolved class when casparser couldn't classify it, so
+            # `mf_fund_metadata.category` (derived from this) isn't left as "N/A".
+            resolved_asset_type = (
+                stype if stype and stype.strip().upper() not in _UNKNOWN_TYPE_TOKENS else bucket.upper()
+            )
 
             txns = scheme.get("transactions") or []
             last_txn_date = _clean(txns[-1].get("date")) if txns else None
@@ -273,12 +376,12 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
                 MfAaSummary(
                     row_no=scheme_count,
                     amc_name=amc_name,
-                    asset_type=_clean(stype, limit=30),
+                    asset_type=_clean(resolved_asset_type, limit=30),
                     folio=folio_no,
                     isin=isin,
                     scheme=_clean(scheme_code, limit=20),
                     scheme_name=scheme_name,
-                    closing_balance=_num(scheme.get("close")),
+                    closing_balance=_num(scheme.get("close") or scheme.get("close_calculated")),
                     cost_value=(scheme_cost or None),
                     market_value=(market_value or None),
                     nav=(_num(valuation.get("nav")) or None),
@@ -374,7 +477,7 @@ async def _sync_mf_portfolio_holdings_from_cas(
 
             scheme_cost = _num(valuation.get("cost"))
             nav = _num(valuation.get("nav"))
-            units = _num(scheme.get("close"))
+            units = _num(scheme.get("close") or scheme.get("close_calculated"))
             amfi = _clean(scheme.get("amfi"), limit=20)
             isin = _clean(scheme.get("isin"), limit=20)
             ticker_raw = amfi or isin
@@ -414,6 +517,66 @@ async def _sync_mf_portfolio_holdings_from_cas(
 
     await db.flush()
     return written
+
+
+async def _backfill_user_profile(
+    db: AsyncSession, user_id: uuid.UUID, parsed: dict[str, Any]
+) -> list[str]:
+    """Fill empty identity fields on the user's row from the CAS investor block.
+
+    The CAS carries the investor's legal name, email, PAN and (a) postal address —
+    when the user signed up with only a phone number these are blank, so ``/profile``
+    and ``/auth/me`` come back empty. We back-fill **blanks only**: anything the
+    user has already entered is left untouched. Returns the list of fields filled.
+    """
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        return []
+
+    investor = parsed.get("investor_info") or {}
+    folios = parsed.get("folios") or []
+    filled: list[str] = []
+
+    first, middle, last = _split_name(investor.get("name"))
+    if first and not _clean(user.first_name):
+        user.first_name = first
+        filled.append("first_name")
+    if middle and not _clean(user.middle_name):
+        user.middle_name = middle
+        filled.append("middle_name")
+    if last and not _clean(user.last_name):
+        user.last_name = last
+        filled.append("last_name")
+
+    address = _clean(investor.get("address"), limit=500)
+    if address and not _clean(user.address):
+        user.address = address
+        filled.append("address")
+
+    email = _clean(investor.get("email"), limit=320)
+    if email and "@" in email and not _clean(user.email):
+        # users.email is unique — only claim it if no other user holds it.
+        clash = (
+            await db.execute(select(User.id).where(User.email == email, User.id != user_id))
+        ).first()
+        if clash is None:
+            user.email = email
+            filled.append("email")
+
+    pans = {p for p in (_clean(f.get("PAN")) for f in folios) if p}
+    pan = _clean(next(iter(pans), None), limit=20)
+    if pan and not _clean(user.pan):
+        clash = (
+            await db.execute(select(User.id).where(User.pan == pan, User.id != user_id))
+        ).first()
+        if clash is None:
+            user.pan = pan
+            filled.append("pan")
+
+    if filled:
+        await db.flush()
+        logger.info("CAS ingest: back-filled user %s profile fields %s", user_id, filled)
+    return filled
 
 
 # --------------------------------------------------------------------------- entry point
@@ -457,6 +620,7 @@ async def ingest_cams_pdf(
     alloc_rows, total_value = await _apply_portfolio_rollup(db, user_id, bucket_value, cost_total)
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     await _sync_mf_portfolio_holdings_from_cas(db, portfolio.id, parsed, total_value)
+    profile_fields_filled = await _backfill_user_profile(db, user_id, parsed)
 
     return CamsIngestResult(
         import_id=import_id,
@@ -473,4 +637,5 @@ async def ingest_cams_pdf(
         portfolio_allocation_rows=alloc_rows,
         total_value_inr=round(total_value, 2),
         normalize_error=norm.error,
+        profile_fields_filled=profile_fields_filled,
     )

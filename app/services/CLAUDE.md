@@ -40,7 +40,13 @@ sidelined — see below).
 - `cams_cas_ingest.py` — parse an uploaded CAMS/KFintech Consolidated Account
   Statement (CAS) PDF (via the `casparser` package) → `mf_aa_imports` /
   `mf_aa_summaries` / `mf_aa_transactions` raw rows → `MfTransaction` (through
-  `mf_aa_normalizer`) → primary-portfolio bucket allocations. Replaces the
+  `mf_aa_normalizer`) → primary-portfolio bucket allocations + one
+  `portfolio_holdings` row per scheme. Asset class is resolved by
+  `_resolve_asset_bucket` (trust `casparser`'s `type`; else infer from the scheme
+  name; else "Other") so funds `casparser` can't classify don't all land in
+  "Other". Also back-fills blank identity fields on the `users` row
+  (`first_name`/`middle_name`/`last_name`/`email`/`address`/`pan`) from the CAS
+  investor block — never overwrites what the user already set. Replaces the
   Finvu fetch-by-mobile flow.
 - `finvu_portfolio_sync.py` — DEPRECATED / SIDELINED. Finvu account-aggregator
   ingestion → PortfolioAllocation rows. Paused for licensing; kept for

@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CamsPdfImportResponse(BaseModel):
@@ -30,4 +30,7 @@ class CamsPdfImportResponse(BaseModel):
     portfolio_allocation_rows: int
     total_value_inr: float
     normalize_error: Optional[str] = None
+    # Blank identity fields on the user's account that were populated from the CAS
+    # investor block (e.g. ["first_name", "last_name", "email", "address", "pan"]).
+    profile_fields_filled: list[str] = Field(default_factory=list)
     message: str

@@ -121,6 +121,12 @@ async def ingest_cams_statement_pdf(
             f"({result.mf_transactions_skipped_duplicate} duplicate(s) skipped). "
             f"Portfolio value updated to INR {result.total_value_inr:,.2f}."
         )
+        if result.profile_fields_filled:
+            message += (
+                " Filled your profile from the statement: "
+                + ", ".join(result.profile_fields_filled).replace("_", " ")
+                + "."
+            )
 
     return CamsPdfImportResponse(
         import_id=result.import_id,
@@ -137,6 +143,7 @@ async def ingest_cams_statement_pdf(
         portfolio_allocation_rows=result.portfolio_allocation_rows,
         total_value_inr=result.total_value_inr,
         normalize_error=result.normalize_error,
+        profile_fields_filled=result.profile_fields_filled,
         message=message,
     )
 

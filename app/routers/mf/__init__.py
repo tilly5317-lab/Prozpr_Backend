@@ -8,6 +8,7 @@ from app.routers.mf import (
     aa_imports,
     fund_metadata,
     fund_rating,
+    holding_detail,
     latest_snapshot,
     nav_history,
     portfolio_snapshots,
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/mf")
 
 router.include_router(fund_metadata.router)
 router.include_router(fund_rating.router)
+router.include_router(holding_detail.router)
 router.include_router(latest_snapshot.router)
 router.include_router(nav_history.router)
 router.include_router(sip_mandates.router)
