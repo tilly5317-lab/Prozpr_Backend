@@ -43,10 +43,21 @@ flowchart LR
    `source_import_id` = the import id, `source_txn_fingerprint` = SHA-256 of the
    key fields).
 4. **Portfolio roll-up** — the scheme valuations are bucketed into
-   **Cash / Debt / Equity / Other** and written to `portfolio_allocations`;
+   **Cash / Debt / Equity / Other** (asset class resolved by
+   `_resolve_asset_bucket` — see §3.6) and written to `portfolio_allocations`;
    `portfolios.total_value` = sum of market values, `portfolios.total_invested` =
-   sum of cost values (falls back to market value when cost is absent).
-5. `maybe_recalculate_effective_risk(reason="cams_pdf_ingest")`, then commit.
+   sum of cost values (falls back to market value when cost is absent). One
+   `portfolio_holdings` row is also written per scheme so the app can list each fund.
+5. **Profile back-fill** — `_backfill_user_profile` fills *blank* identity fields
+   on the `users` row from the CAS investor block: `first_name` / `middle_name` /
+   `last_name` (split from `investor_info.name`), `email`, `address`, and `pan`
+   (from the first folio's `PAN`). It only fills blanks — anything the user
+   already entered is untouched — and skips `email` / `pan` if another user
+   already holds that value (both columns are unique). The fields it filled are
+   echoed back in the response as `profile_fields_filled` and appended to the
+   `message`. This is why `GET /auth/me` / `/profile` are populated after the first
+   upload by a phone-only signup.
+6. `maybe_recalculate_effective_risk(reason="cams_pdf_ingest")`, then commit.
 
 ---
 
@@ -223,9 +234,28 @@ ingest) are left as-is — at most blank fields are back-filled.
 
 ### 3.6 `portfolio_allocations` / `portfolios` — bucket roll-up
 
-Per scheme: `bucket = f(scheme.type)` —
-`EQUITY → Equity`, `LIQUID/MONEY_MARKET/OVERNIGHT → Cash`,
-`DEBT/BOND/GILT/INCOME → Debt`, anything else (`HYBRID`, `FOF`, `OTHER`, …) `→ Other`.
+Per scheme the asset class is resolved in two passes (`cams_cas_ingest._resolve_asset_bucket`):
+
+1. **Trust `casparser`'s `scheme.type`** when it actually classified the scheme —
+   `EQUITY → Equity`, `LIQUID/MONEY_MARKET/OVERNIGHT/CASH → Cash`,
+   `DEBT/BOND/GILT/INCOME/DURATION → Debt`, `HYBRID/BALANCED/ARBITRAGE/FOF/GOLD/COMMODITY → Other`.
+2. **Fall back to the scheme *name*** when `casparser` returned `N/A` / `UNKNOWN` /
+   blank (common for ETFs, index funds, international funds and recent NFOs that
+   aren't in `casparser`'s bundled MFCentral ISIN list). Name hints, checked
+   most-specific first: commodity (`gold`, `silver`, …) → Other; hybrid
+   (`hybrid`, `balanced advantage`, `arbitrage`, `equity savings`, `equity & debt`, …) → Other;
+   debt (`bond`, `gilt`, `corporate bond`, `short duration`, `fmp`, …) → Debt;
+   cash (`liquid`, `overnight`, `money market`, …) → Cash; equity
+   (`equity`, `flexi cap`, `large/mid/small cap`, `index`, `nifty`, `sensex`, `elss`,
+   `etf`, sector names, …) → Equity.
+3. Only if **both** passes fail does the scheme land in **Other** (and an `INFO`
+   log line records the unrecognised scheme name so the hint lists can be extended).
+
+This two-pass resolution is what stopped an all-equity statement from showing up
+on the frontend as e.g. *Equity 95% / Other 5%* — the "Other" slice was simply
+schemes `casparser` couldn't tag from its ISIN list. The resolved class is also
+written back to `mf_aa_summaries.asset_type` (and thus `mf_fund_metadata.category`)
+when `casparser`'s own type was blank, so downstream modules don't see `N/A`.
 
 | `portfolio_allocations` column | Source |
 |---|---|
@@ -368,3 +398,38 @@ It prints every table touched (`mf_aa_imports`, `mf_aa_summaries`,
 `portfolio_allocations`, `portfolios`) against the same `DATABASE_URL` the app
 uses. Paste that output here and the §4 worked example above will be replaced
 with the real extraction.
+
+---
+
+## 7. The MF holding detail page
+
+A holding row produced here (`portfolio_holdings.ticker_symbol` = the AMFI scheme
+code, or the ISIN when the AMFI code wasn't on the statement) can be opened on a
+fund-detail screen via a single call:
+
+```
+GET /api/v1/mf/funds/{scheme_code}/holding-detail   # scheme_code may be an AMFI code or an ISIN
+    ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD         # optional; default = last ~5 years of NAVs
+```
+
+Returns (`MfHoldingDetailResponse`):
+
+- **scheme facts** — `scheme_name`, `amc_name`, `category`, `sub_category`,
+  `isin`, `plan_type`, `option_type`, and `metadata_id` (use it with
+  `GET /mf/fund-metadata/{metadata_id}/investor-detail` for rolling-window
+  returns + a downsampled performance chart).
+- **NAV series** — `latest_nav` / `latest_nav_date` plus `nav_history` (ascending
+  `{nav_date, nav}` points from `mf_nav_history`, capped at 4 000 rows —
+  `nav_history_truncated` flags an over-cap range). If nothing is stored yet a
+  `notes[]` line says so; trigger a NAV sync (`/mf/nav-history` or the mfapi
+  ingest) to fill it.
+- **position** — the user's units / units-weighted average cost / current value /
+  portfolio weight / invested amount / unrealised gain, summed across folios.
+- **transactions** — the user's ledger in this scheme (from `mf_transactions`),
+  each row carrying `transaction_type` (`BUY` / `SELL` / `SWITCH_IN` /
+  `SWITCH_OUT` / `DIVIDEND_REINVEST`), `is_inflow` (true for BUY / SWITCH_IN /
+  DIVIDEND_REINVEST → tint green; false → red) and a ready-to-render
+  `signed_amount` (`+amount` for inflows, `-amount` for outflows).
+
+Code: `app/routers/mf/holding_detail.py` → `app/services/mf/mf_holding_detail_service.py`
+→ schemas in `app/schemas/mf/holding_detail.py`.
