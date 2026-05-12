@@ -1,6 +1,8 @@
-"""FastAPI router — `rebalancing.py`.
+"""FastAPI router — rebalancing run listing, detail, and status update.
 
-Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
+Backed by the normalized ``rebalancing_*`` family. List endpoint returns light
+rows; detail endpoint eager-loads totals, subgroup summaries, trades, and
+warnings so the UI gets one round-trip per run.
 """
 
 
@@ -11,71 +13,82 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
-from app.models.portfolio import Portfolio
-from app.models.rebalancing import RebalancingRecommendation, RebalancingStatus
-from app.schemas.rebalancing import RebalancingResponse, RebalancingStatusUpdate
+from app.models.rebalancing.rebalancing_run import RebalancingRun, RebalancingRunStatus
+from app.schemas.rebalancing import (
+    RebalancingRunDetailResponse,
+    RebalancingRunListItem,
+    RebalancingStatusUpdate,
+)
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
 
 
-@router.get("/", response_model=list[RebalancingResponse])
-async def list_recommendations(
+@router.get("/", response_model=list[RebalancingRunListItem])
+async def list_runs(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     stmt = (
-        select(RebalancingRecommendation)
-        .join(Portfolio, Portfolio.id == RebalancingRecommendation.portfolio_id)
-        .where(Portfolio.user_id == current_user.id)
-        .order_by(RebalancingRecommendation.created_at.desc())
+        select(RebalancingRun)
+        .where(RebalancingRun.user_id == current_user.id)
+        .order_by(RebalancingRun.created_at.desc())
     )
-    result = await db.execute(stmt)
-    return [RebalancingResponse.model_validate(r) for r in result.scalars().all()]
+    rows = (await db.execute(stmt)).scalars().all()
+    return [RebalancingRunListItem.model_validate(r) for r in rows]
 
 
-@router.get("/{recommendation_id}", response_model=RebalancingResponse)
-async def get_recommendation(
-    recommendation_id: uuid.UUID,
+@router.get("/{run_id}", response_model=RebalancingRunDetailResponse)
+async def get_run(
+    run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     stmt = (
-        select(RebalancingRecommendation)
-        .join(Portfolio, Portfolio.id == RebalancingRecommendation.portfolio_id)
+        select(RebalancingRun)
         .where(
-            RebalancingRecommendation.id == recommendation_id,
-            Portfolio.user_id == current_user.id,
+            RebalancingRun.id == run_id,
+            RebalancingRun.user_id == current_user.id,
+        )
+        .options(
+            selectinload(RebalancingRun.totals),
+            selectinload(RebalancingRun.subgroup_summaries),
+            selectinload(RebalancingRun.trades),
+            selectinload(RebalancingRun.warnings),
         )
     )
-    rec = (await db.execute(stmt)).scalar_one_or_none()
-    if not rec:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
-    return RebalancingResponse.model_validate(rec)
+    run = (await db.execute(stmt)).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
+        )
+    return RebalancingRunDetailResponse.model_validate(run)
 
 
-@router.put("/{recommendation_id}/status", response_model=RebalancingResponse)
+@router.put("/{run_id}/status", response_model=RebalancingRunListItem)
 async def update_status(
-    recommendation_id: uuid.UUID,
+    run_id: uuid.UUID,
     payload: RebalancingStatusUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     stmt = (
-        select(RebalancingRecommendation)
-        .join(Portfolio, Portfolio.id == RebalancingRecommendation.portfolio_id)
+        select(RebalancingRun)
         .where(
-            RebalancingRecommendation.id == recommendation_id,
-            Portfolio.user_id == current_user.id,
+            RebalancingRun.id == run_id,
+            RebalancingRun.user_id == current_user.id,
         )
     )
-    rec = (await db.execute(stmt)).scalar_one_or_none()
-    if not rec:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+    run = (await db.execute(stmt)).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
+        )
 
-    rec.status = RebalancingStatus(payload.status)
+    run.status = RebalancingRunStatus(payload.status)
     await db.commit()
-    await db.refresh(rec)
-    return RebalancingResponse.model_validate(rec)
+    await db.refresh(run)
+    return RebalancingRunListItem.model_validate(run)
