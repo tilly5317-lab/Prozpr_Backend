@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
-from app.models.goals.goal_allocation_run import GoalAllocationRun
+from app.models.asset_allocation import AssetAllocationRun
 from app.models.mf.enums import PortfolioSnapshotKind
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
@@ -61,12 +61,12 @@ async def get_recommended_plan(
     snap = (await db.execute(snap_stmt)).scalar_one_or_none()
 
     run_stmt = (
-        select(GoalAllocationRun)
+        select(AssetAllocationRun)
         .where(
-            GoalAllocationRun.user_id == uid,
-            GoalAllocationRun.spine_mode == "ideal_asset_allocation",
+            AssetAllocationRun.user_id == uid,
+            AssetAllocationRun.spine_mode == "ideal_asset_allocation",
         )
-        .order_by(GoalAllocationRun.created_at.desc())
+        .order_by(AssetAllocationRun.created_at.desc())
         .limit(1)
     )
     latest_run = (await db.execute(run_stmt)).scalar_one_or_none()

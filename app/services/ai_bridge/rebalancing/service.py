@@ -17,7 +17,7 @@ from typing import Any, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.goals.goal_allocation_run import GoalAllocationRun
+from app.models.asset_allocation import AssetAllocationRun
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
@@ -241,7 +241,7 @@ async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
 async def _load_cached_allocation(
     db: AsyncSession, user_id: uuid.UUID,
 ) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
-    """Latest ``GoalAllocationRun`` ≤ 90 days old → (parsed output, run_id) or (None, None).
+    """Latest ``AssetAllocationRun`` ≤ 90 days old → (parsed output, run_id) or (None, None).
 
     The pipeline output is reconstructed from the IDEAL ``PortfolioAllocationSnapshot``
     that the persist layer writes alongside each run. The run row itself
@@ -255,10 +255,10 @@ async def _load_cached_allocation(
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
     run = (await db.execute(
-        select(GoalAllocationRun)
-        .where(GoalAllocationRun.user_id == user_id)
-        .where(GoalAllocationRun.created_at >= cutoff)
-        .order_by(desc(GoalAllocationRun.created_at))
+        select(AssetAllocationRun)
+        .where(AssetAllocationRun.user_id == user_id)
+        .where(AssetAllocationRun.created_at >= cutoff)
+        .order_by(desc(AssetAllocationRun.created_at))
         .limit(1)
     )).scalar_one_or_none()
     if run is None:
