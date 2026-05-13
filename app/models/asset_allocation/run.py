@@ -1,4 +1,11 @@
-"""Asset-allocation run table model."""
+"""SQLAlchemy ORM — asset-allocation pipeline runs and per-run target snapshots.
+
+Postgres tables: ``asset_allocation_runs``, ``asset_allocation_run_targets``, and
+bucket tables in ``bucket.py``. Schema reference: ``TABLES.md`` in this package.
+
+One run row per allocation engine execution; child rows freeze the targets the
+engine saw (optional FK to canonical ``goals`` when applicable).
+"""
 
 from __future__ import annotations
 
@@ -24,15 +31,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
-    from app.models.asset_allocation.aggregate import AssetAllocationAggregate
     from app.models.asset_allocation.bucket import AssetAllocationBucket
     from app.models.chat import ChatSession
+    from app.models.goals.financial_goal import FinancialGoal
     from app.models.portfolio import Portfolio
     from app.models.rebalancing.rebalancing_run import RebalancingRun
     from app.models.user import User
 
 
 class AssetAllocationRunStatus(str, enum.Enum):
+    """Lifecycle of a persisted asset-allocation run."""
+
     pending = "pending"
     approved = "approved"
     superseded = "superseded"
@@ -40,6 +49,8 @@ class AssetAllocationRunStatus(str, enum.Enum):
 
 
 class AssetAllocationRun(Base):
+    """One execution of the asset-allocation engine (persisted run header)."""
+
     __tablename__ = "asset_allocation_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -97,7 +108,14 @@ class AssetAllocationRun(Base):
         Numeric(5, 2), nullable=False
     )
     total_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+
     grand_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    equity_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    debt_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    others_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    equity_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
+    debt_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
+    others_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
 
     all_amounts_in_multiples_of_100: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
@@ -122,12 +140,53 @@ class AssetAllocationRun(Base):
         foreign_keys=[supersedes_id],
     )
 
-    buckets: Mapped[List["AssetAllocationBucket"]] = relationship(
+    run_targets: Mapped[List["AssetAllocationRunTarget"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
-    aggregates: Mapped[List["AssetAllocationAggregate"]] = relationship(
+    buckets: Mapped[List["AssetAllocationBucket"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
     rebalancing_runs: Mapped[List["RebalancingRun"]] = relationship(
         back_populates="source_allocation_run"
     )
+
+
+class AssetAllocationRunTarget(Base):
+    """One engine target line frozen for a run (``asset_allocation_run_targets``).
+
+    Optional ``financial_goal_id`` links to the user's canonical ``goals`` row
+    when the engine row maps to a stored financial goal.
+    """
+
+    __tablename__ = "asset_allocation_run_targets"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("asset_allocation_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    financial_goal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("goals.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    goal_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    time_to_goal_months: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_needed: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    goal_priority: Mapped[str] = mapped_column(String(40), nullable=False)
+    investment_goal: Mapped[str] = mapped_column(
+        String(60), nullable=False, default="wealth_creation"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    run: Mapped["AssetAllocationRun"] = relationship(back_populates="run_targets")
+    financial_goal: Mapped[Optional["FinancialGoal"]] = relationship()

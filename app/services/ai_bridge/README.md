@@ -255,13 +255,13 @@
 │  │                                                                           │  │
 │  │  compute_allocation_result(user, question, db, ...)                       │  │
 │  │    IN:  User ORM, question, db session, persist flags, spine_mode         │  │
-│  │    OUT: AllocationRunOutcome { result: GoalAllocationOutput | None,       │  │
+│  │    OUT: AllocationRunOutcome { result: dict | None,       │  │
 │  │           blocking_message, rebalancing_id, snapshot_id }                 │  │
 │  │                                                                           │  │
 │  │    Orchestration steps:                                                   │  │
 │  │    1. Guard: check date_of_birth exists                                   │  │
 │  │    2. Call goal_allocation_input_builder                                  │  │
-│  │         .build_goal_allocation_input_for_user()                           │  │
+│  │         .build_asset_allocation_input_for_user()                           │  │
 │  │    3. Resolve Anthropic API key from settings                             │  │
 │  │    4. Call asset_allocation_pydantic.pipeline                       │  │
 │  │         .run_allocation_with_state() in a thread (asyncio.to_thread),     │  │
@@ -269,7 +269,7 @@
 │  │    5. Trace all 7 pipeline steps to [PROZPR_TRACE]                         │  │
 │  │    6. Optionally persist recommendation to DB                             │  │
 │  │                                                                           │  │
-│  │  format_allocation_chat_brief(GoalAllocationOutput, spine_mode) → markdown│  │
+│  │  format_allocation_chat_brief(output dict, spine_mode) → markdown│  │
 │  │    Renders: risk score, target mix (%), carve-outs, fund-level rows,      │  │
 │  │    unallocated gap, grand total reconciliation — all to 0.01 precision    │  │
 │  │                                                                           │  │
@@ -290,7 +290,7 @@
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │  [11]  goal_allocation_input_builder.py                                   │  │
 │  │                                                                           │  │
-│  │  build_goal_allocation_input_for_user(user)                               │  │
+│  │  build_asset_allocation_input_for_user(user)                               │  │
 │  │    IN:  User ORM (with risk_profile, investment_profile, financial_goals, │  │
 │  │         portfolios, effective_risk_assessments loaded)                    │  │
 │  │    OUT: (AllocationInput, debug_dict)                                     │  │
@@ -400,7 +400,7 @@
 | Function                                                | I/O                                | External API                                         |
 | ------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------- |
 | `compute_allocation_result(user, q, db, ...)`           | `User, str → AllocationRunOutcome` | **Anthropic (Claude)** via pydantic pipeline rationale step |
-| `format_allocation_chat_brief(output, mode)`            | `GoalAllocationOutput, str → str`  | None (pure formatting)                               |
+| `format_allocation_chat_brief(output, mode)`            | `dict, str → str`  | None (pure formatting)                               |
 | `generate_asset_allocation_response(user, q, db)` | `User, str → str`                  | Same as `compute_allocation_result`                  |
 
 
@@ -409,7 +409,7 @@
 
 | Function                                  | I/O                                    | External API                             |
 | ----------------------------------------- | -------------------------------------- | ---------------------------------------- |
-| `build_goal_allocation_input_for_user(u)` | `User → (AllocationInput, debug_dict)` | None (pure DB + computation)             |
+| `build_asset_allocation_input_for_user(u)` | `User → (AllocationInput, debug_dict)` | None (pure DB + computation)             |
 
 
 ---
@@ -481,14 +481,14 @@ User types message
   │    │  ailax_flow.build_prozpr_spine()                              │ │   │
   │    │    → asset_allocation_service.compute_allocation_result()    │ │   │
   │    │      → goal_allocation_input_builder                         │ │   │
-  │    │          .build_goal_allocation_input_for_user()             │ │   │
+  │    │          .build_asset_allocation_input_for_user()             │ │   │
   │    │        → reads risk_profile + investment_profile + goals     │ │   │
   │    │        → returns AllocationInput + debug                     │ │   │
   │    │      → asset_allocation_pydantic.pipeline               │ │   │
   │    │          .run_allocation_with_state()                        │ │   │
   │    │        → 7 pure-Python steps + optional Anthropic Claude     │ │   │
   │    │          rationale via generate_rationales                   │ │   │
-  │    │        → returns GoalAllocationOutput                        │ │   │
+  │    │        → returns allocation result dict                        │ │   │
   │    │      → optionally persist to DB                             │ │   │
   │    │    → format_allocation_chat_brief() → markdown              │ │   │
   │    │  returns: risk header + allocation markdown + IDs           │ │   │

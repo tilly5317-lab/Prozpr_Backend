@@ -1,29 +1,30 @@
-"""Asset-allocation pipeline output models.
+"""ORM models for persisted asset-allocation engine output.
 
-One ``AssetAllocationRun`` row is created per engine execution, with bucket,
-subgroup, and aggregate child rows for traceability and downstream rebalancing.
+PostgreSQL tables use the ``asset_allocation_*`` prefix (see ``app/models/asset_allocation/TABLES.md``).
 """
 
 from app.models.asset_allocation.bucket import (
     AllocationBucketName,
     AssetAllocationBucket,
-)
-from app.models.asset_allocation.aggregate import (
-    AssetAllocationAggregate,
+    AssetAllocationBucketAssetClass,
+    AssetAllocationBucketRunTarget,
+    AssetAllocationBucketSubgroup,
     AssetClassSplitKind,
 )
 from app.models.asset_allocation.run import (
     AssetAllocationRun,
     AssetAllocationRunStatus,
+    AssetAllocationRunTarget,
 )
-from app.models.asset_allocation.subgroup import AssetAllocationBucketSubgroup
 
 __all__ = [
     "AllocationBucketName",
-    "AssetAllocationAggregate",
     "AssetAllocationBucket",
+    "AssetAllocationBucketAssetClass",
+    "AssetAllocationBucketRunTarget",
     "AssetAllocationBucketSubgroup",
     "AssetAllocationRun",
     "AssetAllocationRunStatus",
+    "AssetAllocationRunTarget",
     "AssetClassSplitKind",
 ]

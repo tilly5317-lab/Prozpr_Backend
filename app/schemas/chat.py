@@ -54,7 +54,7 @@ class ChatSendMessageResponse(BaseModel):
 
     user_message: ChatMessageResponse
     assistant_message: ChatMessageResponse
-    goal_allocation_run_id: Optional[uuid.UUID] = None
+    asset_allocation_run_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
 
 

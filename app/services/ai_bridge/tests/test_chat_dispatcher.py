@@ -48,12 +48,16 @@ class ChatDispatcherTests(unittest.TestCase):
 
     def test_chat_handler_result_carries_optional_ids(self):
         snap = uuid.uuid4()
-        rec = uuid.uuid4()
-        result = ChatHandlerResult(text="ok", snapshot_id=snap, rebalancing_recommendation_id=rec)
+        run = uuid.uuid4()
+        result = ChatHandlerResult(
+            text="ok",
+            snapshot_id=snap,
+            asset_allocation_run_id=run,
+        )
         self.assertEqual(result.snapshot_id, snap)
-        self.assertEqual(result.rebalancing_recommendation_id, rec)
+        self.assertEqual(result.asset_allocation_run_id, run)
         self.assertIsNone(ChatHandlerResult(text="x").snapshot_id)
-        self.assertIsNone(ChatHandlerResult(text="x").rebalancing_recommendation_id)
+        self.assertIsNone(ChatHandlerResult(text="x").asset_allocation_run_id)
 
 
 class RegisterImportSideEffectTests(unittest.TestCase):

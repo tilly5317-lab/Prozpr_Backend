@@ -1,8 +1,8 @@
 """SQLAlchemy ORM — rebalancing engine runs and 1:1 totals roll-up.
 
 One ``rebalancing_runs`` row per execution of the rebalancing engine
-(``AI_Agents/src/Rebalancing``). Every run consumes an asset-allocation run as
-its target — ``source_allocation_run_id`` is non-nullable.
+(``AI_Agents/src/Rebalancing``). Every run consumes a persisted asset-allocation
+run as its target — ``source_allocation_run_id`` is non-nullable.
 
 Children:
 

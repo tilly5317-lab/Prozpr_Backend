@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
-from app.models.asset_allocation import AssetAllocationRun
+from app.models.asset_allocation.run import AssetAllocationRun
 from app.models.mf.enums import PortfolioSnapshotKind
 from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
@@ -41,11 +41,11 @@ async def get_recommended_plan(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """
-    Latest ideal allocation produced by chat or ``/ai-modules/asset-allocation/recommend``.
+    Latest ideal allocation produced by chat (when the allocation engine is active).
 
     Returns the IDEAL ``portfolio_allocation_snapshots`` row (class mix + full
-    pipeline output) and the matching ``goal_allocation_runs`` row id for
-    approval flows.
+    pipeline output) and the matching ``asset_allocation_runs`` row id (ORM:
+    ``AssetAllocationRun`` under ``app.models.asset_allocation``) for approval flows.
     """
     uid = current_user.id
     snap_stmt = (
@@ -73,7 +73,7 @@ async def get_recommended_plan(
 
     return RecommendedPlanResponse(
         snapshot=RecommendedPlanSnapshotResponse.model_validate(snap) if snap else None,
-        latest_goal_allocation_run_id=latest_run.id if latest_run else None,
+        latest_asset_allocation_run_id=latest_run.id if latest_run else None,
     )
 
 

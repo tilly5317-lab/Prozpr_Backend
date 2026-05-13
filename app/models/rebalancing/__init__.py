@@ -1,9 +1,10 @@
 """Rebalancing engine output — runs, totals, fund-level audit, trades, warnings.
 
-Each ``RebalancingRun`` is born from an ``AssetAllocationRun`` (the
-asset-allocation run that defines target subgroup amounts). The engine then
-maps those targets to specific funds, accounting for caps, taxes, and exit
-loads, and emits the audit + trade list captured here.
+Each ``RebalancingRun`` references a persisted asset-allocation run
+(``AssetAllocationRun`` in ``app.models.asset_allocation`` — table
+``asset_allocation_runs``) that supplies target subgroup amounts. The engine
+maps those targets to funds, taxes, and exit loads, and emits the audit + trade
+list captured here.
 """
 
 from app.models.rebalancing.rebalancing_fund_row import RebalancingFundRow

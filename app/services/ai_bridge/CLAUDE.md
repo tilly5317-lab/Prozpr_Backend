@@ -20,7 +20,9 @@ and formats the reply for chat.
 
 - **asset_allocation/** — allocation domain: engine adapter (`service.py`),
   unified chat handler (`chat.py`), input builder (`input_builder.py`),
-  and `tests/` co-located with the package. Note: `chat.py` is *not*
+  SQL **persistence** package (`persistence/` — normalisation + repository
+  pattern for ``asset_allocation_*`` tables), and `tests/` co-located with the
+  package. Note: `chat.py` is *not*
   auto-imported by `asset_allocation/__init__.py` (would cycle through
   `chat_core.turn_context`); callers needing its `@register` side-effect
   must import it lazily.
@@ -62,7 +64,7 @@ and formats the reply for chat.
 
 **Allocation spine** (`build_ailax_spine` → `compute_allocation_result`)
 1. Ensure fund view file is present (copy from Reference_files fallback if needed).
-2. Map ORM User to allocation DTOs via `asset_allocation.input_builder.build_goal_allocation_input_for_user`.
+2. Map ORM User to allocation DTOs via `asset_allocation.input_builder.build_asset_allocation_input_for_user`.
 3. Invoke `AllocationOrchestrator` with the mapped DTOs.
 4. `asset_allocation.service.format_allocation_chat_brief` to produce chat-ready reply.
 

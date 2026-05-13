@@ -25,7 +25,7 @@ class ChatHandlerResult:
     """Return shape for every chat handler. Forwarded to ChatBrainResult."""
     text: str
     snapshot_id: uuid.UUID | None = None
-    goal_allocation_run_id: uuid.UUID | None = None
+    asset_allocation_run_id: uuid.UUID | None = None
     rebalancing_run_id: uuid.UUID | None = None
     rebalancing_response: Any | None = None
 
