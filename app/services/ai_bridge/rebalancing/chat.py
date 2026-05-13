@@ -464,9 +464,8 @@ async def _counterfactual_explore(
 
     user = ctx.user_ctx
     _apply_overrides(user, overrides)
-    # AA-affecting overrides (currently: additional_cash_inr) require the AA
-    # cache to be skipped so AA re-runs with the override applied. Tax-only
-    # overrides don't change AA's output; cache is fine.
+    # Allocation always re-runs in ``compute_rebalancing_result``; we still record
+    # whether this explore included AA-affecting overrides for save_last flow.
     needs_fresh_aa = "additional_cash_inr" in overrides
     try:
         outcome = await compute_rebalancing_result(

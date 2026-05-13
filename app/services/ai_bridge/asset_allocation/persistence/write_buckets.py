@@ -113,6 +113,8 @@ async def _insert_subgroups(
     bucket_block: dict[str, Any],
     doc: dict[str, Any],
     bucket_key: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Insert ``asset_allocation_bucket_subgroups`` for this bucket.
 
@@ -128,9 +130,9 @@ async def _insert_subgroups(
     planned_rows, actual_rows = _subgroup_lists_for_bucket(doc, bucket_key)
 
     if planned_rows or actual_rows:
-        _write_detailed_subgroups(db, bucket, planned_rows, actual_rows, flat_amounts, allocated)
+        _write_detailed_subgroups(db, bucket, planned_rows, actual_rows, flat_amounts, allocated, user_id=user_id)
     else:
-        _write_flat_subgroups(db, bucket, flat_amounts, allocated)
+        _write_flat_subgroups(db, bucket, flat_amounts, allocated, user_id=user_id)
 
     await db.flush()
 
@@ -142,6 +144,8 @@ def _write_detailed_subgroups(
     actual_rows: list[dict[str, Any]],
     flat_amounts: dict[str, Any],
     allocated: float,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     by_planned = {str(r.get("subgroup")): r for r in planned_rows if r.get("subgroup")}
     by_actual = {str(r.get("subgroup")): r for r in actual_rows if r.get("subgroup")}
@@ -157,6 +161,7 @@ def _write_detailed_subgroups(
         db.add(
             AssetAllocationBucketSubgroup(
                 bucket_id=bucket.id,
+                user_id=user_id,
                 subgroup=sg[:80],
                 planned_amount=p_amt,
                 actual_amount=a_amt,
@@ -171,6 +176,8 @@ def _write_flat_subgroups(
     bucket: AssetAllocationBucket,
     flat_amounts: dict[str, Any],
     allocated: float,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     for sg, raw_amt in flat_amounts.items():
         amt = _float(raw_amt)
@@ -178,6 +185,7 @@ def _write_flat_subgroups(
         db.add(
             AssetAllocationBucketSubgroup(
                 bucket_id=bucket.id,
+                user_id=user_id,
                 subgroup=str(sg)[:80],
                 planned_amount=amt,
                 actual_amount=amt,
@@ -232,11 +240,14 @@ async def insert_buckets_and_children(
     run: AssetAllocationRun,
     doc: dict[str, Any],
     target_name_to_snapshot_id: dict[str, uuid.UUID],
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Insert all buckets for *run* from *doc*, including children."""
     breakdown = doc.get("asset_class_breakdown") or {}
     planned_per = list((breakdown.get("planned") or {}).get("per_bucket") or [])
     actual_per = list((breakdown.get("actual") or {}).get("per_bucket") or [])
+    uid = user_id or run.user_id
 
     for bucket_block in doc.get("bucket_allocations") or []:
         if not isinstance(bucket_block, dict):
@@ -261,5 +272,5 @@ async def insert_buckets_and_children(
         await db.flush()
 
         await _link_goals_to_bucket(db, bucket, bucket_block, target_name_to_snapshot_id)
-        await _insert_subgroups(db, bucket, bucket_block, doc, bkey)
+        await _insert_subgroups(db, bucket, bucket_block, doc, bkey, user_id=uid)
         await _insert_asset_class_splits(db, bucket, planned_per, actual_per, bkey)

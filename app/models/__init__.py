@@ -8,6 +8,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.chat_ai_module_run import ChatAiModuleRun
 from app.models.asset_allocation import (
     AllocationBucketName,
+    AssetAllocationAggregate,
     AssetAllocationBucket,
     AssetAllocationBucketAssetClass,
     AssetAllocationBucketRunTarget,
