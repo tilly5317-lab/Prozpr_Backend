@@ -39,6 +39,7 @@ _SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
     "debt_subgroup":          "debt",
     "arbitrage":              "debt",
     "arbitrage_plus_income":  "debt",
+    "gold":                   "others",
     "gold_commodities":       "others",
 }
 

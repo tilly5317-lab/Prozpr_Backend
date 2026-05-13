@@ -1,4 +1,4 @@
-"""Materialise a RebalancingComputeRequest from User + GoalAllocationOutput + DB."""
+"""Materialise a RebalancingComputeRequest from User + cached allocation view + DB."""
 
 from __future__ import annotations
 
@@ -27,9 +27,6 @@ from app.services.ai_bridge.rebalancing.tax_aging import (
 
 ensure_ai_agents_path()
 
-from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]  # noqa: E402
-    GoalAllocationOutput,
-)
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     FundRowInput,
     RebalancingComputeRequest,
@@ -172,7 +169,7 @@ def _build_row(
 
 async def build_rebalancing_input_for_user(
     user: User,
-    allocation_output: GoalAllocationOutput,
+    allocation_output: Any,
     db: AsyncSession,
 ) -> tuple[RebalancingComputeRequest, dict[str, Any]]:
     """Return ``(request, debug_dict)`` for ``run_rebalancing(...)``."""

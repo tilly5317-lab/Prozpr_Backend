@@ -323,7 +323,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     goal_allocation_run_id=None,
+                                     asset_allocation_run_id=None,
                                      rebalancing_run_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
@@ -332,8 +332,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         return ChatHandlerResult(
             text=text,
-            snapshot_id=outcome.allocation_snapshot_id,
-            goal_allocation_run_id=outcome.source_allocation_run_id,
+            snapshot_id=None,
+            asset_allocation_run_id=outcome.source_allocation_run_id,
             rebalancing_run_id=outcome.rebalancing_run_id,
             rebalancing_response=outcome.response,
         )
@@ -348,14 +348,14 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "clarify":
         text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
         return ChatHandlerResult(text=text, snapshot_id=None,
-                                 goal_allocation_run_id=None,
+                                 asset_allocation_run_id=None,
                                  rebalancing_run_id=None)
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
         return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason),
                                  snapshot_id=None,
-                                 goal_allocation_run_id=None,
+                                 asset_allocation_run_id=None,
                                  rebalancing_run_id=None)
 
     if action.mode == "counterfactual_explore":
@@ -375,7 +375,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     goal_allocation_run_id=None,
+                                     asset_allocation_run_id=None,
                                      rebalancing_run_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
@@ -384,8 +384,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         return ChatHandlerResult(
             text=text,
-            snapshot_id=outcome.allocation_snapshot_id,
-            goal_allocation_run_id=outcome.source_allocation_run_id,
+            snapshot_id=None,
+            asset_allocation_run_id=outcome.source_allocation_run_id,
             rebalancing_run_id=outcome.rebalancing_run_id,
             rebalancing_response=outcome.response,
         )
@@ -412,7 +412,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         action_mode=action.mode,   # "narrate" or "educate"
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             goal_allocation_run_id=None,
+                             asset_allocation_run_id=None,
                              rebalancing_run_id=None)
 
 
@@ -458,7 +458,7 @@ async def _counterfactual_explore(
         return ChatHandlerResult(
             text=_INVALID_OVERRIDE_TEMPLATE,
             snapshot_id=None,
-            goal_allocation_run_id=None,
+            asset_allocation_run_id=None,
             rebalancing_run_id=None,
         )
 
@@ -483,13 +483,13 @@ async def _counterfactual_explore(
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 goal_allocation_run_id=None,
+                                 asset_allocation_run_id=None,
                                  rebalancing_run_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't compute that hypothetical right now.",
             snapshot_id=None,
-            goal_allocation_run_id=None,
+            asset_allocation_run_id=None,
             rebalancing_run_id=None,
         )
 
@@ -520,7 +520,7 @@ async def _counterfactual_explore(
         action_mode="counterfactual_explore",
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             goal_allocation_run_id=None,
+                             asset_allocation_run_id=None,
                              rebalancing_run_id=None)
 
 
@@ -544,7 +544,7 @@ async def _save_last_counterfactual(
                 "you the result first — then you can save it."
             ),
             snapshot_id=None,
-            goal_allocation_run_id=None,
+            asset_allocation_run_id=None,
             rebalancing_run_id=None,
         )
 
@@ -568,13 +568,13 @@ async def _save_last_counterfactual(
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 goal_allocation_run_id=None,
+                                 asset_allocation_run_id=None,
                                  rebalancing_run_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't save that recommendation right now. Please try again.",
             snapshot_id=None,
-            goal_allocation_run_id=None,
+            asset_allocation_run_id=None,
             rebalancing_run_id=None,
         )
     text = await _format_or_fallback_rebal(
@@ -584,8 +584,8 @@ async def _save_last_counterfactual(
     )
     return ChatHandlerResult(
         text=text,
-        snapshot_id=outcome.allocation_snapshot_id,
-        goal_allocation_run_id=outcome.source_allocation_run_id,
+        snapshot_id=None,
+        asset_allocation_run_id=outcome.source_allocation_run_id,
         rebalancing_run_id=outcome.rebalancing_run_id,
         rebalancing_response=outcome.response,
     )

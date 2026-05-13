@@ -1,12 +1,8 @@
-"""Goals package — canonical user goals.
+"""Goals package — canonical user goals (``FinancialGoal``) and related tables.
 
-This package contains ``FinancialGoal`` (``goals`` table) and friends — the user's persistent
-  goals as edited from the app. Now also carries the columns the
-  asset-allocation pipeline reads (``time_to_goal_months``, ``amount_needed``,
-  ``goal_priority``, ``investment_goal``). Supporting children:
-  ``GoalContribution``, ``GoalHolding``.
+Asset-allocation engine persistence ORM lives under ``app.models.asset_allocation``
+(not here).
 """
-
 
 from app.models.goals.enums import GoalPriority, GoalStatus, GoalType
 from app.models.goals.financial_goal import FinancialGoal
