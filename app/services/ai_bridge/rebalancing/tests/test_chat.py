@@ -256,7 +256,7 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertIsNone(result.snapshot_id)
 
     def test_counterfactual_with_additional_cash_forces_fresh_allocation(self):
-        """additional_cash_inr is AA-affecting; cache must be skipped so AA re-runs."""
+        """AA-affecting overrides: chat passes ``force_fresh_allocation=True`` (telemetry / save flow)."""
         action = mod.RebalanceAction(
             mode="counterfactual_explore",
             overrides={"additional_cash_inr": 200000},
@@ -285,7 +285,7 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertTrue(kwargs.get("force_fresh_allocation", False))
 
     def test_counterfactual_with_tax_only_override_does_not_force_fresh_allocation(self):
-        """Tax-only overrides don't change AA's output; cache is OK."""
+        """Tax-only overrides: chat still passes ``force_fresh_allocation=False`` (telemetry)."""
         action = mod.RebalanceAction(
             mode="counterfactual_explore",
             overrides={"effective_tax_rate": 20},
