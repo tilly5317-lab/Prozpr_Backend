@@ -46,10 +46,13 @@ _INFLOW_TYPES: frozenset[MfTransactionType] = frozenset(
 
 # Pull enough history for long-horizon charts + 5Y / max rolling NAV returns from ``mf_nav_history``.
 _DEFAULT_NAV_LOOKBACK_DAYS = 365 * 10
-_NAV_ROW_CAP = 4000  # safety cap on the series returned in one call
+_NAV_ROW_CAP = 8000  # safety cap on the series returned in one call
 # If our stored NAV history for a scheme doesn't reach within this many days of today,
 # treat it as "missing recent data" and trigger a full backfill from mfapi.in.
-_RECENT_NAV_MAX_AGE_DAYS = 366
+_RECENT_NAV_MAX_AGE_DAYS = 7
+# A fund with real history should have hundreds of rows; fewer than this means
+# a previous fetch was partial and we should re-fetch.
+_MIN_NAV_ROWS_FOR_CHART = 180
 
 _ISIN_RE = re.compile(r"^[A-Z]{2}[0-9A-Z]{9}[0-9]$")
 
@@ -321,14 +324,15 @@ async def build_holding_detail(
     latest = await _latest_nav(db, scheme_code)
     nav_rows, truncated = await _nav_series(db, scheme_code, date_from=d_from, date_to=d_to)
 
-    # Backup path: when our store has *no* NAV history for this scheme, nothing in the
-    # requested window, or its newest point is more than ~a year stale, pull the scheme's
-    # entire NAV series (from inception) from mfapi.in, persist it into ``mf_nav_history``,
-    # then re-read so the chart and trailing returns render from the DB going forward.
-    # Only for AMFI scheme codes — mfapi.in is keyed by scheme code, not ISIN.
+    # Backfill from mfapi.in when the stored NAV history is absent, too thin for
+    # a meaningful chart, or stale (newest point older than ~a week).  This pulls the
+    # fund's entire NAV series from inception so the chart works from the first visit.
     recent_cutoff = today - timedelta(days=_RECENT_NAV_MAX_AGE_DAYS)
     needs_nav_backfill = (
-        latest is None or not nav_rows or latest.nav_date < recent_cutoff
+        latest is None
+        or not nav_rows
+        or latest.nav_date < recent_cutoff
+        or len(nav_rows) < _MIN_NAV_ROWS_FOR_CHART
     )
     if needs_nav_backfill and not _looks_like_isin(scheme_code):
         try:
