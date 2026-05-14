@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -96,6 +97,91 @@ def _clean(value: object, *, limit: Optional[int] = None) -> Optional[str]:
     if not text:
         return None
     return text[:limit] if limit else text
+
+
+# CAMS / KFintech banners often include ``… - ISIN: INF1234567890 …`` even when
+# casparser's bundled ISIN table misses newer schemes (NFOs, FoFs, Groww-only codes).
+_ISIN_IN_BANNER_RE = re.compile(
+    r"\bISIN\s*[: ]\s*([A-Z]{2}[A-Z0-9]{9}\d)\b",
+    re.IGNORECASE,
+)
+# Indian mutual-fund growth ISINs almost always start with INF; CAMS sometimes embeds
+# the code without an explicit ``ISIN:`` label in the string casparser keeps.
+_MF_ISIN_LOOSE_RE = re.compile(r"\b(INF[A-Z0-9]{9}\d)\b", re.IGNORECASE)
+
+
+def _isin_from_scheme_strings(*chunks: Optional[str]) -> Optional[str]:
+    """Pull a 12-char ISIN from free text (scheme title line, RTA banner, etc.)."""
+    blob = " ".join(c for c in chunks if c and str(c).strip())
+    if not blob:
+        return None
+    m = _ISIN_IN_BANNER_RE.search(blob)
+    if m:
+        code = m.group(1).strip().upper()
+        if len(code) == 12 and code.isalnum():
+            return code[:20]
+    m2 = _MF_ISIN_LOOSE_RE.search(blob)
+    if m2:
+        code = m2.group(1).strip().upper()
+        if len(code) == 12 and code.isalnum():
+            return code[:20]
+    return None
+
+
+def _resolve_scheme_identifiers(scheme: dict[str, Any], scheme_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(amfi, isin)`` with ISIN inferred from banner text when casparser omits it."""
+    amfi = _clean(scheme.get("amfi"), limit=20)
+    isin = _clean(scheme.get("isin"), limit=20)
+    if not isin:
+        parts: list[str] = []
+        if scheme_name:
+            parts.append(scheme_name)
+        for v in scheme.values():
+            if isinstance(v, str) and str(v).strip():
+                parts.append(str(v).strip())
+        isin = _isin_from_scheme_strings(" ".join(parts)) if parts else None
+    return amfi, isin
+
+
+def _enrich_missing_isins_from_pdf(parsed: dict[str, Any], data: bytes, password: str) -> None:
+    """Set ``scheme['isin']`` when missing by scanning raw PDF text near the scheme title (CAMS banner)."""
+    try:
+        import pymupdf  # noqa: PLC0415
+    except ImportError:
+        return
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+    except Exception:
+        logger.debug("CAS ISIN enrichment: could not open PDF", exc_info=True)
+        return
+    if doc.is_encrypted and not doc.authenticate(password):
+        doc.close()
+        return
+    chunks: list[str] = []
+    for page in doc:
+        chunks.append(page.get_text() or "")
+    doc.close()
+    pdf_text = "\n".join(chunks)
+    if not pdf_text.strip():
+        return
+    for folio in parsed.get("folios") or []:
+        for scheme in folio.get("schemes") or []:
+            if _clean(scheme.get("isin")):
+                continue
+            name = _clean(scheme.get("scheme"))
+            if not name or len(name) < 8:
+                continue
+            needle = name[: min(72, len(name))].strip()
+            hit = pdf_text.find(needle)
+            if hit < 0 and "-" in name:
+                hit = pdf_text.find(name.split("-")[0].strip()[:48])
+            if hit < 0:
+                continue
+            window = pdf_text[max(0, hit - 280) : hit + len(needle) + 420]
+            guess = _isin_from_scheme_strings(window)
+            if guess:
+                scheme["isin"] = guess
+                logger.info("CAS ingest: inferred ISIN %s for scheme %r from PDF text", guess, name[:60])
 
 
 def _num(value: object, default: float = 0.0) -> float:
@@ -239,6 +325,211 @@ _NOT_MF_CAS_MESSAGE = (
 )
 
 
+# --------------------------------------------------------------------------- pymupdf fallback parser
+#
+# casparser's pdfminer-based extraction sometimes garbles or drops transactions
+# entirely — especially on newer CAMS V3.4-format PDFs where the tabular layout
+# trips it up.  When that happens the CAS import lands zero (or near-zero)
+# transactions even though the statement clearly lists them.
+#
+# The fallback uses PyMuPDF (``pymupdf``) to re-extract the text and walks
+# through it with a simple state machine that understands the fixed columnar
+# format of CAMS CAS PDFs:
+#   Date | Amount (INR) | Price/NAV (INR) | Units | Description | Unit Balance
+# Stamp-duty / STT rows have only three fields: Date | Amount | Marker.
+#
+# After casparser runs, ``_patch_parsed_with_fallback`` checks whether the
+# fallback found more transactions and patches the dict before the downstream
+# persister ever sees it.
+
+_FB_DATE_RE = re.compile(
+    r"^\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}$"
+)
+_FB_NUMBER_RE = re.compile(r"^\(?[\d,]+\.?\d*\)?$")
+_FB_STAMP_RE = re.compile(
+    r"\*\*\*\s*(Stamp Duty|STT Paid)\s*\*\*\*", re.IGNORECASE
+)
+_FB_PAGE_HEADER_RE = re.compile(
+    r"^(CAMSCASWS|Consolidated Account Statement|Page \d+ of )"
+)
+_FB_OPENING_RE = re.compile(r"Opening Unit Balance", re.IGNORECASE)
+_FB_NAV_END_RE = re.compile(r"^NAV on ", re.IGNORECASE)
+_FB_COL_HEADERS = frozenset(
+    {"Date", "Amount", "Price", "Units", "Transaction", "Unit", "(INR)", "Balance"}
+)
+
+
+def _fb_parse_number(text: str) -> float:
+    text = text.strip()
+    neg = text.startswith("(") and text.endswith(")")
+    if neg:
+        text = text[1:-1]
+    val = float(text.replace(",", ""))
+    return -val if neg else val
+
+
+def _fb_classify_desc(desc: str) -> str:
+    d = desc.upper()
+    if "SWITCH" in d and "OUT" in d:
+        return "SWITCH_OUT"
+    if "SWITCH" in d and "IN" in d:
+        return "SWITCH_IN"
+    if "DIVIDEND" in d and "REINVEST" in d:
+        return "DIVIDEND_REINVEST"
+    if "REDEMPTION" in d or "REDEEM" in d:
+        return "REDEMPTION"
+    return "PURCHASE"
+
+
+def _fb_extract_transactions(data: bytes, password: str) -> list[list[dict[str, Any]]]:
+    """Extract per-scheme transaction lists from the PDF using PyMuPDF.
+
+    Returns one list of transaction dicts per scheme, in the same order the
+    schemes appear in the PDF — so they can be matched 1-to-1 against the
+    casparser scheme list.
+    """
+    try:
+        import pymupdf  # noqa: PLC0415
+    except ImportError:
+        logger.debug("pymupdf not installed; fallback parser unavailable")
+        return []
+
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+    except Exception:
+        logger.debug("pymupdf failed to open PDF", exc_info=True)
+        return []
+
+    if doc.is_encrypted and not doc.authenticate(password):
+        doc.close()
+        return []
+
+    # Flatten all pages into a single line list, stripping page headers and
+    # column-header words so that page breaks inside a scheme section are
+    # invisible to the state machine.
+    lines: list[str] = []
+    for page in doc:
+        for raw in page.get_text().split("\n"):
+            s = raw.strip()
+            if not s:
+                continue
+            if _FB_PAGE_HEADER_RE.match(s):
+                continue
+            if " To " in s and _FB_DATE_RE.match(s.split(" To ")[0].strip()):
+                continue
+            if s in _FB_COL_HEADERS:
+                continue
+            lines.append(s)
+    doc.close()
+
+    all_scheme_txns: list[list[dict[str, Any]]] = []
+    i = 0
+    while i < len(lines):
+        # "Opening Unit Balance" marks the start of a scheme's transaction block.
+        if _FB_OPENING_RE.search(lines[i]):
+            i += 1
+            txns: list[dict[str, Any]] = []
+            while i < len(lines):
+                if _FB_NAV_END_RE.match(lines[i]) or lines[i].startswith(
+                    "Closing Unit Balance"
+                ):
+                    break
+
+                if _FB_DATE_RE.match(lines[i]):
+                    txn_date = lines[i]
+
+                    # Stamp-duty / STT: date, amount, ***marker***
+                    # Attach the amount to the preceding transaction.
+                    if i + 2 < len(lines) and _FB_STAMP_RE.search(lines[i + 2]):
+                        marker = lines[i + 2]
+                        duty_amount = _fb_parse_number(lines[i + 1])
+                        if txns:
+                            if "STT" in marker.upper():
+                                txns[-1]["stt"] = duty_amount
+                            else:
+                                txns[-1]["stamp_duty"] = duty_amount
+                        i += 3
+                        continue
+
+                    # Regular transaction: date, amount, nav, units, desc, balance
+                    if i + 5 < len(lines):
+                        a, n, u, d, b = (
+                            lines[i + 1],
+                            lines[i + 2],
+                            lines[i + 3],
+                            lines[i + 4],
+                            lines[i + 5],
+                        )
+                        if (
+                            _FB_NUMBER_RE.match(a)
+                            and _FB_NUMBER_RE.match(n)
+                            and _FB_NUMBER_RE.match(u)
+                            and _FB_NUMBER_RE.match(b)
+                            and not _FB_NUMBER_RE.match(d)
+                            and not _FB_DATE_RE.match(d)
+                        ):
+                            txns.append(
+                                {
+                                    "date": txn_date,
+                                    "amount": _fb_parse_number(a),
+                                    "nav": _fb_parse_number(n),
+                                    "units": _fb_parse_number(u),
+                                    "description": d,
+                                    "type": _fb_classify_desc(d),
+                                }
+                            )
+                            i += 6
+                            continue
+
+                i += 1
+
+            all_scheme_txns.append(txns)
+            continue
+
+        i += 1
+
+    return all_scheme_txns
+
+
+def _patch_parsed_with_fallback(
+    parsed: dict[str, Any], data: bytes, password: str
+) -> None:
+    """Replace casparser transactions with pymupdf-parsed ones when the
+    fallback found more.  Modifies *parsed* in place."""
+    fb_scheme_txns = _fb_extract_transactions(data, password)
+    if not fb_scheme_txns:
+        return
+
+    # Build a flat list of casparser scheme dicts in document order.
+    cp_schemes: list[dict[str, Any]] = []
+    for folio in parsed.get("folios") or []:
+        for scheme in folio.get("schemes") or []:
+            cp_schemes.append(scheme)
+
+    cp_total = sum(len(s.get("transactions") or []) for s in cp_schemes)
+    fb_total = sum(len(t) for t in fb_scheme_txns)
+
+    if fb_total <= cp_total:
+        return
+
+    logger.info(
+        "CAS fallback parser found %d txns vs casparser's %d; patching",
+        fb_total,
+        cp_total,
+    )
+
+    for idx, cp_scheme in enumerate(cp_schemes):
+        if idx >= len(fb_scheme_txns):
+            break
+        fb_txns = fb_scheme_txns[idx]
+        cp_txns = cp_scheme.get("transactions") or []
+        if len(fb_txns) > len(cp_txns):
+            cp_scheme["transactions"] = fb_txns
+
+
+# ---------------------------------------------------------------------------
+
+
 def _to_plain_dict(result: object) -> dict[str, Any]:
     """`casparser.read_cas_pdf(output="dict")` returns a pydantic ``CASData`` model
     (>= 0.8) or a plain dict (older). Normalize to a JSON-safe dict either way."""
@@ -303,6 +594,20 @@ def _parse_cas_pdf(data: bytes, password: str) -> dict[str, Any]:
         if parsed.get("accounts"):
             raise CamsPdfParseError(_NOT_MF_CAS_MESSAGE)
         raise CamsPdfParseError("No mutual-fund folios were found in this statement.")
+
+    # casparser's pdfminer extraction often garbles or drops transactions on
+    # newer CAMS V3.4 PDFs.  Re-extract with pymupdf and patch any schemes
+    # where the fallback found more transactions.
+    try:
+        _patch_parsed_with_fallback(parsed, data, password)
+    except Exception:
+        logger.warning("CAS fallback transaction parser failed; using casparser output as-is", exc_info=True)
+
+    try:
+        _enrich_missing_isins_from_pdf(parsed, data, password)
+    except Exception:
+        logger.warning("CAS ISIN enrichment from PDF failed", exc_info=True)
+
     return parsed
 
 
@@ -350,10 +655,9 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
         for scheme in folio.get("schemes") or []:
             scheme_count += 1
             stype = _clean(scheme.get("type"))
-            amfi = _clean(scheme.get("amfi"), limit=20)
-            isin = _clean(scheme.get("isin"), limit=20)
-            scheme_code = amfi or isin
             scheme_name = _clean(scheme.get("scheme"), limit=255)
+            amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
+            scheme_code = amfi or isin
             valuation = scheme.get("valuation") or {}
             market_value = _num(valuation.get("value"))
             scheme_cost = _num(valuation.get("cost"))
@@ -411,6 +715,8 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
                         purchase_price=(_num(txn.get("nav")) or None),
                         trxn_desc=_clean(txn.get("description"), limit=100),
                         trxn_type_flag=flag,
+                        stamp_duty=(_num(txn.get("stamp_duty")) or None),
+                        stt_tax=(_num(txn.get("stt")) or None),
                     )
                 )
 
@@ -478,8 +784,7 @@ async def _sync_mf_portfolio_holdings_from_cas(
             scheme_cost = _num(valuation.get("cost"))
             nav = _num(valuation.get("nav"))
             units = _num(scheme.get("close") or scheme.get("close_calculated"))
-            amfi = _clean(scheme.get("amfi"), limit=20)
-            isin = _clean(scheme.get("isin"), limit=20)
+            amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
             ticker_raw = amfi or isin
             ticker = ticker_raw[:20] if ticker_raw else None
 
