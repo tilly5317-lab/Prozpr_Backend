@@ -1,8 +1,9 @@
-"""Cache-first rebalancing orchestrator.
+"""Rebalancing orchestrator.
 
-Reads the most recent asset allocation for the user; if it's > 90 days old or
-absent, re-runs allocation inline. Then materialises engine inputs, runs the
-pipeline on a worker thread, persists the trade-list, and renders chat markdown.
+Always runs asset allocation inline before rebalancing so every rebalancing
+request is anchored to a fresh allocation run and ``source_allocation_run_id``.
+Then materialises engine inputs, runs the pipeline on a worker thread, persists
+the trade-list, and renders chat markdown.
 """
 
 from __future__ import annotations
@@ -242,6 +243,10 @@ async def _load_cached_allocation(
 ) -> tuple[Optional[Any], Optional[uuid.UUID]]:
     """Latest ``AssetAllocationRun`` (≤ TTL) with subgroup rows → rebalancing input view.
 
+    **Note:** ``compute_rebalancing_result`` no longer calls this helper; allocation
+    always runs via ``compute_allocation_result``. Kept for ad-hoc tooling or tests
+    that need to read the latest persisted subgroup targets without re-running AA.
+
     Subgroup INR targets are aggregated from ``asset_allocation_bucket_subgroups``
     (``actual_amount`` summed per ``subgroup`` across buckets). That matches the
     engine's ``aggregated_subgroups[].total``, which is what the rebalancing
@@ -313,19 +318,18 @@ async def compute_rebalancing_result(
     persist: bool = True,
     force_fresh_allocation: bool = False,
 ) -> RebalancingRunOutcome:
-    """Top-level orchestrator: cache → builder → engine → persist → format.
+    """Top-level orchestrator: allocation → builder → engine → persist → format.
 
-    When ``persist=False`` (counterfactual_explore path), the engine still
-    runs and reads from the database (holdings, NAVs, metadata, cached
-    allocation), but the recommendation row, the chat-ai-module-runs
-    telemetry write, and chart-picker call are skipped. Returns the same
-    outcome shape; ``recommendation_id`` is None.
+    Asset allocation always runs first via ``compute_allocation_result`` (no
+    DB cache shortcut). ``force_fresh_allocation`` is ignored; callers may
+    still pass it for API stability.
 
-    When ``force_fresh_allocation=True``, the AA cache lookup is skipped and
-    AA is always re-run inline. Used when the chat layer has set transient
-    AA overrides (e.g., ``_chat_additional_cash_override``) that the cached
-    AA result wouldn't reflect.
+    When ``persist=False`` (counterfactual_explore path), the engines still
+    run, but the recommendation row, the chat-ai-module-runs telemetry write,
+    and chart-picker call are skipped. Returns the same outcome shape;
+    ``rebalancing_run_id`` is None when ``persist=False``.
     """
+    _ = force_fresh_allocation  # kept for call-site compatibility; allocation always runs
     trace_line("module: rebalancing — start")
 
     if getattr(user, "date_of_birth", None) is None:
@@ -338,41 +342,29 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_NO_HOLDINGS,
         )
 
-    if force_fresh_allocation:
-        # Counterfactual scenarios with AA-affecting overrides: skip cache.
-        cached_output = None
-        source_allocation_run_id: Optional[uuid.UUID] = None
-        used_cache = False
-    else:
-        cached_output, source_allocation_run_id = await _load_cached_allocation(
-            db, acting_user_id,
-        )
-        used_cache = cached_output is not None
+    trace_line("rebalancing: running asset allocation before rebalancing")
+    used_cache = False
 
-    if cached_output is None:
-        trace_line(
-            "rebalancing: allocation cache miss/stale — running allocation inline",
+    alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
+        user,
+        user_question,
+        db=db,
+        persist_recommendation=True,
+        acting_user_id=acting_user_id,
+        chat_session_id=chat_session_id,
+        spine_mode="rebalance_chained",
+    )
+    if alloc_outcome.blocking_message is not None:
+        return RebalancingRunOutcome(
+            response=None,
+            blocking_message=alloc_outcome.blocking_message,
         )
-        alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
-            user,
-            user_question,
-            db=db,
-            persist_recommendation=True,
-            acting_user_id=acting_user_id,
-            chat_session_id=chat_session_id,
-            spine_mode="rebalance_chained",
+    if alloc_outcome.result is None:
+        return RebalancingRunOutcome(
+            response=None, blocking_message=_MSG_ENGINE_ERROR,
         )
-        if alloc_outcome.blocking_message is not None:
-            return RebalancingRunOutcome(
-                response=None,
-                blocking_message=alloc_outcome.blocking_message,
-            )
-        if alloc_outcome.result is None:
-            return RebalancingRunOutcome(
-                response=None, blocking_message=_MSG_ENGINE_ERROR,
-            )
-        cached_output = alloc_outcome.result
-        source_allocation_run_id = alloc_outcome.asset_allocation_run_id
+    cached_output = alloc_outcome.result
+    source_allocation_run_id = alloc_outcome.asset_allocation_run_id
 
     try:
         request, debug = await build_rebalancing_input_for_user(

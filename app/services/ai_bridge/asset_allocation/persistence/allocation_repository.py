@@ -6,6 +6,7 @@ Call chain:
   3. Insert the run header row.
   4. Insert per-run target (goal) snapshots.
   5. Insert buckets + children (goal links, subgroups, asset-class splits).
+  6. Insert aggregate rows (planned + actual equity/debt/others roll-up).
 
 The caller owns the transaction — ``commit`` / ``rollback`` is not called here.
 Data-flow diagram: ``DATA_FLOW.md`` in this package.
@@ -29,6 +30,9 @@ from app.services.ai_bridge.asset_allocation.persistence.write_asset_allocation_
 )
 from app.services.ai_bridge.asset_allocation.persistence.write_asset_allocation_run_targets import (
     insert_asset_allocation_run_targets_for_run,
+)
+from app.services.ai_bridge.asset_allocation.persistence.write_aggregate import (
+    insert_asset_allocation_aggregates,
 )
 from app.services.ai_bridge.asset_allocation.persistence.write_buckets import (
     insert_buckets_and_children,
@@ -106,7 +110,11 @@ async def save_asset_allocation_from_engine_output(
         db, run, doc, financial_goal_ids_by_name=financial_goal_ids_by_name,
     )
 
-    await insert_buckets_and_children(db, run, doc, target_map)
+    await insert_buckets_and_children(db, run, doc, target_map, user_id=user_id)
+
+    await insert_asset_allocation_aggregates(
+        db, run_id=run.id, user_id=user_id, doc=doc,
+    )
 
     logger.info("saved asset allocation run_id=%s user_id=%s", run.id, user_id)
     return run.id

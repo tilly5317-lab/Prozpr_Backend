@@ -198,6 +198,7 @@ async def build_rebalancing_input_for_user(
 
     rows: list[FundRowInput] = []
     seen_isins: set[str] = set()
+    subgroups_applied_rank1: set[str] = set()
 
     # 5. Recommended-fund rows.
     for subgroup, rank_rows in ranking.items():
@@ -231,6 +232,49 @@ async def build_rebalancing_input_for_user(
                 asof=asof,
             ))
             seen_isins.add(rr.isin)
+            if rr.rank == 1 and rank1_target > 0:
+                subgroups_applied_rank1.add(subgroup)
+
+    # 5b. Missing or sparse CSV: attach rank-1 targets to the first held fund per
+    # subgroup that still has a positive allocation target but no rank-1 row.
+    for subgroup, rank1_target in target_by_subgroup.items():
+        if rank1_target <= 0 or subgroup in subgroups_applied_rank1:
+            continue
+        for isin, held in held_by_isin.items():
+            if isin in seen_isins:
+                continue
+            meta = meta_by_isin.get(isin)
+            meta_sg = (meta.asset_subgroup if meta else None) or ""
+            if meta_sg != subgroup:
+                continue
+            current_nav = nav_by_isin.get(isin)
+            if current_nav is None:
+                current_nav = held.lots[-1].acquisition_nav
+            asset_class = (meta.asset_class if meta else None) or "equity"
+            exit_load_pct = float(meta.exit_load_percent or 0.0) if meta else 0.0
+            exit_load_months = int(meta.exit_load_months or 0) if meta else 0
+            rr = FundRankRow(
+                asset_subgroup=subgroup,
+                sub_category=(meta.sub_category or "unknown") if meta else "unknown",
+                rank=1,
+                isin=isin,
+                fund_name=(meta.scheme_name or isin) if meta else isin,
+            )
+            rows.append(_build_row(
+                rank_row=rr,
+                held_entry=held,
+                target_amount_pre_cap=rank1_target,
+                current_nav=current_nav,
+                asset_class=asset_class,
+                exit_load_pct=exit_load_pct,
+                exit_load_months=exit_load_months,
+                is_recommended=True,
+                fund_rating=_DEFAULT_FUND_RATING,
+                asof=asof,
+            ))
+            seen_isins.add(isin)
+            subgroups_applied_rank1.add(subgroup)
+            break
 
     # 6. BAD-fund rows.
     bad_count = 0

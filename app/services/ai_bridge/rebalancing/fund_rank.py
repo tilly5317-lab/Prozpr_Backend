@@ -1,18 +1,22 @@
 # app/services/ai_bridge/rebalancing/fund_rank.py
 """Loader for the static fund-rank CSV consumed by the rebalancing input builder.
 
-The CSV is a 1:N mapping from ``asset_subgroup`` to ranked recommended funds. It
-is loaded once at module import time and cached as a frozen dict; no DB calls.
+The CSV is a 1:N mapping from ``asset_subgroup`` to ranked recommended funds.
+If the file is absent (typical in fresh clones), :func:`get_fund_ranking` returns
+an empty mapping; the input builder then derives rank-1 targets from held funds
+per allocation subgroup.
 """
 
 from __future__ import annotations
 
 import csv
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
 _CSV_PATH = Path(__file__).resolve().parents[4] / "AI_Agents" / "Reference_docs" / "Prozpr_fund_ranking.csv"
 
@@ -33,6 +37,15 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
     Cached for the lifetime of the process. To force a reload (e.g. after
     swapping the CSV in tests), call ``get_fund_ranking.cache_clear()``.
     """
+    if not _CSV_PATH.is_file():
+        logger.warning(
+            "fund ranking CSV missing at %s — rebalancing will use held funds "
+            "only for subgroup targets. Add Reference_docs/Prozpr_fund_ranking.csv "
+            "for house recommended funds.",
+            _CSV_PATH,
+        )
+        return {}
+
     by_sg: dict[str, list[FundRankRow]] = defaultdict(list)
     with open(_CSV_PATH, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):

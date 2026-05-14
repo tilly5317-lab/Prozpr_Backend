@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.models.asset_allocation.bucket import (
+    AssetAllocationAggregate,
     AssetAllocationBucket,
     AssetAllocationBucketSubgroup,
 )
@@ -71,6 +72,12 @@ def _minimal_engine_allocation_document() -> dict:
         "all_amounts_in_multiples_of_100": True,
         "asset_class_breakdown": {
             "planned": {
+                "equity_total": 0,
+                "debt_total": 300000,
+                "others_total": 0,
+                "equity_total_pct": 0.0,
+                "debt_total_pct": 100.0,
+                "others_total_pct": 0.0,
                 "per_bucket": [
                     {
                         "bucket": "emergency",
@@ -188,3 +195,26 @@ async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, f
     ).scalar_one()
     assert run.input_payload == {"k": "v"}
     assert float(run.grand_total) == 300000.0
+
+    # Verify aggregate rows (planned + actual) were created.
+    n_agg = (
+        await db_session.execute(
+            select(func.count()).select_from(AssetAllocationAggregate).where(
+                AssetAllocationAggregate.run_id == run_id,
+            )
+        )
+    ).scalar_one()
+    assert int(n_agg) == 2
+
+    # Verify user_id is set on bucket subgroups.
+    sub_user_ids = (
+        await db_session.execute(
+            select(AssetAllocationBucketSubgroup.user_id)
+            .join(
+                AssetAllocationBucket,
+                AssetAllocationBucketSubgroup.bucket_id == AssetAllocationBucket.id,
+            )
+            .where(AssetAllocationBucket.run_id == run_id)
+        )
+    ).scalars().all()
+    assert all(uid == fixture_user.id for uid in sub_user_ids)
