@@ -5,6 +5,7 @@ PostgreSQL tables use the ``asset_allocation_*`` prefix (see ``app/models/asset_
 
 from app.models.asset_allocation.bucket import (
     AllocationBucketName,
+    AssetAllocationAggregate,
     AssetAllocationBucket,
     AssetAllocationBucketAssetClass,
     AssetAllocationBucketRunTarget,
@@ -19,6 +20,7 @@ from app.models.asset_allocation.run import (
 
 __all__ = [
     "AllocationBucketName",
+    "AssetAllocationAggregate",
     "AssetAllocationBucket",
     "AssetAllocationBucketAssetClass",
     "AssetAllocationBucketRunTarget",

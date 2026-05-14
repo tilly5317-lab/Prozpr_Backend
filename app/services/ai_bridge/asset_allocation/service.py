@@ -91,9 +91,14 @@ async def compose_allocation_chat_reply(
 # ── Engine runner ───────────────────────────────────────────────────────
 
 
-def _run_engine(engine_input: dict[str, Any]) -> Any:
-    """Synchronous engine call — intended to be run in a worker thread."""
-    return run_allocation_with_state(engine_input)
+def _run_engine(engine_input: Any) -> Any:
+    """Synchronous engine call — intended to be run in a worker thread.
+
+    ``run_allocation_with_state`` returns ``(state_dict, GoalAllocationOutput)``;
+    we only need the output for persistence and downstream use.
+    """
+    _state, output = run_allocation_with_state(engine_input)
+    return output
 
 
 async def _call_engine(user: Any) -> tuple[Any | None, dict[str, Any]]:
@@ -103,13 +108,13 @@ async def _call_engine(user: Any) -> tuple[Any | None, dict[str, Any]]:
     ``engine_result`` is None when the engine isn't available or fails.
     """
     if not _engine_available:
-        return None, {}
+        return None, {}, {}
 
     try:
-        engine_input, debug_dict = build_asset_allocation_input_for_user(user)
+        engine_input, debug_dict, allocation_snapshot = build_asset_allocation_input_for_user(user)
     except Exception:
         logger.exception("failed to build allocation input from user")
-        return None, {}
+        return None, {}, {}
 
     trace_line(f"asset_allocation engine input built — goals={debug_dict.get('goal_count')}")
 
@@ -117,10 +122,10 @@ async def _call_engine(user: Any) -> tuple[Any | None, dict[str, Any]]:
         result = await asyncio.to_thread(_run_engine, engine_input)
     except Exception:
         logger.exception("asset_allocation engine raised")
-        return None, debug_dict
+        return None, debug_dict, allocation_snapshot
 
     trace_line("asset_allocation engine finished")
-    return result, debug_dict
+    return result, debug_dict, allocation_snapshot
 
 
 # ── Core compute path ───────────────────────────────────────────────────
@@ -148,8 +153,12 @@ async def compute_allocation_result(
         return AllocationRunOutcome(result=None, blocking_message=MSG_ALLOCATION_MISSING_DOB)
 
     # ── run engine ──
-    result, engine_debug = await _call_engine(user)
-    merged_payload = {**(input_payload or {}), **engine_debug}
+    result, engine_debug, allocation_snapshot = await _call_engine(user)
+    merged_payload = {
+        **allocation_snapshot,
+        **(input_payload or {}),
+        "allocation_engine_debug": engine_debug,
+    }
     asset_allocation_run_id: uuid.UUID | None = None
 
     # ── persist when we have a result + caller asked for it ──

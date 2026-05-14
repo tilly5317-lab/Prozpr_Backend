@@ -31,7 +31,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
-    from app.models.asset_allocation.bucket import AssetAllocationBucket
+    from app.models.asset_allocation.bucket import (
+        AssetAllocationAggregate,
+        AssetAllocationBucket,
+    )
     from app.models.chat import ChatSession
     from app.models.goals.financial_goal import FinancialGoal
     from app.models.portfolio import Portfolio
@@ -144,6 +147,9 @@ class AssetAllocationRun(Base):
         back_populates="run", cascade="all, delete-orphan"
     )
     buckets: Mapped[List["AssetAllocationBucket"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+    aggregates: Mapped[List["AssetAllocationAggregate"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
     rebalancing_runs: Mapped[List["RebalancingRun"]] = relationship(
