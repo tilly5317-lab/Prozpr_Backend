@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm *)",
+      "Bash(python -c \"import app.models as m; print\\('OK', m.AssetAllocationRun, m.AssetAllocationBucket, m.AssetAllocationBucketSubgroup, m.AssetAllocationAggregate\\); from app.database import Base; print\\(sorted\\(t for t in Base.metadata.tables if 'alloc' in t or t=='goals'\\)\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import app.models as m; print\\('reimport OK', m.AssetAllocationRun\\)\")",
+      "Bash(python -m ruff check app/models/goals/asset_allocation_run.py app/models/goals/asset_allocation_bucket.py app/models/goals/__init__.py app/models/__init__.py app/models/user.py app/models/rebalancing/rebalancing_run.py app/models/rebalancing/__init__.py app/models/goals/financial_goal.py app/schemas/asset_allocation.py app/schemas/goal.py)",
+      "Bash(python -c \"import app.models; from sqlalchemy.orm import configure_mappers; configure_mappers\\(\\); print\\('models+mappers OK'\\)\")"
+    ]
+  }
+}

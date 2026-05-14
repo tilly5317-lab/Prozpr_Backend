@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.routers.ai_modules.asset_allocation import router as asset_allocation_router
 from app.routers.ai_modules.drift_analyzer import router as drift_analyzer_router
 from app.routers.ai_modules.intent_classifier import router as intent_classifier_router
 from app.routers.ai_modules.market_commentary import router as market_commentary_router
@@ -23,7 +22,6 @@ router.include_router(intent_classifier_router)
 router.include_router(market_commentary_router)
 router.include_router(portfolio_query_router)
 router.include_router(risk_profile_router)
-router.include_router(asset_allocation_router)
 router.include_router(drift_analyzer_router)
 router.include_router(mutual_fund_status_router)
 router.include_router(rebalancing_router)

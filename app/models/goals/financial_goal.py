@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -54,7 +55,7 @@ class FinancialGoal(Base):
     priority: Mapped[GoalPriority] = mapped_column(
         SAEnum(GoalPriority, name="goal_priority_enum_v2", create_constraint=True),
         nullable=False,
-        default=GoalPriority.PRIMARY,
+        default=GoalPriority.HIGH,
     )
     status: Mapped[GoalStatus] = mapped_column(
         SAEnum(GoalStatus, name="goal_status_enum_v2", create_constraint=True),
@@ -62,6 +63,13 @@ class FinancialGoal(Base):
         default=GoalStatus.ACTIVE,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --- Asset-allocation pipeline fields (formerly the per-run snapshot table
+    # ``goal_allocation_goals``; now folded into the canonical goal row). ---
+    time_to_goal_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    amount_needed: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    goal_priority: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    investment_goal: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

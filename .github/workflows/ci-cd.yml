@@ -58,6 +58,4 @@ jobs:
           pip install pytest
 
       - run: python -m unittest AI_Agents.tests.test_intent_classifier -v
-      # Allocation pydantic integration tests (PYTHONPATH=AI_Agents/src).
-      # drift_analysis lives under AI_Agents/archive/ only; its pytest suite is not wired for CI.
-      - run: pytest AI_Agents/src/asset_allocation_pydantic/Testing -v --tb=short
+      # goal-based allocation agent tests removed with AI_Agents/src/asset_allocation_pydantic.
