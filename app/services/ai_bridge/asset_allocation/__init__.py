@@ -1,24 +1,34 @@
-"""Asset allocation domain — engine adapter, chat handler, and input builder.
+"""Asset-allocation domain bridge — stubbed while replacement engine is pending.
 
-Public surface re-exports the engine entry points and the input builder. The
-``chat`` submodule is **not** auto-imported here: doing so triggers a circular
-import via ``chat_core.turn_context``. Callers that need its ``@register``
-side-effect must import ``chat`` lazily (e.g. inside a function body in
-``chat_core/brain.py``).
+NOTE: ``chat`` submodule is NOT auto-imported here (circular import via
+``chat_core.turn_context``). Callers needing its ``@register`` side-effect
+must import ``chat`` lazily.
 """
 
-from app.services.ai_bridge.asset_allocation.service import (
-    compute_allocation_result,
-    build_fallback_brief,
-    generate_asset_allocation_response,
-)
 from app.services.ai_bridge.asset_allocation.input_builder import (
-    build_goal_allocation_input_for_user,
+    build_asset_allocation_input_for_user,
+)
+from app.services.ai_bridge.asset_allocation.persistence import (
+    normalize_asset_allocation_engine_result,
+    save_asset_allocation_from_engine_output,
+)
+from app.services.ai_bridge.asset_allocation.service import (
+    AllocationRunOutcome,
+    build_aa_facts_pack,
+    build_fallback_brief,
+    compose_allocation_chat_reply,
+    compute_allocation_result,
+    generate_asset_allocation_response,
 )
 
 __all__ = [
-    "build_goal_allocation_input_for_user",
-    "compute_allocation_result",
+    "AllocationRunOutcome",
+    "build_aa_facts_pack",
+    "build_asset_allocation_input_for_user",
     "build_fallback_brief",
+    "compose_allocation_chat_reply",
+    "compute_allocation_result",
     "generate_asset_allocation_response",
+    "normalize_asset_allocation_engine_result",
+    "save_asset_allocation_from_engine_output",
 ]

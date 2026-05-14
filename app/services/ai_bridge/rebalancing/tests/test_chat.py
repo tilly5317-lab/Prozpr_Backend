@@ -60,8 +60,7 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
         response=None,
         formatted_text="OK plan",
         blocking_message=None,
-        recommendation_id=rec_id,
-        allocation_snapshot_id=None,
+        rebalancing_run_id=rec_id,
         used_cached_allocation=True,
     )
     monkeypatch.setattr(
@@ -77,7 +76,7 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
                new=AsyncMock(return_value=None)):
         result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "OK plan"
-    assert result.rebalancing_recommendation_id == rec_id
+    assert result.rebalancing_run_id == rec_id
 
 
 def test_handle_returns_blocking_message(monkeypatch):
@@ -92,7 +91,7 @@ def test_handle_returns_blocking_message(monkeypatch):
     )
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "No DOB"
-    assert result.rebalancing_recommendation_id is None
+    assert result.rebalancing_run_id is None
     # Blocking path has no engine response; rebalancing_response must be None.
     assert result.rebalancing_response is None
 
@@ -108,7 +107,7 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
     fake = RebalancingRunOutcome(
         response=fake_response,
         formatted_text="ok",
-        recommendation_id=uuid.uuid4(),
+        rebalancing_run_id=uuid.uuid4(),
     )
     monkeypatch.setattr(
         rb_chat, "compute_rebalancing_result",
@@ -252,8 +251,8 @@ class HandleRoutingTests(unittest.TestCase):
         engine.assert_called_once()
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("persist", True))
-        # No persist → no recommendation_id, no snapshot_id
-        self.assertIsNone(result.rebalancing_recommendation_id)
+        # No persist → no rebalancing run id, no snapshot_id
+        self.assertIsNone(result.rebalancing_run_id)
         self.assertIsNone(result.snapshot_id)
 
     def test_counterfactual_with_additional_cash_forces_fresh_allocation(self):
@@ -341,7 +340,7 @@ class HandleRoutingTests(unittest.TestCase):
             result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
         kwargs = engine.call_args.kwargs
         self.assertTrue(kwargs.get("persist", False))
-        self.assertIsNotNone(result.rebalancing_recommendation_id)
+        self.assertIsNotNone(result.rebalancing_run_id)
 
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):
         """save_last_counterfactual with no recent counterfactual returns guidance."""

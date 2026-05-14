@@ -1,8 +1,9 @@
 """Persist a rebalancing engine response across the normalized
 ``rebalancing_*`` tables.
 
-A run always references a ``GoalAllocationRun`` (the target it rebalanced
-towards) — ``source_allocation_run_id`` is required.
+A run always references the persisted asset-allocation run it rebalanced
+towards (``AssetAllocationRun`` in ``app.models.asset_allocation``) —
+``source_allocation_run_id`` is required.
 """
 
 from __future__ import annotations
