@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.mf.mf_fund_metadata import MfFundMetadata
 from app.models.mf.mf_nav_history import MfNavHistory
@@ -43,6 +44,16 @@ class _Unpriceable(Exception):
     """Raised when a recommended ISIN has no NAV available."""
 
 
+def _rating_field(meta: MfFundMetadata | None, attr: str, default=None):
+    """Safely access an attribute on meta's related MfFundRating."""
+    if meta is None:
+        return default
+    rating = getattr(meta, "rating", None)
+    if rating is None:
+        return default
+    return getattr(rating, attr, default)
+
+
 async def _latest_nav_by_isin(
     db: AsyncSession, isins: set[str],
 ) -> dict[str, Decimal]:
@@ -67,6 +78,7 @@ async def _metadata_by_isin(
     rows = (await db.execute(
         select(MfFundMetadata, MfNavHistory.isin)
         .join(MfNavHistory, MfNavHistory.scheme_code == MfFundMetadata.scheme_code)
+        .options(selectinload(MfFundMetadata.rating))
         .where(MfNavHistory.isin.in_(isins))
         .distinct()
     )).all()
@@ -215,9 +227,9 @@ async def build_rebalancing_input_for_user(
                 current_nav = held.lots[-1].acquisition_nav
 
             meta = meta_by_isin.get(rr.isin)
-            asset_class = (meta.asset_class if meta else None) or "equity"
-            exit_load_pct = float(meta.exit_load_percent or 0.0) if meta else 0.0
-            exit_load_months = int(meta.exit_load_months or 0) if meta else 0
+            asset_class = _rating_field(meta, "asset_class") or "equity"
+            exit_load_pct = float(_rating_field(meta, "exit_load_percent") or 0.0)
+            exit_load_months = int(_rating_field(meta, "exit_load_months") or 0)
 
             rows.append(_build_row(
                 rank_row=rr,
@@ -244,15 +256,15 @@ async def build_rebalancing_input_for_user(
             if isin in seen_isins:
                 continue
             meta = meta_by_isin.get(isin)
-            meta_sg = (meta.asset_subgroup if meta else None) or ""
+            meta_sg = _rating_field(meta, "asset_subgroup") or ""
             if meta_sg != subgroup:
                 continue
             current_nav = nav_by_isin.get(isin)
             if current_nav is None:
                 current_nav = held.lots[-1].acquisition_nav
-            asset_class = (meta.asset_class if meta else None) or "equity"
-            exit_load_pct = float(meta.exit_load_percent or 0.0) if meta else 0.0
-            exit_load_months = int(meta.exit_load_months or 0) if meta else 0
+            asset_class = _rating_field(meta, "asset_class") or "equity"
+            exit_load_pct = float(_rating_field(meta, "exit_load_percent") or 0.0)
+            exit_load_months = int(_rating_field(meta, "exit_load_months") or 0)
             rr = FundRankRow(
                 asset_subgroup=subgroup,
                 sub_category=(meta.sub_category or "unknown") if meta else "unknown",
@@ -283,19 +295,19 @@ async def build_rebalancing_input_for_user(
             continue
         meta = meta_by_isin.get(isin)
         current_nav = nav_by_isin.get(isin) or entry.lots[-1].acquisition_nav
-        asset_class = (meta.asset_class if meta else None) or "equity"
+        asset_class = _rating_field(meta, "asset_class") or "equity"
         rows.append(_build_row(
             rank_row=None,
             held_entry=entry,
             target_amount_pre_cap=Decimal(0),
             current_nav=current_nav,
             asset_class=asset_class,
-            exit_load_pct=float(meta.exit_load_percent or 0.0) if meta else 0.0,
-            exit_load_months=int(meta.exit_load_months or 0) if meta else 0,
+            exit_load_pct=float(_rating_field(meta, "exit_load_percent") or 0.0),
+            exit_load_months=int(_rating_field(meta, "exit_load_months") or 0),
             is_recommended=False,
             fund_rating=_DEFAULT_FUND_RATING,
             asof=asof,
-            bad_subgroup=(meta.asset_subgroup if meta else "unknown"),
+            bad_subgroup=(_rating_field(meta, "asset_subgroup") or "unknown"),
             bad_sub_category=(meta.sub_category if meta else "unknown"),
             bad_fund_name=(meta.scheme_name if meta else entry.scheme_code),
             bad_isin=isin,

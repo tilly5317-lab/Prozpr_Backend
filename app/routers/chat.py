@@ -6,7 +6,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -182,6 +182,11 @@ async def send_message(
             user_id=current_user.id,
         )
     )
+
+    # Re-add user message in case the brain rolled back the transaction.
+    insp = sa_inspect(user_msg)
+    if insp.detached or insp.transient:
+        db.add(user_msg)
 
     # Persist assistant reply.
     assistant_msg = ChatMessage(
