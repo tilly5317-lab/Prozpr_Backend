@@ -24,10 +24,7 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.chart_selector_service import select_charts
 from app.services.ai_bridge.common import trace_line, trace_response_preview
-from app.services.visualization_tools.build_aa import build_charts_for_aa
-from app.services.visualization_tools.build_rebalancing import build_charts_for_rebalancing
 from app.services.chat_core.turn_context import build_turn_context, TurnContext
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
@@ -79,9 +76,7 @@ async def _dump_aa_db_tables(db: AsyncSession | None, run_id: uuid.UUID | None) 
         from app.models.asset_allocation.bucket import (
             AssetAllocationAggregate,
             AssetAllocationBucket,
-            AssetAllocationBucketAssetClass,
             AssetAllocationBucketRunTarget,
-            AssetAllocationBucketSubgroup,
         )
 
         def _f(v: Any) -> str:
