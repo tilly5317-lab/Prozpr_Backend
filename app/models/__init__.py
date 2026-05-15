@@ -69,6 +69,7 @@ from app.models.profile import (
 
 __all__ = [
     "AllocationBucketName",
+    "AssetAllocationAggregate",
     "AssetAllocationBucket",
     "AssetAllocationBucketAssetClass",
     "AssetAllocationBucketRunTarget",
