@@ -43,6 +43,10 @@ class MfAaImport(Base):
     mobile: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     from_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     to_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # CAS statement variant reported by the parser: "SUMMARY" (holdings only, no
+    # transaction detail) or "DETAILED". Lets us tell after the fact why an import
+    # produced zero transactions.
+    cas_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     req_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     investor_first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     investor_middle_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

@@ -23,7 +23,7 @@ from app.models.goals import (
     GoalPriority,
     GoalStatus,
 )
-from app.schemas.goal import (
+from app.schemas.goals.goal import (
     GoalContributionCreate,
     GoalContributionResponse,
     GoalCreate,

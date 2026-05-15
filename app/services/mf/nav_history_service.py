@@ -21,7 +21,7 @@ from app.services.mf.paging import clamp_skip_limit
 
 logger = logging.getLogger(__name__)
 _LATEST_NAV_STALE_AFTER_DAYS = 1
-_MIN_NAV_HISTORY_ROWS = 30
+_MIN_NAV_HISTORY_ROWS = 180
 
 
 async def list_nav_rows(
@@ -199,20 +199,30 @@ async def delete_nav_on_isin_date(db: AsyncSession, isin: str, nav_date: date) -
     await db.commit()
 
 
+_BULK_CHUNK_SIZE = 500
+
+
 async def bulk_insert_nav_rows(db: AsyncSession, rows: Iterable[dict]) -> int:
     """Insert NAV rows in bulk with ``ON CONFLICT (scheme_code, nav_date) DO NOTHING``.
 
     Idempotent: re-runs of the same (scheme_code, nav_date) silently skip.
     Caller manages the transaction (no commit here).
     Returns the number of rows actually inserted.
+
+    Large payloads are chunked to stay well within PostgreSQL's bind-parameter
+    limit (~65 535) and to keep memory pressure reasonable.
     """
     payload = list(rows)
     if not payload:
         return 0
-    stmt = pg_insert(MfNavHistory).values(payload)
-    stmt = stmt.on_conflict_do_nothing(index_elements=["scheme_code", "nav_date"])
-    result = await db.execute(stmt)
-    return int(result.rowcount or 0)
+    total = 0
+    for start in range(0, len(payload), _BULK_CHUNK_SIZE):
+        chunk = payload[start : start + _BULK_CHUNK_SIZE]
+        stmt = pg_insert(MfNavHistory).values(chunk)
+        stmt = stmt.on_conflict_do_nothing(index_elements=["scheme_code", "nav_date"])
+        result = await db.execute(stmt)
+        total += int(result.rowcount or 0)
+    return total
 
 
 async def get_latest_nav_with_source_fallback(
@@ -309,6 +319,13 @@ async def _fetch_nav_from_source_for_scheme(
                 "nav_date": point.nav_date,
             }
         ]
+    logger.info(
+        "Fetched %d NAV points from mfapi.in for scheme %s (oldest=%s, latest=%s)",
+        len(detail.navs), code,
+        min(p.nav_date for p in detail.navs) if detail.navs else "?",
+        max(p.nav_date for p in detail.navs) if detail.navs else "?",
+    )
+
     nav_row = MfNavHistory(
         id=uuid.uuid4(),
         scheme_code=detail.scheme_code,
@@ -360,7 +377,11 @@ async def _persist_source_nav_and_metadata(
     plan_type: object,
     option_type: object,
     nav_rows: list[dict],
-) -> None:
+) -> int:
+    """Persist fund metadata and NAV rows in a background session.
+
+    Returns the number of NAV rows actually inserted (0 on failure).
+    """
     from app.database import _get_session_factory
 
     factory = _get_session_factory()
@@ -396,7 +417,17 @@ async def _persist_source_nav_and_metadata(
                 },
             )
             await bg_db.execute(meta_stmt)
-            await bulk_insert_nav_rows(bg_db, nav_rows)
+            inserted = await bulk_insert_nav_rows(bg_db, nav_rows)
             await bg_db.commit()
+            logger.info(
+                "Persisted %d NAV rows for scheme %s (offered %d)",
+                inserted, scheme_code, len(nav_rows),
+            )
+            return inserted
         except Exception:
+            logger.exception(
+                "Failed to persist NAV rows for scheme %s (%d rows offered)",
+                scheme_code, len(nav_rows),
+            )
             await bg_db.rollback()
+            return 0

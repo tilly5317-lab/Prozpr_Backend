@@ -47,8 +47,8 @@ async def compute_rebalancing(
         )
     return RebalancingComputeApiResponse(
         answer_markdown=outcome.formatted_text or "",
-        recommendation_id=outcome.recommendation_id,
-        allocation_snapshot_id=outcome.allocation_snapshot_id,
+        recommendation_id=outcome.rebalancing_run_id,
+        allocation_snapshot_id=None,
         used_cached_allocation=outcome.used_cached_allocation,
         blocking_message=None,
     )

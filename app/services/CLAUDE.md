@@ -2,7 +2,8 @@
 
 Services hold the non-HTTP, non-ORM business logic: chat orchestration, AI
 bridges, domain helpers (portfolio, user, goals, auth, notifications,
-telemetry), and ingest adapters (Finvu, SimBanks).
+telemetry), and ingest adapters (CAMS CAS PDF upload, SimBanks; Finvu is
+sidelined — see below).
 
 ## Child modules
 
@@ -36,7 +37,20 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 - `otp_service.py` — OTP issuance and verification.
 - `notification_service.py` — notification creation and delivery.
 - `portfolio_service.py` — primary portfolio get/create.
-- `finvu_portfolio_sync.py` — Finvu ingestion → PortfolioAllocation rows.
+- `cams_cas_ingest.py` — parse an uploaded CAMS/KFintech Consolidated Account
+  Statement (CAS) PDF (via the `casparser` package) → `mf_aa_imports` /
+  `mf_aa_summaries` / `mf_aa_transactions` raw rows → `MfTransaction` (through
+  `mf_aa_normalizer`) → primary-portfolio bucket allocations + one
+  `portfolio_holdings` row per scheme. Asset class is resolved by
+  `_resolve_asset_bucket` (trust `casparser`'s `type`; else infer from the scheme
+  name; else "Other") so funds `casparser` can't classify don't all land in
+  "Other". Also back-fills blank identity fields on the `users` row
+  (`first_name`/`middle_name`/`last_name`/`email`/`address`/`pan`) from the CAS
+  investor block — never overwrites what the user already set. Replaces the
+  Finvu fetch-by-mobile flow.
+- `finvu_portfolio_sync.py` — DEPRECATED / SIDELINED. Finvu account-aggregator
+  ingestion → PortfolioAllocation rows. Paused for licensing; kept for
+  reference, not on an active path. Use `cams_cas_ingest.py` instead.
 - `simbanks_service.py` — SimBanks ConnectHub XML → linked accounts, MF,
   portfolio tables.
 - `ai_module_telemetry.py` — `ChatAiModuleRun` telemetry rows; chat-flow
@@ -59,11 +73,20 @@ telemetry), and ingest adapters (Finvu, SimBanks).
 
 ## Flows
 
-**Finvu sync** (owner per spec §5.1)
-1. `get_or_create_primary_portfolio(user)` ensures a target portfolio row.
-2. Aggregate Finvu buckets into bucket-level totals.
-3. If `total > 0`, replace the portfolio's allocation rows with weighted
-   Cash / Debt / Equity / Other.
+**CAMS CAS PDF ingest** (`POST /api/v1/mf-ingest/cams-pdf` → `cams_cas_ingest.ingest_cams_pdf`)
+1. Router receives a multipart upload (`file` + `password`); reads bytes.
+2. `casparser` parses the PDF (run in a thread) → folios → schemes → transactions.
+3. Persist raw audit rows: one `MfAaImport` (investor identity, statement
+   period), `MfAaSummary` per scheme, `MfAaTransaction` per unit-moving txn;
+   commit so a later failure leaves a retry-able RECEIVED row.
+4. `mf_aa_normalizer.normalize_single_import` → upserts `MfFundMetadata` and
+   inserts deduped `MfTransaction` rows.
+5. Roll up the CAS valuations into Cash / Debt / Equity / Other and replace the
+   primary portfolio's `PortfolioAllocation` rows (same shape as SimBanks).
+6. `maybe_recalculate_effective_risk` (in the router), then commit.
+
+**Finvu sync** — DEPRECATED / SIDELINED (licensing). `finvu_portfolio_sync.apply_finvu_bucket_snapshot`
+still backs the legacy `POST /portfolio/finvu/sync` route but is not used by the app.
 
 **SimBanks** (owner per spec §5.1)
 1. Router receives a SimBanks ConnectHub sync request.

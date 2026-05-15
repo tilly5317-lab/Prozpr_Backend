@@ -72,13 +72,15 @@ def _parse_date(value: object) -> date:
 def _map_transaction_type(flag: Optional[str], desc: Optional[str], amount: float) -> MfTransactionType:
     f = (flag or "").upper()
     d = (desc or "").upper()
-    if f in {"SO", "SWITCH_OUT"}:
+    if f in {"SO", "SWITCH_OUT", "SWITCH_OUT_MERGER"}:
         return MfTransactionType.SWITCH_OUT
-    if f in {"SI", "SWITCH_IN"}:
+    if f in {"SI", "SWITCH_IN", "SWITCH_IN_MERGER"}:
         return MfTransactionType.SWITCH_IN
+    if f in {"DR", "DIVIDEND_REINVEST", "DIVIDEND_REINVESTMENT", "DIVIDEND REINVEST"}:
+        return MfTransactionType.DIVIDEND_REINVEST
     if f in {"R", "SELL", "REDEMPTION"}:
         return MfTransactionType.SELL
-    if f in {"P", "BUY", "SIP"}:
+    if f in {"P", "BUY", "SIP", "PURCHASE", "PURCHASE_SIP"}:
         return MfTransactionType.BUY
     if "SWITCH OUT" in d:
         return MfTransactionType.SWITCH_OUT

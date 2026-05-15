@@ -1,10 +1,12 @@
-# Python
+# Python — never commit bytecode or local venv (binary .pyc merge conflicts; huge diffs).
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyc
 
-# Virtual environment
+# Virtual environment (must not be tracked)
 .venv/
 venv/
 env/
@@ -40,9 +42,6 @@ build/
 
 # SQLite databases
 *.db
-
-# Byte-compiled
-*.pyc
 
 # OS files
 Thumbs.db
@@ -92,3 +91,6 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
+
+# Dev-only scripts (seed helpers, one-offs) — keep local, do not push
+scripts/

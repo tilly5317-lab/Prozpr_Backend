@@ -1,8 +1,9 @@
-"""Cache-first rebalancing orchestrator.
+"""Rebalancing orchestrator.
 
-Reads the most recent goal allocation for the user; if it's > 90 days old or
-absent, re-runs allocation inline. Then materialises engine inputs, runs the
-pipeline on a worker thread, persists the trade-list, and renders chat markdown.
+Always runs asset allocation inline before rebalancing so every rebalancing
+request is anchored to a fresh allocation run and ``source_allocation_run_id``.
+Then materialises engine inputs, runs the pipeline on a worker thread, persists
+the trade-list, and renders chat markdown.
 """
 
 from __future__ import annotations
@@ -12,15 +13,18 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.goals.goal_allocation_run import GoalAllocationRun
+from app.models.asset_allocation.run import AssetAllocationRun
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
+)
+from app.services.ai_bridge.rebalancing.cached_allocation import (
+    try_parse_asset_allocation_json,
 )
 from app.services.ai_bridge.common import (
     asset_class_for_subgroup,
@@ -39,9 +43,6 @@ from app.services.rebalancing_recommendation_persist import (
 
 ensure_ai_agents_path()
 
-from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]  # noqa: E402
-    GoalAllocationOutput,
-)
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     RebalancingComputeResponse,
 )
@@ -74,7 +75,6 @@ class RebalancingRunOutcome:
     formatted_text: Optional[str] = None
     blocking_message: Optional[str] = None
     rebalancing_run_id: Optional[uuid.UUID] = None
-    allocation_snapshot_id: Optional[uuid.UUID] = None
     source_allocation_run_id: Optional[uuid.UUID] = None
     used_cached_allocation: bool = False
 
@@ -240,52 +240,72 @@ async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
 
 async def _load_cached_allocation(
     db: AsyncSession, user_id: uuid.UUID,
-) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
-    """Latest ``GoalAllocationRun`` ≤ 90 days old → (parsed output, run_id) or (None, None).
+) -> tuple[Optional[Any], Optional[uuid.UUID]]:
+    """Latest ``AssetAllocationRun`` (≤ TTL) with subgroup rows → rebalancing input view.
 
-    The pipeline output is reconstructed from the IDEAL ``PortfolioAllocationSnapshot``
-    that the persist layer writes alongside each run. The run row itself
-    holds the normalized columns and lacks the full pydantic blob.
+    **Note:** ``compute_rebalancing_result`` no longer calls this helper; allocation
+    always runs via ``compute_allocation_result``. Kept for ad-hoc tooling or tests
+    that need to read the latest persisted subgroup targets without re-running AA.
+
+    Subgroup INR targets are aggregated from ``asset_allocation_bucket_subgroups``
+    (``actual_amount`` summed per ``subgroup`` across buckets). That matches the
+    engine's ``aggregated_subgroups[].total``, which is what the rebalancing
+    builder consumes — without duplicating engine JSON in
+    ``portfolio_allocation_snapshots``.
     """
-    from sqlalchemy import and_
+    from sqlalchemy import func
 
-    from app.models.mf.enums import PortfolioSnapshotKind
-    from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
+    from app.models.asset_allocation.bucket import (
+        AssetAllocationBucket,
+        AssetAllocationBucketSubgroup,
+    )
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
     run = (await db.execute(
-        select(GoalAllocationRun)
-        .where(GoalAllocationRun.user_id == user_id)
-        .where(GoalAllocationRun.created_at >= cutoff)
-        .order_by(desc(GoalAllocationRun.created_at))
+        select(AssetAllocationRun)
+        .where(AssetAllocationRun.user_id == user_id)
+        .where(AssetAllocationRun.created_at >= cutoff)
+        .order_by(desc(AssetAllocationRun.created_at))
         .limit(1)
     )).scalar_one_or_none()
     if run is None:
         return None, None
 
-    snap = (await db.execute(
-        select(PortfolioAllocationSnapshot)
-        .where(
-            and_(
-                PortfolioAllocationSnapshot.user_id == user_id,
-                PortfolioAllocationSnapshot.snapshot_kind == PortfolioSnapshotKind.IDEAL,
+    agg_rows = (
+        await db.execute(
+            select(
+                AssetAllocationBucketSubgroup.subgroup,
+                func.coalesce(
+                    func.sum(AssetAllocationBucketSubgroup.actual_amount),
+                    0,
+                ),
             )
+            .join(
+                AssetAllocationBucket,
+                AssetAllocationBucketSubgroup.bucket_id == AssetAllocationBucket.id,
+            )
+            .where(AssetAllocationBucket.run_id == run.id)
+            .group_by(AssetAllocationBucketSubgroup.subgroup)
         )
-        .order_by(desc(PortfolioAllocationSnapshot.effective_at))
-        .limit(1)
-    )).scalar_one_or_none()
-    if snap is None:
+    ).all()
+    if not agg_rows:
+        logger.warning(
+            "asset allocation run %s has no subgroup rows; treating as cache miss",
+            run.id,
+        )
         return None, None
 
-    payload = (snap.allocation or {}).get("goal_allocation_output")
-    if not payload:
+    payload = {
+        "aggregated_subgroups": [
+            {"subgroup": str(sg), "total": float(total or 0)} for sg, total in agg_rows
+        ],
+    }
+    parsed = try_parse_asset_allocation_json(payload)
+    if parsed is None:
+        logger.warning("rebalancing: could not build allocation view from ORM rows")
         return None, None
-    try:
-        return GoalAllocationOutput.model_validate(payload), run.id
-    except Exception as exc:
-        logger.warning("Cached allocation parse failed (%s); ignoring cache", exc)
-        return None, None
+    return cast(Any, parsed), run.id
 
 
 async def compute_rebalancing_result(
@@ -298,19 +318,18 @@ async def compute_rebalancing_result(
     persist: bool = True,
     force_fresh_allocation: bool = False,
 ) -> RebalancingRunOutcome:
-    """Top-level orchestrator: cache → builder → engine → persist → format.
+    """Top-level orchestrator: allocation → builder → engine → persist → format.
 
-    When ``persist=False`` (counterfactual_explore path), the engine still
-    runs and reads from the database (holdings, NAVs, metadata, cached
-    allocation), but the recommendation row, the chat-ai-module-runs
-    telemetry write, and chart-picker call are skipped. Returns the same
-    outcome shape; ``recommendation_id`` is None.
+    Asset allocation always runs first via ``compute_allocation_result`` (no
+    DB cache shortcut). ``force_fresh_allocation`` is ignored; callers may
+    still pass it for API stability.
 
-    When ``force_fresh_allocation=True``, the AA cache lookup is skipped and
-    AA is always re-run inline. Used when the chat layer has set transient
-    AA overrides (e.g., ``_chat_additional_cash_override``) that the cached
-    AA result wouldn't reflect.
+    When ``persist=False`` (counterfactual_explore path), the engines still
+    run, but the recommendation row, the chat-ai-module-runs telemetry write,
+    and chart-picker call are skipped. Returns the same outcome shape;
+    ``rebalancing_run_id`` is None when ``persist=False``.
     """
+    _ = force_fresh_allocation  # kept for call-site compatibility; allocation always runs
     trace_line("module: rebalancing — start")
 
     if getattr(user, "date_of_birth", None) is None:
@@ -323,43 +342,29 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_NO_HOLDINGS,
         )
 
-    if force_fresh_allocation:
-        # Counterfactual scenarios with AA-affecting overrides: skip cache.
-        cached_output = None
-        source_allocation_run_id: Optional[uuid.UUID] = None
-        used_cache = False
-    else:
-        cached_output, source_allocation_run_id = await _load_cached_allocation(
-            db, acting_user_id,
-        )
-        used_cache = cached_output is not None
-    allocation_snapshot_id: Optional[uuid.UUID] = None
+    trace_line("rebalancing: running asset allocation before rebalancing")
+    used_cache = False
 
-    if cached_output is None:
-        trace_line(
-            "rebalancing: allocation cache miss/stale — running allocation inline",
+    alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
+        user,
+        user_question,
+        db=db,
+        persist_recommendation=True,
+        acting_user_id=acting_user_id,
+        chat_session_id=chat_session_id,
+        spine_mode="rebalance_chained",
+    )
+    if alloc_outcome.blocking_message is not None:
+        return RebalancingRunOutcome(
+            response=None,
+            blocking_message=alloc_outcome.blocking_message,
         )
-        alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
-            user,
-            user_question,
-            db=db,
-            persist_recommendation=True,
-            acting_user_id=acting_user_id,
-            chat_session_id=chat_session_id,
-            spine_mode="rebalance_chained",
+    if alloc_outcome.result is None:
+        return RebalancingRunOutcome(
+            response=None, blocking_message=_MSG_ENGINE_ERROR,
         )
-        if alloc_outcome.blocking_message is not None:
-            return RebalancingRunOutcome(
-                response=None,
-                blocking_message=alloc_outcome.blocking_message,
-            )
-        if alloc_outcome.result is None:
-            return RebalancingRunOutcome(
-                response=None, blocking_message=_MSG_ENGINE_ERROR,
-            )
-        cached_output = alloc_outcome.result
-        source_allocation_run_id = alloc_outcome.goal_allocation_run_id
-        allocation_snapshot_id = alloc_outcome.allocation_snapshot_id
+    cached_output = alloc_outcome.result
+    source_allocation_run_id = alloc_outcome.asset_allocation_run_id
 
     try:
         request, debug = await build_rebalancing_input_for_user(
@@ -436,7 +441,6 @@ async def compute_rebalancing_result(
         response=response,
         formatted_text=formatted,
         rebalancing_run_id=run_id,
-        allocation_snapshot_id=allocation_snapshot_id,
         source_allocation_run_id=source_allocation_run_id,
         used_cached_allocation=used_cache,
     )

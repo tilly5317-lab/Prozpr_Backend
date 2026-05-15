@@ -1,7 +1,7 @@
 """Prozpr spine: detect portfolio intent mode and run the allocation pipeline.
 
-``detect_spine_mode`` inspects user wording (cash-in, cash-out, rebalance, etc.)
-and ``build_prozpr_spine`` orchestrates allocation + formatting into one chat reply.
+``detect_spine_mode`` classifies user wording (cash-in, cash-out, rebalance …)
+and ``build_prozpr_spine`` orchestrates allocation → formatting → chat reply.
 """
 
 from __future__ import annotations
@@ -15,22 +15,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.ai_bridge.asset_allocation import (
+    build_fallback_brief,
     compose_allocation_chat_reply,
     compute_allocation_result,
-    build_fallback_brief,
 )
+
+
+# ── Result + mode enum ──────────────────────────────────────────────────
 
 
 @dataclass
 class ProzprSpineResult:
     """Chat markdown + optional persisted plan IDs."""
+
     text: str
-    goal_allocation_run_id: uuid.UUID | None = None
+    asset_allocation_run_id: uuid.UUID | None = None
     portfolio_allocation_snapshot_id: uuid.UUID | None = None
 
 
 class SpineMode(str, Enum):
     """Portfolio intent sub-modes derived from user wording."""
+
     FULL = "full"
     CASH_IN = "cash_in"
     CASH_OUT = "cash_out"
@@ -38,7 +43,8 @@ class SpineMode(str, Enum):
     REBALANCE = "rebalance"
 
 
-# Regex patterns keyed by mode, checked in priority order.
+# ── Mode detection ──────────────────────────────────────────────────────
+
 _MODE_PATTERNS: list[tuple[SpineMode, str]] = [
     (SpineMode.CASH_OUT,
      r"\b(withdraw|redemption|redeem|sell\s+mf|take\s+out|need\s+cash|exit\s+load|stp\s+out|swp|take\s+money)\b"),
@@ -60,6 +66,9 @@ def detect_spine_mode(user_question: str) -> SpineMode:
     return SpineMode.FULL
 
 
+# ── Spine builder ───────────────────────────────────────────────────────
+
+
 async def build_prozpr_spine(
     user: User,
     user_question: str,
@@ -72,7 +81,8 @@ async def build_prozpr_spine(
 ) -> ProzprSpineResult:
     """Run allocation and return formatted chat markdown + optional persisted IDs."""
     outcome = await compute_allocation_result(
-        user, user_question,
+        user,
+        user_question,
         db=db,
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,
@@ -82,25 +92,27 @@ async def build_prozpr_spine(
 
     if outcome.blocking_message:
         return ProzprSpineResult(text=outcome.blocking_message)
+
     if not outcome.result:
         return ProzprSpineResult(
             text="I couldn't produce an allocation summary just now. "
                  "Check your profile is complete and try again in a moment."
         )
 
-    # Prefix with risk profile status.
+    # Prefix with risk-profile status.
     rp = getattr(user, "risk_profile", None)
     cat = getattr(rp, "risk_category", None) if rp else None
     header = (
-        f"Using your saved risk profile (**{cat}**).\n\n" if cat
+        f"Using your saved risk profile (**{cat}**).\n\n"
+        if cat
         else "Complete your risk questionnaire when you can — guidance below is broader without it.\n\n"
     )
 
     body = build_fallback_brief(outcome.result, mode.value)
     tailored = await compose_allocation_chat_reply(user_question, body, mode.value)
-    final_body = tailored if tailored else body
+
     return ProzprSpineResult(
-        text=header + final_body,
-        goal_allocation_run_id=outcome.goal_allocation_run_id,
-        portfolio_allocation_snapshot_id=outcome.allocation_snapshot_id,
+        text=header + (tailored or body),
+        asset_allocation_run_id=outcome.asset_allocation_run_id,
+        portfolio_allocation_snapshot_id=None,
     )

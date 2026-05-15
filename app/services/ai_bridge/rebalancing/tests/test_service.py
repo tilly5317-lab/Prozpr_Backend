@@ -1,4 +1,4 @@
-"""Cache-first rebalancing service: cache hit, cache miss, stale, blockers.
+"""Rebalancing service: allocation always runs first, then engine and persistence.
 
 Also covers build_rebal_facts_pack and build_fallback_rebal_brief (Task 12).
 """
@@ -256,14 +256,15 @@ async def test_blocks_on_no_holdings(db_session, fixture_user_with_dob_no_holdin
 
 
 @pytest.mark.asyncio
-async def test_cache_hit_does_not_run_allocation(
+async def test_always_runs_allocation_before_rebalancing(
     db_session,
     fixture_user_with_holdings,
     fixture_recent_allocation_row,
+    fixture_goal_allocation_outcome,
     fixture_seed_low_beta_navs,
     fixture_one_subgroup_ranking,
 ):
-    """Allocation row < 90 days old → use it; do NOT call compute_allocation_result."""
+    """``compute_allocation_result`` is always invoked; no DB cache shortcut."""
     from app.services.ai_bridge.rebalancing.service import (
         compute_rebalancing_result,
     )
@@ -271,7 +272,7 @@ async def test_cache_hit_does_not_run_allocation(
     user, _ = fixture_user_with_holdings
     with patch(
         "app.services.ai_bridge.rebalancing.service.compute_allocation_result",
-        new=AsyncMock(),
+        new=AsyncMock(return_value=fixture_goal_allocation_outcome),
     ) as mocked:
         outcome = await compute_rebalancing_result(
             user=user,
@@ -280,9 +281,9 @@ async def test_cache_hit_does_not_run_allocation(
             acting_user_id=user.id,
             chat_session_id=None,
         )
-        mocked.assert_not_called()
-        assert outcome.used_cached_allocation is True
-        assert outcome.response is not None
+    mocked.assert_called_once()
+    assert outcome.used_cached_allocation is False
+    assert outcome.response is not None
 
 
 @pytest.mark.asyncio
@@ -293,7 +294,7 @@ async def test_cache_miss_runs_allocation_inline(
     fixture_seed_low_beta_navs,
     fixture_one_subgroup_ranking,
 ):
-    """No allocation row → call compute_allocation_result, then run rebalancing."""
+    """``compute_allocation_result`` runs once per rebalancing request (default path)."""
     from app.services.ai_bridge.rebalancing.service import (
         compute_rebalancing_result,
     )
@@ -324,7 +325,7 @@ async def test_stale_cache_re_runs_allocation(
     fixture_seed_low_beta_navs,
     fixture_one_subgroup_ranking,
 ):
-    """Allocation row > 90 days old → ignore cache, re-run."""
+    """Legacy name: stale ORM rows do not skip AA — allocation always runs once."""
     from app.services.ai_bridge.rebalancing.service import (
         compute_rebalancing_result,
     )
@@ -377,35 +378,34 @@ async def test_allocation_block_propagates(
 async def test_persists_trades_row_on_success(
     db_session,
     fixture_user_with_holdings,
-    fixture_recent_allocation_row,
+    fixture_goal_allocation_outcome,
     fixture_seed_low_beta_navs,
     fixture_one_subgroup_ranking,
 ):
     from sqlalchemy import select
 
-    from app.models.rebalancing import (
-        RebalancingRecommendation,
-        RecommendationType,
-    )
+    from app.models.rebalancing import RebalancingRun
     from app.services.ai_bridge.rebalancing.service import (
         compute_rebalancing_result,
     )
 
     user, _ = fixture_user_with_holdings
-    outcome = await compute_rebalancing_result(
-        user=user,
-        user_question="rebalance",
-        db=db_session,
-        acting_user_id=user.id,
-        chat_session_id=None,
-    )
-    assert outcome.recommendation_id is not None
-    rec = (await db_session.execute(
-        select(RebalancingRecommendation).where(
-            RebalancingRecommendation.id == outcome.recommendation_id
+    with patch(
+        "app.services.ai_bridge.rebalancing.service.compute_allocation_result",
+        new=AsyncMock(return_value=fixture_goal_allocation_outcome),
+    ):
+        outcome = await compute_rebalancing_result(
+            user=user,
+            user_question="rebalance",
+            db=db_session,
+            acting_user_id=user.id,
+            chat_session_id=None,
         )
+    assert outcome.rebalancing_run_id is not None
+    run = (await db_session.execute(
+        select(RebalancingRun).where(RebalancingRun.id == outcome.rebalancing_run_id)
     )).scalar_one()
-    assert rec.recommendation_type == RecommendationType.REBALANCING_TRADES
+    assert run.used_cached_allocation is False
     # Chart picker has been removed from the service (Plan 2 Task 8); the engine
     # response is now passed through to the brain for central chart selection.
     assert outcome.response is not None
