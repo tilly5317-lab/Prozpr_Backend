@@ -20,6 +20,8 @@ from app.schemas.auth import (
     CurrentUserResponse,
     LoginRequest,
     LoginResponse,
+    MobileLookupRequest,
+    MobileStatusResponse,
     SignUpRequest,
     SignUpResponse,
     UserUpdateRequest,
@@ -67,6 +69,19 @@ async def _save_inline_onboarding_profile(
 
     for field, value in inline_data.items():
         setattr(profile, field, value)
+
+
+@router.post("/check-mobile", response_model=MobileStatusResponse)
+async def check_mobile(payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)):
+    phone = full_phone(payload.country_code, payload.mobile)
+    result = await db.execute(select(User).where(User.phone == phone))
+    user = result.scalar_one_or_none()
+    if not user:
+        return MobileStatusResponse(exists=False, is_onboarding_complete=False)
+    return MobileStatusResponse(
+        exists=True,
+        is_onboarding_complete=user.is_onboarding_complete,
+    )
 
 
 @router.post("/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED)
