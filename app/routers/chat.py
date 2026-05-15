@@ -6,7 +6,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -183,6 +183,11 @@ async def send_message(
         )
     )
 
+    # Re-add user message in case the brain rolled back the transaction.
+    insp = sa_inspect(user_msg)
+    if insp.detached or insp.transient:
+        db.add(user_msg)
+
     # Persist assistant reply.
     assistant_msg = ChatMessage(
         session_id=session_id,
@@ -204,7 +209,7 @@ async def send_message(
     return ChatSendMessageResponse(
         user_message=ChatMessageResponse.model_validate(user_msg),
         assistant_message=assistant_response,
-        goal_allocation_run_id=brain_result.goal_allocation_run_id,
+        asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
     )
 

@@ -2,7 +2,8 @@
 
 Scope (per plan §Task 12 fallback): integration-flavour. We bypass the LLM
 classifier and call ``dispatch_chat('rebalancing', ...)`` directly after
-seeding all the rows the service needs to short-circuit on the cache hit.
+seeding MF rows and NAVs so ``compute_rebalancing_result`` can run allocation
+then the rebalancing engine without LLM classification.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ async def test_rebalancing_chat_dispatch_returns_sectioned_markdown(
         result = await dispatch_chat("rebalancing", ctx)
 
     text_lower = result.text.lower()
-    # Cache hit → soft lead line is omitted.
+    # Formatter mock reply should not accidentally echo internal-only phrasing.
     assert "asset mix" not in text_lower
     # Closing line is always present.
     assert "sanity check" in text_lower

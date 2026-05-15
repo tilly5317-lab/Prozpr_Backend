@@ -29,6 +29,6 @@ class GoalStatus(str, enum.Enum):
 
 
 class GoalPriority(str, enum.Enum):
-    PRIMARY = "PRIMARY"
+    HIGH = "HIGH"
     MEDIUM = "MEDIUM"
-    SECONDARY = "SECONDARY"
+    LOW = "LOW"

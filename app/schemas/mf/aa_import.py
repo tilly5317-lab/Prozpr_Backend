@@ -74,6 +74,7 @@ class MfAaImportResponse(BaseModel):
     mobile: Optional[str]
     from_date: Optional[str]
     to_date: Optional[str]
+    cas_type: Optional[str] = None
     req_id: Optional[str]
     investor_first_name: Optional[str]
     investor_middle_name: Optional[str]

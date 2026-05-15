@@ -18,7 +18,7 @@ by `app/main.py`.
 - `profile.py` — `/profile` full CompleteProfile read/update.
 - `goals.py` — `/goals` goals, contributions, holdings.
 - `portfolio.py` — `/portfolio` primary portfolio, allocations, holdings,
-  history, Finvu ingest.
+  history. (`/portfolio/finvu/sync` is deprecated — Finvu is sidelined.)
 - `chat.py` — `/chat` sessions, messages, uploads; send delegates to ChatBrain.
 - `meeting_notes.py` — notes creation and retrieval.
 - `notifications.py` — alert delivery endpoints.
@@ -28,7 +28,8 @@ by `app/main.py`.
 - `linked_accounts.py` — linked-account management.
 - `family.py` — family linking; `X-Family-Member-Id` header to act as member.
 - `simbanks.py` — SimBanks ConnectHub sync → portfolio + MF.
-- `mf_ingest.py` — mutual-fund data ingestion routes.
+- `mf_ingest.py` — mutual-fund data ingestion routes: CAMS/KFintech CAS PDF
+  upload (`POST /mf-ingest/cams-pdf`), AA-import normalization, mfapi.in refresh.
 - `__init__.py` — assembles `all_routers`.
 
 ## Don't read

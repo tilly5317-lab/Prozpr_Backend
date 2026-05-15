@@ -283,7 +283,7 @@ class Settings:
 
     @staticmethod
     def get_anthropic_asset_allocation_key() -> str | None:
-        """Goal-based allocation (``asset_allocation_pydantic`` 7-step pipeline via ``asset_allocation_service``)."""
+        """Anthropic key reserved for the goal-based allocation chat path (bridge is stubbed until the new engine ships)."""
         return Settings._anthropic_key(
             "ASSET_ALLOCATION_API_KEY",
             "PORTFOLIO_QUERY_API_KEY",
@@ -312,6 +312,8 @@ class Settings:
         """
         raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
         return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
     def get_anthropic_rebalancing_key() -> str | None:
         """Rebalancing chat classifier + chart picker (mutual-fund rebalancing flow)."""
         return Settings._anthropic_key("REBALANCING_API_KEY", "ANTHROPIC_API_KEY")
