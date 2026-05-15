@@ -1,4 +1,4 @@
-# Deploy backend on the server over SSH: git pull, venv + pip, pm2 restart.
+# Deploy backend on the server over SSH: git pull, venv + pip, pm2 start or restart.
 # No Docker — app runs via pm2 + Python venv on the host.
 #
 # GitHub Secrets (repository or "production" environment):
@@ -7,12 +7,12 @@
 #
 # Optional repository variable:
 #   SSH_PORT          — SSH port if not 22 (e.g. 2222)
+#   DEPLOY_BRANCH     — git branch to deploy (default: main)
 #
 # Server layout (adjust paths in the script below if yours differ):
 #   ~/Prozpr_Backend  — git clone, with venv/ and pm2 managing the app
 #
-# If nginx proxies /api/ and you still see CORS on OPTIONS while uvicorn is down, merge
-# deploy/nginx-api-location.conf.sample into your site config (see comments in that file).
+# PM2 app name: prozpr_backend (see ecosystem.config.cjs)
 
 name: Deploy
 
@@ -63,17 +63,47 @@ jobs:
           fi
 
       - uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH || 'main' }}
         with:
           host: ${{ secrets.HOST || secrets.EC2_HOST }}
           username: ${{ secrets.USERNAME || secrets.EC2_USER }}
           key: ${{ secrets.KEY || secrets.EC2_SSH_PRIVATE_KEY }}
           port: ${{ vars.SSH_PORT != '' && vars.SSH_PORT || 22 }}
+          timeout: 120s
+          command_timeout: 30m
           script_stop: true
+          envs: DEPLOY_BRANCH
           script: |
             set -euo pipefail
-            cd ~/Prozpr_Backend
-            git fetch --all
-            git reset --hard origin/main
+            APP_DIR="${HOME}/Prozpr_Backend"
+            APP_NAME="prozpr_backend"
+
+            cd "${APP_DIR}"
+
+            git fetch --all --prune
+            git reset --hard "origin/${DEPLOY_BRANCH}"
+
+            if [ ! -d venv ]; then
+              python3 -m venv venv
+            fi
+            # shellcheck disable=SC1091
             source venv/bin/activate
+            python -m pip install --upgrade pip
             pip install -r requirements.txt
-            pm2 restart all --update-env
+
+            if ! command -v pm2 >/dev/null 2>&1; then
+              echo "pm2 not found; install with: npm install -g pm2"
+              exit 1
+            fi
+
+            if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then
+              echo "PM2 process '${APP_NAME}' exists — reloading with updated code and env"
+              pm2 reload ecosystem.config.cjs --only "${APP_NAME}" --update-env
+            else
+              echo "PM2 process '${APP_NAME}' not found — starting fresh via ecosystem.config.cjs"
+              pm2 start ecosystem.config.cjs --only "${APP_NAME}"
+            fi
+
+            pm2 save
+            pm2 status "${APP_NAME}"
