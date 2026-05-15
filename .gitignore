@@ -91,3 +91,6 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
+
+# Dev-only scripts (seed helpers, one-offs) — keep local, do not push
+scripts/
