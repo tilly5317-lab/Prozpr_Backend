@@ -48,8 +48,10 @@ _INFLOW_TYPES: frozenset[MfTransactionType] = frozenset(
 _DEFAULT_NAV_LOOKBACK_DAYS = 365 * 10
 _NAV_ROW_CAP = 8000  # safety cap on the series returned in one call
 # If our stored NAV history for a scheme doesn't reach within this many days of today,
-# treat it as "missing recent data" and trigger a full backfill from mfapi.in.
-_RECENT_NAV_MAX_AGE_DAYS = 7
+# treat it as "missing recent data" and trigger a refresh from mfapi.in.
+# Set to 1 so the page always shows the latest available NAV (published by AMFI
+# the previous evening) even before the 00:05 IST daily scheduler runs.
+_RECENT_NAV_MAX_AGE_DAYS = 1
 # A fund with real history should have hundreds of rows; fewer than this means
 # a previous fetch was partial and we should re-fetch.
 _MIN_NAV_ROWS_FOR_CHART = 180
@@ -324,9 +326,9 @@ async def build_holding_detail(
     latest = await _latest_nav(db, scheme_code)
     nav_rows, truncated = await _nav_series(db, scheme_code, date_from=d_from, date_to=d_to)
 
-    # Backfill from mfapi.in when the stored NAV history is absent, too thin for
-    # a meaningful chart, or stale (newest point older than ~a week).  This pulls the
-    # fund's entire NAV series from inception so the chart works from the first visit.
+    # Refresh from mfapi.in when NAV history is absent, too thin for a chart,
+    # or stale (newest point older than 1 day).  On first visit this pulls the
+    # full series from inception; on subsequent visits only the delta is inserted.
     recent_cutoff = today - timedelta(days=_RECENT_NAV_MAX_AGE_DAYS)
     needs_nav_backfill = (
         latest is None
