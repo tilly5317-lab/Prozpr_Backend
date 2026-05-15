@@ -31,7 +31,15 @@ def _age_from_dob(dob: date) -> int:
 
 
 def _effective_risk_score(user: Any) -> float:
-    """Latest effective risk score, falling back to 7.0."""
+    """Latest effective risk score, falling back to 7.0.
+
+    Checks for a transient ``_chat_risk_score_override`` attribute first,
+    set by the rebalancing counterfactual-explore flow when the customer
+    asks "what if my risk score were X?".
+    """
+    override = getattr(user, "_chat_risk_score_override", None)
+    if override is not None:
+        return float(override)
     era = getattr(user, "effective_risk_assessment", None)
     if era is not None:
         score = getattr(era, "effective_risk_score", None)

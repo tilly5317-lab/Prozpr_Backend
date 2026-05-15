@@ -63,6 +63,9 @@ _REBAL_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
     # allocation that rebalancing then runs against. See
     # asset_allocation/input_builder.py for the read site.
     "additional_cash_inr":       "_chat_additional_cash_override",
+    # effective_risk_score overrides the user's risk score for AA, which
+    # changes the equity/debt/others allocation before rebalancing runs.
+    "effective_risk_score":      "_chat_risk_score_override",
 }
 
 _INVALID_OVERRIDE_TEMPLATE = (
@@ -102,6 +105,8 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   and offers the customer a chance to save; if they confirm in the next
   turn, classify that as `save_last_counterfactual`. Must specify
   `overrides`. Allowed override keys (others → redirect):
+    effective_risk_score:      number 1-10 (risk score override — re-runs allocation
+                               at this score, then rebalances against present holdings)
     effective_tax_rate:        number 0-100 (% — overrides customer's tax bracket)
     stcg_offset_budget_inr:    number ≥ 0 (₹ — STCG offset budget for this run)
     carryforward_st_loss_inr:  number ≥ 0 (₹ — short-term carryforward losses)
@@ -144,6 +149,12 @@ educate (asking what a term or mechanism MEANS in general):
 - "why does tax matter for rebalancing?"    → educate
 
 counterfactual_explore (hypothetical with at least one concrete value):
+- "what if my risk score were 9?"           → counterfactual_explore,
+                                              overrides={effective_risk_score: 9}
+- "rebalance with risk score 9"             → counterfactual_explore,
+                                              overrides={effective_risk_score: 9}
+- "increase my risk to 8 and rebalance"     → counterfactual_explore,
+                                              overrides={effective_risk_score: 8}
 - "what if my tax rate were 20%?"           → counterfactual_explore,
                                               overrides={effective_tax_rate: 20}
 - "what if I had ₹50K in carry-forward
@@ -308,12 +319,39 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
 # Public handler
 # ---------------------------------------------------------------------------
 
+def _extract_first_turn_overrides(question: str) -> dict[str, Any] | None:
+    """Best-effort regex extraction of overrides from a first-turn question.
+
+    Returns a dict of overrides if a supported override value is found,
+    or None if the question looks like a plain rebalancing request.
+    Only extracts overrides that affect the allocation engine (risk score,
+    additional cash) since those are the ones that matter on a fresh run.
+    """
+    import re
+    overrides: dict[str, Any] = {}
+    q = question.lower()
+
+    risk_match = re.search(
+        r"risk\s*(?:score)?\s*(?:of|to|at|=|:)?\s*(\d+(?:\.\d+)?)", q,
+    )
+    if risk_match:
+        val = float(risk_match.group(1))
+        if 1 <= val <= 10:
+            overrides["effective_risk_score"] = val
+
+    return overrides if overrides else None
+
+
 @register("rebalancing")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     last_run = ctx.last_agent_runs.get("rebalancing")
 
     # First turn → run engine, format compute output.
     if last_run is None:
+        first_turn_overrides = _extract_first_turn_overrides(ctx.user_question)
+        if first_turn_overrides and _validate_overrides(first_turn_overrides):
+            return await _counterfactual_explore(ctx, first_turn_overrides)
+
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
@@ -466,7 +504,7 @@ async def _counterfactual_explore(
     _apply_overrides(user, overrides)
     # Allocation always re-runs in ``compute_rebalancing_result``; we still record
     # whether this explore included AA-affecting overrides for save_last flow.
-    needs_fresh_aa = "additional_cash_inr" in overrides
+    needs_fresh_aa = "additional_cash_inr" in overrides or "effective_risk_score" in overrides
     try:
         outcome = await compute_rebalancing_result(
             user=user,
