@@ -159,6 +159,36 @@ class UserUpdateRequest(BaseModel):
         return v
 
 
+class MobileLookupRequest(BaseModel):
+    country_code: str = Field(..., min_length=1, max_length=10)
+    mobile: str = Field(..., min_length=6, max_length=20)
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str) -> str:
+        normalized = _normalize_country_code(v)
+        if not normalized or not normalized.lstrip("+").isdigit():
+            raise ValueError("Invalid country code")
+        return normalized
+
+    @field_validator("mobile")
+    @classmethod
+    def validate_mobile(cls, v: str) -> str:
+        digits = _normalize_mobile(v)
+        if len(digits) < 6:
+            raise ValueError("Mobile number too short")
+        return digits
+
+
+class MobileStatusResponse(BaseModel):
+    exists: bool
+    is_onboarding_complete: bool = False
+
+
+# Backward-compatible alias
+MobileExistsResponse = MobileStatusResponse
+
+
 # ── OTP schemas ───────────────────────────────────────────
 
 
