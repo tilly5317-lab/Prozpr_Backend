@@ -104,8 +104,8 @@ def test_handle_returns_blocking_message(monkeypatch):
 
 
 def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
-    """The handler passes the engine response as rebalancing_response so the
-    brain's central chart selector can build payloads without re-running the engine.
+    """The handler passes the engine response as rebalancing_response so
+    downstream consumers can build payloads without re-running the engine.
     """
     from app.services.ai_bridge.rebalancing import chat as rb_chat
     from app.services.ai_bridge.rebalancing.service import RebalancingRunOutcome

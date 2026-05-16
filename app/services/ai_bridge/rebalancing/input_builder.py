@@ -7,12 +7,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf.mf_fund_metadata import MfFundMetadata
-from app.models.mf.mf_nav_history import MfNavHistory
 from app.models.profile.tax_profile import TaxProfile
 from app.services.ai_bridge.common import ensure_ai_agents_path
+from app.services.ai_bridge.rebalancing import _disk_cache
+from app.services.ai_bridge.rebalancing._disk_cache import CsvFundMetadata
 from app.services.ai_bridge.rebalancing.overrides import effective_param
 
 if TYPE_CHECKING:
@@ -49,34 +48,16 @@ class _Unpriceable(Exception):
     """Raised when a recommended ISIN has no NAV available."""
 
 
-async def _latest_nav_by_isin(
-    db: AsyncSession, isins: set[str],
-) -> dict[str, Decimal]:
-    if not isins:
-        return {}
-    rows = (await db.execute(
-        select(MfNavHistory.isin, MfNavHistory.nav, MfNavHistory.nav_date)
-        .where(MfNavHistory.isin.in_(isins))
-        .order_by(MfNavHistory.isin, MfNavHistory.nav_date.desc())
-    )).all()
-    out: dict[str, Decimal] = {}
-    for isin, nav, _date in rows:
-        out.setdefault(isin, Decimal(str(nav)))
-    return out
+# TODO(DB-backed): NAV + metadata are read from local CSV files via ``_disk_cache``.
+# Replace these thin wrappers with the DB queries that used to live here (against
+# ``mf_nav_history`` / ``mf_fund_metadata``) once those tables are kept fresh in
+# prod by ``app.services.mf.mfapi_ingest``.
+def _latest_nav_by_isin(isins: set[str]) -> dict[str, Decimal]:
+    return _disk_cache.latest_nav_by_isin(isins)
 
 
-async def _metadata_by_isin(
-    db: AsyncSession, isins: set[str],
-) -> dict[str, MfFundMetadata]:
-    if not isins:
-        return {}
-    rows = (await db.execute(
-        select(MfFundMetadata, MfNavHistory.isin)
-        .join(MfNavHistory, MfNavHistory.scheme_code == MfFundMetadata.scheme_code)
-        .where(MfNavHistory.isin.in_(isins))
-        .distinct()
-    )).all()
-    return {isin: meta for meta, isin in rows}
+def _metadata_by_isin(isins: set[str]) -> dict[str, CsvFundMetadata]:
+    return _disk_cache.metadata_by_isin(isins)
 
 
 def _resolve_tax_inputs(tax_profile: Optional[TaxProfile]) -> dict[str, Any]:
@@ -200,8 +181,8 @@ async def build_rebalancing_input_for_user(
     # 4. Bulk-fetch NAV + metadata for everything we need.
     held_isins = set(held_by_isin)
     all_isins = recommended_isins | held_isins
-    nav_by_isin = await _latest_nav_by_isin(db, all_isins)
-    meta_by_isin = await _metadata_by_isin(db, all_isins)
+    nav_by_isin = _latest_nav_by_isin(all_isins)
+    meta_by_isin = _metadata_by_isin(all_isins)
 
     rows: list[FundRowInput] = []
     seen_isins: set[str] = set()

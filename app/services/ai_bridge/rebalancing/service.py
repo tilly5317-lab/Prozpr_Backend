@@ -178,6 +178,18 @@ def build_rebal_facts_pack(
         "tax_impact_inr":      <float>, "tax_impact_indian":      <str>,
         "trade_count":         int,
 
+        # Tax rules actually used by the engine for the LTCG / STCG figures
+        # above. Surfaced so the formatter cites real rates rather than
+        # priors from training data (pre-2024 LTCG was 10% / ₹1 lakh, now
+        # 12.5% / ₹1.25 lakh). Omitted only if metadata is unavailable.
+        "tax_rules": {
+            "ltcg_rate_equity_pct":          <float>,   # e.g. 12.5
+            "stcg_rate_equity_pct":          <float>,   # e.g. 20.0
+            "ltcg_annual_exemption_inr":     <float>,
+            "ltcg_annual_exemption_indian":  <str>,     # e.g. "₹1.25 lakh"
+            "equity_long_term_threshold_months": <int>, # e.g. 12
+        },
+
         # High-level asset-class summary, derived from per-bucket asset_subgroup.
         "asset_class_mix_pct":    {"equity": <float>, "debt": <float>, "others": <float>},
         "asset_class_mix_inr":    {"equity": <float>, "debt": <float>, "others": <float>},
@@ -358,6 +370,23 @@ def build_rebal_facts_pack(
         fa["planned_final_indian"] = format_inr_indian(fa["planned_final_inr"])
     more_holdings_count = max(0, len(fund_actions_all) - FUND_ACTIONS_LIMIT)
 
+    # Surface the actual tax rates / exemption the engine used, so the formatter
+    # can cite them instead of falling back on training-data priors (Haiku tends
+    # to narrate the pre-July-2024 10% LTCG + ₹1 lakh exemption otherwise).
+    knob = getattr(getattr(response, "metadata", None), "knob_snapshot", None)
+    tax_rules: Optional[dict[str, Any]] = None
+    if knob is not None:
+        ltcg_exemption_inr = float(getattr(knob, "ltcg_annual_exemption_inr", 0) or 0)
+        tax_rules = {
+            "ltcg_rate_equity_pct": float(getattr(knob, "ltcg_rate_equity_pct", 0) or 0),
+            "stcg_rate_equity_pct": float(getattr(knob, "stcg_rate_equity_pct", 0) or 0),
+            "ltcg_annual_exemption_inr": ltcg_exemption_inr,
+            "ltcg_annual_exemption_indian": format_inr_indian(ltcg_exemption_inr),
+            "equity_long_term_threshold_months": int(
+                getattr(knob, "st_threshold_months_equity", 0) or 0
+            ),
+        }
+
     pack: dict[str, Any] = {
         "total_portfolio_inr": total_portfolio,
         "total_portfolio_indian": format_inr_indian(total_portfolio),
@@ -378,6 +407,8 @@ def build_rebal_facts_pack(
         "warnings": warnings,
         "fund_actions": fund_actions,
     }
+    if tax_rules is not None:
+        pack["tax_rules"] = tax_rules
     if more_holdings_count > 0:
         pack["more_holdings_count"] = more_holdings_count
     if goal_buckets:

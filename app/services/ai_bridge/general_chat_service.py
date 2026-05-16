@@ -240,6 +240,12 @@ async def generate_general_chat_response(
     if classification.intent == Intent.OUT_OF_SCOPE:
         return _oos_reply(classification)
 
+    # Stock-advice: return the classifier's canned redirect (we do not give
+    # individual-stock calls). Falling through to the LLM produces valuation
+    # reads that read as soft recommendations.
+    if classification.intent == Intent.STOCK_ADVICE and classification.out_of_scope_message:
+        return classification.out_of_scope_message
+
     api_key = get_settings().get_anthropic_general_chat_key()
     if not api_key:
         return (
