@@ -54,7 +54,7 @@ def test_facts_pack_contains_expected_top_level_keys(sample_output):
     pack = build_aa_facts_pack(sample_output)
     assert "risk_score" in pack
     assert "total_corpus_inr" in pack
-    assert "asset_class_mix_pct" in pack
+    assert "recommended_mix_pct" in pack
     assert "by_horizon" in pack
     assert "goals" in pack
 

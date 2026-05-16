@@ -1,0 +1,690 @@
+<!doctype html>
+<!--
+  Cashflow Statement — Engine Output Viewer
+  =========================================
+  Static, generic viewer. Reads its data from dev_artifacts/data.js (which sets
+  window.__DATA__ to the JSON payload that dev_run.py produced).
+
+  To regenerate the data:
+    cd AI_Agents/src && python -m cashflow_statement.dev_run
+
+  Then double-click this file to view. data.js is loaded relatively, so the file
+  layout must stay: viewer.html and dev_artifacts/data.js as siblings.
+
+  How rendering works:
+    - SECTIONS (below in <script>) lists the top-level JSON keys to render as tabs.
+    - For each section, render() picks an HTML shape based on the value's type:
+        plain object  -> key/value table
+        array of objs -> rows table (columns inferred from keys present)
+        array of prims-> bullet list
+        primitive     -> inline text
+    - If a key in SECTIONS is missing from the JSON, the panel says "no data".
+
+  Add a new tab: add an entry to SECTIONS — that's it. The generic renderer
+  picks up whatever shape the engine produces for that key.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cashflow Statement — Engine Output</title>
+  <style>
+    /* ----- Category palette ----------------------------------------------
+       Three buckets, each with a light bg / saturated active bg / accent border
+       color. Tabs and description callouts pick their colors from these vars.
+    */
+    :root {
+      --input-bg: #eff6ff;   --input-bg-active: #dbeafe;  --input-accent: #3b82f6;  --input-border: #93c5fd;  --input-ink: #1e3a8a;
+      --work-bg:  #fffbeb;   --work-bg-active:  #fef3c7;  --work-accent:  #d97706;  --work-border:  #fcd34d;  --work-ink:  #78350f;
+      --output-bg:#f0fdf4;   --output-bg-active:#d1fae5;  --output-accent:#059669;  --output-border:#86efac;  --output-ink:#064e3b;
+      --ink: #1f2937;
+      --muted: #6b7280;
+    }
+
+    /* ----- Layout --------------------------------------------------------- */
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           max-width: 1500px; margin: 0 auto; padding: 1.5em; color: var(--ink);
+           background: #fafbfc; }
+
+    /* ----- Header --------------------------------------------------------- */
+    header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+             color: #fff; padding: 1.1em 1.5em; margin: -1.5em -1.5em 1.2em;
+             border-bottom: 4px solid #475569; }
+    header h1 { margin: 0 0 0.2em; font-size: 1.4em; font-weight: 600; }
+    header p { color: #cbd5e1; margin: 0; font-size: 0.85em;
+               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    header .legend { margin-top: 0.7em; display: flex; flex-wrap: wrap;
+                      gap: 1.2em; font-size: 0.78em; }
+    header .legend .item { display: inline-flex; align-items: center; gap: 0.4em;
+                            color: #e5e7eb; }
+    header .legend .dot { width: 0.7em; height: 0.7em; border-radius: 50%;
+                          display: inline-block; }
+    header .legend .dot.input  { background: var(--input-accent); }
+    header .legend .dot.work   { background: var(--work-accent); }
+    header .legend .dot.output { background: var(--output-accent); }
+
+    /* ----- Tab nav (color-coded by category) ----------------------------- */
+    nav { display: flex; flex-wrap: wrap; gap: 4px;
+          border-bottom: 2px solid #d1d5db; margin-bottom: 1em; }
+    .tab { padding: 0.5em 1em; border: 1px solid; border-bottom: none;
+           cursor: pointer; font-size: 0.85em; font-weight: 500;
+           border-radius: 5px 5px 0 0; transition: filter 0.1s ease; }
+    .tab.input  { background: var(--input-bg);  border-color: var(--input-border);  color: var(--input-ink); }
+    .tab.work   { background: var(--work-bg);   border-color: var(--work-border);   color: var(--work-ink); }
+    .tab.output { background: var(--output-bg); border-color: var(--output-border); color: var(--output-ink); }
+    .tab:hover { filter: brightness(0.96); }
+    .tab.active { font-weight: 700; position: relative; }
+    .tab.input.active  { background: var(--input-bg-active);  border-bottom: 2px solid var(--input-bg-active); margin-bottom: -2px; }
+    .tab.work.active   { background: var(--work-bg-active);   border-bottom: 2px solid var(--work-bg-active);  margin-bottom: -2px; }
+    .tab.output.active { background: var(--output-bg-active); border-bottom: 2px solid var(--output-bg-active);margin-bottom: -2px; }
+
+    /* ----- Panels --------------------------------------------------------- */
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .panel h2 { margin-top: 0; font-size: 1.3em; }
+    .panel.input  h2 { color: var(--input-ink); }
+    .panel.work   h2 { color: var(--work-ink); }
+    .panel.output h2 { color: var(--output-ink); }
+
+    /* Description callout — left border matches the section's category. */
+    .desc { font-size: 0.9em; margin: 0 0 1.2em; padding: 0.7em 1em;
+            border-radius: 0 4px 4px 0; line-height: 1.55; }
+    .desc.input  { background: var(--input-bg);  border-left: 4px solid var(--input-accent); }
+    .desc.work   { background: var(--work-bg);   border-left: 4px solid var(--work-accent); }
+    .desc.output { background: var(--output-bg); border-left: 4px solid var(--output-accent); }
+    .desc code { background: rgba(0,0,0,0.05); padding: 1px 5px; border-radius: 3px;
+                  font-size: 0.85em;
+                  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .desc small { color: var(--muted); }
+    .desc b { color: var(--ink); }
+
+    /* ----- Tables --------------------------------------------------------- */
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1em;
+            font-size: 0.85em; background: #fff;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04); border-radius: 4px; overflow: hidden; }
+    th, td { padding: 0.4em 0.7em; border-bottom: 1px solid #f0f0f0;
+             text-align: left; vertical-align: top; }
+    th { background: #f9fafb; font-weight: 600; color: #374151;
+         text-transform: uppercase; font-size: 0.75em; letter-spacing: 0.03em; }
+    td.num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+             text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    table.kv th { width: 30%; }
+    table.rows td { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                     font-size: 0.82em; }
+    /* Long row-tables (e.g. Monthly View) get their own scroll container so
+       only the table body scrolls — header, tabs, panel title and description
+       stay put. The thead is sticky within that container. */
+    .rows-scroll { max-height: calc(100vh - 260px); overflow: auto;
+                    margin-bottom: 1em; border-radius: 4px;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    .rows-scroll table.rows { margin-bottom: 0; box-shadow: none;
+                              overflow: visible; }
+    table.rows thead th { position: sticky; top: 0; z-index: 2;
+                          background: #f9fafb;
+                          box-shadow: inset 0 -1px 0 #e5e7eb; }
+    tr:nth-child(even) td { background: #fafafa; }
+    tr:hover td { background: #fbfbfd; }
+    tr:nth-child(even):hover td { background: #f3f4f6; }
+
+    /* Negative numbers — subtle red so big shortfalls jump out. */
+    .neg { color: #dc2626; }
+
+    /* Nested object/array inside a kv-table value cell. */
+    .nested { padding-left: 0.8em; border-left: 2px solid #e5e7eb; margin: 0.2em 0; }
+    .nested table { margin: 0.3em 0; box-shadow: none; }
+
+    .empty { color: var(--muted); font-style: italic; }
+
+    /* Subheading inside a panel (used by Fund Flow Summary to label the two
+       stacked kv-tables). */
+    .subhead { margin: 1.2em 0 0.4em; font-size: 1em; font-weight: 600;
+               color: var(--ink); }
+    .subhead:first-child { margin-top: 0; }
+
+    /* ----- Summary tab ---------------------------------------------------- */
+    .summary-block { background: #fff; padding: 0.9em 1.1em; border-radius: 4px;
+                     box-shadow: 0 1px 2px rgba(0,0,0,0.04); margin-bottom: 0.9em;
+                     line-height: 1.55; font-size: 0.92em; }
+    .summary-block .label { font-size: 0.72em; text-transform: uppercase;
+                            letter-spacing: 0.05em; color: var(--muted);
+                            font-weight: 600; margin-bottom: 0.3em; }
+    .summary-block ul { margin: 0.3em 0 0; padding-left: 1.4em; }
+    .summary-block li { margin: 0.2em 0; }
+    .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 10px;
+             font-size: 0.7em; font-weight: 700; text-transform: uppercase;
+             letter-spacing: 0.04em; margin-right: 0.5em; vertical-align: middle; }
+    .badge.funded { background: #d1fae5; color: #064e3b; }
+    .badge.partially_funded { background: #fef3c7; color: #78350f; }
+    .badge.unfunded { background: #fee2e2; color: #991b1b; }
+    .goal-row { padding: 0.55em 0; border-bottom: 1px solid #f0f0f0; }
+    .goal-row:last-child { border-bottom: none; }
+    .goal-name { font-weight: 600; }
+    .goal-amt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                color: var(--ink); margin-left: 0.4em; }
+    .goal-note { color: var(--muted); font-size: 0.88em; margin-top: 0.2em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Cashflow Statement — Engine Output</h1>
+    <p id="meta">Loading…</p>
+    <div class="legend">
+      <span class="item"><span class="dot input"></span>Input — what you gave the engine</span>
+      <span class="item"><span class="dot work"></span>Calculation — engine working data</span>
+      <span class="item"><span class="dot output"></span>Output — final results</span>
+    </div>
+    <div style="margin-top: 0.8em; display: flex; align-items: center; gap: 0.6em;">
+      <label for="profileSelect" style="color:#e5e7eb; font-size:0.85em;">Profile:</label>
+      <select id="profileSelect" style="padding: 0.35em 0.6em; border-radius: 4px;
+        border: 1px solid #475569; background: #1e293b; color: #f1f5f9; font-size: 0.85em;"></select>
+    </div>
+  </header>
+  <nav id="tabs"></nav>
+  <main id="panels"></main>
+
+  <!--
+    data.js sets window.__DATA__ to the JSON payload from dev_run.py.
+    If the file is missing, the page renders a clear error so debugging is easy.
+  -->
+  <script src="dev_artifacts/data.js"></script>
+  <script>
+    // ----- Section list ---------------------------------------------------
+    // Each entry: [json_key, tab_title, category, html_description].
+    //   category ∈ {"input", "work", "output"} — drives the tab + panel color.
+    //     - input  (blue):   what the user gave the engine
+    //     - work   (amber):  intermediate computations (cashflows, amortization)
+    //     - output (green):  final answers (status, summaries, warnings)
+    // The "input" tab is the input echo, kept first for debugging.
+    // Descriptions render as the blurb above each table — keep them informative
+    // enough that someone with no engine context can tell what they're looking at.
+    const SECTIONS = [
+      ["summary", "Summary (LLM)", "output", `
+        <b>What this is:</b> Claude Haiku's narrative read of the engine output
+        (<code>PlanSummary</code>). All rupee values were pre-formatted in
+        Indian notation before being shown to the LLM, so the strings here
+        are quote-able as-is.
+        <br><b>Generated when:</b> <code>ANTHROPIC_API_KEY</code> was set
+        during <code>dev_run.py</code>. If absent, this tab will be empty.`],
+
+      ["input", "Input (debug)", "input", `
+        <b>What this is:</b> verbatim echo of the <code>GoalPlanningInput</code>
+        that was fed to the engine. Useful for debugging — if a number downstream
+        looks wrong, start here and confirm the input matches your expectation.
+        <br><b>Nested structure:</b> client profile, retirement input, assumptions
+        (inflation + ROI rates), current properties, goal properties, custom goals,
+        one-off inflows/outflows, and detail level.`],
+
+      ["headline", "Headline", "output", `
+        <b>What this is:</b> top-line dashboard (<code>HeadlineStatus</code>).
+        Tells you horizon, goal count, corpus today, closing corpus, and total
+        shortfall in one glance.
+        <br><b>How to read it:</b> closing corpus &ge; 0 and total shortfall = 0
+        means the plan funds itself. A negative closing corpus matches the
+        total shortfall (FV) — that's the gap to close.`],
+
+      ["retirement", "Retirement", "work", `
+        <b>What this is:</b> retirement snapshot (<code>RetirementSnapshot</code>) —
+        when the user retires, what corpus is required at retirement date,
+        and the real ROI used for drawdown.
+        <br><b>Note:</b> the retirement goal itself is also listed in the
+        <i>Goals</i> tab; this tab is the underlying computation.`],
+
+      ["goal_property_details", "Goal Properties", "work", `
+        <b>What this is:</b> per-property goal details — target value (PV vs
+        future rupees), downpayment, mortgage amount/tenure/interest, monthly
+        EMI, total interest, and payoff date.
+        <br><b>How to read it:</b> if <code>is_downpayment_only=Yes</code>,
+        the engine assumes a mortgage covers the rest; otherwise it's a cash
+        purchase and <code>mortgage_amount</code> will be 0.`],
+
+      ["goals", "Goals", "output", `
+        <b>What this is:</b> per-goal funding outcome (<code>GoalFundingStatus</code>).
+        Each row shows the goal's PV/FV amounts, the corpus required today
+        (<code>investment_required_pv</code>), how much got funded, and any
+        <code>shortfall_fv</code> (gap at goal date, in FV ₹). Matches the
+        Excel view — no per-goal PV shortfall is published; see the
+        <i>Fund Flow Summary</i> tab for the today's-₹ gap (<code>surplus_or_shortfall_today</code>).
+        <br><b>How it's computed:</b> the funding stage walks the monthly
+        cashflow with a single shared corpus pool. When an outflow month can't
+        cover everything, the shortfall is split proportionally across that
+        month's outflows.`],
+
+      ["one_off_events", "One-off Events", "output", `
+        <b>What this is:</b> all one-off events in one chronological view —
+        inflows (bonuses, asset sales, &hellip;) and outflows (medical, big
+        purchases, &hellip;) merged into one table sorted by date. The
+        <code>direction</code> column distinguishes the two.
+        <br><b>Inflow rows</b> show description / date / amount only. Inflows
+        always land in corpus in their event month — no funding shortfall analysis
+        is needed.
+        <br><b>Outflow rows</b> additionally show <code>funded_amount</code>,
+        <code>shortfall</code>, and <code>is_funded</code> — the funding stage's
+        proportional-shortfall split (see <i>Goals</i> tab) attributes any
+        shortfall back to specific events here.`],
+
+      ["annual_cashflow", "Annual Cashflow", "work", `
+        <b>What this is:</b> per-FY rollup of the Monthly View. Two halves
+        in one row: <b>P&amp;L</b> (income / tax / expense / savings_pre_emi / EMI /
+        savings_post_emi / one_off_inflow / one_off_outflow) and <b>corpus evolution</b>
+        (corpus_opening / monthly_investment / roi / goal_payout / corpus_closing /
+        is_funded).
+        <br><b>How it's computed:</b> <code>derive_annual_cashflow</code> in
+        <code>engine/cashflow.py</code> aggregates the funding-enriched
+        <code>monthly_cashflow</code> per <code>fy_label</code>:
+        <br>&nbsp;&nbsp;&bull; P&amp;L columns and monthly_investment / roi /
+        goal_payout are pure sums
+        <br>&nbsp;&nbsp;&bull; <code>corpus_opening</code> is the FY's first month's
+        opening, <code>corpus_closing</code> is the FY's last month's closing
+        <br>&nbsp;&nbsp;&bull; <code>is_funded</code> is True only if every
+        month in the FY was funded
+        <br><b>Per-row reconciliation:</b>
+        <code>corpus_closing = corpus_opening + monthly_investment + roi + one_off_inflow
+        − goal_payout − one_off_outflow</code>.`],
+
+      ["monthly_cashflow", "Monthly View", "work", `
+        <b>What this is:</b> the canonical per-month view, combining household
+        P&amp;L (income / tax / expense / savings / EMI / one-offs) and corpus
+        balance evolution (open / SIP-or-withdrawal / ROI / goal outflow /
+        close / is_funded) in a single row.
+        <br><b>P&amp;L columns:</b> income/tax/expense are constant within a FY
+        (annualised value &divide; 12); EMI fields are the FY total spread
+        evenly across the FY's months for display (per-month distribution is
+        uniform; FY total is exact). <code>one_off_inflow</code> / <code>one_off_outflow</code>
+        land on the actual event-month row.
+        <br><b>corpus columns:</b> <code>investment_source</code> indicates
+        which M147 branch fired (<code>user_sip</code>,
+        <code>savings_sip_fraction</code>, <code>withdrawal</code>, or
+        <code>zero</code> post-retirement). <code>goal_payout</code> is
+        <i>goal payouts only</i>; one-off outflows are tracked separately on
+        <code>one_off_outflow</code> — sum the two to get total monthly outflow.
+        <br><b>Per-row reconciliation:</b>
+        <code>corpus_closing = corpus_opening + monthly_investment + roi + one_off_inflow
+        − goal_payout − one_off_outflow</code>. <code>is_funded</code>=No means
+        outflows exceeded available cash that month — the shortfall is recorded
+        against the affected goal/event in <i>Goals</i> and <i>One-off Outflows</i>.`],
+
+      ["fund_flow_summary", "Fund Flow Summary", "output", `
+        <b>Mini fund flow statement:</b> the full bridge from opening to
+        closing corpus over the projection horizon. <code>FundFlowSummary</code>
+        supplies corpus_opening, total_investments (signed — negative = net
+        withdrawal), total_roi, corpus_closing; one-off and goal totals are
+        summed from <code>annual_cashflow</code>.
+        <br><b>Reconciliation:</b>
+        corpus_opening + total_investments + total_roi + total_one_off_in
+        − total_one_off_out − total_goal_outflow = corpus_closing.
+        <br><b>Goal funding status:</b> the present-value view from
+        <code>HeadlineStatus</code> — corpus today, the PV corpus required for
+        all goals today, and surplus_or_shortfall_today (= corpus today − PV of goals).`],
+
+      ["warnings", "Warnings", "output", `
+        <b>What this is:</b> non-fatal warnings collected by the engine during
+        the run (e.g. horizon capped, missing optional data substituted with a
+        default). An empty list is the happy path.`],
+    ];
+
+    // ----- Value renderers ------------------------------------------------
+    // ----- Indian number formatting --------------------------------------
+    // indianCommas: e.g., 1234567 → "12,34,567" (last 3 digits, then groups of 2).
+    // Only called for integers under 1 lakh (otherwise we use lakh/crore notation),
+    // but the function is general — works for any non-negative integer.
+    function indianCommas(n) {
+      const s = Math.abs(Math.round(n)).toString();
+      if (s.length <= 3) return s;
+      const last3 = s.slice(-3);
+      const rest  = s.slice(0, -3);
+      return rest.replace(/(\d)(?=(\d{2})+$)/g, "$1,") + "," + last3;
+    }
+
+    // trimTrailingZeros: "2.50" → "2.5", "3.00" → "3" (keeps lakh/crore strings tight).
+    function trimTrailingZeros(s) { return s.replace(/\.?0+$/, ""); }
+
+    // formatPrimitive: stringify scalars in Indian conventions.
+    //   |v| ≥ 1 crore      → "₹X.XX crore"
+    //   |v| ≥ 1 lakh       → "₹X.XX lakh"
+    //   |v| ≥ 1000         → "₹X,XX,XXX"     (Indian comma grouping, money)
+    //   0 < |v| < 1        → "XX.XX%"        (treat fractions as rates)
+    //   |v| < 1000 (int)   → plain integer   (horizon years, ages, counts)
+    //   |v| < 1000 (float) → 2-decimal       (years_to_retirement etc.)
+    //   0                  → "0"
+    function formatPrimitive(v) {
+      if (v === null || v === undefined) return "";
+      if (typeof v === "boolean") return v ? "Yes" : "No";
+      if (typeof v !== "number") return String(v);
+      if (!Number.isFinite(v)) return String(v);
+      if (v === 0) return "0";
+
+      const sign = v < 0 ? "-" : "";
+      const a = Math.abs(v);
+
+      if (a >= 1_00_00_000) return `${sign}₹${trimTrailingZeros((a / 1_00_00_000).toFixed(2))} crore`;
+      if (a >= 1_00_000)    return `${sign}₹${trimTrailingZeros((a / 1_00_000).toFixed(2))} lakh`;
+      if (a >= 1000)        return `${sign}₹${indianCommas(a)}`;
+      if (a < 1)            return `${sign}${trimTrailingZeros((a * 100).toFixed(2))}%`;
+      // 1 ≤ |v| < 1000 — plain count / small float
+      return Number.isInteger(v)
+        ? v.toString()
+        : trimTrailingZeros(v.toFixed(2));
+    }
+
+    // formatCell: HTML-ready version of formatPrimitive. Wraps negative numbers
+    // in a .neg span so big shortfalls / drawdowns stand out in red.
+    function formatCell(v) {
+      const text = formatPrimitive(v);
+      const safe = escapeHtml(text);
+      if (typeof v === "number" && v < 0) return `<span class="neg">${safe}</span>`;
+      return safe;
+    }
+
+    // renderFundFlowSummary: two stacked kv-tables for the Fund Flow Summary
+    // tab. Both blocks come straight from FundFlowSummary — no derivation in
+    // the viewer. One-off and goal totals are stored as positive magnitudes,
+    // so the bridge subtracts them.
+    function renderFundFlowSummary(D) {
+      const ffs = D.fund_flow_summary || {};
+      const mini = {
+        corpus_opening: ffs.corpus_opening,
+        "+ total_investments": ffs.total_investments,
+        "+ total_roi": ffs.total_roi,
+        "+ total_one_off_in": ffs.total_one_off_in,
+        "− total_one_off_out": -ffs.total_one_off_out,
+        "− total_goals_paid": -ffs.total_goals_paid,
+        "= corpus_closing": ffs.corpus_closing,
+      };
+      const status = {
+        corpus_today: ffs.corpus_today,
+        total_corpus_required_today: ffs.total_corpus_required_today,
+        surplus_or_shortfall_today: ffs.surplus_or_shortfall_today,
+      };
+      return '<h3 class="subhead">Mini fund flow statement</h3>'
+        + renderKvTable(mini)
+        + '<h3 class="subhead">Goal funding status</h3>'
+        + renderKvTable(status);
+    }
+
+    // render: dispatches by value shape. Returns HTML string.
+    function render(v) {
+      if (v === null || v === undefined) return '<span class="empty">None</span>';
+      if (Array.isArray(v)) {
+        if (v.length === 0) return '<span class="empty">Empty</span>';
+        const first = v[0];
+        if (first && typeof first === "object" && !Array.isArray(first)) {
+          return renderRowsTable(v);
+        }
+        // array of primitives (e.g. warnings) — render as a list
+        return "<ul>" + v.map(x => `<li>${escapeHtml(formatPrimitive(x))}</li>`).join("") + "</ul>";
+      }
+      if (typeof v === "object") {
+        return renderKvTable(v);
+      }
+      return escapeHtml(formatPrimitive(v));
+    }
+
+    // renderKvTable: dict → 2-column table (key / value). Nested objects/arrays
+    // get rendered recursively inside the value cell so input echo trees show up.
+    function renderKvTable(obj) {
+      const rows = Object.entries(obj).map(([k, val]) => {
+        if (val !== null && typeof val === "object") {
+          return `<tr><th>${escapeHtml(k)}</th><td><div class="nested">${render(val)}</div></td></tr>`;
+        }
+        const cls = typeof val === "number" ? "num" : "";
+        return `<tr><th>${escapeHtml(k)}</th><td class="${cls}">${formatCell(val)}</td></tr>`;
+      }).join("");
+      return `<table class="kv">${rows}</table>`;
+    }
+
+    // renderGoalsTable: per-goal funding rows + Excel-style totals row.
+    // Totals sum the numeric financial columns; the "investment_required_pv"
+    // total equals Excel's O113 / FundFlowSummary.total_corpus_required_today.
+    // String/date/bool columns get a blank totals cell.
+    function renderGoalsTable(arr) {
+      const SUM_COLS = new Set([
+        "goal_value_pv", "goal_value_fv", "corpus_required_fv",
+        "investment_required_pv", "funded_amount", "shortfall_fv",
+      ]);
+      const cols = [];
+      const seen = new Set();
+      for (const row of arr) {
+        for (const k of Object.keys(row)) {
+          if (!seen.has(k)) { seen.add(k); cols.push(k); }
+        }
+      }
+      const totals = {};
+      for (const c of cols) {
+        if (!SUM_COLS.has(c)) continue;
+        totals[c] = arr.reduce((s, r) => s + (typeof r[c] === "number" ? r[c] : 0), 0);
+      }
+      let html = '<div class="rows-scroll"><table class="rows"><thead><tr>';
+      for (const c of cols) html += `<th>${escapeHtml(c)}</th>`;
+      html += "</tr></thead><tbody>";
+      for (const row of arr) {
+        html += "<tr>";
+        for (const c of cols) {
+          const val = row[c];
+          if (val !== null && typeof val === "object") {
+            html += `<td>${render(val)}</td>`;
+          } else if (typeof val === "number") {
+            html += `<td class="num">${formatCell(val)}</td>`;
+          } else {
+            html += `<td>${escapeHtml(formatPrimitive(val))}</td>`;
+          }
+        }
+        html += "</tr>";
+      }
+      html += "</tbody><tfoot><tr>";
+      cols.forEach((c, i) => {
+        if (i === 0) {
+          html += `<th>Total</th>`;
+        } else if (c in totals) {
+          html += `<td class="num"><b>${formatCell(totals[c])}</b></td>`;
+        } else {
+          html += `<td></td>`;
+        }
+      });
+      html += "</tr></tfoot></table></div>";
+      return html;
+    }
+
+    // renderRowsTable: list of objects → table with one row per object.
+    // Columns are the union of keys across all rows (preserves insertion order
+    // from the first row, then appends any extras).
+    function renderRowsTable(arr) {
+      const cols = [];
+      const seen = new Set();
+      for (const row of arr) {
+        for (const k of Object.keys(row)) {
+          if (!seen.has(k)) { seen.add(k); cols.push(k); }
+        }
+      }
+      let html = '<div class="rows-scroll"><table class="rows"><thead><tr>';
+      for (const c of cols) html += `<th>${escapeHtml(c)}</th>`;
+      html += "</tr></thead><tbody>";
+      for (const row of arr) {
+        html += "<tr>";
+        for (const c of cols) {
+          const val = row[c];
+          if (val !== null && typeof val === "object") {
+            html += `<td>${render(val)}</td>`;          // nested object/array
+          } else if (typeof val === "number") {
+            html += `<td class="num">${formatCell(val)}</td>`;
+          } else {
+            html += `<td>${escapeHtml(formatPrimitive(val))}</td>`;
+          }
+        }
+        html += "</tr>";
+      }
+      html += "</tbody></table></div>";
+      return html;
+    }
+
+    // ----- Summary renderer ----------------------------------------------
+    // Custom layout for the LLM PlanSummary — sections + goal bullets with
+    // verdict badges. Falls back to a friendly message if the summary is
+    // absent (dev_run.py ran without ANTHROPIC_API_KEY).
+    function renderSummary(D) {
+      if (D.summary_error) {
+        return `<p class="empty">Summary failed: ${escapeHtml(D.summary_error)}</p>`;
+      }
+      const s = D.summary;
+      if (!s) {
+        return '<p class="empty">No LLM summary. Set <code>ANTHROPIC_API_KEY</code> and re-run <code>dev_run.py</code>.</p>';
+      }
+      const goalRows = (s.goals || []).map(g => `
+        <div class="goal-row">
+          <span class="badge ${escapeHtml(g.verdict)}">${escapeHtml(g.verdict.replace("_", " "))}</span>
+          <span class="goal-name">${escapeHtml(g.name)}</span>
+          <span class="goal-amt">${escapeHtml(g.headline_amount)}</span>
+          <div class="goal-note">${escapeHtml(g.note)}</div>
+        </div>`).join("");
+      const bullets = (arr) => (arr && arr.length
+        ? `<ul>${arr.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>`
+        : '<p class="empty">None.</p>');
+      return `
+        <div class="summary-block">
+          <div class="label">Top line</div>
+          ${escapeHtml(s.top_line)}
+        </div>
+        <div class="summary-block">
+          <div class="label">Retirement</div>
+          ${escapeHtml(s.retirement_note)}
+        </div>
+        <div class="summary-block">
+          <div class="label">Cashflow</div>
+          ${escapeHtml(s.cashflow_note)}
+        </div>
+        <div class="summary-block">
+          <div class="label">Goals</div>
+          ${goalRows || '<p class="empty">No goals.</p>'}
+        </div>
+        <div class="summary-block">
+          <div class="label">Risks</div>
+          ${bullets(s.risks)}
+        </div>
+        <div class="summary-block">
+          <div class="label">Next steps</div>
+          ${bullets(s.next_steps)}
+        </div>`;
+    }
+
+    // escapeHtml: minimal HTML escape for stringified scalars. Sufficient
+    // for our trusted-input case (the engine output is structured pydantic data).
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    // ----- Wire-up --------------------------------------------------------
+    // Track active tab key across re-renders so switching profiles keeps the
+    // user on the tab they were inspecting.
+    let activeTabKey = null;
+
+    function renderProfile(D) {
+      const tabsEl = document.getElementById("tabs");
+      const panelsEl = document.getElementById("panels");
+      const metaEl = document.getElementById("meta");
+      tabsEl.innerHTML = "";
+      panelsEl.innerHTML = "";
+
+      metaEl.textContent = `Engine v${D.engine_version} · Computed at ${D.computed_at}`;
+
+      // Synthesize a combined "One-off Events" view from the two source lists.
+      // Inflows are from input echo (no funding analysis); outflows are from the
+      // funding stage (carry funded_amount/shortfall/is_funded). Both get a
+      // `direction` column so the merged table is self-describing, and the list
+      // is sorted by date for a chronological read.
+      const inflows = (D.input && D.input.one_off_inflows) || [];
+      const outflows = D.one_off_outflow_status || [];
+      D.one_off_events = [
+        ...inflows.map(e => ({
+          direction: "in",
+          description: e.description,
+          date: e.date,
+          amount: e.amount,
+        })),
+        ...outflows.map(o => ({
+          direction: "out",
+          description: o.description,
+          date: o.date,
+          amount: o.amount,
+          funded_amount: o.funded_amount,
+          shortfall: o.shortfall,
+          is_funded: o.is_funded,
+        })),
+      ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+      // Pick which tab to start on: prefer the previously-active key (so
+      // swapping profiles keeps your place), else the first tab.
+      const startKey = SECTIONS.some(([k]) => k === activeTabKey)
+        ? activeTabKey : SECTIONS[0][0];
+
+      SECTIONS.forEach(([key, title, category, desc]) => {
+        const active = key === startKey;
+
+        // Tab button — category drives the color (input/work/output classes).
+        const btn = document.createElement("button");
+        btn.className = `tab ${category}` + (active ? " active" : "");
+        btn.textContent = title;
+        btn.onclick = () => {
+          document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+          document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+          btn.classList.add("active");
+          document.getElementById("panel-" + key).classList.add("active");
+          activeTabKey = key;
+        };
+        tabsEl.appendChild(btn);
+
+        // Panel section — category class also applied here so the description
+        // callout and the h2 inherit the category accent color.
+        const panel = document.createElement("section");
+        panel.id = "panel-" + key;
+        panel.className = `panel ${category}` + (active ? " active" : "");
+        const value = D[key];
+        const hasValue = value !== undefined && value !== null
+          && !(Array.isArray(value) && value.length === 0);
+        // desc is author-controlled HTML (from SECTIONS), so we DON'T escape it.
+        // Only the JSON key (used as a code-string) needs escaping for safety.
+        // fund_flow_summary gets a custom two-block layout (mini bridge +
+        // goal-funding present-status). Other panels use the generic render.
+        const body = key === "fund_flow_summary"
+          ? renderFundFlowSummary(D)
+          : key === "goals"
+            ? (hasValue ? renderGoalsTable(value) : '<p class="empty">No data for this section.</p>')
+            : key === "summary"
+              ? renderSummary(D)
+              : (hasValue ? render(value) : '<p class="empty">No data for this section.</p>');
+        panel.innerHTML =
+          `<h2>${escapeHtml(title)}</h2>`
+          + `<div class="desc ${category}">${desc}`
+          + ` <small>(JSON key: <code>${escapeHtml(key)}</code>)</small></div>`
+          + body;
+        panelsEl.appendChild(panel);
+      });
+      activeTabKey = startKey;
+    }
+
+    function init() {
+      const D = window.__DATA__;
+      const metaEl = document.getElementById("meta");
+      const selectEl = document.getElementById("profileSelect");
+
+      if (!D || !D.profiles || !D.profiles.length) {
+        metaEl.innerHTML = '<span style="color:#c00">No data found. Run: '
+          + '<code>cd AI_Agents/src &amp;&amp; python -m cashflow_statement.dev_run</code>, '
+          + 'then reload this page.</span>';
+        selectEl.style.display = "none";
+        return;
+      }
+
+      D.profiles.forEach((p, i) => {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = p.label;
+        selectEl.appendChild(opt);
+      });
+      selectEl.onchange = () => renderProfile(D.profiles[Number(selectEl.value)].payload);
+      renderProfile(D.profiles[0].payload);
+    }
+
+    init();
+  </script>
+</body>
+</html>

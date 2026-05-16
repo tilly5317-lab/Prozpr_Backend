@@ -11,7 +11,7 @@ The customer wants to **take action** on their own portfolio or investable money
 
 Triggers when the customer is asking for a recommendation or decision on:
 - Overall asset allocation for their portfolio (equity / debt / gold / real estate split)
-- Whether **their** existing portfolio is aligned with their goals, plan, or target allocation ("is my portfolio aligned with my goals?", "is what I hold right for my plan?", "am I on track?")
+- Whether **their** existing portfolio is aligned with their goals, plan, or target allocation ("is my portfolio aligned with my goals?", "is what I hold right for my plan?")
 - Adding a specific amount of their own money to an investment (e.g. "I have ₹5L…")
 - Whether an asset class or sub-category (e.g., large-cap vs mid-cap, equity vs debt mix) is right **for them**, given their profile
 - SIP-amount decisions for new investments at the asset-class / sub-category level (NOT specific fund picks)
@@ -42,17 +42,19 @@ The customer's **primary ask is feasibility, achievability, or required-savings 
 
 Triggers when the customer is asking:
 - Whether a future financial target (retirement corpus, child's education, house down-payment, vacation, car, emergency fund) is achievable on their current trajectory
+- Whether they are on track for their goals overall ("am I on track?", "will I hit my targets?")
 - How much they need to save / invest each month to reach a target by a date
 - What corpus they will end up with given a current SIP and horizon
 - Whether their current savings rate is sufficient to meet a goal
 
 Example questions:
+- "Am I on track for my goals?"
 - "I want to retire in 15 years with ₹5 crore — is that possible?"
 - "How much do I need to save monthly for my daughter's college in 10 years?"
 - "At my current ₹50k/month SIP, what corpus will I have in 20 years?"
 - "Will my current SIP be enough to hit ₹2 crore by 2040?"
 
-Key distinction from asset_allocation: `asset_allocation` answers **"where should I put my money?"**; `goal_planning` answers **"is the target reachable, and what does it take?"**. A goal mention alone does not flip the intent — only a feasibility / required-savings ask does. **Compound feasibility + allocation asks** ("at ₹50k/month, can I hit ₹10cr in 15 years, and where should I invest?") classify as `goal_planning` — the feasibility component is the part we cannot yet answer well, so the honest redirect is preferable to a partial allocation answer.
+Key distinction from asset_allocation: `asset_allocation` answers **"where should I put my money?"** (target mix given the customer's profile); `goal_planning` answers **"is my plan getting me to my targets — am I on track, and what does it take?"** (feasibility math against a future date). "Am I on track?" / "will I hit my target?" framings ask about the *trajectory*, not the mix, and belong here. A goal mention alone does not flip the intent — only a feasibility / required-savings / on-track ask does. **Compound feasibility + allocation asks** ("at ₹50k/month, can I hit ₹10cr in 15 years, and where should I invest?") classify as `goal_planning` — the feasibility component leads.
 
 ---
 

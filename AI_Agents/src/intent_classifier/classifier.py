@@ -99,14 +99,15 @@ class IntentClassifier:
     """
     Classifies a customer's financial question into one of six intents:
       - asset_allocation
-      - goal_planning  (coming soon — returns a holding message)
+      - goal_planning
       - stock_advice   (redirects to mutual funds)
       - portfolio_query
       - general_market_query
       - out_of_scope
 
-    goal_planning, stock_advice, and out_of_scope each populate
-    out_of_scope_message with a customer-facing canned response.
+    stock_advice and out_of_scope each populate out_of_scope_message with
+    a customer-facing canned response. goal_planning is now a live bridge
+    (no canned redirect) — see app/services/ai_bridge/goal_planning/.
 
     Uses LangChain + Claude Haiku with structured output and Anthropic prompt caching.
     """

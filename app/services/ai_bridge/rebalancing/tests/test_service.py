@@ -458,8 +458,8 @@ def _build_alloc_output_two_buckets():
         all_amounts_in_multiples_of_100=True,
         asset_class_breakdown=AssetClassBreakdown(
             planned=planned,
-            actual=planned,
-            actual_sum_matches_grand_total=True,
+            recommended=planned,
+            recommended_sum_matches_grand_total=True,
         ),
     )
 
