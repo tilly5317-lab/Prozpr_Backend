@@ -70,8 +70,10 @@ Example questions:
 - "Should I buy Infosys shares?"
 - "Which stocks should I add to my portfolio?"
 - "Is Reliance a good buy right now?"
+- "What's your view on TCS?" / "What's your view on TCS at the current price?" / "Thoughts on Reliance?" — asking for an **opinion on a specific named stock** is a recommendation request, not a market lookup.
+- "Should I sell my Infosys shares now?" / "Is HDFC Bank a good stock?" — buy/sell/hold framings on a specific stock.
 
-Key distinction from general_market_query: stock_advice is a request for a **buy/sell recommendation** on a stock. "How has Infosys performed this year?" is general_market_query (informational); "Should I buy Infosys?" is stock_advice (recommendation request).
+Key distinction from general_market_query: stock_advice is a request for a **buy/sell/hold view on a specific named stock**. "How has Infosys performed this year?" is general_market_query (informational about the company's past performance); "Should I buy Infosys?" / "What's your view on Infosys?" is stock_advice (the customer wants you to take a position on the stock). Words like "at the current price", "right now", or "these days" attached to a named stock do **not** make it a market lookup — they make it more clearly a recommendation ask.
 
 Key distinction from asset_allocation: asset_allocation covers mutual fund decisions and asset allocation. stock_advice is specifically about direct stock picking.
 
@@ -148,6 +150,8 @@ Example questions:
 - "Should I switch from Axis Bluechip to Mirae Asset Large Cap?"
 - "Which large-cap fund should I pick?"
 - "Which mutual fund is best for me?"
+- "I'm overweight in equity, what should I do?" / "I'm overweight in small caps." — over/under-weight diagnostics against the customer's current portfolio are rebalancing asks (they require an actual-vs-target gap to answer, which is the rebalancing engine's job).
+- "Should I trim my small caps?" / "Should I reduce my X allocation?" — action asks on a specific holding belong to rebalancing, not asset_allocation.
 
 Key distinction from asset_allocation:
 - `asset_allocation` decides the **target** ("what should my mix be?", "should I be more aggressive?", "should I add midcap?") — i.e., questions that change what "aligned" means.
