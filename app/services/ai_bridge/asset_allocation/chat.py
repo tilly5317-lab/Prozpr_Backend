@@ -34,6 +34,7 @@ from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.intent_router import classify_action
 from app.services.ai_bridge.asset_allocation.service import (
     build_aa_facts_pack,
+    compute_current_asset_class_mix,
     build_fallback_brief,
     compute_allocation_result,
 )
@@ -217,9 +218,26 @@ FACTS_PACK shape (treat fields not present as unknown):
   age: int
   total_corpus_inr: number — total invested corpus, market value in ₹
   total_corpus_indian: string — same value pre-formatted in Indian notation
-  asset_class_mix_pct: {equity, debt, others} as percentages of total
-  asset_class_mix_inr: {equity, debt, others} as ₹ amounts
-  asset_class_mix_indian: {equity, debt, others} pre-formatted strings
+  recommended_mix_pct: {equity, debt, others} — the AA engine's RECOMMENDED
+                       deployment mix as percentages. This is what the engine
+                       suggests the customer should hold, NOT what they
+                       currently hold.
+  recommended_mix_inr: {equity, debt, others} — recommended deployment in ₹.
+  recommended_mix_indian: {equity, debt, others} — pre-formatted strings of
+                          the recommended deployment.
+  current_mix_pct: {equity, debt, cash, others} — the customer's TRUE
+                   CURRENT holdings (% of portfolio), summed from their
+                   actual portfolio allocation rows. Note the four buckets:
+                   cash is preserved separately here even though the engine
+                   only models three. May be ABSENT when the customer has
+                   no portfolio data yet — in that case do not claim a
+                   current mix; only describe the recommendation.
+  current_mix_inr / current_mix_indian: same as above, in ₹ / pre-formatted.
+
+When the customer asks "is my portfolio aligned with my goals?" or "what
+is my mix?", compare current_mix vs recommended_mix and describe the gap.
+NEVER label recommended_mix as the customer's current/actual mix — that is
+the engine's plan, not their holdings.
   by_horizon: list of {horizon: emergency|short_term|medium_term|long_term,
               amount_inr, amount_indian, mix_pct: {equity, debt, others}}
   goals: list of {name, amount_needed_inr, amount_needed_indian,
@@ -243,7 +261,7 @@ Field semantics — read carefully:
   ahead" or similar — not as a recurring contribution.
 - horizon_months is months from today to the goal's target date.
 - Numbers from different fields may not reconcile to the rupee due to
-  rounding (e.g., asset_class_mix_inr may not sum exactly to
+  rounding (e.g., recommended_mix_inr may not sum exactly to
   total_corpus_inr). Do NOT add fields together to compute new totals.
   Quote what's there; if a derived number is needed, say "approximately".
 
@@ -704,9 +722,10 @@ async def _format_or_fallback(
     spine_mode: str,
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""
+    current_mix = compute_current_asset_class_mix(ctx.user_ctx)
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_aa_facts_pack(output),
+        facts_pack=build_aa_facts_pack(output, current_mix=current_mix),
         body_prompt=_AA_FORMATTER_BODY,
         module_name="asset_allocation",
         action_mode=action_mode,

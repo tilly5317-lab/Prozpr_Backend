@@ -46,58 +46,10 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
     ) or ("invalid x-api-key" in msg)
 
 
+# Sentinel kept after the goal_planning bridge cutover: the intent classifier
+# still uses it to strip pre-cutover canned redirects out of historical chat
+# messages so the LLM doesn't anchor on stale "isn't built yet" replies.
 _GOAL_PLANNING_SENTINEL = "isn't built into the chat yet"
-
-
-def _build_goal_planning_redirect(user_ctx: Any) -> str:
-    """Personalised goal-planning canned redirect.
-
-    Pulls `first_name` and `financial_goals` from the eager-loaded User graph
-    (loaded by ``get_ai_user_context``). Falls back to a generic phrasing when
-    name or goals are missing. Every variant includes ``_GOAL_PLANNING_SENTINEL``
-    so the classifier's history-strip filter can detect it without a fixed
-    prefix. The phrase "goal planning isn't built into the chat yet" is the
-    common load-bearing claim across all variants.
-    """
-    from app.services.ai_bridge.common import format_inr_indian
-
-    first_name = getattr(user_ctx, "first_name", None) if user_ctx is not None else None
-    goals = list(getattr(user_ctx, "financial_goals", None) or [])
-    greeting = f"Hey {first_name} — " if first_name else ""
-
-    if goals:
-        lines: list[str] = []
-        for g in goals:
-            name = getattr(g, "goal_name", None) or "(unnamed goal)"
-            pv = getattr(g, "present_value_amount", None)
-            target_date = getattr(g, "target_date", None)
-            year = getattr(target_date, "year", None) if target_date else None
-            bits = [f"**{name}**"]
-            if pv is not None:
-                try:
-                    bits.append(format_inr_indian(int(pv)))
-                except Exception:
-                    pass
-            if year is not None:
-                bits.append(f"by {year}")
-            lines.append("- " + " — ".join(bits))
-        goals_block = "\n".join(lines)
-        return (
-            f"{greeting}I can see the goals on your profile:\n\n"
-            f"{goals_block}\n\n"
-            f"Feasibility math — \"will my SIP get me there?\", \"what happens if returns drop?\", "
-            f"\"how much do I need to save?\" — {_GOAL_PLANNING_SENTINEL}. We're working on it.\n\n"
-            f"In the meantime, ask me about your allocation, holdings, or rebalancing — "
-            f"those flows are live."
-        )
-
-    return (
-        f"{greeting}feasibility math — \"can I hit my target?\", \"how much should I save?\" "
-        f"— {_GOAL_PLANNING_SENTINEL}. We're working on it.\n\n"
-        f"If you'd like, share a goal and target year, and I'll capture it on your profile so "
-        f"I'm ready when goal planning ships. Meanwhile, I can help with your allocation, "
-        f"holdings, or rebalancing."
-    )
 
 
 def _enrich_client_context_with_first_name(
@@ -208,13 +160,14 @@ class ChatBrain:
                 )
 
             if intent_value == "goal_planning":
-                # No agent module yet — return a personalised redirect that
-                # echoes the user's first name and stored goals. When the
-                # goal_planning module ships, replace this branch with a
-                # dispatch_chat("goal_planning", ...) call.
-                flow.append("goal_planning → personalised redirect (module not yet built)")
-                trace_line("next module: goal_planning → personalised redirect")
-                return await finalize(_build_goal_planning_redirect(turn.user_ctx))
+                # Local import — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge.goal_planning import chat as _gp_chat  # noqa: F401
+                from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+                flow.append("dispatch_chat → goal_planning_chat")
+                trace_line("next module: chat_dispatcher → goal_planning_chat")
+
+                result = await dispatch_chat(intent_value, turn_context)
+                return await finalize(result.text)
 
             if intent_value == "rebalancing":
                 # Local import — chat handler self-registers via @register at import time.

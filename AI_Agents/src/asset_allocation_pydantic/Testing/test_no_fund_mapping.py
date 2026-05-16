@@ -106,9 +106,9 @@ def test_no_fund_or_sebi_keys_in_output(output):
 def test_asset_class_breakdown_is_populated(output):
     acb = output.asset_class_breakdown
     assert acb is not None
-    bucket_names = {b.bucket for b in acb.actual.per_bucket}
+    bucket_names = {b.bucket for b in acb.recommended.per_bucket}
     assert {"emergency", "short_term", "medium_term", "long_term"} <= bucket_names
-    grand = acb.actual.equity_total + acb.actual.debt_total + acb.actual.others_total
+    grand = acb.recommended.equity_total + acb.recommended.debt_total + acb.recommended.others_total
     assert grand > 0
 
 

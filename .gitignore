@@ -102,3 +102,5 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 /MF_Logics
 /MF_Logics/Mututal_Funds_data_extraction
 /MF_Logics/Mututal_Funds_data_extraction
+/AI_Agents/src/cashflow_statement/tests
+/AI_Agents/tests

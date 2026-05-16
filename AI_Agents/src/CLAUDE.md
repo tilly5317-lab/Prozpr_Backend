@@ -9,6 +9,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Child modules
 
 - **asset_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
+- **cashflow_statement/** — Goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal. Computes monthly/annual cashflow projections, per-goal funding, and headline status against an Excel-parity baseline. Entry: `engine/pipeline.py` (engine), `agent/graph.py` (agent). See `cashflow_statement/CLAUDE.md`.
 - **Rebalancing/** — Pure-Python rebalancing engine; takes a goal-based ideal allocation plus current holdings and emits per-fund target / buy / sell amounts under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`.
 - **intent_classifier/** — Classifies a customer question into one of six intents (asset_allocation, goal_planning, stock_advice, portfolio_query, general_market_query, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document persisted to `AI_Agents/Reference_docs/`. Entry: `main.py`.

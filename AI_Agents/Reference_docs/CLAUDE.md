@@ -7,6 +7,8 @@ Canonical home for reference documents consumed by AI-module pipelines (skill-pr
 - `market_commentary_latest.md` — daily-refreshed Indian macro commentary. Written by `app/services/ai_bridge/market_commentary_service.py` (which drives `AI_Agents/src/market_commentary/main.MarketCommentaryAgent`). Read by `AI_Agents/src/portfolio_query/` for the "Fund House Market Commentary" context block.
 - `market_commentary_latest.json` — `MacroSnapshot` cache backing the `.md` (1-hour cache TTL via `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`).
 - `Prozpr_fund_ranking.csv` — Prozpr fund-ranking reference table; consumed by the rebalancing pipeline (`app/services/ai_bridge/rebalancing/fund_rank.py`).
+- `Asset_Allocation.md` — client-facing thesis for the goal-based allocation engine (`AI_Agents/src/asset_allocation_pydantic/`); loaded as context for chat modules answering allocation questions. Engine-true behaviour lives in that module's `tables.py` and `steps/`; the file's own preamble flags which sections are code-aligned (v1.1: emergency fund, short-term, NFA carve-out) vs still client thesis.
+- `Rebalancing.md` — client-facing thesis for the goal-based rebalancing engine (`AI_Agents/src/Rebalancing/`); loaded as context for chat modules answering rebalancing questions. Engine-true behaviour lives in that module's `config.py`, `tables.py`, `steps/`, and `rationales.py`; the file's preamble pins the engine version (1.0.0) and points to the technical specs in `Rebalancing/Reference_docs/`. Audited against live code on 2026-05-10.
 
 ## Conventions
 
