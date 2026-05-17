@@ -15,6 +15,7 @@ Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile,
 - `__init__.py` — public API re-exports. The bridge layer imports only from here.
 - `dev_run.py` — developer smoke-test that runs the engine on a rich sample profile and writes `dev_artifacts/data.json` + `data.js` for the viewer. Run as `python -m cashflow_statement.dev_run` from `src/`.
 - `viewer.html` — static, self-contained HTML viewer that loads `dev_artifacts/data.js` and renders every output section (inputs, retirement, goals, cashflow, fund-flow summary, etc.) as Indian-format tables. Open directly in a browser after `dev_run.py`.
+- `summarizer.py` — Haiku-driven LCEL chain that turns a `GoalPlanningOutput` into a customer-facing `PlanSummary`. All rupee values are pre-formatted to Indian notation before reaching the LLM (the model copies them verbatim — never does its own arithmetic).
 
 ## Conventions
 

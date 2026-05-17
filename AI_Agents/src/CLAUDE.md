@@ -16,6 +16,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document persisted to `AI_Agents/Reference_docs/`. Entry: `main.py`.
 - **portfolio_query/** — Self-contained agent that answers client questions about their own portfolio using market commentary + client profile + current portfolio (asset-class, sub-category, and per-fund detail), with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
+- **chat_eval/** — Dev-only evaluation harness: replays a YAML question set through the chat pipeline and emits JSON/HTML reports (`report.json`, `report.md`, `Chat_responses.html`). Not imported by runtime. Entry: `run_eval.py`.
 
 > Note: `drift_analysis/` lives in `AI_Agents/archive/drift_analysis/`, not here.
 

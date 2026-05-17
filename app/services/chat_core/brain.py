@@ -28,9 +28,20 @@ from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 logger = logging.getLogger(__name__)
 
 _CLASSIFIER_FAILURE_MESSAGE = (
-    "I can help with that, but there was a temporary processing issue.\n\n"
-    "**Justification**\n"
-    "- Intent classification is currently unavailable, so I returned a safe fallback response."
+    "Sorry — I couldn't process your request due to a technical issue. Please try again."
+)
+
+# Hard ceiling on the per-turn telemetry write so a slow/hung DB cannot keep
+# the user waiting after we already have a reply ready. The row is best-effort:
+# if it doesn't land in this budget, we log and ship the reply anyway.
+_TELEMETRY_TIMEOUT_S = 5.0
+
+# Per-intent handler ceiling. Healthy agent runs complete in seconds; this is a
+# generous cap so a hung agent doesn't leave the user staring at a spinner.
+_INTENT_HANDLER_TIMEOUT_S = 60.0
+
+_INTENT_TIMEOUT_MESSAGE = (
+    "That took longer than expected on my end — please try again in a moment."
 )
 
 
@@ -95,15 +106,30 @@ class ChatBrain:
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
             trace_response_preview("final assistant message sent to client", content, max_chars=1200)
-            await log_chat_turn_flow_summary(
-                db,
-                user_id=uid,
-                session_id=sid,
-                intent=intent_value,
-                intent_confidence=intent_confidence,
-                steps=flow,
-                duration_ms=ms,
-            )
+            try:
+                await asyncio.wait_for(
+                    log_chat_turn_flow_summary(
+                        db,
+                        user_id=uid,
+                        session_id=sid,
+                        intent=intent_value,
+                        intent_confidence=intent_confidence,
+                        steps=flow,
+                        duration_ms=ms,
+                    ),
+                    timeout=_TELEMETRY_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Chat turn telemetry timed out after %.1fs (session=%s); returning reply without telemetry row",
+                    _TELEMETRY_TIMEOUT_S,
+                    sid,
+                )
+            except Exception:
+                logger.exception(
+                    "Chat turn telemetry failed (session=%s); returning reply anyway",
+                    sid,
+                )
             return ChatBrainResult(
                 content=content,
                 intent=intent_value,
@@ -112,6 +138,24 @@ class ChatBrain:
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
             )
+
+        async def run_handler(coro, label: str):
+            """Run an intent-handler coroutine under a hard timeout.
+
+            Returns the handler result on success, or ``None`` on timeout (the
+            caller must then short-circuit to the timeout fallback). Cancels
+            the underlying agent work so a hung run doesn't keep burning
+            resources after we've already given up on it.
+            """
+            try:
+                return await asyncio.wait_for(coro, timeout=_INTENT_HANDLER_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Intent handler %s timed out after %.0fs (session=%s); returning fallback",
+                    label, _INTENT_HANDLER_TIMEOUT_S, sid,
+                )
+                flow.append(f"{label} handler timed out — returning fallback")
+                return None
 
         try:
             trace_line("--- ChatBrain.run_turn ---")
@@ -151,7 +195,11 @@ class ChatBrain:
                 flow.append("dispatch_chat → asset_allocation_chat")
                 trace_line("next module: chat_dispatcher → asset_allocation_chat")
 
-                result = await dispatch_chat(intent_value, turn_context)
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "asset_allocation",
+                )
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
 
                 return await finalize(
                     result.text,
@@ -166,7 +214,11 @@ class ChatBrain:
                 flow.append("dispatch_chat → goal_planning_chat")
                 trace_line("next module: chat_dispatcher → goal_planning_chat")
 
-                result = await dispatch_chat(intent_value, turn_context)
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "goal_planning",
+                )
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
                 return await finalize(result.text)
 
             if intent_value == "rebalancing":
@@ -176,7 +228,11 @@ class ChatBrain:
                 flow.append("dispatch_chat → rebalancing_chat")
                 trace_line("next module: chat_dispatcher → rebalancing_chat")
 
-                result = await dispatch_chat(intent_value, turn_context)
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "rebalancing",
+                )
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
 
                 return await finalize(
                     result.text,
@@ -190,24 +246,34 @@ class ChatBrain:
                     "portfolio_query → AI_Agents.portfolio_query orchestrator (market commentary + sub-category roll-ups)"
                 )
                 # user_ctx must include portfolios + holdings → fund_metadata (loaded by get_ai_user_context)
-                content = await generate_portfolio_query_response(
-                    user=turn.user_ctx,
-                    user_question=turn.user_question,
-                    conversation_history=turn.conversation_history,
+                content = await run_handler(
+                    generate_portfolio_query_response(
+                        user=turn.user_ctx,
+                        user_question=turn.user_question,
+                        conversation_history=turn.conversation_history,
+                    ),
+                    "portfolio_query",
                 )
+                if content is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
                 trace_response_preview("portfolio_query_service response", content)
                 return await finalize(content)
 
             flow.append("general chat (no specialist branch)")
             trace_line("next module: general_chat (no specialist branch)")
-            content = await generate_general_chat_response(
-                user_question=turn.user_question,
-                classification=classification,
-                conversation_history=turn.conversation_history,
-                client_context=_enrich_client_context_with_first_name(
-                    turn.client_context, turn.user_ctx,
+            content = await run_handler(
+                generate_general_chat_response(
+                    user_question=turn.user_question,
+                    classification=classification,
+                    conversation_history=turn.conversation_history,
+                    client_context=_enrich_client_context_with_first_name(
+                        turn.client_context, turn.user_ctx,
+                    ),
                 ),
+                "general_chat",
             )
+            if content is None:
+                return await finalize(_INTENT_TIMEOUT_MESSAGE)
             trace_response_preview("general_chat_service response", content)
             return await finalize(content)
 
