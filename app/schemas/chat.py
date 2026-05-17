@@ -32,7 +32,9 @@ class ChatSessionDetailResponse(ChatSessionResponse):
 
 
 class ChatMessageCreate(BaseModel):
-    content: str = Field(..., min_length=1)
+    # 8000-char cap keeps any realistic user question well within prompt budget
+    # and prevents abuse (huge pastes inflating LLM cost / prompt-injection surface).
+    content: str = Field(..., min_length=1, max_length=8000)
     client_context: Optional[dict[str, Any]] = None
 
 
