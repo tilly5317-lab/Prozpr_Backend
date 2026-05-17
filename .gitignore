@@ -6,6 +6,7 @@ __pycache__/
 
 # Virtual environment
 .venv/
+.venv-mac/
 venv/
 env/
 
@@ -80,15 +81,22 @@ docs/superpowers/
 /.claude/commands/*
 !/.claude/commands/refresh-context.md
 
+# Agent audit runs (local test harness only)
+Agent_audit/
+
 # Cache files
-market_commentary_cache.json
-AI_Agents/src/market_commentary/market_commentary_latest.json
-AI_Agents/src/market_commentary/market_commentary_latest.md
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation_pydantic/Testing
-/AI_Agents/src/goal_based_allocation_pydantic/references
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
 /AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
+/MF_Logics/Mututal_Funds_data_extraction/NAV_level_data
+/AI_Agents/src/cashflow_statement/tests
+/AI_Agents/tests
+/AI_Agents/src/*/tests/
+/AI_Agents/src/*/Testing/
+/AI_Agents/src/chat_eval
+MF_Logics/MF_fund_view_data/MF_evaluation framework.xlsx
+MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt

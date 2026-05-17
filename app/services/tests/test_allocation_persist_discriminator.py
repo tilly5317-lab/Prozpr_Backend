@@ -31,9 +31,9 @@ def _build_fake_output() -> MagicMock:
     # ``asset_class_breakdown`` is checked for ``is None``; provide one with
     # zeros to short-circuit through the easy code path.
     acb = MagicMock()
-    acb.actual.equity_total_pct = 0.0
-    acb.actual.debt_total_pct = 0.0
-    acb.actual.others_total_pct = 0.0
+    acb.recommended.equity_total_pct = 0.0
+    acb.recommended.debt_total_pct = 0.0
+    acb.recommended.others_total_pct = 0.0
     output.asset_class_breakdown = acb
     return output
 

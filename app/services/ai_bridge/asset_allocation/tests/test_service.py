@@ -11,16 +11,12 @@ from app.services.ai_bridge.common import ensure_ai_agents_path
 ensure_ai_agents_path()
 
 from asset_allocation_pydantic import AllocationInput, Goal, run_allocation  # type: ignore[import-not-found]
-from asset_allocation_pydantic.steps._rationale_llm import _fallback_response  # type: ignore[import-not-found]
+from asset_allocation_pydantic.steps._rationale_llm import no_llm_rationale_fn  # type: ignore[import-not-found]
 
 from app.services.ai_bridge.asset_allocation.service import (
     build_aa_facts_pack,
     build_fallback_brief,
 )
-
-
-def _no_llm(_summary, bucket_allocations, _aggregated):
-    return _fallback_response(bucket_allocations)
 
 
 @pytest.fixture
@@ -45,7 +41,7 @@ def sample_output():
             ),
         ],
     )
-    return run_allocation(inp, rationale_fn=_no_llm)
+    return run_allocation(inp, rationale_fn=no_llm_rationale_fn)
 
 
 def test_facts_pack_is_a_plain_dict(sample_output):
@@ -58,7 +54,7 @@ def test_facts_pack_contains_expected_top_level_keys(sample_output):
     pack = build_aa_facts_pack(sample_output)
     assert "risk_score" in pack
     assert "total_corpus_inr" in pack
-    assert "asset_class_mix_pct" in pack
+    assert "recommended_mix_pct" in pack
     assert "by_horizon" in pack
     assert "goals" in pack
 

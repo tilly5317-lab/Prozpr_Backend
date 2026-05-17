@@ -1,19 +1,21 @@
-"""Materialise a RebalancingComputeRequest from User + GoalAllocationOutput + DB."""
+"""Materialise a RebalancingComputeRequest from TurnContext + GoalAllocationOutput."""
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mf.mf_fund_metadata import MfFundMetadata
-from app.models.mf.mf_nav_history import MfNavHistory
 from app.models.profile.tax_profile import TaxProfile
-from app.models.user import User
 from app.services.ai_bridge.common import ensure_ai_agents_path
+from app.services.ai_bridge.rebalancing import _disk_cache
+from app.services.ai_bridge.rebalancing._disk_cache import CsvFundMetadata
+from app.services.ai_bridge.rebalancing.overrides import effective_param
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 from app.services.ai_bridge.rebalancing.fund_rank import FundRankRow, get_fund_ranking
 from app.services.ai_bridge.rebalancing.holdings_ledger import (
     HoldingLedgerEntry,
@@ -46,34 +48,16 @@ class _Unpriceable(Exception):
     """Raised when a recommended ISIN has no NAV available."""
 
 
-async def _latest_nav_by_isin(
-    db: AsyncSession, isins: set[str],
-) -> dict[str, Decimal]:
-    if not isins:
-        return {}
-    rows = (await db.execute(
-        select(MfNavHistory.isin, MfNavHistory.nav, MfNavHistory.nav_date)
-        .where(MfNavHistory.isin.in_(isins))
-        .order_by(MfNavHistory.isin, MfNavHistory.nav_date.desc())
-    )).all()
-    out: dict[str, Decimal] = {}
-    for isin, nav, _date in rows:
-        out.setdefault(isin, Decimal(str(nav)))
-    return out
+# TODO(DB-backed): NAV + metadata are read from local CSV files via ``_disk_cache``.
+# Replace these thin wrappers with the DB queries that used to live here (against
+# ``mf_nav_history`` / ``mf_fund_metadata``) once those tables are kept fresh in
+# prod by ``app.services.mf.mfapi_ingest``.
+def _latest_nav_by_isin(isins: set[str]) -> dict[str, Decimal]:
+    return _disk_cache.latest_nav_by_isin(isins)
 
 
-async def _metadata_by_isin(
-    db: AsyncSession, isins: set[str],
-) -> dict[str, MfFundMetadata]:
-    if not isins:
-        return {}
-    rows = (await db.execute(
-        select(MfFundMetadata, MfNavHistory.isin)
-        .join(MfNavHistory, MfNavHistory.scheme_code == MfFundMetadata.scheme_code)
-        .where(MfNavHistory.isin.in_(isins))
-        .distinct()
-    )).all()
-    return {isin: meta for meta, isin in rows}
+def _metadata_by_isin(isins: set[str]) -> dict[str, CsvFundMetadata]:
+    return _disk_cache.metadata_by_isin(isins)
 
 
 def _resolve_tax_inputs(tax_profile: Optional[TaxProfile]) -> dict[str, Any]:
@@ -171,11 +155,12 @@ def _build_row(
 
 
 async def build_rebalancing_input_for_user(
-    user: User,
+    ctx: "TurnContext",
     allocation_output: GoalAllocationOutput,
-    db: AsyncSession,
 ) -> tuple[RebalancingComputeRequest, dict[str, Any]]:
     """Return ``(request, debug_dict)`` for ``run_rebalancing(...)``."""
+    user = ctx.user_ctx
+    db = ctx.db
     asof = date.today()
 
     # 1. Holdings ledger.
@@ -196,8 +181,8 @@ async def build_rebalancing_input_for_user(
     # 4. Bulk-fetch NAV + metadata for everything we need.
     held_isins = set(held_by_isin)
     all_isins = recommended_isins | held_isins
-    nav_by_isin = await _latest_nav_by_isin(db, all_isins)
-    meta_by_isin = await _metadata_by_isin(db, all_isins)
+    nav_by_isin = _latest_nav_by_isin(all_isins)
+    meta_by_isin = _metadata_by_isin(all_isins)
 
     rows: list[FundRowInput] = []
     seen_isins: set[str] = set()
@@ -273,14 +258,12 @@ async def build_rebalancing_input_for_user(
     )).scalar_one_or_none()
     tax_inputs = _resolve_tax_inputs(tax_profile)
 
-    # 8b. Optional counterfactual-explore overrides set as transient
-    # ``_chat_rebal_*_override`` attrs on the user object by the chat handler
-    # (see app/services/ai_bridge/rebalancing/chat.py). When None, fall back
-    # to the resolved tax-profile values.
-    tax_rate_override = getattr(user, "_chat_rebal_tax_rate_override", None)
-    stcg_budget_override = getattr(user, "_chat_rebal_stcg_budget_override", None)
-    carryforward_st_override = getattr(user, "_chat_rebal_carryforward_st_override", None)
-    carryforward_lt_override = getattr(user, "_chat_rebal_carryforward_lt_override", None)
+    # 8b. Optional counterfactual-explore overrides — read from ctx.chat_overrides.
+    # When None, fall back to the resolved tax-profile values.
+    tax_rate_override = effective_param(ctx, "effective_tax_rate", None)
+    stcg_budget_override = effective_param(ctx, "stcg_offset_budget_inr", None)
+    carryforward_st_override = effective_param(ctx, "carryforward_st_loss_inr", None)
+    carryforward_lt_override = effective_param(ctx, "carryforward_lt_loss_inr", None)
 
     request = RebalancingComputeRequest(
         total_corpus=total_corpus,

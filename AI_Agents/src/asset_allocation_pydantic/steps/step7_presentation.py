@@ -140,23 +140,23 @@ def _subgroup_breakdown(
     emergency_subs = dict(step1.subgroup_amounts)
     short_subs = dict(step2.subgroup_amounts)
     medium_subs = dict(step3.subgroup_amounts)
-    long_actual = dict(step4.subgroup_amounts)
+    long_recommended = dict(step4.subgroup_amounts)
     long_planned = dict(step4.planned_subgroup_amounts or step4.subgroup_amounts)
 
-    # Emergency/short/medium: planned == actual at subgroup level.
+    # Emergency/short/medium: planned == recommended at subgroup level.
     planned = [
         _subgroup_bucket("emergency", emergency_subs),
         _subgroup_bucket("short_term", short_subs),
         _subgroup_bucket("medium_term", medium_subs),
         _subgroup_bucket("long_term", long_planned),
     ]
-    actual = [
+    recommended = [
         _subgroup_bucket("emergency", emergency_subs),
         _subgroup_bucket("short_term", short_subs),
         _subgroup_bucket("medium_term", medium_subs),
-        _subgroup_bucket("long_term", long_actual),
+        _subgroup_bucket("long_term", long_recommended),
     ]
-    return SubgroupBreakdown(planned=planned, actual=actual)
+    return SubgroupBreakdown(planned=planned, recommended=recommended)
 
 
 def _asset_class_breakdown(
@@ -200,8 +200,8 @@ def _asset_class_breakdown(
         others=ac_planned.others_amount,
     )
 
-    # ── ACTUAL ─────────────────────────────────────────────────────────────
-    # Medium-term actual: multi-asset slice decomposed via inp composition.
+    # ── RECOMMENDED (post-adjustment deployment plan) ──────────────────────
+    # Medium-term: multi-asset slice decomposed via inp composition.
     mt_multi = step3.subgroup_amounts.get("multi_asset", 0)
     mt_pure_debt = (
         step3.subgroup_amounts.get("debt_subgroup", 0)
@@ -211,30 +211,36 @@ def _asset_class_breakdown(
     mt_eq = int(round(mt_multi * comp.equity_pct / 100.0))
     mt_oth = int(round(mt_multi * comp.others_pct / 100.0))
     mt_dt_from_multi = mt_multi - mt_eq - mt_oth
-    medium_actual = BucketAssetClassSplit(
+    medium_recommended = BucketAssetClassSplit(
         bucket="medium_term",
         equity=mt_eq,
         debt=mt_pure_debt + mt_dt_from_multi,
         others=mt_oth,
     )
 
-    # Long-term actual: Step-4 post-overage split.
-    ac_actual = step4.asset_class_allocation
-    long_actual = BucketAssetClassSplit(
+    # Long-term: Step-4 post-overage split.
+    ac_recommended = step4.asset_class_allocation
+    long_recommended = BucketAssetClassSplit(
         bucket="long_term",
-        equity=ac_actual.equities_amount,
-        debt=ac_actual.debt_amount,
-        others=ac_actual.others_amount,
+        equity=ac_recommended.equities_amount,
+        debt=ac_recommended.debt_amount,
+        others=ac_recommended.others_amount,
     )
 
     planned_block = _split_block([emergency, short_term, medium_planned, long_planned])
-    actual_block = _split_block([emergency, short_term, medium_actual, long_actual])
-    actual_sum = actual_block.equity_total + actual_block.debt_total + actual_block.others_total
+    recommended_block = _split_block(
+        [emergency, short_term, medium_recommended, long_recommended],
+    )
+    recommended_sum = (
+        recommended_block.equity_total
+        + recommended_block.debt_total
+        + recommended_block.others_total
+    )
 
     return AssetClassBreakdown(
         planned=planned_block,
-        actual=actual_block,
-        actual_sum_matches_grand_total=(actual_sum == grand_total),
+        recommended=recommended_block,
+        recommended_sum_matches_grand_total=(recommended_sum == grand_total),
         subgroups=_subgroup_breakdown(step1, step2, step3, step4),
     )
 

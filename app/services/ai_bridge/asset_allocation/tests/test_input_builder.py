@@ -1,16 +1,19 @@
 """Tests for goal_allocation_input_builder: User → AllocationInput mapping."""
 
 import unittest
+import uuid
 from datetime import date
 from unittest.mock import MagicMock
 
 from app.services.ai_bridge.asset_allocation.input_builder import (
     build_goal_allocation_input_for_user,
 )
+from app.services.ai_bridge.asset_allocation.overrides import with_chat_overrides
+from app.services.chat_core.turn_context import TurnContext
 
 
 class ChatOverrideTests(unittest.TestCase):
-    """Transient _chat_*_override attributes on User flow into AllocationInput."""
+    """TurnContext.chat_overrides flow into AllocationInput via the input builder."""
 
     def _build_minimal_user(self):
         """Build a minimal mock User with required attributes for allocation input."""
@@ -40,81 +43,89 @@ class ChatOverrideTests(unittest.TestCase):
         user.financial_goals = []
         user.portfolios = []
         user.investment_constraints = MagicMock()
-        # Explicitly set chat override attributes to None so getattr returns None
-        # (rather than MagicMock's auto-created attributes)
-        user._chat_risk_score_override = None
-        user._chat_total_corpus_override = None
-        user._chat_annual_income_override = None
-        user._chat_monthly_expense_override = None
-        user._chat_emergency_fund_needed_override = None
-        user._chat_tax_regime_override = None
         return user
 
+    def _make_ctx(self, user, **overrides) -> TurnContext:
+        ctx = TurnContext(
+            user_ctx=user,
+            user_question="x",
+            conversation_history=[],
+            client_context=None,
+            session_id=uuid.uuid4(),
+            db=None,
+            effective_user_id=uuid.uuid4(),
+            last_agent_runs={},
+            active_intent="asset_allocation",
+            chat_overrides=None,
+        )
+        return with_chat_overrides(ctx, overrides) if overrides else ctx
+
     def test_risk_score_override_already_works(self):
-        """Existing _chat_risk_score_override should flow through."""
+        """Risk-score override flows from chat_overrides into AllocationInput."""
         user = self._build_minimal_user()
-        user._chat_risk_score_override = 8.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, effective_risk_score=8.0)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.effective_risk_score, 8.0)
 
     def test_total_corpus_override(self):
-        """_chat_total_corpus_override should override total_corpus."""
+        """total_corpus override flows from chat_overrides."""
         user = self._build_minimal_user()
-        user._chat_total_corpus_override = 12_000_000.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, total_corpus=12_000_000.0)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.total_corpus, 12_000_000.0)
 
     def test_additional_cash_override_adds_to_baseline(self):
-        """_chat_additional_cash_override should ADD to the baseline corpus.
+        """additional_cash_inr ADDS to the baseline corpus.
 
         Baseline (from minimal user fixture) is 8_000_000; +200_000 → 8_200_000.
         """
         user = self._build_minimal_user()
-        user._chat_additional_cash_override = 200_000.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, additional_cash_inr=200_000.0)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.total_corpus, 8_200_000.0)
 
     def test_additional_cash_override_stacks_with_total_corpus_override(self):
-        """If both overrides are set, additional_cash adds on top of the absolute total_corpus."""
+        """additional_cash adds on top of an absolute total_corpus override."""
         user = self._build_minimal_user()
-        user._chat_total_corpus_override = 5_000_000.0
-        user._chat_additional_cash_override = 200_000.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(
+            user, total_corpus=5_000_000.0, additional_cash_inr=200_000.0,
+        )
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.total_corpus, 5_200_000.0)
 
     def test_annual_income_override(self):
-        """_chat_annual_income_override should override annual_income."""
+        """annual_income override flows from chat_overrides."""
         user = self._build_minimal_user()
-        user._chat_annual_income_override = 3_000_000.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, annual_income=3_000_000.0)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.annual_income, 3_000_000.0)
 
     def test_monthly_expense_override(self):
-        """_chat_monthly_expense_override should override monthly_household_expense."""
+        """monthly_household_expense override flows from chat_overrides."""
         user = self._build_minimal_user()
-        user._chat_monthly_expense_override = 30_000.0
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, monthly_household_expense=30_000.0)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.monthly_household_expense, 30_000.0)
 
     def test_emergency_fund_needed_override(self):
-        """_chat_emergency_fund_needed_override should override emergency_fund_needed."""
+        """emergency_fund_needed override flows from chat_overrides."""
         user = self._build_minimal_user()
-        user._chat_emergency_fund_needed_override = True
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, emergency_fund_needed=True)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertTrue(alloc_input.emergency_fund_needed)
 
     def test_tax_regime_override(self):
-        """_chat_tax_regime_override should override tax_regime."""
+        """tax_regime override flows from chat_overrides."""
         user = self._build_minimal_user()
-        user._chat_tax_regime_override = "old"
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user, tax_regime="old")
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.tax_regime, "old")
 
     def test_no_overrides_returns_baseline(self):
-        """No _chat_*_override attributes should return baseline values."""
+        """No chat_overrides → baseline values from the User."""
         user = self._build_minimal_user()
-        # No _chat_*_override attributes set — baseline
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        ctx = self._make_ctx(user)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         # When effective_risk_assessment is None, defaults to 7.0
         self.assertEqual(alloc_input.effective_risk_score, 7.0)
         # Default tax_regime is "new"
@@ -126,13 +137,11 @@ class ChatOverrideTests(unittest.TestCase):
         """When user has no explicit goals AND a corpus override, the synthesized
         default goal's amount_needed should reflect the overridden corpus."""
         user = self._build_minimal_user()
-        # No explicit goals — should trigger the synthesized default
-        user.financial_goals = []
-        user._chat_total_corpus_override = 5_000_000.0
+        user.financial_goals = []  # No explicit goals — triggers the synthesized default.
+        ctx = self._make_ctx(user, total_corpus=5_000_000.0)
 
-        alloc_input, _ = build_goal_allocation_input_for_user(user)
+        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
 
-        # The synthesized default goal's amount_needed should match the override
         self.assertEqual(len(alloc_input.goals), 1)
         synthesized = alloc_input.goals[0]
         self.assertEqual(synthesized.goal_name, "Long-term wealth creation")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from .tables import (
     DEFAULT_MARKET_COMMENTARY_SCORES,
@@ -149,14 +149,28 @@ class SubgroupBucketSplit(BaseModel):
 
 
 class SubgroupBreakdown(BaseModel):
+    """`recommended` is the engine's post-adjustment deployment plan (was historically
+    named `actual`, but it is not the customer's current holdings — see
+    bridge note in `asset_allocation/service.py`)."""
     planned: List[SubgroupBucketSplit]
-    actual: List[SubgroupBucketSplit]
+    recommended: List[SubgroupBucketSplit] = Field(
+        validation_alias=AliasChoices("recommended", "actual"),
+    )
 
 
 class AssetClassBreakdown(BaseModel):
+    """`recommended` is the engine's post-adjustment deployment plan (was historically
+    named `actual`). It is NOT the customer's current holdings — those are read
+    from `PortfolioAllocation` rows by the chat bridge, not by the engine."""
     planned: AssetClassSplitBlock
-    actual: AssetClassSplitBlock
-    actual_sum_matches_grand_total: bool
+    recommended: AssetClassSplitBlock = Field(
+        validation_alias=AliasChoices("recommended", "actual"),
+    )
+    recommended_sum_matches_grand_total: bool = Field(
+        validation_alias=AliasChoices(
+            "recommended_sum_matches_grand_total", "actual_sum_matches_grand_total",
+        ),
+    )
     subgroups: Optional[SubgroupBreakdown] = None
 
 

@@ -23,19 +23,18 @@ canned redirect (no agent module exists for goal_planning yet).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, Literal, Optional
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ai_bridge.answer_formatter import format_with_telemetry
+from app.services.ai_bridge.intent_router import classify_action
 from app.services.ai_bridge.asset_allocation.service import (
     build_aa_facts_pack,
+    compute_current_asset_class_mix,
     build_fallback_brief,
     compute_allocation_result,
 )
@@ -44,7 +43,15 @@ from app.services.ai_bridge.common import (
     build_detect_history_block,
     trace_line,
 )
-from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
+from app.services.chat_core.turn_context import (
+    AgentRunRecord,
+    TurnContext,
+    upsert_awaiting_save,
+)
+from app.services.ai_bridge.asset_allocation.overrides import (
+    _ALLOWED_OVERRIDE_KEYS,
+    with_chat_overrides,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,22 +88,6 @@ class ChatAction(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# Override allow-list
-# ---------------------------------------------------------------------------
-
-# Maps ChatAction.overrides keys → transient User attribute names that
-# input_builder reads.
-_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
-    "effective_risk_score":      "_chat_risk_score_override",
-    "total_corpus":              "_chat_total_corpus_override",
-    "additional_cash_inr":       "_chat_additional_cash_override",
-    "annual_income":             "_chat_annual_income_override",
-    "monthly_household_expense": "_chat_monthly_expense_override",
-    "emergency_fund_needed":     "_chat_emergency_fund_needed_override",
-    "tax_regime":                "_chat_tax_regime_override",
-}
-
 _REDIRECT_TEMPLATE = (
     "To {reason}, head to your **Profile** section and update the relevant "
     "inputs — I'll regenerate your plan automatically. If you'd like, just "
@@ -113,6 +104,13 @@ _INVALID_OVERRIDE_TEMPLATE = (
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific risk score (1–10), "
     "fund name, or amount you'd like to consider?"
+)
+
+_NO_PENDING_COUNTERFACTUAL_MESSAGE = (
+    "There's no recent 'what if' to save in this conversation. "
+    "If you'd like to lock in a change, tell me what you'd like "
+    "different (e.g., 'what if my risk were 7?') and I'll show "
+    "you the result first — then you can save it."
 )
 
 
@@ -152,11 +150,7 @@ goal-based asset allocation. Pick exactly one of seven modes.
   approvals after a counterfactual: "save", "save it", "lock it in",
   "lock in", "yes", "yeah do that", "go ahead", "make this my plan",
   "keep this", "do it". No `overrides` field needed — the system loads
-  the previous turn's overrides and re-runs with persist=True. Only
-  emit this mode when the IMMEDIATELY PRECEDING turn was a
-  counterfactual_explore; if there's no recent counterfactual in the
-  conversation history, this is misclassified — prefer narrate or
-  redirect.
+  the previous turn's overrides and re-runs with persist=True.
 - "clarify" — the customer signals a direction but does not give a usable
   value ("I can take more risk", "less debt please", "be more conservative").
   Compose a concrete clarification question in `clarification_question`,
@@ -224,9 +218,26 @@ FACTS_PACK shape (treat fields not present as unknown):
   age: int
   total_corpus_inr: number — total invested corpus, market value in ₹
   total_corpus_indian: string — same value pre-formatted in Indian notation
-  asset_class_mix_pct: {equity, debt, others} as percentages of total
-  asset_class_mix_inr: {equity, debt, others} as ₹ amounts
-  asset_class_mix_indian: {equity, debt, others} pre-formatted strings
+  recommended_mix_pct: {equity, debt, others} — the AA engine's RECOMMENDED
+                       deployment mix as percentages. This is what the engine
+                       suggests the customer should hold, NOT what they
+                       currently hold.
+  recommended_mix_inr: {equity, debt, others} — recommended deployment in ₹.
+  recommended_mix_indian: {equity, debt, others} — pre-formatted strings of
+                          the recommended deployment.
+  current_mix_pct: {equity, debt, cash, others} — the customer's TRUE
+                   CURRENT holdings (% of portfolio), summed from their
+                   actual portfolio allocation rows. Note the four buckets:
+                   cash is preserved separately here even though the engine
+                   only models three. May be ABSENT when the customer has
+                   no portfolio data yet — in that case do not claim a
+                   current mix; only describe the recommendation.
+  current_mix_inr / current_mix_indian: same as above, in ₹ / pre-formatted.
+
+When the customer asks "is my portfolio aligned with my goals?" or "what
+is my mix?", compare current_mix vs recommended_mix and describe the gap.
+NEVER label recommended_mix as the customer's current/actual mix — that is
+the engine's plan, not their holdings.
   by_horizon: list of {horizon: emergency|short_term|medium_term|long_term,
               amount_inr, amount_indian, mix_pct: {equity, debt, others}}
   goals: list of {name, amount_needed_inr, amount_needed_indian,
@@ -250,7 +261,7 @@ Field semantics — read carefully:
   ahead" or similar — not as a recurring contribution.
 - horizon_months is months from today to the goal's target date.
 - Numbers from different fields may not reconcile to the rupee due to
-  rounding (e.g., asset_class_mix_inr may not sum exactly to
+  rounding (e.g., recommended_mix_inr may not sum exactly to
   total_corpus_inr). Do NOT add fields together to compute new totals.
   Quote what's there; if a derived number is needed, say "approximately".
 
@@ -372,6 +383,11 @@ async def _dispatch_action(
         return await _counterfactual_explore(last_alloc, ctx, action.overrides or {})
 
     if action.mode == "save_last_counterfactual":
+        # State-machine gate: if no counterfactual is pending save in this
+        # session, the classifier guessed wrong. Return guidance instead of
+        # risking a write on stale telemetry.
+        if not ctx.awaiting_save:
+            return ChatHandlerResult(text=_NO_PENDING_COUNTERFACTUAL_MESSAGE)
         return await _save_last_counterfactual(ctx)
 
     if action.mode == "clarify":
@@ -429,19 +445,16 @@ async def _counterfactual_explore(
     if not overrides or not _validate_overrides(overrides):
         return ChatHandlerResult(text=_INVALID_OVERRIDE_TEMPLATE)
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_allocation_result(
-            user, ctx.user_question,
-            db=None,                          # NO writes
-            persist_recommendation=False,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            spine_mode="counterfactual",
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_allocation_result(
+        ctx.user_ctx, ctx.user_question,
+        db=None,                          # NO writes
+        persist_recommendation=False,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        spine_mode="counterfactual",
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -450,9 +463,9 @@ async def _counterfactual_explore(
             text="I couldn't compute that hypothetical right now."
         )
 
-    # Capture overrides for a potential save_last_counterfactual follow-up.
-    # Best-effort — if the write fails, the customer can still re-state the
-    # constraint to save.
+    # Capture overrides for a potential save_last_counterfactual follow-up,
+    # and mark this session as awaiting save (cross-turn state machine).
+    # Both writes are best-effort — if either fails, the customer can re-state.
     if ctx.db is not None:
         try:
             from app.services.ai_module_telemetry import record_ai_module_run
@@ -467,6 +480,10 @@ async def _counterfactual_explore(
             )
         except Exception as exc:
             logger.warning("counterfactual_overrides_capture_failed: %s", exc)
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, True)
+        except Exception as exc:
+            logger.warning("awaiting_save_upsert_failed: %s", exc)
 
     text = await _format_or_fallback(
         ctx=ctx, output=outcome.result,
@@ -492,28 +509,20 @@ async def _save_last_counterfactual(
     """
     overrides = await _load_last_counterfactual_overrides(ctx)
     if overrides is None:
-        return ChatHandlerResult(
-            text=(
-                "There's no recent 'what if' to save in this conversation. "
-                "If you'd like to lock in a change, tell me what you'd like "
-                "different (e.g., 'what if my risk were 7?') and I'll show "
-                "you the result first — then you can save it."
-            )
-        )
+        # Defense-in-depth: state gate said awaiting_save=True, but no
+        # telemetry row found. Same guidance message as the state gate.
+        return ChatHandlerResult(text=_NO_PENDING_COUNTERFACTUAL_MESSAGE)
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_allocation_result(
-            user, ctx.user_question,
-            db=ctx.db,                        # persist
-            persist_recommendation=ctx.db is not None,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            spine_mode="full",
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_allocation_result(
+        ctx.user_ctx, ctx.user_question,
+        db=ctx.db,                        # persist
+        persist_recommendation=ctx.db is not None,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        spine_mode="full",
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -521,6 +530,15 @@ async def _save_last_counterfactual(
         return ChatHandlerResult(
             text="I couldn't save that plan right now. Please try again."
         )
+
+    # Save succeeded — clear the state-machine flag so a subsequent unrelated
+    # "save it" doesn't re-commit the same plan.
+    if ctx.db is not None:
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, False)
+        except Exception as exc:
+            logger.warning("awaiting_save_reset_failed: %s", exc)
+
     text = await _format_or_fallback(
         ctx=ctx, output=outcome.result,
         action_mode="save_last_counterfactual", spine_mode="full",
@@ -572,26 +590,7 @@ async def _load_last_counterfactual_overrides(
 
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
-    return all(k in _OVERRIDE_KEY_TO_USER_ATTR for k in overrides.keys())
-
-
-def _apply_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key, val in overrides.items():
-        attr = _OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        setattr(user, attr, val)
-
-
-def _clear_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key in overrides.keys():
-        attr = _OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        try:
-            delattr(user, attr)
-        except AttributeError:
-            pass
+    return all(k in _ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -652,14 +651,7 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
 async def _detect_action(
     last_alloc: AgentRunRecord, ctx: TurnContext,
 ) -> ChatAction:
-    """One Haiku call returning a ChatAction."""
-    api_key = get_settings().get_anthropic_asset_allocation_key()
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        max_tokens=400,
-    ).with_structured_output(ChatAction)
-
+    """One Haiku call returning a ChatAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_alloc.output_payload)
     snapshot_json = json.dumps(slim, default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
@@ -679,7 +671,12 @@ async def _detect_action(
         f"Saved plan snapshot (slim):\n{snapshot_json}"
         f"{history_section}"
     )
-    return await _ainvoke(llm, _DETECT_SYSTEM, user_block)
+    return await classify_action(
+        action_model=ChatAction,
+        system_prompt=_DETECT_SYSTEM,
+        user_block=user_block,
+        api_key=get_settings().get_anthropic_asset_allocation_key(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -725,27 +722,13 @@ async def _format_or_fallback(
     spine_mode: str,
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""
+    current_mix = compute_current_asset_class_mix(ctx.user_ctx)
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_aa_facts_pack(output),
+        facts_pack=build_aa_facts_pack(output, current_mix=current_mix),
         body_prompt=_AA_FORMATTER_BODY,
         module_name="asset_allocation",
         action_mode=action_mode,
         profile=_profile_dict(ctx),
         build_fallback=lambda: build_fallback_brief(output, spine_mode),
     )
-
-
-# ---------------------------------------------------------------------------
-# Async LangChain helpers (kept tiny so tests can patch easily)
-# ---------------------------------------------------------------------------
-
-async def _ainvoke(llm: Any, system_text: str, user_text: str) -> Any:
-    """Structured-output invocation."""
-    messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-        ]),
-        HumanMessage(content=user_text),
-    ]
-    return await asyncio.to_thread(llm.invoke, messages)

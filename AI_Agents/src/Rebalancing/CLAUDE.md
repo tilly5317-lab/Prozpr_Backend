@@ -9,6 +9,7 @@ Pure-Python rebalancing engine. Takes a goal-based ideal allocation plus present
 - `config.py` — env-overrideable knobs (caps, thresholds, tax rates).
 - `tables.py` — static lookups (multi-cap sub-categories).
 - `utils.py` — pure helpers (rounding, stcg/ltcg/exit-load math, tax estimate).
+- `rationales.py` — customer-facing rationale strings (title + body) keyed by `reason_code`. Single source of truth for both the dev sweep and the future production customer-view adapter.
 - `steps/` — one file per pipeline step (`step1_cap_and_spill` … `step6_presentation`).
 - `Reference_docs/` — design docs and source workbook (planning only, not code).
 - `Testing/` — pytest suite (per-step unit tests + e2e smoke + the 5-profile sweep).

@@ -48,8 +48,11 @@ def test_assemble_prompt_truncates_long_history():
 def test_house_style_contains_required_prohibitions():
     """Guard rail: prohibitions must be present so future edits don't drop them."""
     text = FORMATTER_HOUSE_STYLE.lower()
-    assert "never recommend" in text or "no specific fund" in text
-    assert "never invent" in text or "do not invent" in text
+    # Funds-and-ISIN prohibition: don't invent funds; never quote ISINs.
+    assert "don't invent or recommend mutual funds" in text or "no specific fund" in text
+    assert "never quote isins" in text or "never recommend" in text and "isin" in text
+    # Numbers prohibition.
+    assert "never invent numbers" in text or "do not invent numbers" in text
 
 
 def test_formatter_failure_is_an_exception():

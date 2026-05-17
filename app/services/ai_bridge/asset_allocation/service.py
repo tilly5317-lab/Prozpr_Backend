@@ -12,7 +12,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,9 @@ from app.config import get_settings
 from app.services.ai_bridge.common import format_inr_indian, trace_line
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.ai_module_telemetry import record_ai_module_run
+
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
 
 ensure_ai_agents_path()
 
@@ -184,17 +187,17 @@ def build_fallback_brief(
         lines.append("")
 
     acb = output.asset_class_breakdown
-    actual = acb.actual
+    recommended = acb.recommended
     lines.append(
-        f"**Asset-class mix** — equity {actual.equity_total_pct:.1f}% "
-        f"(INR {actual.equity_total:,.0f}), debt {actual.debt_total_pct:.1f}% "
-        f"(INR {actual.debt_total:,.0f}), others {actual.others_total_pct:.1f}% "
-        f"(INR {actual.others_total:,.0f})."
+        f"**Recommended asset-class mix** — equity {recommended.equity_total_pct:.1f}% "
+        f"(INR {recommended.equity_total:,.0f}), debt {recommended.debt_total_pct:.1f}% "
+        f"(INR {recommended.debt_total:,.0f}), others {recommended.others_total_pct:.1f}% "
+        f"(INR {recommended.others_total:,.0f})."
     )
     lines.append("")
 
     _BUCKET_ORDER_FOR_BREAKDOWN = ["short_term", "medium_term", "long_term"]
-    bucket_splits = {b.bucket: b for b in actual.per_bucket}
+    bucket_splits = {b.bucket: b for b in recommended.per_bucket}
     breakdown_rows = [
         (bucket_name, bucket_splits.get(bucket_name))
         for bucket_name in _BUCKET_ORDER_FOR_BREAKDOWN
@@ -235,7 +238,48 @@ def build_fallback_brief(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_aa_facts_pack(output: GoalAllocationOutput) -> dict[str, Any]:
+def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
+    """Sum the customer's PortfolioAllocation rows into a true current mix.
+
+    Source of truth for what the customer ACTUALLY holds today, distinct from
+    the asset_allocation engine's recommended deployment. ORM rows carry
+    asset_class ∈ {Equity, Debt, Cash, Other}; we surface all four (the engine
+    only models three, so `cash` is preserved as its own bucket here).
+
+    Returns None when no portfolio / no allocation rows are present so the
+    formatter can omit the "current mix" framing rather than show zeros.
+    """
+    portfolios = list(getattr(user, "portfolios", []) or [])
+    if not portfolios:
+        return None
+    primary = next(
+        (p for p in portfolios if getattr(p, "is_primary", False)), portfolios[0],
+    )
+    allocations = list(getattr(primary, "allocations", []) or [])
+    if not allocations:
+        return None
+
+    totals = {"equity": 0.0, "debt": 0.0, "cash": 0.0, "others": 0.0}
+    name_map = {"equity": "equity", "debt": "debt", "cash": "cash",
+                "other": "others", "others": "others"}
+    for a in allocations:
+        key = name_map.get((getattr(a, "asset_class", None) or "").strip().lower())
+        totals[key or "others"] += float(getattr(a, "amount", 0.0) or 0.0)
+
+    grand = sum(totals.values())
+    if grand <= 0:
+        return None
+    return {
+        "pct": {k: round(v / grand * 100, 2) for k, v in totals.items()},
+        "inr": {k: v for k, v in totals.items()},
+        "indian": {k: format_inr_indian(v) for k, v in totals.items()},
+    }
+
+
+def build_aa_facts_pack(
+    output: GoalAllocationOutput,
+    current_mix: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Curated facts the LLM is allowed to cite.
 
     Keep small. Customer-tellable fields only — no internal subgroup keys,
@@ -245,13 +289,21 @@ def build_aa_facts_pack(output: GoalAllocationOutput) -> dict[str, Any]:
     ``*_indian`` string pre-formatted in Indian notation. The chat formatter
     prompt instructs the LLM to copy ``*_indian`` verbatim and never compute
     its own lakh/crore conversion.
+
+    Naming convention:
+    - ``recommended_mix_*`` — what the AA engine recommends deploying. Built
+      from ``asset_class_breakdown.recommended`` (the engine's post-adjustment
+      allocation plan).
+    - ``current_mix_*`` — the customer's TRUE current holdings, computed
+      from ``PortfolioAllocation`` rows by ``compute_current_asset_class_mix``.
+      Optional; absent when no portfolio data exists.
     """
     cs = output.client_summary
     acb = output.asset_class_breakdown
-    actual = acb.actual
+    recommended = acb.recommended
 
     by_horizon = []
-    for split in actual.per_bucket:
+    for split in recommended.per_bucket:
         bucket_total = split.equity + split.debt + split.others
         if bucket_total <= 0:
             continue
@@ -288,30 +340,35 @@ def build_aa_facts_pack(output: GoalAllocationOutput) -> dict[str, Any]:
         for fi in output.future_investments_summary
     ]
 
-    return {
+    facts: dict[str, Any] = {
         "risk_score": cs.effective_risk_score,
         "age": cs.age,
         "total_corpus_inr": output.grand_total,
         "total_corpus_indian": format_inr_indian(output.grand_total),
-        "asset_class_mix_pct": {
-            "equity": actual.equity_total_pct,
-            "debt": actual.debt_total_pct,
-            "others": actual.others_total_pct,
+        "recommended_mix_pct": {
+            "equity": recommended.equity_total_pct,
+            "debt": recommended.debt_total_pct,
+            "others": recommended.others_total_pct,
         },
-        "asset_class_mix_inr": {
-            "equity": actual.equity_total,
-            "debt": actual.debt_total,
-            "others": actual.others_total,
+        "recommended_mix_inr": {
+            "equity": recommended.equity_total,
+            "debt": recommended.debt_total,
+            "others": recommended.others_total,
         },
-        "asset_class_mix_indian": {
-            "equity": format_inr_indian(actual.equity_total),
-            "debt": format_inr_indian(actual.debt_total),
-            "others": format_inr_indian(actual.others_total),
+        "recommended_mix_indian": {
+            "equity": format_inr_indian(recommended.equity_total),
+            "debt": format_inr_indian(recommended.debt_total),
+            "others": format_inr_indian(recommended.others_total),
         },
         "by_horizon": by_horizon,
         "goals": goals,
         "future_investments": future,
     }
+    if current_mix is not None:
+        facts["current_mix_pct"] = current_mix["pct"]
+        facts["current_mix_inr"] = current_mix["inr"]
+        facts["current_mix_indian"] = current_mix["indian"]
+    return facts
 
 
 def _format_allocation_answer_long(
@@ -501,16 +558,32 @@ async def compute_allocation_result(
     acting_user_id: uuid.UUID | None = None,
     chat_session_id: uuid.UUID | None = None,
     spine_mode: str | None = None,
+    chat_ctx: TurnContext | None = None,
 ) -> AllocationRunOutcome:
     """Build inputs, run the 7-step pipeline, optionally persist, and return."""
-    del user_question  # reserved for future carve-out hints from chat
     trace_line("module: asset_allocation — building inputs")
 
     if getattr(user, "date_of_birth", None) is None:
         return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 
+    if chat_ctx is None:
+        from app.services.chat_core.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+
+        chat_ctx = TurnContext(
+            user_ctx=user,
+            user_question=user_question,
+            conversation_history=[],
+            client_context=None,
+            session_id=chat_session_id or uuid.uuid4(),
+            db=db,
+            effective_user_id=acting_user_id or getattr(user, "id", uuid.uuid4()),
+            last_agent_runs={},
+            active_intent=None,
+            chat_overrides=None,
+        )
+
     try:
-        alloc_input, build_debug = build_goal_allocation_input_for_user(user)
+        alloc_input, build_debug = build_goal_allocation_input_for_user(chat_ctx)
     except ValueError:
         return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
 
