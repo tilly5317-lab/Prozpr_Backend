@@ -60,9 +60,9 @@ async def persist_goal_allocation_recommendation(
     db.add(rec)
 
     acb = output.asset_class_breakdown
-    equity_pct = float(acb.actual.equity_total_pct)
-    debt_pct = float(acb.actual.debt_total_pct)
-    others_pct = float(acb.actual.others_total_pct)
+    equity_pct = float(acb.recommended.equity_total_pct)
+    debt_pct = float(acb.recommended.debt_total_pct)
+    others_pct = float(acb.recommended.others_total_pct)
 
     snapshot_allocation: dict[str, Any] = {
         "rows": [

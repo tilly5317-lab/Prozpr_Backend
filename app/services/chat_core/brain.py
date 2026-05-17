@@ -21,19 +21,27 @@ from app.services.ai_bridge import (
     generate_market_commentary,
     generate_portfolio_query_response,
 )
-from app.services.ai_bridge.chart_selector_service import select_charts
 from app.services.ai_bridge.common import trace_line, trace_response_preview
-from app.services.visualization_tools.build_aa import build_charts_for_aa
-from app.services.visualization_tools.build_rebalancing import build_charts_for_rebalancing
 from app.services.chat_core.turn_context import build_turn_context, TurnContext
 from app.services.chat_core.types import ChatBrainResult, ChatTurnInput
 
 logger = logging.getLogger(__name__)
 
 _CLASSIFIER_FAILURE_MESSAGE = (
-    "I can help with that, but there was a temporary processing issue.\n\n"
-    "**Justification**\n"
-    "- Intent classification is currently unavailable, so I returned a safe fallback response."
+    "Sorry — I couldn't process your request due to a technical issue. Please try again."
+)
+
+# Hard ceiling on the per-turn telemetry write so a slow/hung DB cannot keep
+# the user waiting after we already have a reply ready. The row is best-effort:
+# if it doesn't land in this budget, we log and ship the reply anyway.
+_TELEMETRY_TIMEOUT_S = 5.0
+
+# Per-intent handler ceiling. Healthy agent runs complete in seconds; this is a
+# generous cap so a hung agent doesn't leave the user staring at a spinner.
+_INTENT_HANDLER_TIMEOUT_S = 60.0
+
+_INTENT_TIMEOUT_MESSAGE = (
+    "That took longer than expected on my end — please try again in a moment."
 )
 
 
@@ -47,6 +55,12 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
         "401" in msg
         and ("unauthorized" in msg or "invalid x-api-key" in msg or "authentication_error" in msg)
     ) or ("invalid x-api-key" in msg)
+
+
+# Sentinel kept after the goal_planning bridge cutover: the intent classifier
+# still uses it to strip pre-cutover canned redirects out of historical chat
+# messages so the LLM doesn't anchor on stale "isn't built yet" replies.
+_GOAL_PLANNING_SENTINEL = "isn't built into the chat yet"
 
 
 def _enrich_client_context_with_first_name(
@@ -88,20 +102,34 @@ class ChatBrain:
             *,
             ideal_allocation_rebalancing_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
-            chart_payloads: list[dict[str, Any]] | None = None,
         ) -> ChatBrainResult:
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
             trace_response_preview("final assistant message sent to client", content, max_chars=1200)
-            await log_chat_turn_flow_summary(
-                db,
-                user_id=uid,
-                session_id=sid,
-                intent=intent_value,
-                intent_confidence=intent_confidence,
-                steps=flow,
-                duration_ms=ms,
-            )
+            try:
+                await asyncio.wait_for(
+                    log_chat_turn_flow_summary(
+                        db,
+                        user_id=uid,
+                        session_id=sid,
+                        intent=intent_value,
+                        intent_confidence=intent_confidence,
+                        steps=flow,
+                        duration_ms=ms,
+                    ),
+                    timeout=_TELEMETRY_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Chat turn telemetry timed out after %.1fs (session=%s); returning reply without telemetry row",
+                    _TELEMETRY_TIMEOUT_S,
+                    sid,
+                )
+            except Exception:
+                logger.exception(
+                    "Chat turn telemetry failed (session=%s); returning reply anyway",
+                    sid,
+                )
             return ChatBrainResult(
                 content=content,
                 intent=intent_value,
@@ -109,8 +137,25 @@ class ChatBrain:
                 intent_reasoning=intent_reasoning,
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
-                chart_payloads=chart_payloads,
             )
+
+        async def run_handler(coro, label: str):
+            """Run an intent-handler coroutine under a hard timeout.
+
+            Returns the handler result on success, or ``None`` on timeout (the
+            caller must then short-circuit to the timeout fallback). Cancels
+            the underlying agent work so a hung run doesn't keep burning
+            resources after we've already given up on it.
+            """
+            try:
+                return await asyncio.wait_for(coro, timeout=_INTENT_HANDLER_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Intent handler %s timed out after %.0fs (session=%s); returning fallback",
+                    label, _INTENT_HANDLER_TIMEOUT_S, sid,
+                )
+                flow.append(f"{label} handler timed out — returning fallback")
+                return None
 
         try:
             trace_line("--- ChatBrain.run_turn ---")
@@ -150,53 +195,31 @@ class ChatBrain:
                 flow.append("dispatch_chat → asset_allocation_chat")
                 trace_line("next module: chat_dispatcher → asset_allocation_chat")
 
-                # Kick off chart selection in parallel with the formatter LLM.
-                selector_task = asyncio.create_task(
-                    select_charts(turn.user_question, intent_value)
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "asset_allocation",
                 )
-
-                result = await dispatch_chat(intent_value, turn_context)
-
-                # Wait for the selector with a soft 3s ceiling — if it's still running
-                # because the formatter returned fast, cancel and ship without charts
-                # rather than block the response.
-                try:
-                    chart_names = await asyncio.wait_for(selector_task, timeout=3.0)
-                except asyncio.TimeoutError:
-                    logger.warning("AA chart selector timed out; shipping without charts")
-                    selector_task.cancel()
-                    chart_names = []
-                except Exception as exc:
-                    logger.warning("AA chart selector failed (%s); shipping without charts", exc)
-                    chart_names = []
-
-                chart_payloads: list[dict[str, Any]] | None = None
-                if chart_names and db is not None:
-                    try:
-                        payloads = await build_charts_for_aa(db, uid, chart_names)
-                        if payloads:
-                            chart_payloads = [p.model_dump(mode="json") for p in payloads]
-                    except Exception:
-                        logger.exception("AA chart builder failed; shipping without charts")
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
 
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
-                    chart_payloads=chart_payloads,
                 )
 
             if intent_value == "goal_planning":
-                # No agent module yet — return the canned redirect attached
-                # by the classifier. When the goal_planning module ships,
-                # replace this branch with a dispatch_chat("goal_planning", ...) call.
-                flow.append("goal_planning → canned redirect (module not yet built)")
-                trace_line("next module: goal_planning → canned redirect")
-                redirect_text = (
-                    classification.out_of_scope_message
-                    or "Goal planning isn't available yet — please ask me about your portfolio or where to invest."
+                # Local import — chat handler self-registers via @register at import time.
+                from app.services.ai_bridge.goal_planning import chat as _gp_chat  # noqa: F401
+                from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+                flow.append("dispatch_chat → goal_planning_chat")
+                trace_line("next module: chat_dispatcher → goal_planning_chat")
+
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "goal_planning",
                 )
-                return await finalize(redirect_text)
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
+                return await finalize(result.text)
 
             if intent_value == "rebalancing":
                 # Local import — chat handler self-registers via @register at import time.
@@ -205,46 +228,16 @@ class ChatBrain:
                 flow.append("dispatch_chat → rebalancing_chat")
                 trace_line("next module: chat_dispatcher → rebalancing_chat")
 
-                # Dispatch the rebalancing chat handler (runs the engine + formatter
-                # internally). After it returns, kick off chart selection, build
-                # payloads from the engine response, and attach to the reply.
-                #
-                # Note: the formatter LLM lives inside dispatch_chat, so the selector
-                # here cannot truly run parallel to it without a deeper refactor.
-                # The Plan 2 win is removing the chart_picker LLM from the critical
-                # path entirely (it used to run AFTER the formatter); the selector
-                # is comparable in latency to the picker it replaces.
-                result = await dispatch_chat(intent_value, turn_context)
-
-                response = getattr(result, "rebalancing_response", None)
-                chart_payloads: list[dict[str, Any]] | None = None
-                if response is not None:
-                    selector_task = asyncio.create_task(
-                        select_charts(turn.user_question, intent_value)
-                    )
-                    try:
-                        chart_names = await asyncio.wait_for(selector_task, timeout=3.0)
-                    except asyncio.TimeoutError:
-                        logger.warning("Rebal chart selector timed out; shipping without charts")
-                        selector_task.cancel()
-                        chart_names = []
-                    except Exception as exc:
-                        logger.warning("Rebal chart selector failed (%s); shipping without charts", exc)
-                        chart_names = []
-
-                    if chart_names:
-                        try:
-                            payloads = await build_charts_for_rebalancing(response, chart_names)
-                            if payloads:
-                                chart_payloads = [p.model_dump(mode="json") for p in payloads]
-                        except Exception:
-                            logger.exception("Rebal chart builder failed; shipping without charts")
+                result = await run_handler(
+                    dispatch_chat(intent_value, turn_context), "rebalancing",
+                )
+                if result is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
 
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
                     ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
-                    chart_payloads=chart_payloads,
                 )
 
             if intent_value == "portfolio_query":
@@ -253,24 +246,34 @@ class ChatBrain:
                     "portfolio_query → AI_Agents.portfolio_query orchestrator (market commentary + sub-category roll-ups)"
                 )
                 # user_ctx must include portfolios + holdings → fund_metadata (loaded by get_ai_user_context)
-                content = await generate_portfolio_query_response(
-                    user=turn.user_ctx,
-                    user_question=turn.user_question,
-                    conversation_history=turn.conversation_history,
+                content = await run_handler(
+                    generate_portfolio_query_response(
+                        user=turn.user_ctx,
+                        user_question=turn.user_question,
+                        conversation_history=turn.conversation_history,
+                    ),
+                    "portfolio_query",
                 )
+                if content is None:
+                    return await finalize(_INTENT_TIMEOUT_MESSAGE)
                 trace_response_preview("portfolio_query_service response", content)
                 return await finalize(content)
 
             flow.append("general chat (no specialist branch)")
             trace_line("next module: general_chat (no specialist branch)")
-            content = await generate_general_chat_response(
-                user_question=turn.user_question,
-                classification=classification,
-                conversation_history=turn.conversation_history,
-                client_context=_enrich_client_context_with_first_name(
-                    turn.client_context, turn.user_ctx,
+            content = await run_handler(
+                generate_general_chat_response(
+                    user_question=turn.user_question,
+                    classification=classification,
+                    conversation_history=turn.conversation_history,
+                    client_context=_enrich_client_context_with_first_name(
+                        turn.client_context, turn.user_ctx,
+                    ),
                 ),
+                "general_chat",
             )
+            if content is None:
+                return await finalize(_INTENT_TIMEOUT_MESSAGE)
             trace_response_preview("general_chat_service response", content)
             return await finalize(content)
 

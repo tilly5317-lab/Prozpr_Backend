@@ -20,6 +20,8 @@ One file or subpackage per domain. Column-level detail lives in
   related portfolio tables.
 - `chat.py` — chat sessions and messages.
 - `chat_ai_module_run.py` — per-turn AI module telemetry rows.
+- `chat_session_state.py` — per-session cross-turn state for chat handlers
+  (e.g., `awaiting_save` gate used by the goal_planning counterfactual flow).
 - `fund.py` — fund reference data.
 - `ips.py` — investment policy statement records.
 - `notification.py` — notification records.

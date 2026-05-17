@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
 # Skip 14x web search + Sonnet extraction when the on-disk snapshot is still fresh.
-_CACHE_MAX_AGE_SEC = int(os.getenv("MARKET_COMMENTARY_CACHE_MAX_AGE_SEC", "3600"))
+_CACHE_MAX_AGE_SEC = int(os.getenv("MARKET_COMMENTARY_CACHE_MAX_AGE_SEC", "86400"))
 
 _MARKET_COMMENTARY_DIR = Path(market_commentary.__file__).resolve().parents[2] / "Reference_docs"
 

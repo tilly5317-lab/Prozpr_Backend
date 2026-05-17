@@ -5,13 +5,14 @@ Ask Tilly is an AI-powered financial advisor. This package is the backend: FastA
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling, chart_selector); integrated via `sys.path` injection. `router/` is a stub placeholder.
+- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, cashflow_statement, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library; integrated via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
 - **alembic/** — Database migrations.
 - **wealth_core/** — LEGACY; pre-app/ orchestration modules.
 - **MF_Logics/** — LEGACY; historical MF data extraction and mapping work.
 - **scripts/** — DEV-ONLY helper scripts.
 - **deploy/** — DEPLOY-ONLY; deployment artifacts.
 - **AI_Agents/archive/** — ARCHIVED agent implementations.
+- **Agent_audit/** — DEV-ONLY audit fixtures: question set (`questions.json`), audit runner (`run_audit.py`), per-finding smoke scripts, and captured transcripts/findings. Not imported by runtime.
 
 ## Files at this level
 
@@ -40,7 +41,7 @@ Cross-cutting flows live with their home folders:
 - `__pycache__/`, `.pytest_cache/`, `.venv/`, `.obsidian/` — build/editor caches.
 - `*.db`, `*.db.bak-*`, `*.db.partial-*`, `*.db.probe-artifact-*` — local SQLite dev state.
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
-- `docs/superpowers/` — local planning scaffolding (specs, plans), not product code.
+- `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding, `charts.md`, `flowchart_chat_flow.html`). Not product code.
 
 ## Refresh
 
