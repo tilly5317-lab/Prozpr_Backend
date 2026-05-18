@@ -14,10 +14,12 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
+    is_dev = os.getenv("ENV", "development").lower() in ("dev", "development", "local")
     uvicorn.run(
         "main:app",
         host=host,
         port=port,
-        reload=True,
+        reload=is_dev,
         log_level="info",
+        limit_max_requests=None if is_dev else 1000,
     )

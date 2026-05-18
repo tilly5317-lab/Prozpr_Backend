@@ -5,7 +5,6 @@ from typing import Any, Annotated
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool, InjectedToolCallId
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, InjectedState
 from langgraph.types import Command
@@ -189,10 +188,15 @@ _compiled_graph = None
 
 
 def get_compiled_graph():
-    """Singleton — instantiate once at first use."""
+    """Singleton — instantiate once at first use.
+
+    checkpointer=None: each invocation gets a fresh state — no in-memory
+    checkpoint accumulation across sessions. The graph receives a full
+    state_update on every call so multi-turn checkpointing is unnecessary.
+    """
     global _compiled_graph
     if _compiled_graph is None:
-        _compiled_graph = build_graph(checkpointer=MemorySaver())
+        _compiled_graph = build_graph(checkpointer=None)
     return _compiled_graph
 
 
