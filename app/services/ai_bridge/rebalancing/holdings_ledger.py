@@ -24,8 +24,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf.enums import MfTransactionType
-from app.models.mf.mf_nav_history import MfNavHistory
 from app.models.mf.mf_transaction import MfTransaction
+from app.services.ai_bridge.rebalancing import _disk_cache
 
 
 @dataclass(frozen=True)
@@ -44,20 +44,12 @@ class HoldingLedgerEntry:
     lots: tuple[Lot, ...]
 
 
-async def _scheme_to_isin(db: AsyncSession, scheme_codes: set[str]) -> dict[str, str]:
-    """Latest non-null ISIN per scheme_code, looked up in MfNavHistory."""
-    if not scheme_codes:
-        return {}
-    rows = (await db.execute(
-        select(MfNavHistory.scheme_code, MfNavHistory.isin, MfNavHistory.nav_date)
-        .where(MfNavHistory.scheme_code.in_(scheme_codes))
-        .where(MfNavHistory.isin.is_not(None))
-        .order_by(MfNavHistory.scheme_code, MfNavHistory.nav_date.desc())
-    )).all()
-    out: dict[str, str] = {}
-    for code, isin, _date in rows:
-        out.setdefault(code, isin)
-    return out
+# TODO(DB-backed): scheme_code → ISIN is resolved via ``_disk_cache`` from the
+# MF_Logics CSVs. Restore the DB query against ``mf_nav_history`` once that
+# table is kept fresh in prod by ``app.services.mf.mfapi_ingest``.
+def _scheme_to_isin(scheme_codes: set[str]) -> dict[str, str]:
+    """Primary ISIN per scheme_code (growth plan preferred)."""
+    return _disk_cache.scheme_to_isin(scheme_codes)
 
 
 async def build_holdings_ledger(
@@ -96,7 +88,7 @@ async def build_holdings_ledger(
         # SWITCH_IN / SWITCH_OUT / DIVIDEND_REINVEST: ignored in v1.
 
     held_schemes = {code for code, lots in by_scheme.items() if lots}
-    isin_map = await _scheme_to_isin(db, held_schemes)
+    isin_map = _scheme_to_isin(held_schemes)
 
     out: list[HoldingLedgerEntry] = []
     for scheme_code, lots in sorted(by_scheme.items()):

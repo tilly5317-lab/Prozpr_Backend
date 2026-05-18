@@ -9,13 +9,14 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Child modules
 
 - **asset_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
+- **cashflow_statement/** — Goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal. Computes monthly/annual cashflow projections, per-goal funding, and headline status against an Excel-parity baseline. Entry: `engine/pipeline.py` (engine), `agent/graph.py` (agent). See `cashflow_statement/CLAUDE.md`.
+- **financial_primitives/** — Shared numerical kernel (TVM, annuity via numpy_financial, inflation, Indian FY date helpers, retirement closed-form). Pure functions, no LLM, no I/O, fully unit-tested. Library not agent — has no pipeline of its own and is not exposed as an LLM tool. Sole consumer today is `cashflow_statement/engine/`; other agents are free to import from it if they ever need projection math. Don't engineer for hypothetical consumers — extend only when a real caller appears. Entry: `__init__.py` (flat public API).
 - **Rebalancing/** — Pure-Python rebalancing engine; takes a goal-based ideal allocation plus current holdings and emits per-fund target / buy / sell amounts under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`.
 - **intent_classifier/** — Classifies a customer question into one of six intents (asset_allocation, goal_planning, stock_advice, portfolio_query, general_market_query, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
 - **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document persisted to `AI_Agents/Reference_docs/`. Entry: `main.py`.
 - **portfolio_query/** — Self-contained agent that answers client questions about their own portfolio using market commentary + client profile + current portfolio (asset-class, sub-category, and per-fund detail), with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
-- **chart_selector/** — Tool-forced Claude Haiku agent that picks a relevant subset of charts from a caller-supplied catalogue. Entry: `selector.py`.
-- **router/** — STUB; only `README.md`. No Python modules yet — placeholder for a future routing agent.
+- **chat_eval/** — Dev-only evaluation harness: replays a YAML question set through the chat pipeline and emits JSON/HTML reports (`report.json`, `report.md`, `Chat_responses.html`). Not imported by runtime. Entry: `run_eval.py`.
 
 > Note: `drift_analysis/` lives in `AI_Agents/archive/drift_analysis/`, not here.
 

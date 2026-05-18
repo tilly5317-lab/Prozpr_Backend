@@ -1,8 +1,26 @@
 """End-to-end input builder: holdings + allocation + CSV → RebalancingComputeRequest."""
 
+import uuid
 from decimal import Decimal
 
 import pytest
+
+from app.services.chat_core.turn_context import TurnContext
+
+
+def _ctx_for(user, db_session) -> TurnContext:
+    return TurnContext(
+        user_ctx=user,
+        user_question="x",
+        conversation_history=[],
+        client_context=None,
+        session_id=uuid.uuid4(),
+        db=db_session,
+        effective_user_id=user.id,
+        last_agent_runs={},
+        active_intent="rebalancing",
+        chat_overrides=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -23,9 +41,8 @@ async def test_recommended_only_with_no_holdings(
     )
 
     request, _debug = await build_rebalancing_input_for_user(
-        fixture_user_with_dob,
+        _ctx_for(fixture_user_with_dob, db_session),
         fixture_goal_allocation_output_one_subgroup,
-        db_session,
     )
 
     assert request.total_corpus == Decimal(0)
@@ -53,9 +70,8 @@ async def test_held_isin_in_recommended_set_enriched(
 
     user, held_isin = fixture_user_with_holdings
     request, _ = await build_rebalancing_input_for_user(
-        user,
+        _ctx_for(user, db_session),
         fixture_goal_allocation_output_one_subgroup,
-        db_session,
     )
 
     matching = [r for r in request.rows if r.isin == held_isin]
@@ -81,9 +97,8 @@ async def test_bad_fund_when_held_isin_not_recommended(
     )
 
     request, _ = await build_rebalancing_input_for_user(
-        fixture_user_with_bad_holding,
+        _ctx_for(fixture_user_with_bad_holding, db_session),
         fixture_goal_allocation_output_one_subgroup,
-        db_session,
     )
 
     bad_rows = [r for r in request.rows if not r.is_recommended]
@@ -107,9 +122,8 @@ async def test_total_corpus_sums_held_market_values(
     )
 
     request, _ = await build_rebalancing_input_for_user(
-        fixture_user_with_two_holdings,
+        _ctx_for(fixture_user_with_two_holdings, db_session),
         fixture_goal_allocation_output_one_subgroup,
-        db_session,
     )
     expected = (
         Decimal("10") * Decimal("60")  # holding 1: 10 units @ NAV 60 = 600
@@ -131,9 +145,8 @@ async def test_missing_tax_profile_uses_defaults(
     )
 
     request, _ = await build_rebalancing_input_for_user(
-        fixture_user_with_holdings_no_tax_profile,
+        _ctx_for(fixture_user_with_holdings_no_tax_profile, db_session),
         fixture_goal_allocation_output_one_subgroup,
-        db_session,
     )
     assert request.tax_regime == "new"
     assert float(request.effective_tax_rate_pct) == 30.0

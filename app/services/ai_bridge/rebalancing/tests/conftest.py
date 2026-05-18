@@ -205,6 +205,7 @@ def fixture_goal_allocation_output_one_subgroup():
     })
 
 
+<<<<<<< HEAD
 def _serialised_one_subgroup_allocation() -> dict:
     """JSON payload mirroring ``fixture_goal_allocation_output_one_subgroup``."""
     return {
@@ -214,6 +215,46 @@ def _serialised_one_subgroup_allocation() -> dict:
         "grand_total": 1_000_000.0,
         "all_amounts_in_multiples_of_100": True,
     }
+=======
+def _minimal_long_term_equity_breakdown(long_term_equity: int):
+    """Build a minimal AssetClassBreakdown with one all-equity long-term row."""
+    from app.services.ai_bridge.common import ensure_ai_agents_path
+
+    ensure_ai_agents_path()
+
+    from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]
+        AssetClassBreakdown,
+        AssetClassSplitBlock,
+        BucketAssetClassSplit,
+    )
+
+    def _empty(bucket: str) -> BucketAssetClassSplit:
+        return BucketAssetClassSplit(bucket=bucket, equity=0, debt=0, others=0)
+
+    long_term = BucketAssetClassSplit(
+        bucket="long_term",
+        equity=long_term_equity,
+        debt=0,
+        others=0,
+        equity_pct=100.0,
+        debt_pct=0.0,
+        others_pct=0.0,
+    )
+    block = AssetClassSplitBlock(
+        per_bucket=[_empty("emergency"), _empty("short_term"), _empty("medium_term"), long_term],
+        equity_total=long_term_equity,
+        debt_total=0,
+        others_total=0,
+        equity_total_pct=100.0,
+        debt_total_pct=0.0,
+        others_total_pct=0.0,
+    )
+    return AssetClassBreakdown(
+        planned=block,
+        recommended=block,
+        recommended_sum_matches_grand_total=True,
+    )
+>>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
 
 
 @pytest.fixture

@@ -52,6 +52,11 @@ class Holding(BaseModel):
     allocation_percentage: float | None = None
     return_1y_pct: float | None = None
     return_3y_pct: float | None = None
+    # Cost-basis-derived returns. Populated when avg_cost × quantity is known
+    # — independent of the (often-NULL) trailing-window return columns above.
+    invested_amount_inr: float | None = None
+    gain_inr: float | None = None
+    gain_pct: float | None = None
 
 
 class AllocationRow(BaseModel):
@@ -71,6 +76,9 @@ class PortfolioContext(BaseModel):
     total_value_inr: float | None = None
     total_invested_inr: float | None = None
     total_gain_percentage: float | None = None
+    # Annualised return computed from MF transaction cash flows (Newton-Raphson XIRR).
+    # Falls back to None when there are fewer than 2 dated cash flows or solver fails.
+    xirr_pct: float | None = None
     holdings: list[Holding] = Field(default_factory=list)
     allocations: list[AllocationRow] = Field(default_factory=list)
     sub_category_allocations: list[SubCategoryAllocationRow] = Field(default_factory=list)

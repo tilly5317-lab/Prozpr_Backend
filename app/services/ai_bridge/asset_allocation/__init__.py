@@ -6,8 +6,11 @@ must import ``chat`` lazily.
 """
 
 from app.services.ai_bridge.asset_allocation.input_builder import (
-    build_asset_allocation_input_for_user,
+    build_goal_allocation_input_for_user,
 )
+
+# Back-compat alias for older imports/docs.
+build_asset_allocation_input_for_user = build_goal_allocation_input_for_user
 from app.services.ai_bridge.asset_allocation.persistence import (
     normalize_asset_allocation_engine_result,
     save_asset_allocation_from_engine_output,
