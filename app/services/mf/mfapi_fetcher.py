@@ -199,6 +199,9 @@ async def fetch_scheme_detail(
     )
 
 
+MFAPI_BATCH_SIZE = 100
+
+
 async def fetch_many_scheme_details(
     client: httpx.AsyncClient,
     scheme_codes: list[str],
@@ -206,13 +209,28 @@ async def fetch_many_scheme_details(
     concurrency: int = MFAPI_CONCURRENCY,
 ) -> tuple[list[SchemeDetail], list[str]]:
     """Fetch many scheme details concurrently and return successes with failed codes."""
+    all_details: list[SchemeDetail] = []
+    all_failed: list[str] = []
+    for batch_details, batch_failed in fetch_scheme_details_batched(
+        client, scheme_codes, concurrency=concurrency,
+    ):
+        all_details.extend(batch_details)
+        all_failed.extend(batch_failed)
+    return all_details, all_failed
 
+
+async def fetch_scheme_details_batch(
+    client: httpx.AsyncClient,
+    scheme_codes: list[str],
+    *,
+    concurrency: int = MFAPI_CONCURRENCY,
+) -> tuple[list[SchemeDetail], list[str]]:
+    """Fetch a single batch of scheme details concurrently."""
     sem = asyncio.Semaphore(concurrency)
     details: list[SchemeDetail] = []
     failed: list[str] = []
 
     async def _one(code: str) -> None:
-        """Fetch one scheme under semaphore control and record success/failure."""
         async with sem:
             try:
                 detail = await fetch_scheme_detail(client, code)
@@ -229,3 +247,29 @@ async def fetch_many_scheme_details(
 
     await asyncio.gather(*(_one(c) for c in scheme_codes))
     return details, failed
+
+
+def _chunked(lst: list[str], size: int):
+    """Yield successive chunks of ``size`` from ``lst``."""
+    for i in range(0, len(lst), size):
+        yield lst[i : i + size]
+
+
+async def fetch_scheme_details_batched(
+    client: httpx.AsyncClient,
+    scheme_codes: list[str],
+    *,
+    concurrency: int = MFAPI_CONCURRENCY,
+    batch_size: int = MFAPI_BATCH_SIZE,
+):
+    """Async generator that yields (details, failed) per batch of scheme codes.
+
+    Each batch fetches at most ``batch_size`` schemes, allowing callers to
+    process and discard results incrementally instead of accumulating the
+    entire universe in memory.
+    """
+    for batch_codes in _chunked(scheme_codes, batch_size):
+        details, failed = await fetch_scheme_details_batch(
+            client, batch_codes, concurrency=concurrency,
+        )
+        yield details, failed

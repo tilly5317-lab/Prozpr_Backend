@@ -32,11 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mf import MfFundMetadata
 from app.services.mf.mfapi_fetcher import (
+    MFAPI_BATCH_SIZE,
     MFAPI_CONCURRENCY,
     MFAPI_TIMEOUT,
     MfapiFetchError,
     SchemeDetail,
     fetch_many_scheme_details,
+    fetch_scheme_details_batched,
     fetch_universe,
 )
 from app.services.mf.nav_history_service import bulk_insert_nav_rows
@@ -330,7 +332,11 @@ async def ingest_mfapi(
     resume_from_last_in_db: bool = False,
     metadata_only: bool = False,
 ) -> MfapiIngestResult:
-    """Run end-to-end mfapi ingest: fetch, dedup, upsert metadata, and insert NAVs."""
+    """Run end-to-end mfapi ingest: fetch, dedup, upsert metadata, and insert NAVs.
+
+    Processes schemes in batches of MFAPI_BATCH_SIZE to keep peak memory
+    proportional to batch_size rather than the entire MF universe (~45K schemes).
+    """
     started_at = datetime.now(timezone.utc)
     result = MfapiIngestResult(
         mode=mode.value, started_at=started_at, finished_at=started_at, dry_run=dry_run
@@ -347,58 +353,49 @@ async def ingest_mfapi(
                 result.finished_at = datetime.now(timezone.utc)
                 return result
 
-            details, failed = await fetch_many_scheme_details(
-                client, codes, concurrency=concurrency
-            )
-            result.failed_codes = failed
-            result.parse_errors = sum(d.parse_errors for d in details)
-            logger.info(
-                "  fetched %d scheme details (%d failed) — starting DB writes …",
-                len(details), len(failed),
-            )
+            batch_num = 0
+            async for details, failed in fetch_scheme_details_batched(
+                client, codes, concurrency=concurrency, batch_size=MFAPI_BATCH_SIZE,
+            ):
+                batch_num += 1
+                result.failed_codes.extend(failed)
+                result.parse_errors += sum(d.parse_errors for d in details)
 
-            if not details:
-                result.finished_at = datetime.now(timezone.utc)
-                return result
+                if not details:
+                    continue
 
-            existing_codes = await _existing_scheme_codes(
-                db, (d.scheme_code for d in details)
-            )
-            result.isin_collisions = _dedup_isin(details, existing_codes)
-
-            high_water = (
-                await _high_water_marks(db, [d.scheme_code for d in details])
-                if mode is IngestMode.INCREMENTAL and not metadata_only
-                else {}
-            )
-
-            inserted, updated = await _upsert_metadata(
-                db, details, existing_codes, dry_run=dry_run
-            )
-            result.schemes_inserted = inserted
-            result.schemes_updated = updated
-            if metadata_only:
                 logger.info(
-                    "  metadata upserted (new=%d updated=%d) — metadata_only, skipping NAV insert",
-                    inserted, updated,
-                )
-            else:
-                logger.info(
-                    "  metadata upserted (new=%d updated=%d) — inserting NAV rows …",
-                    inserted, updated,
+                    "  batch %d: fetched %d scheme details (%d failed) — writing …",
+                    batch_num, len(details), len(failed),
                 )
 
-            if metadata_only:
-                result.nav_rows_inserted = 0
-                result.nav_rows_candidate = 0
-                result.nav_rows_skipped_duplicate = 0
-            else:
-                nav_inserted, nav_skipped, nav_candidates = await _insert_navs(
-                    db, details, high_water, mode=mode, dry_run=dry_run
+                existing_codes = await _existing_scheme_codes(
+                    db, (d.scheme_code for d in details)
                 )
-                result.nav_rows_inserted = nav_inserted
-                result.nav_rows_candidate = nav_candidates
-                result.nav_rows_skipped_duplicate = nav_skipped
+                result.isin_collisions += _dedup_isin(details, existing_codes)
+
+                inserted, updated = await _upsert_metadata(
+                    db, details, existing_codes, dry_run=dry_run
+                )
+                result.schemes_inserted += inserted
+                result.schemes_updated += updated
+
+                if not metadata_only:
+                    high_water = (
+                        await _high_water_marks(db, [d.scheme_code for d in details])
+                        if mode is IngestMode.INCREMENTAL
+                        else {}
+                    )
+                    nav_inserted, nav_skipped, nav_candidates = await _insert_navs(
+                        db, details, high_water, mode=mode, dry_run=dry_run
+                    )
+                    result.nav_rows_inserted += nav_inserted
+                    result.nav_rows_candidate += nav_candidates
+                    result.nav_rows_skipped_duplicate += nav_skipped
+
+                if not dry_run:
+                    await db.flush()
+                    db.expunge_all()
 
             if not dry_run:
                 await db.commit()
