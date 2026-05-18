@@ -2,25 +2,31 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, Literal, Optional
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ai_bridge.chat_dispatcher import ChatHandlerResult, register
 from app.services.ai_bridge.common import build_detect_history_block
+from app.services.ai_bridge.intent_router import classify_action
 from app.services.ai_bridge.rebalancing.service import (
     build_rebal_facts_pack,
     compute_rebalancing_result,
 )
-from app.services.chat_core.turn_context import AgentRunRecord, TurnContext
+from app.services.chat_core.turn_context import (
+    AgentRunRecord,
+    TurnContext,
+    upsert_awaiting_save,
+)
 from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.rebalancing.formatter import build_fallback_rebal_brief
+from app.services.ai_bridge.rebalancing.overrides import (
+    _REBAL_ALLOWED_OVERRIDE_KEYS,
+    with_chat_overrides,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,23 +56,6 @@ class RebalanceAction(BaseModel):
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
 
-
-# Maps RebalanceAction.overrides keys → transient User attribute names that
-# input_builder reads. Mirrors AA's _OVERRIDE_KEY_TO_USER_ATTR pattern.
-_REBAL_OVERRIDE_KEY_TO_USER_ATTR: dict[str, str] = {
-    "effective_tax_rate":        "_chat_rebal_tax_rate_override",
-    "stcg_offset_budget_inr":    "_chat_rebal_stcg_budget_override",
-    "carryforward_st_loss_inr":  "_chat_rebal_carryforward_st_override",
-    "carryforward_lt_loss_inr":  "_chat_rebal_carryforward_lt_override",
-    # additional_cash_inr forwards to AA's same-named user attr — AA's
-    # input_builder reads it and adjusts the corpus before producing the
-    # allocation that rebalancing then runs against. See
-    # asset_allocation/input_builder.py for the read site.
-    "additional_cash_inr":       "_chat_additional_cash_override",
-    # effective_risk_score overrides the user's risk score for AA, which
-    # changes the equity/debt/others allocation before rebalancing runs.
-    "effective_risk_score":      "_chat_risk_score_override",
-}
 
 _INVALID_OVERRIDE_TEMPLATE = (
     "I can only run 'what if' scenarios on a small set of inputs from chat "
@@ -105,8 +94,6 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   and offers the customer a chance to save; if they confirm in the next
   turn, classify that as `save_last_counterfactual`. Must specify
   `overrides`. Allowed override keys (others → redirect):
-    effective_risk_score:      number 1-10 (risk score override — re-runs allocation
-                               at this score, then rebalances against present holdings)
     effective_tax_rate:        number 0-100 (% — overrides customer's tax bracket)
     stcg_offset_budget_inr:    number ≥ 0 (₹ — STCG offset budget for this run)
     carryforward_st_loss_inr:  number ≥ 0 (₹ — short-term carryforward losses)
@@ -120,10 +107,6 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   in", "lock in", "yes", "yeah do that", "go ahead", "make this my
   plan", "keep this", "do it". No `overrides` field needed — the system
   loads the previous turn's overrides and re-runs with persist=True.
-  Only emit this mode when the IMMEDIATELY PRECEDING turn was a
-  counterfactual_explore; if there's no recent counterfactual in the
-  conversation history, this is misclassified — prefer narrate or
-  redirect.
 - "recompute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
@@ -149,12 +132,6 @@ educate (asking what a term or mechanism MEANS in general):
 - "why does tax matter for rebalancing?"    → educate
 
 counterfactual_explore (hypothetical with at least one concrete value):
-- "what if my risk score were 9?"           → counterfactual_explore,
-                                              overrides={effective_risk_score: 9}
-- "rebalance with risk score 9"             → counterfactual_explore,
-                                              overrides={effective_risk_score: 9}
-- "increase my risk to 8 and rebalance"     → counterfactual_explore,
-                                              overrides={effective_risk_score: 8}
 - "what if my tax rate were 20%?"           → counterfactual_explore,
                                               overrides={effective_tax_rate: 20}
 - "what if I had ₹50K in carry-forward
@@ -216,6 +193,47 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
 
   warnings: list of short human-readable strings (up to 5)
 
+  fund_actions: list of per-fund actions for the customer's specific funds
+    (top 30 by exposure; if more, ``more_holdings_count`` carries the
+    overflow count for "and N other smaller holdings"). Each entry:
+      fund_name        — the customer-facing scheme name (e.g. "HDFC Top 100").
+                         Cite this verbatim when answering fund-specific
+                         questions ("why are you trimming HDFC Top 100?",
+                         "what funds will I hold after this?").
+      sub_category     — SEBI category for context (e.g. "Large Cap Fund").
+      asset_subgroup   — internal engine grouping; do NOT surface.
+      current_inr / current_indian       — present holding in this fund
+      buy_inr     / buy_indian           — amount being bought into this fund
+      sell_inr    / sell_indian          — amount being sold from this fund
+      planned_final_inr / planned_final_indian — current + buy − sell
+    When the customer asks about a specific fund or specific trades, name
+    the fund(s). When showing a "what will I hold after?" view, list funds
+    with planned_final > 0, biggest first. For category-level questions,
+    prefer the aggregated ``buckets`` field — fund-level detail is only
+    needed when the question is fund-specific.
+
+  goal_buckets: optional list — present when the rebalancing was driven by the
+    customer's goals. One entry per bucket the customer has goals in:
+      bucket             — "emergency" / "short_term" / "medium_term" / "long_term"
+      horizon_label      — customer-friendly label, e.g. "Long-term (> 5 yrs)".
+                           Use this verbatim instead of the raw bucket key.
+      goals: list of {name, horizon_months, amount_needed_inr,
+                      amount_needed_indian, priority}. Priority is
+                      "non_negotiable" or "negotiable" — phrase as
+                      "must-meet" / "flexible" rather than the raw label.
+      total_goal_amount_indian / allocated_amount_indian — pre-formatted ₹.
+      planned_split_pct  — {equity, debt, others} % the AA engine targeted for
+                           this bucket based on the goals' horizons. THIS is
+                           why each bucket has the equity/debt mix it does.
+
+  When goal_buckets is present and it makes the answer clearer, tie trades
+  back to the bucket and its goal(s): e.g. "we're trimming equity in your
+  short-term bucket because your house-down-payment goal is ~18 months away,
+  so the engine targets ~30% equity / 70% debt there." Do NOT enumerate every
+  bucket on every turn — only surface the bucket(s) the customer's question
+  touches. If goal_buckets is absent, answer purely from the trade/asset-class
+  facts as before.
+
 ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
 which is set by the system on a fresh first-turn recommendation (it is not
 produced by the classifier). Per-mode behavior:
@@ -267,6 +285,13 @@ _DEFAULT_CLARIFY_FALLBACK = (
     "or constraint?"
 )
 
+_NO_PENDING_COUNTERFACTUAL_MESSAGE = (
+    "There's no recent 'what if' to save in this conversation. "
+    "If you'd like to lock in a change, tell me what you'd like "
+    "different (e.g., 'what if I had ₹2L more?') and I'll show "
+    "you the result first — then you can save it."
+)
+
 _NARRATE_DEGRADED_FALLBACK = (
     "I have your latest rebalancing plan but couldn't compose a tailored "
     "explanation right now. Ask me to redo the trades and I'll regenerate "
@@ -284,11 +309,12 @@ async def _format_or_fallback_rebal(
     response: Any,
     fallback_brief: str,
     action_mode: str,
+    goal_buckets: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_rebal_facts_pack(response),
+        facts_pack=build_rebal_facts_pack(response, goal_buckets=goal_buckets),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
         action_mode=action_mode,
@@ -319,39 +345,12 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
 # Public handler
 # ---------------------------------------------------------------------------
 
-def _extract_first_turn_overrides(question: str) -> dict[str, Any] | None:
-    """Best-effort regex extraction of overrides from a first-turn question.
-
-    Returns a dict of overrides if a supported override value is found,
-    or None if the question looks like a plain rebalancing request.
-    Only extracts overrides that affect the allocation engine (risk score,
-    additional cash) since those are the ones that matter on a fresh run.
-    """
-    import re
-    overrides: dict[str, Any] = {}
-    q = question.lower()
-
-    risk_match = re.search(
-        r"risk\s*(?:score)?\s*(?:of|to|at|=|:)?\s*(\d+(?:\.\d+)?)", q,
-    )
-    if risk_match:
-        val = float(risk_match.group(1))
-        if 1 <= val <= 10:
-            overrides["effective_risk_score"] = val
-
-    return overrides if overrides else None
-
-
 @register("rebalancing")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     last_run = ctx.last_agent_runs.get("rebalancing")
 
     # First turn → run engine, format compute output.
     if last_run is None:
-        first_turn_overrides = _extract_first_turn_overrides(ctx.user_question)
-        if first_turn_overrides and _validate_overrides(first_turn_overrides):
-            return await _counterfactual_explore(ctx, first_turn_overrides)
-
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
@@ -361,18 +360,17 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     asset_allocation_run_id=None,
-                                     rebalancing_run_id=None)
+                                     rebalancing_recommendation_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="compute",
+            goal_buckets=outcome.goal_buckets,
         )
         return ChatHandlerResult(
             text=text,
-            snapshot_id=None,
-            asset_allocation_run_id=outcome.source_allocation_run_id,
-            rebalancing_run_id=outcome.rebalancing_run_id,
+            snapshot_id=outcome.allocation_snapshot_id,
+            rebalancing_recommendation_id=outcome.recommendation_id,
             rebalancing_response=outcome.response,
         )
 
@@ -386,20 +384,26 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "clarify":
         text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
         return ChatHandlerResult(text=text, snapshot_id=None,
-                                 asset_allocation_run_id=None,
-                                 rebalancing_run_id=None)
+                                 rebalancing_recommendation_id=None)
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
         return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason),
-                                 snapshot_id=None,
-                                 asset_allocation_run_id=None,
-                                 rebalancing_run_id=None)
+                                 snapshot_id=None, rebalancing_recommendation_id=None)
 
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
 
     if action.mode == "save_last_counterfactual":
+        # State-machine gate: if no counterfactual is pending save in this
+        # session, the classifier guessed wrong. Return guidance instead of
+        # risking a write on stale telemetry.
+        if not ctx.awaiting_save:
+            return ChatHandlerResult(
+                text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
         return await _save_last_counterfactual(ctx)
 
     # narrate / educate / recompute — all go through formatter; recompute also re-runs.
@@ -413,26 +417,28 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         )
         if outcome.blocking_message is not None:
             return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     asset_allocation_run_id=None,
-                                     rebalancing_run_id=None)
+                                     rebalancing_recommendation_id=None)
         text = await _format_or_fallback_rebal(
             ctx=ctx, response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="recompute",
+            goal_buckets=outcome.goal_buckets,
         )
         return ChatHandlerResult(
             text=text,
-            snapshot_id=None,
-            asset_allocation_run_id=outcome.source_allocation_run_id,
-            rebalancing_run_id=outcome.rebalancing_run_id,
+            snapshot_id=outcome.allocation_snapshot_id,
+            rebalancing_recommendation_id=outcome.recommendation_id,
             rebalancing_response=outcome.response,
         )
 
     # narrate / educate — both use last_run.output_payload as the source.
     # The persisted shape is {"rebalancing_response": <model_dump>,
-    # "correlation_ids": {...}}; see rebalancing/service.py
-    # compute_rebalancing_result telemetry write.
-    response_payload = (last_run.output_payload or {}).get("rebalancing_response") or {}
+    # "goal_buckets": <list|None>, "correlation_ids": {...}}; see
+    # rebalancing/service.py compute_rebalancing_result telemetry write.
+    # ``goal_buckets`` may be absent on rows persisted before this field shipped.
+    persisted_payload = last_run.output_payload or {}
+    response_payload = persisted_payload.get("rebalancing_response") or {}
+    persisted_goal_buckets = persisted_payload.get("goal_buckets")
     response = _rehydrate_response(response_payload)
     # No persisted formatted_text — rebuild the templated fallback inline if
     # the formatter fails. If the response is dict-shaped (validation drift) or
@@ -448,10 +454,10 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=response, fallback_brief=fallback,
         action_mode=action.mode,   # "narrate" or "educate"
+        goal_buckets=persisted_goal_buckets,
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             asset_allocation_run_id=None,
-                             rebalancing_run_id=None)
+                             rebalancing_recommendation_id=None)
 
 
 # ---------------------------------------------------------------------------
@@ -460,26 +466,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
-    return all(k in _REBAL_OVERRIDE_KEY_TO_USER_ATTR for k in overrides.keys())
-
-
-def _apply_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key, val in overrides.items():
-        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        setattr(user, attr, val)
-
-
-def _clear_overrides(user: Any, overrides: dict[str, Any]) -> None:
-    for key in overrides.keys():
-        attr = _REBAL_OVERRIDE_KEY_TO_USER_ATTR.get(key)
-        if attr is None:
-            continue
-        try:
-            delattr(user, attr)
-        except AttributeError:
-            pass
+    return all(k in _REBAL_ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
 
 
 async def _counterfactual_explore(
@@ -496,43 +483,37 @@ async def _counterfactual_explore(
         return ChatHandlerResult(
             text=_INVALID_OVERRIDE_TEMPLATE,
             snapshot_id=None,
-            asset_allocation_run_id=None,
-            rebalancing_run_id=None,
+            rebalancing_recommendation_id=None,
         )
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    # Allocation always re-runs in ``compute_rebalancing_result``; we still record
-    # whether this explore included AA-affecting overrides for save_last flow.
-    needs_fresh_aa = "additional_cash_inr" in overrides or "effective_risk_score" in overrides
-    try:
-        outcome = await compute_rebalancing_result(
-            user=user,
-            user_question=ctx.user_question,
-            db=ctx.db,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
-            force_fresh_allocation=needs_fresh_aa,
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    # AA-affecting overrides (currently: additional_cash_inr) require the AA
+    # cache to be skipped so AA re-runs with the override applied. Tax-only
+    # overrides don't change AA's output; cache is fine.
+    needs_fresh_aa = "additional_cash_inr" in overrides
+    outcome = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
+        force_fresh_allocation=needs_fresh_aa,
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 asset_allocation_run_id=None,
-                                 rebalancing_run_id=None)
+                                 rebalancing_recommendation_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't compute that hypothetical right now.",
-            snapshot_id=None,
-            asset_allocation_run_id=None,
-            rebalancing_run_id=None,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
-    # Capture overrides for a potential save_last_counterfactual follow-up.
-    # Best-effort — if the write fails, the customer can still re-state the
-    # constraint to save.
+    # Capture overrides for a potential save_last_counterfactual follow-up,
+    # and mark this session as awaiting save (cross-turn state machine).
+    # Both writes are best-effort — if either fails, the customer can re-state.
     if ctx.db is not None:
         try:
             from app.services.ai_module_telemetry import record_ai_module_run
@@ -550,15 +531,19 @@ async def _counterfactual_explore(
             )
         except Exception as exc:
             logger.warning("counterfactual_overrides_capture_failed: %s", exc)
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, True)
+        except Exception as exc:
+            logger.warning("awaiting_save_upsert_failed: %s", exc)
 
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="counterfactual_explore",
+        goal_buckets=outcome.goal_buckets,
     )
     return ChatHandlerResult(text=text, snapshot_id=None,
-                             asset_allocation_run_id=None,
-                             rebalancing_run_id=None)
+                             rebalancing_recommendation_id=None)
 
 
 async def _save_last_counterfactual(
@@ -573,57 +558,55 @@ async def _save_last_counterfactual(
     """
     payload = await _load_last_counterfactual_payload(ctx)
     if payload is None:
+        # Defense-in-depth: state gate said awaiting_save=True, but no
+        # telemetry row found. Same guidance message as the state gate.
         return ChatHandlerResult(
-            text=(
-                "There's no recent 'what if' to save in this conversation. "
-                "If you'd like to lock in a change, tell me what you'd like "
-                "different (e.g., 'what if I had ₹2L more?') and I'll show "
-                "you the result first — then you can save it."
-            ),
-            snapshot_id=None,
-            asset_allocation_run_id=None,
-            rebalancing_run_id=None,
+            text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
 
     overrides = payload.get("overrides", {})
     needs_fresh_aa = bool(payload.get("needs_fresh_aa", False))
 
-    user = ctx.user_ctx
-    _apply_overrides(user, overrides)
-    try:
-        outcome = await compute_rebalancing_result(
-            user=user,
-            user_question=ctx.user_question,
-            db=ctx.db,
-            acting_user_id=ctx.effective_user_id,
-            chat_session_id=ctx.session_id,
-            persist=True,    # commit
-            force_fresh_allocation=needs_fresh_aa,
-        )
-    finally:
-        _clear_overrides(user, overrides)
+    chat_ctx = with_chat_overrides(ctx, overrides)
+    outcome = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=True,    # commit
+        force_fresh_allocation=needs_fresh_aa,
+        chat_ctx=chat_ctx,
+    )
 
     if outcome.blocking_message is not None:
         return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 asset_allocation_run_id=None,
-                                 rebalancing_run_id=None)
+                                 rebalancing_recommendation_id=None)
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't save that recommendation right now. Please try again.",
-            snapshot_id=None,
-            asset_allocation_run_id=None,
-            rebalancing_run_id=None,
+            snapshot_id=None, rebalancing_recommendation_id=None,
         )
+
+    # Save succeeded — clear the state-machine flag so a subsequent unrelated
+    # "save it" doesn't re-commit the same recommendation.
+    if ctx.db is not None:
+        try:
+            await upsert_awaiting_save(ctx.db, ctx.session_id, False)
+        except Exception as exc:
+            logger.warning("awaiting_save_reset_failed: %s", exc)
+
     text = await _format_or_fallback_rebal(
         ctx=ctx, response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="save_last_counterfactual",
+        goal_buckets=outcome.goal_buckets,
     )
     return ChatHandlerResult(
         text=text,
-        snapshot_id=None,
-        asset_allocation_run_id=outcome.source_allocation_run_id,
-        rebalancing_run_id=outcome.rebalancing_run_id,
+        snapshot_id=outcome.allocation_snapshot_id,
+        rebalancing_recommendation_id=outcome.recommendation_id,
         rebalancing_response=outcome.response,
     )
 
@@ -695,14 +678,7 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
 async def _detect_rebal_action(
     last_run: AgentRunRecord, ctx: TurnContext,
 ) -> RebalanceAction:
-    """One Haiku call returning a RebalanceAction."""
-    api_key = get_settings().get_anthropic_rebalancing_key()
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        max_tokens=300,
-    ).with_structured_output(RebalanceAction)
-
+    """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_run.output_payload)
     snapshot_json = json.dumps(slim, default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
@@ -722,15 +698,12 @@ async def _detect_rebal_action(
         f"Saved rebalancing snapshot (slim):\n{snapshot_json}"
         f"{history_section}"
     )
-    return await _ainvoke(llm, _DETECT_REBAL_SYSTEM, user_block)
+    return await classify_action(
+        action_model=RebalanceAction,
+        system_prompt=_DETECT_REBAL_SYSTEM,
+        user_block=user_block,
+        api_key=get_settings().get_anthropic_rebalancing_key(),
+        max_tokens=300,
+    )
 
 
-async def _ainvoke(llm: Any, system_text: str, user_text: str) -> Any:
-    """Structured-output invocation."""
-    messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-        ]),
-        HumanMessage(content=user_text),
-    ]
-    return await asyncio.to_thread(llm.invoke, messages)

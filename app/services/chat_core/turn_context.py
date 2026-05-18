@@ -45,6 +45,8 @@ class TurnContext:
     effective_user_id: uuid.UUID
     last_agent_runs: dict[str, AgentRunRecord]
     active_intent: str | None
+    chat_overrides: dict[str, Any] | None = None
+    awaiting_save: bool = False
 
 
 async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
@@ -55,6 +57,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
     """
     last_runs: dict[str, AgentRunRecord] = {}
     active_intent: str | None = None
+    awaiting_save: bool = False
 
     if turn.db is not None and turn.session_id is not None:
         # Use a savepoint so a failed query (e.g. schema behind ORM, missing columns)
@@ -64,8 +67,14 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
             async with turn.db.begin_nested():
                 last_runs = await _load_last_agent_runs(turn.db, turn.session_id)
                 active_intent = await _load_active_intent(turn.db, turn.session_id)
-        except Exception as exc:
-            logger.warning("build_turn_context degraded (%s); using empty context", exc)
+                awaiting_save = await _load_awaiting_save(turn.db, turn.session_id)
+        except Exception:
+            # ERROR level + stack trace so silent quality regressions (Tilly
+            # answers everyone like it's their first turn) surface in alerts.
+            logger.exception(
+                "build_turn_context failed for session=%s; chat will run with EMPTY context — investigate",
+                turn.session_id,
+            )
 
     return TurnContext(
         user_ctx=turn.user_ctx,
@@ -77,6 +86,8 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
         effective_user_id=turn.effective_user_id,
         last_agent_runs=last_runs,
         active_intent=active_intent,
+        chat_overrides=None,
+        awaiting_save=awaiting_save,
     )
 
 
@@ -120,14 +131,54 @@ async def _load_last_agent_runs(
     return last_by_module
 
 
+async def _load_awaiting_save(
+    db: AsyncSession, session_id: uuid.UUID,
+) -> bool:
+    """Return chat_session_state.awaiting_save for this session, or False if no row."""
+    from app.models.chat_session_state import ChatSessionState
+    stmt = select(ChatSessionState.awaiting_save).where(
+        ChatSessionState.session_id == session_id,
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    return bool(row) if row is not None else False
+
+
+async def upsert_awaiting_save(
+    db: AsyncSession, session_id: uuid.UUID, value: bool,
+) -> None:
+    """Set chat_session_state.awaiting_save for this session. Idempotent.
+
+    Portable across postgres + sqlite (tests): SELECT-then-INSERT-or-UPDATE
+    rather than postgres-specific ON CONFLICT.
+    """
+    from app.models.chat_session_state import ChatSessionState
+    existing = (await db.execute(
+        select(ChatSessionState).where(ChatSessionState.session_id == session_id)
+    )).scalar_one_or_none()
+    if existing is None:
+        db.add(ChatSessionState(session_id=session_id, awaiting_save=value))
+    else:
+        existing.awaiting_save = value
+    await db.flush()
+
+
 async def _load_active_intent(
     db: AsyncSession, session_id: uuid.UUID,
 ) -> str | None:
-    """Most-recent intent_detected for this session, regardless of module."""
+    """Most-recent intent_detected for this session, excluding canned-redirect intents.
+
+    out_of_scope, goal_planning, and stock_advice all surface a canned redirect
+    rather than engaging with the user's real topic. Feeding any of them back
+    as active_intent biases the classifier to keep refusing/redirecting on the
+    next turn, which mis-routes legitimate follow-ups.
+    """
+    canned_redirect_intents = ("out_of_scope", "goal_planning", "stock_advice")
     stmt = (
         select(ChatAiModuleRun.intent_detected)
         .where(ChatAiModuleRun.session_id == session_id)
         .where(ChatAiModuleRun.intent_detected.isnot(None))
+        .where(ChatAiModuleRun.intent_detected.notin_(canned_redirect_intents))
         .order_by(ChatAiModuleRun.created_at.desc())
         .limit(1)
     )

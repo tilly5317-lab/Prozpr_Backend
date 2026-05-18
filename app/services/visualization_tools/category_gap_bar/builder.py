@@ -1,6 +1,6 @@
-"""Chart builder — Current / Target / Plan per SEBI sub_category.
+"""Chart builder — Current vs Plan per SEBI sub_category.
 
-Best for: 'how off am I?' / 'what's the gap?' rebalancing questions.
+Best for: 'what changes after this rebalance?' before-and-after questions.
 Bucketing logic mirrors the original ``ai_bridge/rebalancing/charts.py``
 ``compute_category_gap_bar`` (still on disk; archived in Plan 2 Task 9).
 """
@@ -20,7 +20,6 @@ ensure_ai_agents_path()
 
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     FundRowAfterStep5,
-    RebalancingComputeResponse,
 )
 
 
@@ -51,7 +50,7 @@ class _Bucket:
         return self.current - self.sell_total + self.buy_total
 
 
-def _bucketise(response: "RebalancingComputeResponse") -> list[_Bucket]:
+def _bucketise(response: Any) -> list[_Bucket]:
     by_key: dict[tuple[str, str], _Bucket] = {}
     for s in response.subgroups:
         for row in s.actions:
@@ -72,51 +71,26 @@ def _bucketise(response: "RebalancingComputeResponse") -> list[_Bucket]:
     return list(by_key.values())
 
 
-def _bucket_target(
-    bucket: _Bucket,
-    all_buckets: list[_Bucket],
-    response: "RebalancingComputeResponse",
-) -> Decimal:
-    parent = next(
-        (s for s in response.subgroups if s.asset_subgroup == bucket.asset_subgroup),
-        None,
-    )
-    if parent is None:
-        return Decimal(0)
-    siblings = [b for b in all_buckets if b.asset_subgroup == bucket.asset_subgroup]
-    if len(siblings) <= 1:
-        return parent.goal_target_inr
-    total_planned = sum((b.planned_final for b in siblings), Decimal(0))
-    if total_planned > 0:
-        return parent.goal_target_inr * (bucket.planned_final / total_planned)
-    return parent.goal_target_inr / len(siblings)
-
-
 def _f(amount: Decimal) -> float:
     return float(amount)
 
 
 async def build_category_gap_bar(response: Any) -> CategoryGapBar | None:
-    """Build the Current/Target/Plan grouped-bar payload, or None if no actions."""
+    """Build the Current/Plan grouped-bar payload, or None if no actions."""
     buckets = _bucketise(response)
     if not buckets:
         return None
 
-    rows = []
-    for b in buckets:
-        target = _bucket_target(b, buckets, response)
-        gap = abs(target - b.current)
-        rows.append((b, target, gap))
-    rows.sort(key=lambda x: -x[2])
+    # Sort by the size of change between current and plan — biggest movers first.
+    buckets.sort(key=lambda b: -abs(b.planned_final - b.current))
 
     return CategoryGapBar(
-        title="Where you are vs. where you should be",
-        subtitle="Current holdings, target allocation, and the post-rebalance plan",
+        title="Before and after the rebalance",
+        subtitle="Your current holdings and the post-rebalance plan, by category",
         caption=None,
-        categories=[b.sub_category for b, _, _ in rows],
+        categories=[b.sub_category for b in buckets],
         series=[
-            NamedSeries(name="Current", values=[_f(b.current) for b, _, _ in rows]),
-            NamedSeries(name="Target", values=[_f(t) for _, t, _ in rows]),
-            NamedSeries(name="Plan", values=[_f(b.planned_final) for b, _, _ in rows]),
+            NamedSeries(name="Current", values=[_f(b.current) for b in buckets]),
+            NamedSeries(name="Plan", values=[_f(b.planned_final) for b in buckets]),
         ],
     )

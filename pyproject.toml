@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+pythonpath = ["AI_Agents/src", "."]
+asyncio_mode = "auto"
+markers = [
+    "real_llm: requires ENABLE_LLM_SMOKE=1; not run in CI",
+    "slow: long-running tests",
+    "excel_parity: requires LibreOffice or pre-extracted fixtures",
+    "performance: latency/memory regression checks",
+]

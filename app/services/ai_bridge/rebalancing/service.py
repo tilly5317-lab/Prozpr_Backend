@@ -1,9 +1,8 @@
-"""Rebalancing orchestrator.
+"""Cache-first rebalancing orchestrator.
 
-Always runs asset allocation inline before rebalancing so every rebalancing
-request is anchored to a fresh allocation run and ``source_allocation_run_id``.
-Then materialises engine inputs, runs the pipeline on a worker thread, persists
-the trade-list, and renders chat markdown.
+Reads the most recent goal allocation for the user; if it's > 90 days old or
+absent, re-runs allocation inline. Then materialises engine inputs, runs the
+pipeline on a worker thread, persists the trade-list, and renders chat markdown.
 """
 
 from __future__ import annotations
@@ -13,18 +12,18 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.asset_allocation.run import AssetAllocationRun
+if TYPE_CHECKING:
+    from app.services.chat_core.turn_context import TurnContext
+
+from app.models.rebalancing import RebalancingRecommendation, RecommendationType
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
-)
-from app.services.ai_bridge.rebalancing.cached_allocation import (
-    try_parse_asset_allocation_json,
 )
 from app.services.ai_bridge.common import (
     asset_class_for_subgroup,
@@ -37,12 +36,16 @@ from app.services.ai_bridge.rebalancing.input_builder import (
     build_rebalancing_input_for_user,
 )
 from app.services.ai_module_telemetry import record_ai_module_run
+from app.services.portfolio_service import get_or_create_primary_portfolio
 from app.services.rebalancing_recommendation_persist import (
     persist_rebalancing_recommendation,
 )
 
 ensure_ai_agents_path()
 
+from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]  # noqa: E402
+    GoalAllocationOutput,
+)
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     RebalancingComputeResponse,
 )
@@ -74,12 +77,97 @@ class RebalancingRunOutcome:
     response: Optional[RebalancingComputeResponse]
     formatted_text: Optional[str] = None
     blocking_message: Optional[str] = None
-    rebalancing_run_id: Optional[uuid.UUID] = None
-    source_allocation_run_id: Optional[uuid.UUID] = None
+    recommendation_id: Optional[uuid.UUID] = None
+    allocation_snapshot_id: Optional[uuid.UUID] = None
+    source_allocation_id: Optional[uuid.UUID] = None
     used_cached_allocation: bool = False
+    # Goal-tied bucket block derived from the AA output that drove this rebalance.
+    # None when AA output wasn't available; consumed by the formatter facts pack.
+    goal_buckets: Optional[list[dict[str, Any]]] = None
 
 
-def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, Any]:
+FUND_ACTIONS_LIMIT = 30
+
+
+_BUCKET_HORIZON_LABELS = {
+    "emergency": "Emergency reserve",
+    "short_term": "Short-term (< 3 yrs)",
+    "medium_term": "Medium-term (3-5 yrs)",
+    "long_term": "Long-term (> 5 yrs)",
+}
+
+
+def build_goal_buckets_block(
+    allocation_output: "GoalAllocationOutput",
+) -> list[dict[str, Any]]:
+    """Goal-tied bucket view derived from the AA output that drove this rebalance.
+
+    Lets the formatter LLM tie trades back to the goals and equity/debt/others
+    split that justified them. One entry per bucket the customer has goals in,
+    plus the planned asset-class % split for that bucket.
+
+    Shape (one entry per bucket):
+      {
+        "bucket": "long_term",
+        "horizon_label": "Long-term (> 5 yrs)",
+        "goals": [{
+          "name": <str>,
+          "horizon_months": <int>,
+          "amount_needed_inr": <float>, "amount_needed_indian": <str>,
+          "priority": "non_negotiable" | "negotiable",
+        }, ...],
+        "total_goal_amount_inr": <float>, "total_goal_amount_indian": <str>,
+        "allocated_amount_inr":  <float>, "allocated_amount_indian":  <str>,
+        "planned_split_pct": {"equity": <float>, "debt": <float>, "others": <float>},
+      }
+    """
+    per_bucket_split = {
+        bs.bucket: bs
+        for bs in allocation_output.asset_class_breakdown.planned.per_bucket
+    }
+    out: list[dict[str, Any]] = []
+    for bucket_alloc in allocation_output.bucket_allocations:
+        if not bucket_alloc.goals and bucket_alloc.bucket != "emergency":
+            # Skip empty non-emergency buckets — nothing meaningful to anchor.
+            continue
+        split = per_bucket_split.get(bucket_alloc.bucket)
+        out.append({
+            "bucket": bucket_alloc.bucket,
+            "horizon_label": _BUCKET_HORIZON_LABELS.get(
+                bucket_alloc.bucket, bucket_alloc.bucket,
+            ),
+            "goals": [
+                {
+                    "name": g.goal_name,
+                    "horizon_months": g.time_to_goal_months,
+                    "amount_needed_inr": float(g.amount_needed),
+                    "amount_needed_indian": format_inr_indian(g.amount_needed),
+                    "priority": g.goal_priority,
+                }
+                for g in bucket_alloc.goals
+            ],
+            "total_goal_amount_inr": float(bucket_alloc.total_goal_amount),
+            "total_goal_amount_indian": format_inr_indian(
+                bucket_alloc.total_goal_amount,
+            ),
+            "allocated_amount_inr": float(bucket_alloc.allocated_amount),
+            "allocated_amount_indian": format_inr_indian(
+                bucket_alloc.allocated_amount,
+            ),
+            "planned_split_pct": {
+                "equity": float(split.equity_pct) if split else 0.0,
+                "debt": float(split.debt_pct) if split else 0.0,
+                "others": float(split.others_pct) if split else 0.0,
+            },
+        })
+    return out
+
+
+def build_rebal_facts_pack(
+    response: "RebalancingComputeResponse",
+    *,
+    goal_buckets: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
     Shape:
@@ -89,6 +177,18 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
         "sells_total_inr":     <float>, "sells_total_indian":     <str>,
         "tax_impact_inr":      <float>, "tax_impact_indian":      <str>,
         "trade_count":         int,
+
+        # Tax rules actually used by the engine for the LTCG / STCG figures
+        # above. Surfaced so the formatter cites real rates rather than
+        # priors from training data (pre-2024 LTCG was 10% / ₹1 lakh, now
+        # 12.5% / ₹1.25 lakh). Omitted only if metadata is unavailable.
+        "tax_rules": {
+            "ltcg_rate_equity_pct":          <float>,   # e.g. 12.5
+            "stcg_rate_equity_pct":          <float>,   # e.g. 20.0
+            "ltcg_annual_exemption_inr":     <float>,
+            "ltcg_annual_exemption_indian":  <str>,     # e.g. "₹1.25 lakh"
+            "equity_long_term_threshold_months": <int>, # e.g. 12
+        },
 
         # High-level asset-class summary, derived from per-bucket asset_subgroup.
         "asset_class_mix_pct":    {"equity": <float>, "debt": <float>, "others": <float>},
@@ -109,6 +209,27 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
         }, ...],
 
         "warnings": [<short_string>, ...],   # human-readable, <= 5 entries
+
+        # Per-fund actions (top FUND_ACTIONS_LIMIT by exposure). Lets the LLM
+        # narrate fund-specific questions ("why are you trimming HDFC Top 100?").
+        # No ISINs — fund_name is customer-tellable, ISIN isn't.
+        "fund_actions": [{
+            "fund_name":          <str>,                                     # e.g. "HDFC Top 100"
+            "sub_category":       <str>,                                     # SEBI category
+            "asset_subgroup":     <str>,                                     # engine grouping (context only)
+            "current_inr":        <float>, "current_indian":        <str>,
+            "buy_inr":            <float>, "buy_indian":            <str>,
+            "sell_inr":           <float>, "sell_indian":           <str>,
+            "planned_final_inr":  <float>, "planned_final_indian":  <str>,
+        }, ...],
+        # Number of additional smaller holdings beyond fund_actions cap
+        # (only present when truncated).
+        "more_holdings_count": <int>,
+
+        # Optional — present when AA output drove this rebalance. Lets the LLM
+        # tie trades back to goals + horizon + planned equity/debt/others split.
+        # See ``build_goal_buckets_block`` for shape.
+        "goal_buckets": [...],
       }
 
     Money convention: every numeric ``*_inr`` field is paired with a sibling
@@ -144,12 +265,14 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
         float(getattr(sg, "current_holding_inr", 0) or 0) for sg in subgroups
     )
 
-    # Aggregate per-fund actions into (asset_subgroup, sub_category) buckets.
+    # Aggregate per-fund actions into (asset_subgroup, sub_category) buckets,
+    # and collect per-fund rows for fund_actions.
     # This mirrors formatter._bucketise so the LLM and the deterministic
     # fallback brief speak the same language. The customer-facing key is
     # ``sub_category`` (SEBI category like "Large Cap Fund") — never
     # ``asset_subgroup`` (internal engine grouping).
     by_key: dict[tuple[Any, Any], dict[str, Any]] = {}
+    fund_rows: list[dict[str, Any]] = []
     for sg in subgroups:
         sg_subgroup = getattr(sg, "asset_subgroup", None)
         for action in getattr(sg, "actions", []) or []:
@@ -177,6 +300,18 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
             bucket["current_inr"] += present
             bucket["buy_inr"] += buy
             bucket["sell_inr"] += sell
+
+            fund_name = getattr(action, "recommended_fund", None)
+            if fund_name:
+                fund_rows.append({
+                    "fund_name": fund_name,
+                    "sub_category": sub_cat,
+                    "asset_subgroup": sg_subgroup,
+                    "current_inr": present,
+                    "buy_inr": buy,
+                    "sell_inr": sell,
+                    "planned_final_inr": present + buy - sell,
+                })
 
     buckets: list[dict[str, Any]] = []
     for bucket in by_key.values():
@@ -208,7 +343,51 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
         msg = getattr(w, "message", None) or str(w)
         warnings.append(msg)
 
-    return {
+    # fund_actions: top FUND_ACTIONS_LIMIT by max(current, planned_final).
+    # Aggregate any duplicate (fund_name, sub_category) rows from multiple
+    # rank slots so the LLM sees one entry per actual fund.
+    fund_by_name: dict[tuple[str, Any], dict[str, Any]] = {}
+    for fr in fund_rows:
+        key = (fr["fund_name"], fr["sub_category"])
+        existing = fund_by_name.get(key)
+        if existing is None:
+            fund_by_name[key] = fr
+        else:
+            existing["current_inr"] += fr["current_inr"]
+            existing["buy_inr"] += fr["buy_inr"]
+            existing["sell_inr"] += fr["sell_inr"]
+            existing["planned_final_inr"] += fr["planned_final_inr"]
+
+    fund_actions_all = sorted(
+        fund_by_name.values(),
+        key=lambda f: -max(f["current_inr"], f["planned_final_inr"]),
+    )
+    fund_actions = fund_actions_all[:FUND_ACTIONS_LIMIT]
+    for fa in fund_actions:
+        fa["current_indian"] = format_inr_indian(fa["current_inr"])
+        fa["buy_indian"] = format_inr_indian(fa["buy_inr"])
+        fa["sell_indian"] = format_inr_indian(fa["sell_inr"])
+        fa["planned_final_indian"] = format_inr_indian(fa["planned_final_inr"])
+    more_holdings_count = max(0, len(fund_actions_all) - FUND_ACTIONS_LIMIT)
+
+    # Surface the actual tax rates / exemption the engine used, so the formatter
+    # can cite them instead of falling back on training-data priors (Haiku tends
+    # to narrate the pre-July-2024 10% LTCG + ₹1 lakh exemption otherwise).
+    knob = getattr(getattr(response, "metadata", None), "knob_snapshot", None)
+    tax_rules: Optional[dict[str, Any]] = None
+    if knob is not None:
+        ltcg_exemption_inr = float(getattr(knob, "ltcg_annual_exemption_inr", 0) or 0)
+        tax_rules = {
+            "ltcg_rate_equity_pct": float(getattr(knob, "ltcg_rate_equity_pct", 0) or 0),
+            "stcg_rate_equity_pct": float(getattr(knob, "stcg_rate_equity_pct", 0) or 0),
+            "ltcg_annual_exemption_inr": ltcg_exemption_inr,
+            "ltcg_annual_exemption_indian": format_inr_indian(ltcg_exemption_inr),
+            "equity_long_term_threshold_months": int(
+                getattr(knob, "st_threshold_months_equity", 0) or 0
+            ),
+        }
+
+    pack: dict[str, Any] = {
         "total_portfolio_inr": total_portfolio,
         "total_portfolio_indian": format_inr_indian(total_portfolio),
         "buys_total_inr": total_buy_inr,
@@ -226,7 +405,15 @@ def build_rebal_facts_pack(response: "RebalancingComputeResponse") -> dict[str, 
         "asset_class_mix_indian": asset_class_indian,
         "buckets": buckets,
         "warnings": warnings,
+        "fund_actions": fund_actions,
     }
+    if tax_rules is not None:
+        pack["tax_rules"] = tax_rules
+    if more_holdings_count > 0:
+        pack["more_holdings_count"] = more_holdings_count
+    if goal_buckets:
+        pack["goal_buckets"] = goal_buckets
+    return pack
 
 
 async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
@@ -240,72 +427,32 @@ async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
 
 async def _load_cached_allocation(
     db: AsyncSession, user_id: uuid.UUID,
-) -> tuple[Optional[Any], Optional[uuid.UUID]]:
-    """Latest ``AssetAllocationRun`` (≤ TTL) with subgroup rows → rebalancing input view.
-
-    **Note:** ``compute_rebalancing_result`` no longer calls this helper; allocation
-    always runs via ``compute_allocation_result``. Kept for ad-hoc tooling or tests
-    that need to read the latest persisted subgroup targets without re-running AA.
-
-    Subgroup INR targets are aggregated from ``asset_allocation_bucket_subgroups``
-    (``actual_amount`` summed per ``subgroup`` across buckets). That matches the
-    engine's ``aggregated_subgroups[].total``, which is what the rebalancing
-    builder consumes — without duplicating engine JSON in
-    ``portfolio_allocation_snapshots``.
-    """
-    from sqlalchemy import func
-
-    from app.models.asset_allocation.bucket import (
-        AssetAllocationBucket,
-        AssetAllocationBucketSubgroup,
-    )
-
+) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
+    """Latest ALLOCATION row ≤ 90 days old → (parsed output, row_id) or (None, None)."""
+    portfolio = await get_or_create_primary_portfolio(db, user_id)
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
-    run = (await db.execute(
-        select(AssetAllocationRun)
-        .where(AssetAllocationRun.user_id == user_id)
-        .where(AssetAllocationRun.created_at >= cutoff)
-        .order_by(desc(AssetAllocationRun.created_at))
+    rec = (await db.execute(
+        select(RebalancingRecommendation)
+        .where(RebalancingRecommendation.portfolio_id == portfolio.id)
+        .where(
+            RebalancingRecommendation.recommendation_type
+            == RecommendationType.ALLOCATION
+        )
+        .where(RebalancingRecommendation.created_at >= cutoff)
+        .order_by(desc(RebalancingRecommendation.created_at))
         .limit(1)
     )).scalar_one_or_none()
-    if run is None:
+    if rec is None:
         return None, None
-
-    agg_rows = (
-        await db.execute(
-            select(
-                AssetAllocationBucketSubgroup.subgroup,
-                func.coalesce(
-                    func.sum(AssetAllocationBucketSubgroup.actual_amount),
-                    0,
-                ),
-            )
-            .join(
-                AssetAllocationBucket,
-                AssetAllocationBucketSubgroup.bucket_id == AssetAllocationBucket.id,
-            )
-            .where(AssetAllocationBucket.run_id == run.id)
-            .group_by(AssetAllocationBucketSubgroup.subgroup)
-        )
-    ).all()
-    if not agg_rows:
-        logger.warning(
-            "asset allocation run %s has no subgroup rows; treating as cache miss",
-            run.id,
-        )
+    payload = (rec.recommendation_data or {}).get("goal_allocation_output")
+    if not payload:
         return None, None
-
-    payload = {
-        "aggregated_subgroups": [
-            {"subgroup": str(sg), "total": float(total or 0)} for sg, total in agg_rows
-        ],
-    }
-    parsed = try_parse_asset_allocation_json(payload)
-    if parsed is None:
-        logger.warning("rebalancing: could not build allocation view from ORM rows")
+    try:
+        return GoalAllocationOutput.model_validate(payload), rec.id
+    except Exception as exc:
+        logger.warning("Cached allocation parse failed (%s); ignoring cache", exc)
         return None, None
-    return cast(Any, parsed), run.id
 
 
 async def compute_rebalancing_result(
@@ -317,19 +464,21 @@ async def compute_rebalancing_result(
     chat_session_id: Optional[uuid.UUID],
     persist: bool = True,
     force_fresh_allocation: bool = False,
+    chat_ctx: "TurnContext | None" = None,
 ) -> RebalancingRunOutcome:
-    """Top-level orchestrator: allocation → builder → engine → persist → format.
+    """Top-level orchestrator: cache → builder → engine → persist → format.
 
-    Asset allocation always runs first via ``compute_allocation_result`` (no
-    DB cache shortcut). ``force_fresh_allocation`` is ignored; callers may
-    still pass it for API stability.
+    When ``persist=False`` (counterfactual_explore path), the engine still
+    runs and reads from the database (holdings, NAVs, metadata, cached
+    allocation), but the recommendation row and the chat-ai-module-runs
+    telemetry write are skipped. Returns the same outcome shape;
+    ``recommendation_id`` is None.
 
-    When ``persist=False`` (counterfactual_explore path), the engines still
-    run, but the recommendation row, the chat-ai-module-runs telemetry write,
-    and chart-picker call are skipped. Returns the same outcome shape;
-    ``rebalancing_run_id`` is None when ``persist=False``.
+    When ``force_fresh_allocation=True``, the AA cache lookup is skipped and
+    AA is always re-run inline. Used when the chat layer has set chat_ctx
+    overrides (e.g., ``additional_cash_inr``) that the cached AA result
+    wouldn't reflect.
     """
-    _ = force_fresh_allocation  # kept for call-site compatibility; allocation always runs
     trace_line("module: rebalancing — start")
 
     if getattr(user, "date_of_birth", None) is None:
@@ -342,33 +491,64 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_NO_HOLDINGS,
         )
 
-    trace_line("rebalancing: running asset allocation before rebalancing")
-    used_cache = False
+    if chat_ctx is None:
+        from app.services.chat_core.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
 
-    alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
-        user,
-        user_question,
-        db=db,
-        persist_recommendation=True,
-        acting_user_id=acting_user_id,
-        chat_session_id=chat_session_id,
-        spine_mode="rebalance_chained",
-    )
-    if alloc_outcome.blocking_message is not None:
-        return RebalancingRunOutcome(
-            response=None,
-            blocking_message=alloc_outcome.blocking_message,
+        chat_ctx = TurnContext(
+            user_ctx=user,
+            user_question=user_question,
+            conversation_history=[],
+            client_context=None,
+            session_id=chat_session_id or uuid.uuid4(),
+            db=db,
+            effective_user_id=acting_user_id,
+            last_agent_runs={},
+            active_intent=None,
+            chat_overrides=None,
         )
-    if alloc_outcome.result is None:
-        return RebalancingRunOutcome(
-            response=None, blocking_message=_MSG_ENGINE_ERROR,
+
+    if force_fresh_allocation:
+        # Counterfactual scenarios with AA-affecting overrides: skip cache.
+        cached_output = None
+        source_allocation_id: Optional[uuid.UUID] = None
+        used_cache = False
+    else:
+        cached_output, source_allocation_id = await _load_cached_allocation(
+            db, acting_user_id,
         )
-    cached_output = alloc_outcome.result
-    source_allocation_run_id = alloc_outcome.asset_allocation_run_id
+        used_cache = cached_output is not None
+    allocation_snapshot_id: Optional[uuid.UUID] = None
+
+    if cached_output is None:
+        trace_line(
+            "rebalancing: allocation cache miss/stale — running allocation inline",
+        )
+        alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
+            user,
+            user_question,
+            db=db,
+            persist_recommendation=True,
+            acting_user_id=acting_user_id,
+            chat_session_id=chat_session_id,
+            spine_mode="rebalance_chained",
+            chat_ctx=chat_ctx,
+        )
+        if alloc_outcome.blocking_message is not None:
+            return RebalancingRunOutcome(
+                response=None,
+                blocking_message=alloc_outcome.blocking_message,
+            )
+        if alloc_outcome.result is None:
+            return RebalancingRunOutcome(
+                response=None, blocking_message=_MSG_ENGINE_ERROR,
+            )
+        cached_output = alloc_outcome.result
+        source_allocation_id = alloc_outcome.rebalancing_recommendation_id
+        allocation_snapshot_id = alloc_outcome.allocation_snapshot_id
 
     try:
         request, debug = await build_rebalancing_input_for_user(
-            user, cached_output, db,
+            chat_ctx, cached_output,
         )
     except Exception as exc:
         logger.exception("rebalancing input builder failed: %s", exc)
@@ -388,24 +568,25 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_ENGINE_ERROR,
         )
 
-    run_id: Optional[uuid.UUID] = None
+    # Goal-tied bucket block — derived once from the AA output that drove this
+    # rebalance, persisted alongside the response so follow-up turns
+    # (narrate / educate) see the same goal context.
+    try:
+        goal_buckets = build_goal_buckets_block(cached_output)
+    except Exception as exc:
+        logger.warning("goal_buckets_build_failed (non-fatal): %s", exc)
+        goal_buckets = None
+
+    rec_id: Optional[uuid.UUID] = None
     if persist:
-        if source_allocation_run_id is None:
-            logger.error(
-                "rebalancing: missing source_allocation_run_id — cannot persist run",
-            )
-            return RebalancingRunOutcome(
-                response=None, blocking_message=_MSG_ENGINE_ERROR,
-            )
-        run_id = await persist_rebalancing_recommendation(
+        rec_id = await persist_rebalancing_recommendation(
             db,
             acting_user_id,
             response,
-            source_allocation_run_id=source_allocation_run_id,
             chat_session_id=chat_session_id,
+            source_allocation_id=source_allocation_id,
             used_cached_allocation=used_cache,
             user_question=user_question,
-            request=request,
         )
 
         try:
@@ -420,11 +601,11 @@ async def compute_rebalancing_result(
                 input_payload=request.model_dump(mode="json"),
                 output_payload={
                     "rebalancing_response": response.model_dump(mode="json"),
+                    "goal_buckets": goal_buckets,
                     "correlation_ids": {
-                        "rebalancing_run_id": str(run_id),
-                        "source_allocation_run_id": (
-                            str(source_allocation_run_id)
-                            if source_allocation_run_id else None
+                        "recommendation_id": str(rec_id),
+                        "source_allocation_id": (
+                            str(source_allocation_id) if source_allocation_id else None
                         ),
                     },
                 },
@@ -440,7 +621,9 @@ async def compute_rebalancing_result(
     return RebalancingRunOutcome(
         response=response,
         formatted_text=formatted,
-        rebalancing_run_id=run_id,
-        source_allocation_run_id=source_allocation_run_id,
+        recommendation_id=rec_id,
+        allocation_snapshot_id=allocation_snapshot_id,
+        source_allocation_id=source_allocation_id,
         used_cached_allocation=used_cache,
+        goal_buckets=goal_buckets,
     )
