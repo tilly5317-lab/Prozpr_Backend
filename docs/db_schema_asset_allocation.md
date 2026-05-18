@@ -8,7 +8,7 @@
 >
 > The rebalancing engine (`AI_Agents/src/Rebalancing`) consumes an
 > `asset_allocation_runs` row as its target — that schema lives in
-> [`db_schema_rebalancing.md`](./db_schema_rebalancing.md).
+> [`rebalancing_db_structure.md`](./rebalancing_db_structure.md).
 
 ---
 
@@ -45,7 +45,7 @@ erDiagram
     users ||--o{ asset_allocation_bucket_subgroups : "owns (denormalized)"
     users ||--o{ asset_allocation_aggregate        : "owns (denormalized)"
 
-    asset_allocation_runs ||--o{ rebalancing_runs : "fed into (see db_schema_rebalancing.md)"
+    asset_allocation_runs ||--o{ rebalancing_runs : "fed into (see rebalancing_db_structure.md)"
 ```
 
 ---
@@ -251,4 +251,4 @@ Plus: the central `goals` table gains `time_to_goal_months`, `amount_needed`,
 
 **Linkage out:** `rebalancing_runs.source_allocation_run_id` →
 `asset_allocation_runs.id` (NOT NULL) — see
-[`db_schema_rebalancing.md`](./db_schema_rebalancing.md).
+[`rebalancing_db_structure.md`](./rebalancing_db_structure.md).
