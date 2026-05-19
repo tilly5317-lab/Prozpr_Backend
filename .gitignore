@@ -98,7 +98,6 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 scripts/
 /MF_Logics/Mututal_Funds_data_extraction/NAV_level_data
 /AI_Agents/src/cashflow_statement/tests
-/AI_Agents/tests
 /AI_Agents/src/*/tests/
 /AI_Agents/src/*/Testing/
 /AI_Agents/src/chat_eval
