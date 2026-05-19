@@ -18,6 +18,7 @@ from app.models.asset_allocation import (
     AssetAllocationRunTarget,
     AssetClassSplitKind,
 )
+from app.models.chat_session_state import ChatSessionState
 from app.models.family_member import FamilyMember
 from app.models.fund import Fund
 from app.models.goals import (
@@ -83,6 +84,7 @@ __all__ = [
     "ChatAiModuleRun",
     "ChatMessage",
     "ChatSession",
+    "ChatSessionState",
     "CompanyMetadata",
     "FamilyMember",
     "FinancialGoal",

@@ -21,7 +21,6 @@ from app.services.mf.paging import clamp_skip_limit
 
 logger = logging.getLogger(__name__)
 _LATEST_NAV_STALE_AFTER_DAYS = 1
-_MIN_NAV_HISTORY_ROWS = 180
 
 
 async def list_nav_rows(
@@ -231,7 +230,15 @@ async def get_latest_nav_with_source_fallback(
     *,
     stale_after_days: int = _LATEST_NAV_STALE_AFTER_DAYS,
 ) -> Optional[MfNavHistory]:
-    """Return latest NAV; auto-refresh from source if missing/stale."""
+    """Return latest NAV; auto-refresh from source if missing/stale.
+
+    Fetches from mfapi.in only when:
+    - No local NAV exists at all, OR
+    - The latest local NAV is older than ``stale_after_days``.
+
+    Chart history backfill for new funds is handled by the nightly scheduler;
+    this path only tops up the latest NAV when stale.
+    """
     code = scheme_code.strip()
     if not code:
         return None
@@ -246,15 +253,7 @@ async def get_latest_nav_with_source_fallback(
     ).scalar_one_or_none()
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=stale_after_days)).date()
-    row_count = int(
-        (
-            await db.execute(
-                select(func.count()).select_from(MfNavHistory).where(MfNavHistory.scheme_code == code)
-            )
-        ).scalar()
-        or 0
-    )
-    if existing is not None and existing.nav_date >= cutoff and row_count >= _MIN_NAV_HISTORY_ROWS:
+    if existing is not None and existing.nav_date >= cutoff:
         return existing
 
     try:
@@ -275,12 +274,185 @@ def _mf_type(detail_scheme_type: str, detail_scheme_category: str) -> str:
     return value or "Unknown"
 
 
+def _min_rows_for_chart_range(date_from: date, date_to: date) -> int:
+    """Rough minimum NAV points expected for a chart over ``date_from``..``date_to``."""
+    span_days = max((date_to - date_from).days, 1)
+    return max(30, min(500, span_days // 3))
+
+
+async def ensure_nav_history_for_chart(
+    db: AsyncSession,
+    scheme_code: str,
+    *,
+    date_from: date,
+    date_to: date,
+) -> None:
+    """Backfill ``mf_nav_history`` from mfapi.in when the DB is too sparse for charts.
+
+    Only calls mfapi.in when stored history is clearly incomplete. Young funds that
+    launched after ``date_from`` are not expected to have 10 years of rows — the
+    target row count is based on ``max(date_from, fund_inception)``..``date_to``.
+    """
+    code = scheme_code.strip()
+    if not code:
+        return
+
+    g_count, g_earliest, g_latest = (
+        await db.execute(
+            select(
+                func.count(MfNavHistory.id),
+                func.min(MfNavHistory.nav_date),
+                func.max(MfNavHistory.nav_date),
+            ).where(MfNavHistory.scheme_code == code)
+        )
+    ).one()
+    stored = int(g_count or 0)
+
+    if stored == 0:
+        logger.info("scheme %s chart backfill: no NAV rows in DB yet", code)
+        await _backfill_scheme_nav_history(
+            db, code, date_from=date_from, date_to=date_to,
+        )
+        return
+
+    coverage_start = max(date_from, g_earliest) if g_earliest else date_from
+    min_rows = _min_rows_for_chart_range(coverage_start, date_to)
+
+    in_window = int(
+        (
+            await db.execute(
+                select(func.count(MfNavHistory.id)).where(
+                    MfNavHistory.scheme_code == code,
+                    MfNavHistory.nav_date >= date_from,
+                    MfNavHistory.nav_date <= date_to,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+    if in_window >= min_rows:
+        logger.debug(
+            "scheme %s chart OK: %d rows in window (need %d from %s; inception %s)",
+            code,
+            in_window,
+            min_rows,
+            coverage_start,
+            g_earliest,
+        )
+        return
+
+    logger.info(
+        "scheme %s chart backfill: %d rows in [%s..%s] (inception=%s); need >= %d from %s",
+        code,
+        in_window,
+        date_from,
+        date_to,
+        g_earliest,
+        min_rows,
+        coverage_start,
+    )
+    inserted = await _backfill_scheme_nav_history(
+        db, code, date_from=date_from, date_to=date_to,
+    )
+    if inserted == 0 and stored > 0:
+        logger.debug(
+            "scheme %s chart: mfapi had nothing new (%d rows already stored)",
+            code,
+            stored,
+        )
+
+
+async def _backfill_scheme_nav_history(
+    db: AsyncSession,
+    scheme_code: str,
+    *,
+    date_from: date,
+    date_to: date,
+) -> int:
+    """Persist all mfapi.in NAV points in ``date_from``..``date_to`` (ON CONFLICT skip)."""
+    code = scheme_code.strip()
+    if not code:
+        return 0
+
+    async with httpx.AsyncClient(timeout=MFAPI_TIMEOUT, follow_redirects=True) as client:
+        detail = await fetch_scheme_detail(client, code)
+    if detail is None or not detail.navs:
+        return 0
+
+    mf_type = _mf_type(detail.scheme_type, detail.scheme_category)
+    in_range = [p for p in detail.navs if date_from <= p.nav_date <= date_to]
+    if not in_range:
+        in_range = list(detail.navs)
+
+    nav_rows = [
+        {
+            "scheme_code": detail.scheme_code,
+            "isin": detail.isin_growth,
+            "scheme_name": detail.scheme_name,
+            "mf_type": mf_type,
+            "nav": nav_pt.nav,
+            "nav_date": nav_pt.nav_date,
+        }
+        for nav_pt in in_range
+    ]
+    if not nav_rows:
+        return 0
+
+    inserted = await _persist_source_nav_and_metadata(
+        scheme_code=detail.scheme_code,
+        isin=detail.isin_growth,
+        isin_div_reinvest=detail.isin_div_reinvest,
+        scheme_name=detail.scheme_name,
+        amc_name=detail.fund_house or "Unknown",
+        category=detail.scheme_category or "Unknown",
+        plan_type=detail.plan_type,
+        option_type=detail.option_type,
+        nav_rows=nav_rows,
+    )
+    logger.info(
+        "scheme %s chart backfill done: persisted %d rows (mfapi had %d in range)",
+        code,
+        inserted,
+        len(nav_rows),
+    )
+    return inserted
+
+
 async def _fetch_nav_from_source_for_scheme(
     db: AsyncSession, scheme_code: str, *, nav_date: Optional[date]
 ) -> Optional[MfNavHistory]:
     code = scheme_code.strip()
     if not code:
         return None
+
+    high_water = (
+        await db.execute(
+            select(func.max(MfNavHistory.nav_date)).where(
+                MfNavHistory.scheme_code == code
+            )
+        )
+    ).scalar()
+
+    freshness_cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=_LATEST_NAV_STALE_AFTER_DAYS)
+    ).date()
+    if nav_date is None and high_water is not None and high_water >= freshness_cutoff:
+        existing = (
+            await db.execute(
+                select(MfNavHistory)
+                .where(MfNavHistory.scheme_code == code)
+                .order_by(MfNavHistory.nav_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            logger.debug(
+                "scheme %s NAV already current (latest=%s); skipping mfapi.in",
+                code,
+                high_water,
+            )
+            return existing
 
     async with httpx.AsyncClient(timeout=MFAPI_TIMEOUT, follow_redirects=True) as client:
         detail = await fetch_scheme_detail(client, code)
@@ -294,9 +466,14 @@ async def _fetch_nav_from_source_for_scheme(
     if point is None:
         return None
 
-    # Return selected point immediately; persist full scheme NAV history.
     mf_type = _mf_type(detail.scheme_type, detail.scheme_category)
-    full_nav_rows = [
+
+    if high_water is not None:
+        new_navs = [p for p in detail.navs if p.nav_date > high_water]
+    else:
+        new_navs = list(detail.navs)
+
+    nav_rows_to_persist = [
         {
             "scheme_code": detail.scheme_code,
             "isin": detail.isin_growth,
@@ -305,26 +482,24 @@ async def _fetch_nav_from_source_for_scheme(
             "nav": nav_pt.nav,
             "nav_date": nav_pt.nav_date,
         }
-        for nav_pt in detail.navs
+        for nav_pt in new_navs
     ]
-    if not full_nav_rows:
-        # Keep at least one row in rare cases where source has only older history.
-        full_nav_rows = [
-            {
-                "scheme_code": detail.scheme_code,
-                "isin": detail.isin_growth,
-                "scheme_name": detail.scheme_name,
-                "mf_type": mf_type,
-                "nav": point.nav,
-                "nav_date": point.nav_date,
-            }
-        ]
-    logger.info(
-        "Fetched %d NAV points from mfapi.in for scheme %s (oldest=%s, latest=%s)",
-        len(detail.navs), code,
-        min(p.nav_date for p in detail.navs) if detail.navs else "?",
-        max(p.nav_date for p in detail.navs) if detail.navs else "?",
-    )
+
+    if nav_rows_to_persist:
+        logger.info(
+            "scheme %s: mfapi returned %d points; persisting %d new (high-water=%s)",
+            code,
+            len(detail.navs),
+            len(nav_rows_to_persist),
+            high_water or "none",
+        )
+    else:
+        logger.debug(
+            "scheme %s: mfapi returned %d points; nothing new after high-water %s",
+            code,
+            len(detail.navs),
+            high_water,
+        )
 
     nav_row = MfNavHistory(
         id=uuid.uuid4(),
@@ -336,17 +511,22 @@ async def _fetch_nav_from_source_for_scheme(
         nav_date=point.nav_date,
         created_at=datetime.now(timezone.utc),
     )
-    await _persist_source_nav_and_metadata(
-        scheme_code=detail.scheme_code,
-        isin=detail.isin_growth,
-        isin_div_reinvest=detail.isin_div_reinvest,
-        scheme_name=detail.scheme_name,
-        amc_name=detail.fund_house or "Unknown",
-        category=detail.scheme_category or "Unknown",
-        plan_type=detail.plan_type,
-        option_type=detail.option_type,
-        nav_rows=full_nav_rows,
-    )
+
+    if nav_rows_to_persist:
+        await _persist_source_nav_and_metadata(
+            scheme_code=detail.scheme_code,
+            isin=detail.isin_growth,
+            isin_div_reinvest=detail.isin_div_reinvest,
+            scheme_name=detail.scheme_name,
+            amc_name=detail.fund_house or "Unknown",
+            category=detail.scheme_category or "Unknown",
+            plan_type=detail.plan_type,
+            option_type=detail.option_type,
+            nav_rows=nav_rows_to_persist,
+        )
+    else:
+        logger.debug("No new NAV rows to persist for scheme %s (all up-to-date)", code)
+
     return nav_row
 
 

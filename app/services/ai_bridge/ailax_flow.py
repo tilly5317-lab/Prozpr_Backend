@@ -113,6 +113,6 @@ async def build_prozpr_spine(
 
     return ProzprSpineResult(
         text=header + (tailored or body),
-        asset_allocation_run_id=outcome.asset_allocation_run_id,
+        asset_allocation_run_id=getattr(outcome, "asset_allocation_run_id", None),
         portfolio_allocation_snapshot_id=None,
     )

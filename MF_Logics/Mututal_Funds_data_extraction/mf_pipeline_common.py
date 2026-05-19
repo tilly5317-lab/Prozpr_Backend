@@ -350,22 +350,14 @@ def step3(
 # ═════════════════════════════════════════════════════════════════════════
 #  STEP 4 – Build consolidated NAV history table (TSV)
 # ═════════════════════════════════════════════════════════════════════════
-def step4(active_csv: Path, nav_dir: Path, out: Path) -> int:
+def step4(nav_dir: Path, out: Path) -> int:
     log.info("── Step 4 · Build mf_nav_history (master NAV table) ──")
-
-    sub_map: dict[int, str] = {}
-    with open(active_csv, encoding="utf-8", newline="") as f:
-        for row in csv.DictReader(f):
-            sub_map[int(row["schemeCode"])] = (row.get("sub_category") or "").strip()
 
     jsons = sorted(
         (p for p in nav_dir.glob("*.json") if p.stem.isdigit()),
         key=lambda p: int(p.stem),
     )
-    header = (
-        "fund_house", "scheme_code", "scheme_category",
-        "Subcategory", "scheme_name", "date", "nav",
-    )
+    header = ("scheme_code", "isin_growth", "isin_div_reinvestment", "date", "nav")
 
     n = 0
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -389,15 +381,13 @@ def step4(active_csv: Path, nav_dir: Path, out: Path) -> int:
             except (TypeError, ValueError):
                 continue
 
-            fh  = m.get("fund_house", "")
-            cat = m.get("scheme_category", "")
-            nm  = m.get("scheme_name", "")
-            sub = sub_map.get(sc, "")
+            isin_g = m.get("isin_growth") or ""
+            isin_d = m.get("isin_div_reinvestment") or ""
 
             for pt in d.get("data") or []:
                 if isinstance(pt, dict):
                     w.writerow([
-                        fh, str(sc), cat, sub, nm,
+                        str(sc), isin_g, isin_d,
                         pt.get("date", ""), pt.get("nav", ""),
                     ])
                     n += 1

@@ -118,7 +118,9 @@ async def _nav_by_walking_back(
     return None
 
 
-async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> int:
+async def rebuild_user_latest_snapshot(
+    db: AsyncSession, user_id: uuid.UUID, *, _commit: bool = True,
+) -> int:
     txns = list(
         (
             await db.execute(
@@ -235,12 +237,21 @@ async def rebuild_user_latest_snapshot(db: AsyncSession, user_id: uuid.UUID) -> 
             row.portfolio_weight_pct = round(wt, 4)
 
     db.add_all(rows)
-    await db.commit()
+    if _commit:
+        await db.commit()
+    else:
+        await db.flush()
     return len(rows)
+
+
+_USER_BATCH_SIZE = 50
 
 
 async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]:
     """Rebuild latest snapshot rows for every user who has MF transactions.
+
+    Processes users in batches and expunges ORM objects between users to
+    keep peak memory proportional to one user's data instead of all users.
 
     Returns:
         tuple[int, int]: (users_processed, total_snapshot_rows_written)
@@ -255,8 +266,14 @@ async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]
     users_processed = 0
     total_rows = 0
     for user_id in user_ids:
-        total_rows += await rebuild_user_latest_snapshot(db, user_id)
+        total_rows += await rebuild_user_latest_snapshot(db, user_id, _commit=False)
         users_processed += 1
+        db.expunge_all()
+
+        if users_processed % _USER_BATCH_SIZE == 0:
+            await db.commit()
+    if users_processed % _USER_BATCH_SIZE != 0:
+        await db.commit()
     return users_processed, total_rows
 
 

@@ -10,6 +10,9 @@ contracts.
 - **ai_modules/** — request/response bodies for the `/ai-modules` agent test
   routes.
 - **ingest/** — MF ingestion payloads (CAMS CAS PDF upload; legacy Finvu/AA).
+- **mf/** — MF request/response schemas (AA import, fund metadata, mfapi.in
+  fetch, NAV history, portfolio snapshot, SIP mandate, transaction, per-user
+  investment list).
 
 ## Files at this level
 
