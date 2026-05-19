@@ -10,6 +10,8 @@ one agent domain exposed under `app/routers/ai_modules/`.
 - `intent_classifier.py` — `IntentClassifyRequest`, `IntentClassifyResponse`
 - `market_commentary.py` — `MarketCommentaryResponse`
 - `portfolio_query.py` — `PortfolioQueryRequest`, `PortfolioQueryResponse`
+- `rebalancing.py` — `RebalancingComputeApiRequest`, `RebalancingComputeApiResponse`
+  for `POST /ai-modules/rebalancing/compute` (same service as the chat branch)
 - `status.py` — `AIModuleStatusResponse` (generic agent availability response)
 
 ## Data contract

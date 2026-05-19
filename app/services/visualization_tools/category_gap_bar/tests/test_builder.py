@@ -53,7 +53,7 @@ async def test_produces_one_category():
     assert out.categories == ["Large Cap Fund"]
     series_by_name = {s.name: s.values for s in out.series}
     assert "Current" in series_by_name
-    assert "Target" in series_by_name
     assert "Plan" in series_by_name
+    assert "Target" not in series_by_name
     assert series_by_name["Current"][0] == 1000000.0
     assert series_by_name["Plan"][0] == 1100000.0  # current - sell + buy = 1000000 - 0 + 100000

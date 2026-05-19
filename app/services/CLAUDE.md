@@ -16,9 +16,14 @@ sidelined — see below).
 - **effective_risk_profile/** — persistence and calculation helpers for the
   user's effective risk assessment; distinct from deterministic scoring in
   `risk_profiling`.
-- **visualization_tools/** — chart-tool registry (`registry.CHART_TOOLS`) and
-  per-domain chart builders (e.g. `asset_allocation/`); read by
-  `ai_bridge/chart_selector_service` and dispatched by `chat_core.brain`.
+- **mf/** — mutual-fund domain services: AA import/access, fund metadata,
+  investor-detail lookup, mfapi.in fetch/ingest/scheduler, and NAV history
+  helpers used by ingest routers and chat.
+- **visualization_tools/** — chart-spec builders consumed by chat bridges
+  (donuts, gap bars, target-vs-actual, concentration risk, etc.); each
+  chart family is its own subpackage and registered via `registry.py`.
+- **tests/** — pytest suites for service-layer helpers (telemetry,
+  allocation persistence, etc.).
 - **archive/** — retired service code kept for reference; not imported by
   active paths.
 

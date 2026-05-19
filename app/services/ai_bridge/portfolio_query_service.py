@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date
-from typing import Any, Iterable
+from datetime import date, datetime
+from typing import Any, Iterable, Sequence
 
 from anthropic import AuthenticationError as AnthropicAuthenticationError
 
@@ -97,6 +97,108 @@ def _f(obj: Any, attr: str) -> float | None:
         return None
 
 
+def _holding_invested_and_gain(h: Any) -> tuple[float | None, float | None, float | None]:
+    """Derive (invested_inr, gain_inr, gain_pct) from cost basis when possible.
+
+    Returns ``(None, None, None)`` if avg_cost × quantity isn't computable. Uses
+    `current_value` directly when present; otherwise falls back to
+    `quantity × current_price`.
+    """
+    qty = _f(h, "quantity")
+    avg = _f(h, "average_cost")
+    if qty is None or avg is None:
+        return None, None, None
+    invested = qty * avg
+    if invested <= 0:
+        return None, None, None
+    cv = _f(h, "current_value")
+    if cv is None:
+        cur_px = _f(h, "current_price")
+        cv = qty * cur_px if cur_px is not None else None
+    if cv is None:
+        return round(invested, 2), None, None
+    gain = cv - invested
+    gain_pct = (gain / invested) * 100.0
+    return round(invested, 2), round(gain, 2), round(gain_pct, 2)
+
+
+def _xirr(flows: Sequence[tuple[date, float]], guess: float = 0.1) -> float | None:
+    """Newton-Raphson XIRR. Returns annualised rate as a percentage, or None.
+
+    `flows` must contain ≥1 negative (outflow / buy) and ≥1 positive (inflow /
+    current value at today) entries with strictly-defined dates. Returns None
+    when the inputs are degenerate or the solver doesn't converge.
+    """
+    if len(flows) < 2:
+        return None
+    has_pos = any(amt > 0 for _, amt in flows)
+    has_neg = any(amt < 0 for _, amt in flows)
+    if not (has_pos and has_neg):
+        return None
+    sorted_flows = sorted(flows, key=lambda x: x[0])
+    t0 = sorted_flows[0][0]
+
+    def years(d: date) -> float:
+        return (d - t0).days / 365.0
+
+    rate = guess
+    for _ in range(60):
+        try:
+            npv = 0.0
+            d_npv = 0.0
+            for d, amt in sorted_flows:
+                t = years(d)
+                discount = (1.0 + rate) ** t
+                if discount == 0:
+                    return None
+                npv += amt / discount
+                d_npv += -t * amt / (discount * (1.0 + rate))
+            if abs(npv) < 1e-6:
+                return round(rate * 100.0, 2)
+            if d_npv == 0:
+                return None
+            rate -= npv / d_npv
+            if rate <= -0.999:
+                rate = -0.999
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return None
+    return None
+
+
+def _compute_portfolio_xirr(user: Any, total_value: float | None) -> float | None:
+    """Compute XIRR over the user's MF cash flows + the current portfolio value as a synthetic inflow."""
+    if not total_value or total_value <= 0:
+        return None
+    txns = list(getattr(user, "mf_transactions", None) or [])
+    if not txns:
+        return None
+    flows: list[tuple[date, float]] = []
+    for t in txns:
+        amt = _f(t, "amount")
+        d = getattr(t, "transaction_date", None)
+        if amt is None or amt <= 0 or d is None:
+            continue
+        # Coerce datetime → date.
+        if isinstance(d, datetime):
+            d = d.date()
+        # transaction_type may be an enum (`MfTransactionType.BUY`) whose
+        # ``str()`` returns "ClassName.MEMBER" rather than the value. Pull
+        # `.value` when it exists; otherwise stringify and uppercase.
+        raw_type = getattr(t, "transaction_type", None)
+        ttype = (getattr(raw_type, "value", None) or str(raw_type or "")).upper()
+        if ttype == "BUY":
+            flows.append((d, -amt))
+        elif ttype in ("SELL", "REDEEM", "REDEMPTION"):
+            flows.append((d, amt))
+        else:
+            # Unknown type: skip rather than guess sign.
+            continue
+    if not flows:
+        return None
+    flows.append((date.today(), float(total_value)))
+    return _xirr(flows)
+
+
 # ---------------------------------------------------------------------------
 # ORM → ClientContext
 # ---------------------------------------------------------------------------
@@ -168,6 +270,7 @@ def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
             or getattr(h, "ticker_symbol", None)
             or "Unknown"
         )
+        invested, gain, gain_pct = _holding_invested_and_gain(h)
         out.append(
             Holding(
                 name=str(name),
@@ -179,6 +282,9 @@ def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
                 allocation_percentage=_f(h, "allocation_percentage"),
                 return_1y_pct=_f(h, "return_1y"),
                 return_3y_pct=_f(h, "return_3y"),
+                invested_amount_inr=invested,
+                gain_inr=gain,
+                gain_pct=gain_pct,
             )
         )
     return out
@@ -242,11 +348,13 @@ def _build_portfolio_context(user: Any) -> PortfolioContext | None:
     orm_allocations = list(getattr(primary, "allocations", []) or [])
 
     total_value = float(getattr(primary, "total_value", 0) or 0)
+    xirr_pct = _compute_portfolio_xirr(user, total_value)
 
     return PortfolioContext(
         total_value_inr=_f(primary, "total_value"),
         total_invested_inr=_f(primary, "total_invested"),
         total_gain_percentage=_f(primary, "total_gain_percentage"),
+        xirr_pct=xirr_pct,
         holdings=_build_holdings(orm_holdings),
         allocations=_build_allocation_rows(orm_allocations),
         sub_category_allocations=_build_subcategory_rows(orm_holdings, total_value),

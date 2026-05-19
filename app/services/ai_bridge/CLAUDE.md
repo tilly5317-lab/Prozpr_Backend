@@ -11,9 +11,11 @@ and formats the reply for chat.
 - `market_commentary_service.py` — `generate_market_commentary`; wraps market commentary agent.
 - `general_chat_service.py` — `generate_general_chat_response`; general-chat reply generator.
 - `portfolio_query_service.py` — `generate_portfolio_query_response`; wraps portfolio query agent.
-- `chart_selector_service.py` — caller for the `chart_selector` agent; runs in parallel with text generation against the live catalogue from `app/services/visualization_tools/registry.CHART_TOOLS`.
 - `chat_dispatcher.py` — per-intent chat handler registry (`@register`, `dispatch_chat`).
-- `ailax_flow.py` — `detect_spine_mode`, `build_ailax_spine`; portfolio spine orchestration.
+- `intent_router.py` — historical intent-to-handler routing helpers; predates `chat_dispatcher`.
+- `ailax_flow.py` — `detect_spine_mode`, `build_ailax_spine`; legacy allocation spine
+  (not on the current `ChatBrain` path — all allocation/goal/rebalancing turns now flow
+  through `chat_dispatcher`).
 - `__init__.py` — re-exports bridge entry points consumed by `chat_core`.
 
 ## Child packages
@@ -26,11 +28,16 @@ and formats the reply for chat.
   auto-imported by `asset_allocation/__init__.py` (would cycle through
   `chat_core.turn_context`); callers needing its `@register` side-effect
   must import it lazily.
+- **goal_planning/** — goal-planning domain: engine adapter (`service.py`),
+  chat handler (`chat.py`), input builder (`input_builder.py`), and `tests/`;
+  bridges `AI_Agents/src/cashflow_statement` into chat. Same lazy-import
+  contract as `asset_allocation/` — `chat.py` self-registers via `@register`
+  and `brain.py` imports it on the `goal_planning` branch only.
 - **rebalancing/** — rebalancing domain: engine adapter (`service.py`), chat
   handler (`chat.py`), input builder (`input_builder.py`), tax-aging
   (`tax_aging.py`), holdings ledger (`holdings_ledger.py`), fund ranking
-  (`fund_rank.py`), chart picker (`chart_picker.py`, `charts.py`), and
-  `formatter.py`; bridges `AI_Agents/src/Rebalancing` into chat.
+  (`fund_rank.py`), overrides (`overrides.py`), and `formatter.py`; bridges
+  `AI_Agents/src/Rebalancing` into chat.
 - **answer_formatter/** — shared question-aware answer formatter
   (`formatter.py` exposes `format_with_telemetry`, `FactsPack`, `ActionMode`,
   `FormatterFailure`); per-module chat bridges call this instead of
@@ -46,8 +53,7 @@ and formats the reply for chat.
 ## Depends on
 
 - `AI_Agents/src/*` — each bridge calls into one agent (intent, market commentary,
-  portfolio query, allocation, rebalancing, chart_selector).
-- `app/services/visualization_tools/registry` — `chart_selector_service` reads `CHART_TOOLS`.
+  portfolio query, allocation, rebalancing).
 - `app/models/*` — reads ORM User / portfolio / goals data.
 
 ## Tests
