@@ -13,7 +13,7 @@ from .models import (
     Intent,
     OutOfScopeSubreason,
 )
-from .prompts import GOAL_PLANNING_MESSAGE, OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
+from .prompts import OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -152,9 +152,8 @@ class IntentClassifier:
         intent = Intent(raw.intent)
 
         _canned_responses = {
-            Intent.OUT_OF_SCOPE:  OUT_OF_SCOPE_MESSAGE,
-            Intent.GOAL_PLANNING: GOAL_PLANNING_MESSAGE,
-            Intent.STOCK_ADVICE:  STOCK_ADVICE_MESSAGE,
+            Intent.OUT_OF_SCOPE: OUT_OF_SCOPE_MESSAGE,
+            Intent.STOCK_ADVICE: STOCK_ADVICE_MESSAGE,
         }
 
         subreason: Optional[OutOfScopeSubreason] = None

@@ -20,8 +20,11 @@ ticker_symbols (HDFCFLX, MIRAELC, ...). This script:
 
 ISIN choices: user 1's existing instruments are NOT in the fund-rank CSV,
 so they all surface as BAD funds — realistic, and exercises the exit path.
-User 2's recommended pick uses INF209K01YY7 (Aditya Birla SL Large Cap,
-rank-1 in CSV).
+User 2 holds two large-cap funds so both reason paths are exercised end to
+end: INF209K01YY7 (Aditya Birla SL Large Cap) is rank-blank in the current
+fund-rank CSV and surfaces with a real rejection reason on the EXIT trade;
+INF109K016L0 (ICICI Prudential Large Cap) is rank-1 and carries a
+selection_reason on any BUY into it.
 
 Idempotent: re-running deletes seeded txns + NAVs first.
 """
@@ -72,7 +75,7 @@ class Holding:
 #  - Midcap   → BAD: CSV has no Mid Cap sub_category at all
 #  - Corp Bond → BAD: CSV has no Corporate Bond sub_category
 #  - Short Term → ABSL Savings (rank 1 short_debt Ultra Short Duration; closest fit)
-#  - Liquid → Axis Liquid (rank 4 debt_subgroup Liquid Fund)
+#  - Liquid → Axis Liquid (BAD: CSV has no Liquid Fund sub_category in short_debt's rank-1+)
 USER1_HOLDINGS = [
     Holding(USER1, "BAJ_FLX_DG", "INF0QA701342",
             "Bajaj Finserv Flexi Cap Fund-Direct Plan-Growth",
@@ -92,7 +95,7 @@ USER1_HOLDINGS = [
     Holding(USER1, "HDFCCB", "INF00CRP001",
             "HDFC Corporate Bond Fund - Direct Plan Growth",
             "HDFC Mutual Fund", Decimal("60000"), Decimal("28"),
-            Decimal("30"), "debt", "debt_subgroup", "Corporate Bond Fund",
+            Decimal("30"), "debt", "other_debt", "Corporate Bond Fund",
             Decimal("0.5"), 6),
     Holding(USER1, "ABSL_SAV_DG", "INF209K01UR9",
             "Aditya Birla Sun Life Savings Fund - Growth - Direct Plan",
@@ -102,19 +105,28 @@ USER1_HOLDINGS = [
     Holding(USER1, "AXIS_LIQ_DG", "INF846K01CX4",
             "Axis Liquid Fund - Direct Plan - Growth Option",
             "Axis Mutual Fund", Decimal("104.17"), Decimal("4600"),
-            Decimal("4800"), "debt", "debt_subgroup", "Liquid Fund",
+            Decimal("4800"), "debt", "short_debt", "Liquid Fund",
             Decimal("0.0"), 0),
 ]
 
-# ── User 2: clean slate, 2 holdings — one recommended + one BAD ──
+# ── User 2: clean slate, 3 holdings — one rank-1 recommended, one rank-blank
+# rejected (exercises the new rejection-reason path), one truly off-list BAD. ──
 USER2_HOLDINGS = [
-    # Recommended: rank-1 of low_beta_equities in the fund-rank CSV.
-    Holding(USER2, "ABSL_LC_DG", "INF209K01YY7",
-            "Aditya Birla Sun Life Large Cap Fund - Growth - Direct Plan",
-            "Aditya Birla Sun Life Mutual Fund", Decimal("1500"), Decimal("200"),
+    # Rank-1 recommended of low_beta_equities Large Cap Fund in the current
+    # fund-rank CSV. Carries a selection_reason on any BUY into it.
+    Holding(USER2, "ICICI_LC_DG", "INF109K016L0",
+            "ICICI Prudential Large Cap Fund (erstwhile Bluechip Fund) - Direct Plan - Growth",
+            "ICICI Prudential Mutual Fund", Decimal("119"), Decimal("200"),
             Decimal("220"), "equity", "low_beta_equities", "Large Cap Fund",
             Decimal("1.0"), 12),
-    # BAD: not in CSV — surfaces as a fund the engine would suggest exiting.
+    # Rank-blank rejected: exercises the rejection-reason path. The CSV
+    # records why this fund was excluded; that text flows onto the EXIT trade.
+    Holding(USER2, "ABSL_LC_DG", "INF209K01YY7",
+            "Aditya Birla Sun Life Large Cap Fund - Growth - Direct Plan",
+            "Aditya Birla Sun Life Mutual Fund", Decimal("570"), Decimal("200"),
+            Decimal("220"), "equity", "low_beta_equities", "Large Cap Fund",
+            Decimal("1.0"), 12),
+    # BAD: not in CSV at all — surfaces with the NOT_EVALUATED_REASON fallback.
     Holding(USER2, "MYELS_DG", "INF99TST001",
             "Mystery Tactical Equity Fund - Direct Plan Growth",
             "Mystery AMC", Decimal("1000"), Decimal("50"), Decimal("55"),
@@ -352,7 +364,7 @@ def _seed_all_csv_fund_navs(cur: sqlite3.Cursor) -> int:
     """
     import csv
 
-    csv_path = Path(__file__).resolve().parents[1] / "AI_Agents" / "Reference_docs" / "Prozpr_fund_ranking.csv"
+    csv_path = Path(__file__).resolve().parents[1] / "AI_Agents" / "Reference_docs" / "prozpr_fund_ranking_may_2026.csv"
     seeded = 0
     sub_cat_to_class: dict[str, str] = {
         "Large Cap Fund": "equity", "Flexi Cap Fund": "equity",
@@ -367,6 +379,11 @@ def _seed_all_csv_fund_navs(cur: sqlite3.Cursor) -> int:
     }
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
+            # Only seed NAVs for recommended funds. The new CSV also contains
+            # ~11k rank-blank "evaluated but rejected" rows — irrelevant to the
+            # engine's pricing needs and would explode the seed dataset.
+            if not (row.get("rank") or "").strip():
+                continue
             isin = row["isin"]
             sub_category = row["sub_category"]
             asset_subgroup = row["asset_subgroup"]

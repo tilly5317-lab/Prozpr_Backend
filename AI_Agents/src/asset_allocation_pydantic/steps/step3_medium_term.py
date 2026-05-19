@@ -39,7 +39,7 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
     debt_key = (
         "arbitrage_plus_income"
         if inp.effective_tax_rate >= TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD
-        else "debt_subgroup"
+        else "short_debt"
     )
 
     allocations: list[MediumTermGoalAllocation] = []

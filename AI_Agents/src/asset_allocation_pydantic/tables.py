@@ -106,7 +106,6 @@ SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
     "sector_equities": "equity",
     "us_equities": "equity",
     "multi_asset": "equity",
-    "debt_subgroup": "debt",
     "short_debt": "debt",
     "arbitrage": "debt",
     "arbitrage_plus_income": "debt",
@@ -159,11 +158,14 @@ LONG_TERM_BOUNDARY_MONTHS: int = 60
 MEDIUM_TERM_HORIZON_MIN: int = 3
 MEDIUM_TERM_HORIZON_MAX: int = 5
 
-# Tax-rate thresholds (%) for routing debt allocations to arbitrage vs pure debt.
-# `>=` comparison: at the threshold itself, allocation routes to arbitrage.
-# Short-term uses a higher bar (30%) since tax efficiency matters less for <2y
-# holdings; medium/long-term uses 15% since arbitrage gains get equity taxation.
-TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 30.0
+# Tax-rate thresholds (%) for routing debt allocations.
+#
+# Emergency + short-term: strict `>` comparison against 20%. Above 20% → pure
+# arbitrage (short-duration, equity-taxed); 20% or below → short_debt.
+#
+# Medium + long-term: `>=` comparison against 15%. At or above 15% →
+# arbitrage_plus_income (FoF, equity-taxed); strictly below → short_debt.
+TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 20.0
 TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
 
 # Long-term equity subgroups smaller than this share of total long-term equity
@@ -240,12 +242,13 @@ EQUITY_SUBGROUPS: tuple[str, ...] = (
 )
 
 # Every subgroup step 4 may write: ELSS + multi-asset + long-term equity split
-# + one debt bucket + gold. (short_debt and arbitrage are short-term-only.)
+# + one debt bucket (arbitrage_plus_income when tax-efficient, else short_debt)
+# + gold.
 STEP4_SUBGROUPS: tuple[str, ...] = (
     "tax_efficient_equities",
     "multi_asset",
     *EQUITY_SUBGROUPS,
-    "debt_subgroup",
+    "short_debt",
     "arbitrage_plus_income",
     "gold_commodities",
 )

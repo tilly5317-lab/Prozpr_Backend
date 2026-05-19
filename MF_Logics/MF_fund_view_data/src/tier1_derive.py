@@ -1,11 +1,22 @@
 """Tier 1: derive from CSV + scheme name + rules.
 
 Outputs per scheme:
-  ISIN_No, asset_class, asset_subcategory, plan_class (direct/regular),
-  div_or_growth (paid/growth), investor (retail/insti), parent_fund_house,
+  isin_growth, isin_div_reinvest, asset_class, asset_subcategory,
+  plan_class (direct/regular), div_or_growth (paid/growth),
+  investor (retail/insti), parent_fund_house,
   st_rate, st_period, lt_rate, lt_period
 """
 import re
+
+
+def _clean_isin(v) -> str:
+    """Normalize an ISIN cell — handles None, NaN (str 'nan'), and whitespace."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s.lower() in {"nan", "none"}:
+        return ""
+    return s
 
 # AMFI broad mapping. Equity sub-cats per SEBI categorization.
 EQUITY_SUBCATS = {
@@ -123,7 +134,8 @@ def derive_row(row: dict) -> dict:
     ac = asset_class_for(sub, name)
     tax = tax_treatment(ac, sub)
     return {
-        "ISIN_No": row.get("isinGrowth") or row.get("isinDivReinvestment") or "",
+        "isin_growth": _clean_isin(row.get("isinGrowth")),
+        "isin_div_reinvest": _clean_isin(row.get("isinDivReinvestment")),
         "asset_class": ac,
         "asset_subcategory": sub,
         "plan_class": plan_class(name),

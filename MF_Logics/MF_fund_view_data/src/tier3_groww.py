@@ -108,14 +108,20 @@ def fetch_for_scheme(scheme_code: int, scheme_name: str, force: bool = False) ->
     return detail
 
 
-def _safe_isin_match(detail: dict, target_isin: str) -> bool:
-    if not target_isin:
-        return True
+def _safe_isin_match(detail: dict, target_isins: tuple[str, ...]) -> bool:
+    """True if Groww's ISIN matches any of the AMFI-side ISINs we hold for this scheme.
+
+    A scheme can have two ISINs (Growth + Dividend-Reinvest) sharing one NAV; Groww
+    returns one of them, so equality against any is the right check.
+    """
+    targets = {t.strip().upper() for t in target_isins if t}
+    if not targets:
+        return True  # nothing to check against
     d_isin = (detail.get("isin") or "").strip().upper()
-    return d_isin == target_isin.strip().upper()
+    return d_isin in targets
 
 
-def extract_tier3(detail: dict | None, target_isin: str = "") -> dict:
+def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> dict:
     """Normalize Groww detail into the framework's Tier 3 fields."""
     out = {
         "asset_size_cr": None,           # AUM in INR crore
@@ -139,7 +145,7 @@ def extract_tier3(detail: dict | None, target_isin: str = "") -> dict:
     if not detail or detail.get("_status"):
         return out
     out["_groww_slug"] = detail.get("_slug")
-    out["groww_isin_match"] = _safe_isin_match(detail, target_isin)
+    out["groww_isin_match"] = _safe_isin_match(detail, target_isins)
     out["asset_size_cr"] = detail.get("aum")
     out["min_investment"] = detail.get("min_investment_amount")
     out["expense_ratio_pct"] = detail.get("expense_ratio")
@@ -215,6 +221,6 @@ if __name__ == "__main__":
     for code, name, isin in pilots:
         print(f"\n=== {code} {name[:60]} ===")
         d = fetch_for_scheme(code, name)
-        t3 = extract_tier3(d, isin)
+        t3 = extract_tier3(d, (isin,))
         for k, v in t3.items():
             print(f"  {k}: {v}")

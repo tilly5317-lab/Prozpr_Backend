@@ -16,7 +16,12 @@ from app.services.ai_bridge.rebalancing.overrides import effective_param
 
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
-from app.services.ai_bridge.rebalancing.fund_rank import FundRankRow, get_fund_ranking
+from app.services.ai_bridge.rebalancing.fund_rank import (
+    NOT_EVALUATED_REASON,
+    FundRankRow,
+    get_fund_ranking,
+    get_rejection_reasons,
+)
 from app.services.ai_bridge.rebalancing.holdings_ledger import (
     HoldingLedgerEntry,
     build_holdings_ledger,
@@ -98,6 +103,8 @@ def _build_row(
     bad_sub_category: Optional[str] = None,
     bad_fund_name: Optional[str] = None,
     bad_isin: Optional[str] = None,
+    selection_reason: Optional[str] = None,
+    rejection_reason: Optional[str] = None,
 ) -> FundRowInput:
     if rank_row is not None:
         subgroup = rank_row.asset_subgroup
@@ -151,6 +158,8 @@ def _build_row(
         current_nav=current_nav,
         fund_rating=fund_rating,
         is_recommended=is_recommended,
+        selection_reason=selection_reason,
+        rejection_reason=rejection_reason,
     )
 
 
@@ -172,8 +181,9 @@ async def build_rebalancing_input_for_user(
     for r in allocation_output.aggregated_subgroups:
         target_by_subgroup[r.subgroup] = Decimal(str(r.total))
 
-    # 3. Fund-rank table.
+    # 3. Fund-rank table + per-ISIN rejection reasons for off-list held funds.
     ranking = get_fund_ranking()
+    rejection_reasons = get_rejection_reasons()
     recommended_isins: set[str] = {
         rr.isin for rows in ranking.values() for rr in rows
     }
@@ -217,6 +227,7 @@ async def build_rebalancing_input_for_user(
                 is_recommended=True,
                 fund_rating=_DEFAULT_FUND_RATING,
                 asof=asof,
+                selection_reason=rr.selection_reason or None,
             ))
             seen_isins.add(rr.isin)
 
@@ -243,6 +254,7 @@ async def build_rebalancing_input_for_user(
             bad_sub_category=(meta.sub_category if meta else "unknown"),
             bad_fund_name=(meta.scheme_name if meta else entry.scheme_code),
             bad_isin=isin,
+            rejection_reason=rejection_reasons.get(isin) or NOT_EVALUATED_REASON,
         ))
         bad_count += 1
 

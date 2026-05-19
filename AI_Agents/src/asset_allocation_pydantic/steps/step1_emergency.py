@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..models import AllocationInput, FutureInvestment, Step1Output
-from ..tables import EMERGENCY_FUND_MONTHS
+from ..tables import EMERGENCY_FUND_MONTHS, TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD
 from ..utils import round_to_100
 
 
@@ -40,7 +40,12 @@ def run(inp: AllocationInput) -> Step1Output:
         remaining_corpus = total_corpus_int - total_emergency
         future_investment = None
 
-    subgroup_amounts: dict[str, int] = {"debt_subgroup": total_emergency}
+    asset_subgroup = (
+        "arbitrage"
+        if inp.effective_tax_rate > TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD
+        else "short_debt"
+    )
+    subgroup_amounts: dict[str, int] = {asset_subgroup: total_emergency}
 
     return Step1Output(
         emergency_fund_months=emergency_fund_months,

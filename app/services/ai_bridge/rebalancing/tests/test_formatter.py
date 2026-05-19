@@ -166,7 +166,7 @@ def _make_minimal_response(*, with_warnings=False, tax_zero=True, with_actions=F
         ltcg_rate_equity_pct=12.5,
         st_threshold_months_equity=12,
         st_threshold_months_debt=24,
-        multi_cap_sub_categories=[],
+        multi_fund_cap_subgroups=[],
     )
     metadata = RebalancingRunMetadata(
         computed_at=datetime(2026, 4, 28, 12, 0, 0),

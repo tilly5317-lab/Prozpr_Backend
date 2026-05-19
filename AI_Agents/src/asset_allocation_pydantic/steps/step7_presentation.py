@@ -204,7 +204,7 @@ def _asset_class_breakdown(
     # Medium-term: multi-asset slice decomposed via inp composition.
     mt_multi = step3.subgroup_amounts.get("multi_asset", 0)
     mt_pure_debt = (
-        step3.subgroup_amounts.get("debt_subgroup", 0)
+        step3.subgroup_amounts.get("short_debt", 0)
         + step3.subgroup_amounts.get("arbitrage_plus_income", 0)
     )
     comp = inp.multi_asset_composition

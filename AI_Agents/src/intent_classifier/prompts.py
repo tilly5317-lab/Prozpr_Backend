@@ -269,25 +269,19 @@ These cases are easy to misclassify. Apply these rules explicitly:
 """
 
 OUT_OF_SCOPE_MESSAGE = (
-    "I'm currently set up to help with asset allocation, portfolio queries, "
-    "and general market commentary. Your question falls outside what I can handle today "
-    "— but we're actively building more capabilities on the platform. Feel free to ask "
-    "me about your portfolio, your investments, or what's happening in the markets!"
-)
-
-GOAL_PLANNING_MESSAGE = (
-    "Goal planning — checking whether a target like '₹5 crore in 15 years' is "
-    "achievable, and what monthly investment would get you there — is something "
-    "we're actively building. I can't run that math for you yet.\n\n"
-    "If you'd like, tell me how much you have to invest (a lump sum, or a monthly "
-    "amount) and your time horizon, and I can suggest an allocation that fits. "
-    "Once goal planning is live, I'll be able to tell you whether the target is "
-    "reachable and what it would take."
+    "I'm Tilly — at Prozpr, I'm here to help you with your portfolio, your "
+    "asset allocation, rebalancing, and what's happening in the markets. "
+    "That's where I can add the most value today, and we're actively expanding "
+    "what I can do for you. In the meantime, I'd be happy to help — ask me "
+    "about your investments, your allocation, or the markets, and we'll take "
+    "it from there."
 )
 
 STOCK_ADVICE_MESSAGE = (
-    "I'm Tilly — at Prozpr, we don't recommend investing directly in individual stocks. "
-    "Instead, we believe in building a well-diversified portfolio through mutual funds "
-    "— a smarter approach that spreads your risk across many companies and helps you "
-    "achieve your financial goals in life. Ask me about which mutual funds might be right for you!"
+    "I'm Tilly — at Prozpr, we typically don't advise on individual stocks unless "
+    "someone has the expertise to actively manage them. Instead, we focus on helping "
+    "you build a well-diversified portfolio through carefully selected funds, designed "
+    "to outperform across market cycles and support your long-term financial goals. "
+    "I'd be happy to help you with your portfolio allocation and identify funds that "
+    "could be a good fit for you."
 )

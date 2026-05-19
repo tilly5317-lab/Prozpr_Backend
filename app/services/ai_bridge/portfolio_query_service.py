@@ -52,11 +52,13 @@ _INVALID_ANTHROPIC_KEY_REPLY = (
     "Set a valid `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in your server `.env`."
 )
 _MISSING_COMMENTARY_REPLY = (
-    "I can't answer that yet — the market commentary file isn't available. "
-    "Please ask a market question first to refresh it, then try again."
+    "I'll have a sharper answer once the latest market commentary is loaded "
+    "— ask me a quick market question first (e.g. 'how are markets doing "
+    "today?') to refresh it, and then I'll be ready to dig into this for you."
 )
 _GENERIC_FAILURE_REPLY = (
-    "I couldn't generate a portfolio answer right now. Please try rephrasing your question."
+    "Hmm, that one didn't come through cleanly on my end — give the question "
+    "another phrasing and I'll take another shot at it."
 )
 
 

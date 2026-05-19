@@ -4,7 +4,7 @@ from datetime import date
 
 from cashflow_statement.models import RetirementInput, RetirementSnapshot
 from cashflow_statement.engine._types import RunContext
-from cashflow_statement.engine.dates import _round_thousand
+from cashflow_statement.engine.dates import _round_thousand, eomonth
 from cashflow_statement.engine.exceptions import MissingDOBError
 from financial_primitives.inflation import inflate, real_rate
 from financial_primitives.retirement import retirement_corpus_pv
@@ -56,10 +56,12 @@ def compute_retirement_snapshot(
     else:
         post_retirement_years = inp.assumed_lifespan_years - inp.retirement_age
 
-    # Excel parity: calendar-year diff (matches emulator's
-    # `max(retirement_date.year - update.year, 0)`). Diverges from the engine's
-    # FY-integer convention for Jan-Mar retirement dates, but matches Excel.
-    inflation_years = max(retirement_date.year - ctx.latest_update_date.year, 0)
+    # Day-precise convention: inflate to EOMONTH(retirement_date), symmetric with
+    # the rest of the engine (properties.py, goals_table.py, _fund_today_pv).
+    inflation_years = max(
+        (eomonth(retirement_date, 0) - ctx.latest_update_date).days / 365,
+        0.0,
+    )
 
     annual_expense_fv = _round_thousand(
         inflate(ctx.annual_household_expense, ctx.inflation_household_expense, inflation_years)

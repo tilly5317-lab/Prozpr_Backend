@@ -31,6 +31,11 @@ def build_headline_status(
     total_funded = sum(s.funded_amount for s in funding.per_goal_status)
     years_to_last_goal = max(last_fy_end_date.year - ctx.current_fy_year, 0)
 
+    is_feasible = (
+        all(s.is_funded for s in funding.per_goal_status)
+        and funding.corpus_closing >= 0
+    )
+
     return HeadlineStatus(
         years_to_last_goal=years_to_last_goal,
         last_goal_date=last_goal_date,
@@ -40,6 +45,7 @@ def build_headline_status(
         total_corpus_required_today=sum_fund_pv,
         surplus_or_shortfall_today=surplus_or_shortfall_today,
         corpus_closing=funding.corpus_closing,
+        is_feasible=is_feasible,
         total_shortfall_fv=total_shortfall,
         total_funded_amount=total_funded,
     )

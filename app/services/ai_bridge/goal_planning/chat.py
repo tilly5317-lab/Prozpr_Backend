@@ -77,8 +77,9 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
         if str(e) == "missing_date_of_birth":
             return ChatHandlerResult(
                 text=(
-                    "I can't run a goal projection yet — your date of birth "
-                    "isn't on your profile. Add it in settings and ask me again."
+                    "To run a goal projection for you, I'll need your date of "
+                    "birth — it anchors the math. Add it in settings, and "
+                    "we'll pick this up right away."
                 ),
             )
         raise

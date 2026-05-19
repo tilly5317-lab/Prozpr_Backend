@@ -21,11 +21,27 @@ from intent_classifier import (
 )
 from intent_classifier.models import Intent
 from intent_classifier.prompts import (
-    GOAL_PLANNING_MESSAGE,
     OUT_OF_SCOPE_MESSAGE,
     STOCK_ADVICE_MESSAGE,
     SYSTEM_PROMPT,
 )
+
+# Prefix of the previously-canned goal_planning redirect (removed after the
+# goal_planning bridge cutover). Kept so old chat sessions still get scrubbed
+# from classifier history.
+_LEGACY_GOAL_PLANNING_PREFIX = "Goal planning — checking whether"
+
+# Prefixes from earlier variants of the OOS sub-reason replies (pre tone
+# refresh). Kept so the history-scrub still catches them in old DB sessions.
+_LEGACY_OOS_PREFIXES: tuple[str, ...] = (
+    "I'm Tilly — an AI assistant from Prozpr, here to help",  # IDENTITY_OR_META
+    "I can't help with passwords",                              # SECURITY_OR_CREDENTIALS
+    "Session summaries aren't built in yet",                    # CHAT_SUMMARY
+    "That's outside what I can help with",                      # OFF_TOPIC
+)
+
+# Prefix of the previous generic OUT_OF_SCOPE_MESSAGE (pre tone refresh).
+_LEGACY_OUT_OF_SCOPE_PREFIX = "I'm currently set up to help with asset allocation"
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +165,11 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
 
     canned_prefixes = (
         OUT_OF_SCOPE_MESSAGE,
-        GOAL_PLANNING_MESSAGE,
+        _LEGACY_OUT_OF_SCOPE_PREFIX,
+        _LEGACY_GOAL_PLANNING_PREFIX,
         STOCK_ADVICE_MESSAGE,
         *(_OOS_REPLIES_BY_SUBREASON.values()),
+        *_LEGACY_OOS_PREFIXES,
     )
     drop: set[int] = set()
     for i, m in enumerate(history):

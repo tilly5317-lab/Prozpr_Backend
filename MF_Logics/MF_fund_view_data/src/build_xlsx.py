@@ -27,7 +27,8 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 # Final column order (matches the framework xlsx)
 SECTION_GROUPS = [
     ("1. Fund overview", [
-        "schemeCode", "schemeName", "ISIN_No", "asset_class", "asset_subcategory",
+        "schemeCode", "schemeName", "isin_growth", "isin_div_reinvest",
+        "asset_class", "asset_subcategory",
         "plan_class", "div_or_growth", "investor", "min_investment", "asset_size_cr",
     ]),
     ("2. Quantitative — Fund Returns", [
@@ -84,7 +85,7 @@ def process_one(row: dict, log) -> dict:
         log.write(f"{code} TIER2_ERR {e}\n")
     try:
         detail = fetch_for_scheme(code, name)
-        t3 = extract_tier3(detail, out.get("ISIN_No", ""))
+        t3 = extract_tier3(detail, (out.get("isin_growth", ""), out.get("isin_div_reinvest", "")))
         out.update(t3)
     except Exception as e:
         log.write(f"{code} TIER3_ERR {e}\n")

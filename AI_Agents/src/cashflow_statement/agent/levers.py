@@ -9,24 +9,19 @@ from datetime import date
 
 from cashflow_statement.models import (
     GoalPlanningInput, GoalPlanningOutput, Lever, NumericOverride,
-    GoalMutation, PropertyFieldOverride,
+    GoalMutation,
 )
 from cashflow_statement.engine import compute_full_projection
 
 
 def _is_feasible(out: GoalPlanningOutput) -> bool:
-    """Every goal funded AND corpus never goes negative across the horizon.
+    """Canonical end-of-horizon feasibility — thin wrapper over HeadlineStatus.is_feasible.
 
-    HeadlineStatus no longer carries is_overall_feasible — recompute inline.
+    Kept as a function (rather than inlining `out.headline.is_feasible` at every
+    call site) so the lever engine has a single read-point if the feasibility
+    rule ever needs to diverge for lever-specific logic.
     """
-    if not all(g.is_funded for g in out.goals):
-        return False
-    if out.headline.corpus_closing < 0:
-        return False
-    if out.monthly_cashflow:
-        if any(r.corpus_closing < 0 for r in out.monthly_cashflow):
-            return False
-    return True
+    return out.headline.is_feasible
 
 
 def _apply_goal_mutation(inp: GoalPlanningInput, goal_name: str, fields: dict) -> GoalPlanningInput:
@@ -248,14 +243,19 @@ CATEGORY_PRIORITY = {
 CONFIDENCE_WEIGHT = {"high": 1.0, "medium": 0.7, "low": 0.4}
 
 
-def _score_lever(lever: Lever, category: str, severity_required: float = 0.5) -> float:
-    return (1.0 / max(severity_required, 0.01)) * CONFIDENCE_WEIGHT[lever.confidence] * CATEGORY_PRIORITY[category]
+def _score_lever(lever: Lever, category: str) -> float:
+    return CONFIDENCE_WEIGHT[lever.confidence] * CATEGORY_PRIORITY[category]
 
 
 def propose_levers(
     inp: GoalPlanningInput, baseline_out: GoalPlanningOutput, max_count: int = 3,
 ) -> list[Lever]:
-    """Generate up to 7 levers, score, return top N (default 3)."""
+    """Generate up to 6 levers (A-F), score, return top N (default 3).
+
+    Returns [] when the plan is already feasible OR when no lever in the
+    search bounds closes the gap. The caller (chat surface) handles the
+    "nothing in our search range works" messaging.
+    """
     if _is_feasible(baseline_out):
         return []
     candidates: list[tuple[Lever, str]] = []
@@ -273,17 +273,4 @@ def propose_levers(
         candidates.append((l, "F"))
 
     candidates.sort(key=lambda lc: _score_lever(lc[0], lc[1]), reverse=True)
-
-    if not candidates:
-        underfunded = [g for g in baseline_out.goals if g.shortfall_fv > 0]
-        if underfunded:
-            largest = max(underfunded, key=lambda g: g.shortfall_fv)
-            return [Lever(
-                description="Even at maximum levers, this isn't feasible — consider reducing scope",
-                action=GoalMutation(
-                    kind="mutation", op="remove", goal_name=largest.name, fields={},
-                ),
-                projected_outcome=baseline_out.headline,
-                confidence="low",
-            )]
     return [c[0] for c in candidates[:max_count]]

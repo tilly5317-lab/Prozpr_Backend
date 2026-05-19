@@ -1,7 +1,6 @@
 """Stage 7: shared corpus pool evolution + per-goal funding allocation.
 
 Critical algorithm: single shared corpus pool with proportional shortfall split at payout months.
-Per Excel parity audit, this replaces the per-goal balance evolution model.
 """
 from __future__ import annotations
 from datetime import date
@@ -34,7 +33,7 @@ def monthly_invest_or_withdraw(
     m_year = fy_for_date(m)
     if retirement_date is not None and m > retirement_date:
         return 0.0, "zero"
-    if user_sip is not None and user_sip > 100:
+    if user_sip is not None and user_sip > 0:
         # The stated user SIP is capped at the household's
         # actual post-EMI savings_post_emi for the month. This prevents the engine from
         # "magic-ing up money" when EMIs + expense leave less than the stated SIP.
@@ -107,7 +106,8 @@ def compute_funding(
 
         # 3-band ROI for shared pool — mid_term_roi during years 2-5.
         # Matches expected_roi_for_goal in goals_table.py, so investment_required_pv ↔ corpus growth align.
-        # Clamp at 0 when corpus negative — portfolio ROI can't "earn" on debt.
+        # Asymmetric clamp at 0 when corpus negative: portfolio ROI can't "earn" on debt,
+        # AND debt cost is not modeled either. See methodology.md "What is not in the engine".
         if m <= ctx.near_term_end:
             roi_annual = ctx.near_term_roi
         elif m <= ctx.medium_term_end:

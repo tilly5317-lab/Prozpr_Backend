@@ -199,7 +199,7 @@ class Step1Output(BaseModel):
 
 class Step2Output(BaseModel):
     goals_allocated: List[Goal]
-    asset_subgroup: Literal["debt_subgroup", "arbitrage"]
+    asset_subgroup: Literal["short_debt", "arbitrage"]
     total_goal_amount: int
     allocated_amount: int
     remaining_corpus: int
@@ -221,7 +221,7 @@ class MediumTermGoalAllocation(BaseModel):
 
 class Step3Output(BaseModel):
     risk_bucket: Literal["Low", "Medium", "High"]
-    asset_subgroup: Literal["arbitrage_plus_income", "debt_subgroup"]
+    asset_subgroup: Literal["arbitrage_plus_income", "short_debt"]
     goals_allocated: List[MediumTermGoalAllocation]
     total_goal_amount: int
     allocated_amount: int

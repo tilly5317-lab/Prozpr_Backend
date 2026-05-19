@@ -11,8 +11,8 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
     ]
     asset_subgroup = (
         "arbitrage"
-        if inp.effective_tax_rate >= TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD
-        else "debt_subgroup"
+        if inp.effective_tax_rate > TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD
+        else "short_debt"
     )
 
     total_goal_amount = round_to_100(sum(g.amount_needed for g in goals_allocated))

@@ -533,13 +533,13 @@ _MSG_MISSING_DOB = (
 )
 
 _MSG_NO_API_KEY = (
-    "Sorry, I can't run the allocation engine right now. Please try again in a "
-    "few minutes. If the issue persists, let us know via the help option and "
-    "we'll get it sorted."
+    "The allocation engine is briefly unavailable — please try again in a few "
+    "minutes. If it persists, ping us via the help option and we'll get you "
+    "sorted right away."
 )
 
 _MSG_ENGINE_ERROR = (
-    "Something went wrong while calculating your allocation. Please try again "
+    "We hit a quick snag while calculating your allocation — please try again "
     "in a moment. If it keeps happening, reach out via the help option and "
     "we'll take a look."
 )

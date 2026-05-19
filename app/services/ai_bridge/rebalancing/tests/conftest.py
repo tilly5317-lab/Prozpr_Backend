@@ -171,7 +171,7 @@ async def _ensure_fund_metadata(db_session: AsyncSession, scheme_code: str) -> N
 
 
 # rank-1 ISIN of low_beta_equities in the canonical CSV
-_RANK1_ISIN = "INF209K01YY7"
+_RANK1_ISIN = "INF109K016L0"  # ICICI Prudential Large Cap
 
 
 @pytest_asyncio.fixture
@@ -411,7 +411,7 @@ async def fixture_user_with_two_holdings(
 ) -> User:
     """User holding two distinct ISINs at known NAVs (60 and 80)."""
     rank1 = _RANK1_ISIN
-    rank2 = "INF846K01DP8"  # rank-2 of low_beta_equities
+    rank2 = "INF179K01YV8"  # rank-2 of low_beta_equities (HDFC Large Cap)
     await _add_holding(
         db_session,
         user=fixture_user_with_dob,
@@ -501,7 +501,7 @@ def fixture_rebalancing_response():
                 ltcg_rate_equity_pct=12.5,
                 st_threshold_months_equity=12,
                 st_threshold_months_debt=24,
-                multi_cap_sub_categories=[],
+                multi_fund_cap_subgroups=[],
             ),
             request_id=uuid.uuid4(),
         ),
