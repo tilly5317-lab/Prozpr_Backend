@@ -5,7 +5,6 @@ Outputs per scheme:
   div_or_growth (paid/growth), investor (retail/insti), parent_fund_house,
   st_rate, st_period, lt_rate, lt_period
 """
-import re
 
 # AMFI broad mapping. Equity sub-cats per SEBI categorization.
 EQUITY_SUBCATS = {

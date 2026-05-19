@@ -5,8 +5,6 @@ from datetime import date
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
-from langgraph.graph import END
-
 from cashflow_statement.agent.state import AgentState
 from cashflow_statement.agent.prompts import SYSTEM_PROMPT
 from cashflow_statement.models import GoalPlanningInput

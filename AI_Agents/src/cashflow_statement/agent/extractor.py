@@ -14,7 +14,7 @@ from rapidfuzz import fuzz
 
 from cashflow_statement.models import (
     ExtractedFinancialEvent, ExtractionError,
-    ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation,
+    ExtractedGoal, ExtractedProperty, ExtractedMutation,
 )
 from cashflow_statement.agent.prompts import EXTRACTOR_SYSTEM_PROMPT
 

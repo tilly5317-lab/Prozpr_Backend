@@ -1,17 +1,11 @@
 """Per-turn chat override helpers for rebalancing.
 
-Mirrors asset_allocation/overrides.py with rebalancing's allow-list. Re-imports
-`with_chat_overrides` from AA — the helper is generic (just dataclasses.replace
-on TurnContext.chat_overrides), no need to duplicate.
+Mirrors asset_allocation/overrides.py with rebalancing's allow-list.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-
-from app.services.ai_bridge.asset_allocation.overrides import (  # re-imported helper
-    with_chat_overrides,
-)
 
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext

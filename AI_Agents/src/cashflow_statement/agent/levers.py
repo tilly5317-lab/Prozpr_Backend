@@ -9,7 +9,7 @@ from datetime import date
 
 from cashflow_statement.models import (
     GoalPlanningInput, GoalPlanningOutput, Lever, NumericOverride,
-    GoalMutation, PropertyFieldOverride,
+    GoalMutation,
 )
 from cashflow_statement.engine import compute_full_projection
 
@@ -259,18 +259,18 @@ def propose_levers(
     if _is_feasible(baseline_out):
         return []
     candidates: list[tuple[Lever, str]] = []
-    if (l := generate_lever_a_increase_sip(inp, baseline_out)):
-        candidates.append((l, "A"))
-    if (l := generate_lever_b_defer_goal(inp, baseline_out)):
-        candidates.append((l, "B"))
-    if (l := generate_lever_c_reduce_target(inp, baseline_out)):
-        candidates.append((l, "C"))
-    if (l := generate_lever_d_retirement_age(inp, baseline_out)):
-        candidates.append((l, "D"))
-    if (l := generate_lever_e_step_up(inp, baseline_out)):
-        candidates.append((l, "E"))
-    if (l := generate_lever_f_reduce_expense(inp, baseline_out)):
-        candidates.append((l, "F"))
+    if (lever := generate_lever_a_increase_sip(inp, baseline_out)):
+        candidates.append((lever, "A"))
+    if (lever := generate_lever_b_defer_goal(inp, baseline_out)):
+        candidates.append((lever, "B"))
+    if (lever := generate_lever_c_reduce_target(inp, baseline_out)):
+        candidates.append((lever, "C"))
+    if (lever := generate_lever_d_retirement_age(inp, baseline_out)):
+        candidates.append((lever, "D"))
+    if (lever := generate_lever_e_step_up(inp, baseline_out)):
+        candidates.append((lever, "E"))
+    if (lever := generate_lever_f_reduce_expense(inp, baseline_out)):
+        candidates.append((lever, "F"))
 
     candidates.sort(key=lambda lc: _score_lever(lc[0], lc[1]), reverse=True)
 

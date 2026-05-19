@@ -1,7 +1,6 @@
 """Engine-private intermediate types. NOT exported from cashflow_statement.__init__."""
 from __future__ import annotations
 from datetime import date
-from typing import Any
 from pydantic import BaseModel
 from cashflow_statement.models import (
     GoalType, RetirementSnapshot,
