@@ -80,7 +80,7 @@ class KnobSnapshot(BaseModel):
     ltcg_rate_equity_pct: float
     st_threshold_months_equity: int
     st_threshold_months_debt: int
-    multi_cap_sub_categories: list[str]
+    multi_fund_cap_subgroups: list[str]
 ```
 
 `knob_snapshot` captures every value from buckets A and C **as resolved at compute time** (after env-var overrides). Lets us replay a recommendation exactly as it was computed even if defaults change later.
@@ -251,7 +251,7 @@ Filtering rules:
       "ltcg_rate_equity_pct": 12.5,
       "st_threshold_months_equity": 12,
       "st_threshold_months_debt": 24,
-      "multi_cap_sub_categories": ["Multi Cap Fund"]
+      "multi_fund_cap_subgroups": ["multi_asset"]
     }
   },
   "warnings": [

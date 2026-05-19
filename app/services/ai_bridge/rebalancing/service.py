@@ -221,6 +221,7 @@ def build_rebal_facts_pack(
             "buy_inr":            <float>, "buy_indian":            <str>,
             "sell_inr":           <float>, "sell_indian":           <str>,
             "planned_final_inr":  <float>, "planned_final_indian":  <str>,
+            "reason":             <str>,                                     # selection_reason for buys, joined rejection reasons for sells; "" otherwise
         }, ...],
         # Number of additional smaller holdings beyond fund_actions cap
         # (only present when truncated).
@@ -303,6 +304,15 @@ def build_rebal_facts_pack(
 
             fund_name = getattr(action, "recommended_fund", None)
             if fund_name:
+                # Per-fund rationale: selection text on a buy, rejection text on
+                # a sell. None when neither (held-as-is row). Lets the LLM cite
+                # "why this fund" on customer follow-up without computing it.
+                if buy > 0:
+                    reason = getattr(action, "selection_reason", None) or ""
+                elif sell > 0:
+                    reason = getattr(action, "rejection_reason", None) or ""
+                else:
+                    reason = ""
                 fund_rows.append({
                     "fund_name": fund_name,
                     "sub_category": sub_cat,
@@ -311,6 +321,7 @@ def build_rebal_facts_pack(
                     "buy_inr": buy,
                     "sell_inr": sell,
                     "planned_final_inr": present + buy - sell,
+                    "reason": reason,
                 })
 
     buckets: list[dict[str, Any]] = []

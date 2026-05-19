@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import date
+from functools import cache
 from typing import Any
 
 from anthropic import APIError
@@ -13,18 +14,15 @@ from pydantic import BaseModel, Field, ValidationError
 from rapidfuzz import fuzz
 
 from cashflow_statement.models import (
+    Assumptions,
     ExtractedFinancialEvent, ExtractionError,
     ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation,
 )
 from cashflow_statement.agent.prompts import EXTRACTOR_SYSTEM_PROMPT
 
 
-# Defaults & constants (will be sourced from config.py in Phase 4)
 EXTRACTOR_MODEL = "claude-haiku-4-5-20251001"
 FUZZY_MATCH_THRESHOLD = 85
-DEFAULT_PROPERTY_DOWNPAYMENT_PCT = 20.0
-DEFAULT_MORTGAGE_TENURE_YEARS = 20
-DEFAULT_MORTGAGE_INTEREST_ANNUAL = 0.085
 
 
 class _ExtractionEnvelope(BaseModel):
@@ -46,73 +44,83 @@ def _normalize(name: str) -> str:
     return " ".join(w for w in name.casefold().split() if w not in stops)
 
 
-class FinancialEventExtractor:
-    def __init__(self, model: str = EXTRACTOR_MODEL):
-        self._llm = ChatAnthropic(model=model, temperature=0)
-        self._chain = self._build_chain()
+@cache
+def _get_default_chain():
+    """Build (and cache) the extractor chain on first call. Module-level singleton."""
+    llm = ChatAnthropic(model=EXTRACTOR_MODEL, temperature=0)
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", EXTRACTOR_SYSTEM_PROMPT),
+        ("human", "{description}"),
+    ])
+    structured = llm.with_structured_output(_ExtractionEnvelope)
+    unwrap = RunnableLambda(lambda env: env.event)
+    return prompt | structured | unwrap
 
-    def _build_chain(self):
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", EXTRACTOR_SYSTEM_PROMPT),
-            ("human", "{description}"),
-        ])
-        structured = self._llm.with_structured_output(_ExtractionEnvelope)
-        unwrap = RunnableLambda(lambda env: env.event)
-        return prompt | structured | unwrap
 
-    async def extract(
-        self,
-        description: str,
-        anchor_date: date,
-        existing_goal_names: list[str],
-    ) -> ExtractedFinancialEvent | ExtractionError:
-        try:
-            result = await asyncio.to_thread(self._chain.invoke, {
-                "description": description,
-                "anchor_date": anchor_date.isoformat(),
-                "existing_goal_names": ", ".join(existing_goal_names) or "(none)",
-                "default_property_downpayment_pct": DEFAULT_PROPERTY_DOWNPAYMENT_PCT,
-                "default_mortgage_tenure_years": DEFAULT_MORTGAGE_TENURE_YEARS,
-                "default_mortgage_interest": DEFAULT_MORTGAGE_INTEREST_ANNUAL,
-            })
-        except (OutputParserException, ValidationError, APIError) as e:
-            return ExtractionError(kind="error", reason=f"Could not parse: {e}")
-        except Exception as e:
-            return ExtractionError(kind="error", reason=f"Unexpected error: {e}")
+async def extract_event(
+    description: str,
+    anchor_date: date,
+    existing_goal_names: list[str],
+    assumptions: Assumptions | None = None,
+    *,
+    _chain=None,
+) -> ExtractedFinancialEvent | ExtractionError:
+    """NL → ExtractedFinancialEvent | ExtractionError.
 
-        # Fuzzy collision check → promote to mutation
-        if isinstance(result, (ExtractedGoal, ExtractedProperty)):
-            new_name = result.goal.name if isinstance(result, ExtractedGoal) else result.property.name
-            best_match = self._best_fuzzy_match(new_name, existing_goal_names)
-            if best_match:
-                return ExtractedMutation(
-                    kind="goal_mutation", op="update",
-                    goal_name=best_match,
-                    fields=self._diff_against_existing(result),
-                )
+    `_chain` is a private test hook: pass a stubbed chain to bypass the real LLM
+    call. Production callers should never set it.
+    """
+    chain = _chain if _chain is not None else _get_default_chain()
+    a = assumptions or Assumptions()
+    try:
+        result = await asyncio.to_thread(chain.invoke, {
+            "description": description,
+            "anchor_date": anchor_date.isoformat(),
+            "existing_goal_names": ", ".join(existing_goal_names) or "(none)",
+            "default_property_downpayment_pct": a.default_property_downpayment_pct,
+            "default_mortgage_tenure_years": a.default_mortgage_tenure_years,
+            "default_mortgage_interest": a.default_mortgage_interest_annual,
+        })
+    except (OutputParserException, ValidationError, APIError) as e:
+        return ExtractionError(kind="error", reason=f"Could not parse: {e}")
+    except Exception as e:
+        return ExtractionError(kind="error", reason=f"Unexpected error: {e}")
 
-        # Past-date guard via dated_field accessor
-        d = result.dated_field()
-        if d is not None and d < anchor_date:
-            return ExtractionError(kind="error", reason=f"Date {d.isoformat()} is in the past")
+    # Fuzzy collision check → promote to mutation
+    if isinstance(result, (ExtractedGoal, ExtractedProperty)):
+        new_name = result.goal.name if isinstance(result, ExtractedGoal) else result.property.name
+        best_match = _best_fuzzy_match(new_name, existing_goal_names)
+        if best_match:
+            return ExtractedMutation(
+                kind="goal_mutation", op="update",
+                goal_name=best_match,
+                fields=_diff_against_existing(result),
+            )
 
-        return result
+    # Past-date guard via dated_field accessor
+    d = result.dated_field()
+    if d is not None and d < anchor_date:
+        return ExtractionError(kind="error", reason=f"Date {d.isoformat()} is in the past")
 
-    def _best_fuzzy_match(self, new_name: str, existing: list[str]) -> str | None:
-        best_score = 0
-        best_match = None
-        normalized_new = _normalize(new_name)
-        for name in existing:
-            score = fuzz.token_set_ratio(normalized_new, _normalize(name))
-            if score > best_score:
-                best_score = score
-                best_match = name
-        return best_match if best_score >= FUZZY_MATCH_THRESHOLD else None
+    return result
 
-    def _diff_against_existing(self, result: ExtractedFinancialEvent) -> dict[str, Any]:
-        """Extract user-provided fields for the mutation."""
-        if isinstance(result, ExtractedGoal):
-            return result.goal.model_dump(exclude_unset=True, exclude={"name"})
-        if isinstance(result, ExtractedProperty):
-            return result.property.model_dump(exclude_unset=True, exclude={"name"})
-        return {}
+
+def _best_fuzzy_match(new_name: str, existing: list[str]) -> str | None:
+    best_score = 0
+    best_match = None
+    normalized_new = _normalize(new_name)
+    for name in existing:
+        score = fuzz.token_set_ratio(normalized_new, _normalize(name))
+        if score > best_score:
+            best_score = score
+            best_match = name
+    return best_match if best_score >= FUZZY_MATCH_THRESHOLD else None
+
+
+def _diff_against_existing(result: ExtractedFinancialEvent) -> dict[str, Any]:
+    """Extract user-provided fields for the mutation."""
+    if isinstance(result, ExtractedGoal):
+        return result.goal.model_dump(exclude_unset=True, exclude={"name"})
+    if isinstance(result, ExtractedProperty):
+        return result.property.model_dump(exclude_unset=True, exclude={"name"})
+    return {}
