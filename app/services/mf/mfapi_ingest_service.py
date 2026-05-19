@@ -159,6 +159,52 @@ async def _high_water_marks(
     return {str(code): d for code, d in rows.all() if d is not None}
 
 
+async def list_scheme_codes_needing_nav_refresh(
+    db: AsyncSession,
+    *,
+    min_nav_date: date,
+    active_only: bool = True,
+) -> tuple[list[str], int]:
+    """Scheme codes in ``mf_fund_metadata`` missing NAV on or after ``min_nav_date``.
+
+    Used by the daily scheduler to skip HTTP calls for funds already up-to-date.
+    Returns ``(stale_codes, total_metadata_schemes)``.
+    """
+    active_clause = "AND m.is_active IS TRUE" if active_only else ""
+    rows = await db.execute(
+        text(
+            f"""
+            SELECT m.scheme_code
+            FROM mf_fund_metadata m
+            LEFT JOIN (
+                SELECT scheme_code, MAX(nav_date) AS max_nav_date
+                FROM mf_nav_history
+                GROUP BY scheme_code
+            ) h ON h.scheme_code = m.scheme_code
+            WHERE m.scheme_code ~ '^[0-9]{{4,}}$' {active_clause}
+              AND (h.max_nav_date IS NULL OR h.max_nav_date < :min_nav_date)
+            ORDER BY m.scheme_code
+            """
+        ),
+        {"min_nav_date": min_nav_date},
+    )
+    stale = [str(r[0]).strip() for r in rows.all() if str(r[0]).strip()]
+    total = int(
+        (
+            await db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) FROM mf_fund_metadata m
+                    WHERE m.scheme_code ~ '^[0-9]{{4,}}$' {active_clause}
+                    """
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    return stale, total
+
+
 async def _existing_scheme_codes(
     db: AsyncSession, scheme_codes: Iterable[str]
 ) -> set[str]:
