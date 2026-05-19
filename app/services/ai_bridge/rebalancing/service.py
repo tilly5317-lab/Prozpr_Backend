@@ -20,7 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
 
-from app.models.rebalancing import RebalancingRecommendation, RecommendationType
+from app.models.asset_allocation.run import AssetAllocationRun
+from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
+from app.models.mf.enums import PortfolioSnapshotKind
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
@@ -428,28 +430,42 @@ async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
 async def _load_cached_allocation(
     db: AsyncSession, user_id: uuid.UUID,
 ) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
-    """Latest ALLOCATION row ≤ 90 days old → (parsed output, row_id) or (None, None)."""
+    """Latest asset-allocation run ≤ 90 days old → (parsed output, run_id) or (None, None).
+
+    Looks up the most recent ``AssetAllocationRun`` for the user's portfolio,
+    then loads the full ``GoalAllocationOutput`` from the corresponding
+    ``PortfolioAllocationSnapshot`` (IDEAL kind) created alongside it.
+    """
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
-    rec = (await db.execute(
-        select(RebalancingRecommendation)
-        .where(RebalancingRecommendation.portfolio_id == portfolio.id)
-        .where(
-            RebalancingRecommendation.recommendation_type
-            == RecommendationType.ALLOCATION
-        )
-        .where(RebalancingRecommendation.created_at >= cutoff)
-        .order_by(desc(RebalancingRecommendation.created_at))
+    run = (await db.execute(
+        select(AssetAllocationRun)
+        .where(AssetAllocationRun.portfolio_id == portfolio.id)
+        .where(AssetAllocationRun.created_at >= cutoff)
+        .order_by(desc(AssetAllocationRun.created_at))
         .limit(1)
     )).scalar_one_or_none()
-    if rec is None:
+    if run is None:
         return None, None
-    payload = (rec.recommendation_data or {}).get("goal_allocation_output")
+
+    snap = (await db.execute(
+        select(PortfolioAllocationSnapshot)
+        .where(PortfolioAllocationSnapshot.user_id == run.user_id)
+        .where(PortfolioAllocationSnapshot.snapshot_kind == PortfolioSnapshotKind.IDEAL)
+        .where(PortfolioAllocationSnapshot.created_at >= run.created_at - timedelta(seconds=30))
+        .where(PortfolioAllocationSnapshot.created_at <= run.created_at + timedelta(seconds=30))
+        .order_by(desc(PortfolioAllocationSnapshot.created_at))
+        .limit(1)
+    )).scalar_one_or_none()
+    if snap is None:
+        return None, None
+
+    payload = (snap.allocation or {}).get("goal_allocation_output")
     if not payload:
         return None, None
     try:
-        return GoalAllocationOutput.model_validate(payload), rec.id
+        return GoalAllocationOutput.model_validate(payload), run.id
     except Exception as exc:
         logger.warning("Cached allocation parse failed (%s); ignoring cache", exc)
         return None, None
@@ -543,7 +559,7 @@ async def compute_rebalancing_result(
                 response=None, blocking_message=_MSG_ENGINE_ERROR,
             )
         cached_output = alloc_outcome.result
-        source_allocation_id = alloc_outcome.rebalancing_recommendation_id
+        source_allocation_id = alloc_outcome.asset_allocation_run_id
         allocation_snapshot_id = alloc_outcome.allocation_snapshot_id
 
     try:
@@ -584,7 +600,7 @@ async def compute_rebalancing_result(
             acting_user_id,
             response,
             chat_session_id=chat_session_id,
-            source_allocation_id=source_allocation_id,
+            source_allocation_run_id=source_allocation_id,
             used_cached_allocation=used_cache,
             user_question=user_question,
         )

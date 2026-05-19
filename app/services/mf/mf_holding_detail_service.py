@@ -33,7 +33,10 @@ from app.schemas.mf.holding_detail import (
     MfHoldingPosition,
     MfHoldingTransactionItem,
 )
-from app.services.mf.nav_history_service import get_latest_nav_with_source_fallback
+from app.services.mf.nav_history_service import (
+    ensure_nav_history_for_chart,
+    get_latest_nav_with_source_fallback,
+)
 from app.services.mf_aa_normalizer import normalize_pending_imports
 
 logger = logging.getLogger(__name__)
@@ -323,20 +326,30 @@ async def build_holding_detail(
     if d_from > d_to:
         d_from, d_to = d_to, d_from
 
+    if not _looks_like_isin(scheme_code):
+        try:
+            await ensure_nav_history_for_chart(
+                db, scheme_code, date_from=d_from, date_to=d_to,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "chart NAV backfill failed for scheme %s", scheme_code,
+            )
+            notes.append(
+                "Couldn't load full NAV history for this chart; "
+                "showing whatever is already stored."
+            )
+
     latest = await _latest_nav(db, scheme_code)
     nav_rows, truncated = await _nav_series(db, scheme_code, date_from=d_from, date_to=d_to)
 
-    # Refresh from mfapi.in when NAV history is absent, too thin for a chart,
-    # or stale (newest point older than 1 day).  On first visit this pulls the
-    # full series from inception; on subsequent visits only the delta is inserted.
+    # Top up today's NAV only when the latest stored point is stale.
     recent_cutoff = today - timedelta(days=_RECENT_NAV_MAX_AGE_DAYS)
-    needs_nav_backfill = (
+    needs_nav_refresh = (
         latest is None
-        or not nav_rows
         or latest.nav_date < recent_cutoff
-        or len(nav_rows) < _MIN_NAV_ROWS_FOR_CHART
     )
-    if needs_nav_backfill and not _looks_like_isin(scheme_code):
+    if needs_nav_refresh and not _looks_like_isin(scheme_code):
         try:
             await get_latest_nav_with_source_fallback(db, scheme_code)
         except Exception:  # noqa: BLE001 — network/parse failure; a note is added below
