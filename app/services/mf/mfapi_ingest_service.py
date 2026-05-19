@@ -37,7 +37,6 @@ from app.services.mf.mfapi_fetcher import (
     MFAPI_TIMEOUT,
     MfapiFetchError,
     SchemeDetail,
-    fetch_many_scheme_details,
     fetch_scheme_details_batched,
     fetch_universe,
 )

@@ -4,8 +4,6 @@ Each tool's *implementation function* (foo_impl) is a pure-Python operation on A
 The @tool decorator wrappers live in agent/graph.py.
 """
 from __future__ import annotations
-from datetime import date
-from typing import Any
 
 from cashflow_statement.models import (
     OverrideSpec, GoalMutation, ExtractedFinancialEvent, ExtractionError,
@@ -194,5 +192,8 @@ def propose_levers_impl(state: AgentState) -> str:
     state["last_levers"] = levers
     if not levers:
         return "No lever within the search bounds closes the gap."
-    lines = [f"{i+1}. {l.description} (confidence: {l.confidence})" for i, l in enumerate(levers)]
+    lines = [
+        f"{i + 1}. {lever.description} (confidence: {lever.confidence})"
+        for i, lever in enumerate(levers)
+    ]
     return "Recommended levers:\n" + "\n".join(lines)

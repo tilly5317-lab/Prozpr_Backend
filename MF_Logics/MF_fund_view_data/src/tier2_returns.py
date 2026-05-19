@@ -11,7 +11,6 @@ NAV dates from mfapi.in are 'DD-MM-YYYY' strings.
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -202,7 +201,6 @@ def compute(scheme_code: int, sub_category: str, scheme_name: str = "") -> dict:
 
 if __name__ == "__main__":
     # Smoke test on the 10 pilot funds
-    import json
     pilots = [
         (119018, "Large Cap Fund", "HDFC Large Cap Fund - Direct Growth"),
         (122639, "Flexi Cap Fund", "Parag Parikh Flexi Cap Fund - Direct Growth"),

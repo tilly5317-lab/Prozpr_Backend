@@ -86,10 +86,10 @@ def _build_facts_pack(
     # against the engine, so the formatter can cite them with confidence.
     facts["next_steps"] = [
         {
-            "description": l.description,
-            "confidence": l.confidence,
+            "description": lever.description,
+            "confidence": lever.confidence,
         }
-        for l in snapshot.levers
+        for lever in snapshot.levers
     ]
 
     facts["validation_issues"] = validation_issues

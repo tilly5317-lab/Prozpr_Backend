@@ -21,7 +21,6 @@ def _stub_dependencies(monkeypatch):
     # Importing the chat module triggers @register("goal_planning") side-effect.
     from app.services.ai_bridge.goal_planning import chat as gp_chat
     from app.services.ai_bridge.goal_planning import service as gp_svc
-    from app.services.ai_bridge import answer_formatter as af
 
     async def fake_compute(*, user, user_question, chat_session_id, anchor_date):
         if getattr(user, "date_of_birth", None) is None:

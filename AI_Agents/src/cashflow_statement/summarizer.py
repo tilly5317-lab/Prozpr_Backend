@@ -170,7 +170,7 @@ def summarize_plan(
     except (OutputParserException, ValidationError, APIError) as e:
         raise RuntimeError(f"Summarizer LLM call failed: {e}") from e
 
-    next_steps = [l.description for l in (levers or [])]
+    next_steps = [lever.description for lever in (levers or [])]
     return PlanSummary(
         top_line=narrative.top_line,
         retirement_note=narrative.retirement_note,
