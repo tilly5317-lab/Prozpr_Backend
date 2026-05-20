@@ -73,11 +73,11 @@ CHART_TOOLS: dict[str, ChartTool] = {
     "category_gap_bar": ChartTool(
         name="category_gap_bar",
         description=(
-            "Grouped horizontal bar chart showing Current / Target / Plan allocation "
-            "(in ₹) per SEBI sub-category. Use when the user asks about gaps, drift, "
-            "'how off am I', 'what should I be holding', or generic 'rebalance my "
-            "portfolio' with no specific framing — this is the default chart for "
-            "rebalancing questions."
+            "Grouped horizontal bar chart showing Current vs post-rebalance Plan "
+            "allocation (in ₹) per SEBI sub-category. Use when the user asks what "
+            "changes after this rebalance, 'before and after', 'what's the trade "
+            "list look like', or generic 'rebalance my portfolio' with no specific "
+            "framing — this is the default chart for rebalancing questions."
         ),
         builder=build_category_gap_bar,
         payload_cls=CategoryGapBar,

@@ -14,6 +14,15 @@ class Intent(str, Enum):
     OUT_OF_SCOPE           = "out_of_scope"
 
 
+class OutOfScopeSubreason(str, Enum):
+    GIBBERISH              = "gibberish"
+    IDENTITY_OR_META       = "identity_or_meta"
+    SECURITY_OR_CREDENTIALS = "security_or_credentials"
+    CHAT_SUMMARY           = "chat_summary"
+    OFF_TOPIC              = "off_topic"
+    OTHER                  = "other"
+
+
 class ConversationMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
@@ -31,3 +40,4 @@ class ClassificationResult(BaseModel):
     is_follow_up: bool = False
     reasoning: str
     out_of_scope_message: Optional[str] = None
+    out_of_scope_subreason: Optional[OutOfScopeSubreason] = None

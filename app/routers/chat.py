@@ -31,6 +31,11 @@ from app.services.chat_context import load_conversation_history
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+# Hard cap on statement uploads. Anything bigger is rejected before we allocate
+# memory — keeps an oversized (or malicious) upload from crashing the server.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_UPLOAD_CHUNK_BYTES = 64 * 1024
+
 
 # ---------------------------------------------------------------------------
 # Helper: look up a session owned by the current user.
@@ -188,7 +193,6 @@ async def send_message(
         session_id=session_id,
         role=ChatMessageRole.assistant,
         content=brain_result.content,
-        chart_payloads=brain_result.chart_payloads,
     )
     db.add(assistant_msg)
 
@@ -235,7 +239,29 @@ async def upload_statement(
     """Upload an investment statement; raw text is stored as a user message for AI processing."""
     session = await _get_user_session(session_id, db, current_user.id)
 
-    raw_text = (await file.read()).decode(errors="ignore")
+    # Reject early if Content-Length already signals oversize.
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large; maximum is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
+
+    # Stream in chunks with a hard cap (Content-Length can be missing or lie).
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large; maximum is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    raw_text = b"".join(chunks).decode(errors="ignore")
+
     db.add(ChatMessage(
         session_id=session.id,
         role=ChatMessageRole.user,
