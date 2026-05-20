@@ -45,4 +45,3 @@ class ChatBrainResult:
     intent_reasoning: str | None
     goal_allocation_run_id: uuid.UUID | None = None
     ideal_allocation_snapshot_id: uuid.UUID | None = None
-    chart_payloads: list[dict[str, Any]] | None = None

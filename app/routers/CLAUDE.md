@@ -9,6 +9,9 @@ by `app/main.py`.
 - **ai_modules/** — per-agent HTTP endpoints for exercising AI_Agents
   orchestrators directly (intent, market, portfolio query, allocation, drift,
   MF status, risk).
+- **mf/** — mutual-fund HTTP endpoints: AA imports, fund metadata, NAV
+  history, portfolio snapshots, SIP mandates, transactions, and per-user
+  investment lists.
 
 ## Files at this level
 
@@ -29,6 +32,8 @@ by `app/main.py`.
 - `family.py` — family linking; `X-Family-Member-Id` header to act as member.
 - `simbanks.py` — SimBanks ConnectHub sync → portfolio + MF.
 - `mf_ingest.py` — mutual-fund data ingestion routes.
+- `tags.py` — OpenAPI tag metadata (`OPENAPI_TAG_METADATA`) consumed by
+  `app/main.py` as `openapi_tags`; not a mounted router.
 - `__init__.py` — assembles `all_routers`.
 
 ## Don't read

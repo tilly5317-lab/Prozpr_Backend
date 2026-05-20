@@ -81,7 +81,13 @@ async def persist_goal_allocation_recommendation(
 
     cs = output.client_summary
     acb = output.asset_class_breakdown
+<<<<<<< HEAD
     actual_totals = acb.actual
+=======
+    equity_pct = float(acb.recommended.equity_total_pct)
+    debt_pct = float(acb.recommended.debt_total_pct)
+    others_pct = float(acb.recommended.others_total_pct)
+>>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
 
     run = GoalAllocationRun(
         user_id=user_id,

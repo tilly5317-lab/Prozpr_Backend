@@ -100,7 +100,7 @@ def main() -> int:
         )
 
     if 4 in steps:
-        step4(OUT_ACTIVE_CSV, OUT_NAV_DIR, OUT_NAV_HISTORY)
+        step4(OUT_NAV_DIR, OUT_NAV_HISTORY)
 
     log.info("=" * 60)
     log.info(f"build_mf_nav_history finished in {time.monotonic() - wall:.1f}s")

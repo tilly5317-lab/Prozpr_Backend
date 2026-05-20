@@ -267,8 +267,8 @@ def _minimal_long_term_equity_breakdown(long_term_equity: int):
     )
     return AssetClassBreakdown(
         planned=block,
-        actual=block,
-        actual_sum_matches_grand_total=True,
+        recommended=block,
+        recommended_sum_matches_grand_total=True,
     )
 
 

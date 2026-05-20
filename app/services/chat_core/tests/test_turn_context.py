@@ -9,7 +9,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from app.services.chat_core.turn_context import (
-    AgentRunRecord, build_turn_context,
+    AgentRunRecord, TurnContext, build_turn_context,
 )
 
 
@@ -127,6 +127,25 @@ class TurnContextBuilderTests(unittest.TestCase):
         ctx = asyncio.run(build_turn_context(turn))
         self.assertEqual(ctx.last_agent_runs, {})
         self.assertIsNone(ctx.active_intent)
+
+
+class TurnContextChatOverridesFieldTests(unittest.TestCase):
+    """PR 1: chat_overrides field on the frozen dataclass."""
+
+    def test_turn_context_accepts_chat_overrides_kwarg(self):
+        ctx = TurnContext(
+            user_ctx=MagicMock(),
+            user_question="x",
+            conversation_history=[],
+            client_context=None,
+            session_id=uuid.uuid4(),
+            db=None,
+            effective_user_id=uuid.uuid4(),
+            last_agent_runs={},
+            active_intent=None,
+            chat_overrides={"effective_risk_score": 7},
+        )
+        self.assertEqual(ctx.chat_overrides, {"effective_risk_score": 7})
 
 
 if __name__ == "__main__":
