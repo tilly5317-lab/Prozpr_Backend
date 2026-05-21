@@ -65,6 +65,11 @@ class MfTransaction(Base):
     units: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
     nav: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    isin: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, index=True)
+    fund_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    sub_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    sub_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     stamp_duty: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     source_system: Mapped[MfTransactionSource] = mapped_column(
         SAEnum(MfTransactionSource, name="mf_transaction_source_enum", create_constraint=True),

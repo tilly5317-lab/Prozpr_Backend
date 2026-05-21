@@ -26,7 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
-from app.models.goals.enums import GoalPriority, GoalStatus, GoalType
+from app.models.goals.enums import GoalPriority, GoalStatus
 
 
 class FinancialGoal(Base):
@@ -46,11 +46,6 @@ class FinancialGoal(Base):
     )
 
     goal_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    goal_type: Mapped[GoalType] = mapped_column(
-        SAEnum(GoalType, name="goal_type_enum", create_constraint=True),
-        nullable=False,
-        default=GoalType.OTHER,
-    )
     present_value_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
     inflation_rate: Mapped[float] = mapped_column(
         Numeric(5, 2), nullable=False, server_default="6.00"

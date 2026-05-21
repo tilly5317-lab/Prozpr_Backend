@@ -20,6 +20,11 @@ class MfTransactionCreate(BaseModel):
     units: float
     nav: float = Field(..., gt=0)
     amount: float
+    isin: Optional[str] = Field(None, max_length=12)
+    fund_name: Optional[str] = Field(None, max_length=200)
+    category: Optional[str] = Field(None, max_length=50)
+    sub_category: Optional[str] = Field(None, max_length=100)
+    sub_group: Optional[str] = Field(None, max_length=100)
     stamp_duty: Optional[float] = None
     source_system: MfTransactionSource = MfTransactionSource.MANUAL
     source_import_id: Optional[uuid.UUID] = None
@@ -35,6 +40,11 @@ class MfTransactionUpdate(BaseModel):
     units: Optional[float] = None
     nav: Optional[float] = Field(None, gt=0)
     amount: Optional[float] = None
+    isin: Optional[str] = Field(None, max_length=12)
+    fund_name: Optional[str] = Field(None, max_length=200)
+    category: Optional[str] = Field(None, max_length=50)
+    sub_category: Optional[str] = Field(None, max_length=100)
+    sub_group: Optional[str] = Field(None, max_length=100)
     stamp_duty: Optional[float] = None
     source_system: Optional[MfTransactionSource] = None
     source_import_id: Optional[uuid.UUID] = None
@@ -54,6 +64,11 @@ class MfTransactionResponse(BaseModel):
     units: float
     nav: float
     amount: float
+    isin: Optional[str]
+    fund_name: Optional[str]
+    category: Optional[str]
+    sub_category: Optional[str]
+    sub_group: Optional[str]
     stamp_duty: Optional[float]
     source_system: MfTransactionSource
     source_import_id: Optional[uuid.UUID]

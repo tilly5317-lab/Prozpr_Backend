@@ -442,7 +442,7 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
-        rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
+        goal_allocation_run_id=outcome.goal_allocation_run_id,
     )
 
 
@@ -560,7 +560,7 @@ async def _save_last_counterfactual(
     return ChatHandlerResult(
         text=text,
         snapshot_id=outcome.allocation_snapshot_id,
-        rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
+        goal_allocation_run_id=outcome.goal_allocation_run_id,
     )
 
 
