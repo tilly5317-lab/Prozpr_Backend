@@ -204,12 +204,7 @@ class ChatBrain:
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
-<<<<<<< HEAD
                     goal_allocation_run_id=result.goal_allocation_run_id,
-                    chart_payloads=chart_payloads,
-=======
-                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
                 )
 
             if intent_value == "goal_planning":
@@ -242,12 +237,7 @@ class ChatBrain:
                 return await finalize(
                     result.text,
                     ideal_allocation_snapshot_id=result.snapshot_id,
-<<<<<<< HEAD
                     goal_allocation_run_id=result.goal_allocation_run_id,
-                    chart_payloads=chart_payloads,
-=======
-                    ideal_allocation_rebalancing_id=result.rebalancing_recommendation_id,
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
                 )
 
             if intent_value == "portfolio_query":

@@ -407,7 +407,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             return ChatHandlerResult(
                 text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
                 snapshot_id=None,
-                rebalancing_recommendation_id=None,
+                goal_allocation_run_id=None,
+                rebalancing_run_id=None,
             )
         return await _save_last_counterfactual(ctx)
 
@@ -574,20 +575,10 @@ async def _save_last_counterfactual(
         # Defense-in-depth: state gate said awaiting_save=True, but no
         # telemetry row found. Same guidance message as the state gate.
         return ChatHandlerResult(
-<<<<<<< HEAD
-            text=(
-                "There's no recent 'what if' to save in this conversation. "
-                "If you'd like to lock in a change, tell me what you'd like "
-                "different (e.g., 'what if I had ₹2L more?') and I'll show "
-                "you the result first — then you can save it."
-            ),
+            text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
             snapshot_id=None,
             goal_allocation_run_id=None,
             rebalancing_run_id=None,
-=======
-            text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
-            snapshot_id=None, rebalancing_recommendation_id=None,
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
         )
 
     overrides = payload.get("overrides", {})
