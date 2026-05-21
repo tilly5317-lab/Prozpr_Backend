@@ -18,7 +18,11 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services.ai_bridge.common import format_inr_indian, trace_line
+from app.services.ai_bridge.common import (
+    category_for_effective_risk_score,
+    format_inr_indian,
+    trace_line,
+)
 from app.services.ai_bridge.common import ensure_ai_agents_path
 from app.services.ai_module_telemetry import record_ai_module_run
 
@@ -214,9 +218,9 @@ def build_fallback_brief(
             assert split is not None
             lines.append(
                 f"- {_BUCKET_TITLES[bucket_name]}: "
-                f"equity {split.equity_pct:.1f}% (INR {split.equity:,.0f}), "
-                f"debt {split.debt_pct:.1f}% (INR {split.debt:,.0f}), "
-                f"others {split.others_pct:.1f}% (INR {split.others:,.0f})"
+                f"Equity {split.equity_pct:.0f}% (INR {split.equity:,.0f}), "
+                f"Debt {split.debt_pct:.0f}% (INR {split.debt:,.0f}), "
+                f"Others / Commodity {split.others_pct:.0f}% (INR {split.others:,.0f})"
             )
         lines.append("")
 
@@ -270,7 +274,7 @@ def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
     if grand <= 0:
         return None
     return {
-        "pct": {k: round(v / grand * 100, 2) for k, v in totals.items()},
+        "pct": {k: round(v / grand * 100) for k, v in totals.items()},
         "inr": {k: v for k, v in totals.items()},
         "indian": {k: format_inr_indian(v) for k, v in totals.items()},
     }
@@ -312,9 +316,9 @@ def build_aa_facts_pack(
             "amount_inr": bucket_total,
             "amount_indian": format_inr_indian(bucket_total),
             "mix_pct": {
-                "equity": split.equity_pct,
-                "debt": split.debt_pct,
-                "others": split.others_pct,
+                "equity": round(split.equity_pct),
+                "debt": round(split.debt_pct),
+                "others": round(split.others_pct),
             },
         })
 
@@ -342,13 +346,19 @@ def build_aa_facts_pack(
 
     facts: dict[str, Any] = {
         "risk_score": cs.effective_risk_score,
+        "risk_profile_category": category_for_effective_risk_score(
+            float(cs.effective_risk_score)
+        ),
         "age": cs.age,
         "total_corpus_inr": output.grand_total,
         "total_corpus_indian": format_inr_indian(output.grand_total),
+        "emergency_fund_months": cs.emergency_fund_months,
+        "monthly_household_expense_inr": cs.monthly_household_expense,
+        "monthly_household_expense_indian": format_inr_indian(cs.monthly_household_expense),
         "recommended_mix_pct": {
-            "equity": recommended.equity_total_pct,
-            "debt": recommended.debt_total_pct,
-            "others": recommended.others_total_pct,
+            "equity": round(recommended.equity_total_pct),
+            "debt": round(recommended.debt_total_pct),
+            "others": round(recommended.others_total_pct),
         },
         "recommended_mix_inr": {
             "equity": recommended.equity_total,

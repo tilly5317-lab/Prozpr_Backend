@@ -155,9 +155,9 @@ def build_goal_buckets_block(
                 bucket_alloc.allocated_amount,
             ),
             "planned_split_pct": {
-                "equity": float(split.equity_pct) if split else 0.0,
-                "debt": float(split.debt_pct) if split else 0.0,
-                "others": float(split.others_pct) if split else 0.0,
+                "equity": round(float(split.equity_pct)) if split else 0,
+                "debt": round(float(split.debt_pct)) if split else 0,
+                "others": round(float(split.others_pct)) if split else 0,
             },
         })
     return out
@@ -342,7 +342,7 @@ def build_rebal_facts_pack(
         asset_class_inr[cls] = asset_class_inr.get(cls, 0.0) + b["current_inr"]
     asset_class_total = sum(asset_class_inr.values()) or 0.0
     asset_class_pct = {
-        cls: (amt / asset_class_total * 100 if asset_class_total > 0 else 0.0)
+        cls: (round(amt / asset_class_total * 100) if asset_class_total > 0 else 0)
         for cls, amt in asset_class_inr.items()
     }
     asset_class_indian = {

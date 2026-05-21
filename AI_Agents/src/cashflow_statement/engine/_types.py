@@ -35,6 +35,7 @@ class RunContext(BaseModel):
     annual_income_growth: float
     annual_invested_amount_growth: float
     inflation_household_expense: float
+    inflation_post_retirement: float
     inflation_property: float
     near_term_roi: float
     mid_term_roi: float

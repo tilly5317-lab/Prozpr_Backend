@@ -44,6 +44,7 @@ def build_initial_context(profile: ClientProfile, assumptions: Assumptions) -> R
         annual_income_growth=assumptions.annual_income_growth,
         annual_invested_amount_growth=assumptions.annual_invested_amount_growth,
         inflation_household_expense=assumptions.inflation_household_expense,
+        inflation_post_retirement=assumptions.inflation_post_retirement,
         inflation_property=assumptions.inflation_property,
         near_term_roi=assumptions.roi_near_term_post_tax,
         mid_term_roi=assumptions.roi_mid_term_post_tax,
