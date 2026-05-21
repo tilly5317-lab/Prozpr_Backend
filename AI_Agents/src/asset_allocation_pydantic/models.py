@@ -58,8 +58,8 @@ class AllocationInput(BaseModel):
 
     total_corpus: float = Field(..., ge=0)
     monthly_household_expense: float = Field(..., ge=0)
-    tax_regime: Literal["old", "new"]
-    section_80c_utilized: float = Field(default=0.0, ge=0.0)
+    tax_regime: Optional[Literal["old", "new"]] = None
+    section_80c_utilized: Optional[float] = Field(default=None, ge=0.0)
     emergency_fund_needed: bool = True
     primary_income_from_portfolio: bool = False
     intergenerational_transfer: bool = False
@@ -241,13 +241,6 @@ class AssetClassAllocation(BaseModel):
     others_amount: int
 
 
-class ElssBlock(BaseModel):
-    applicable: bool
-    elss_headroom: Optional[int] = None
-    elss_amount: int
-    residual_equity_corpus: int
-
-
 class MultiAssetBlock(BaseModel):
     multi_asset_amount: int
     equity_component: int
@@ -262,7 +255,6 @@ class Step4Output(BaseModel):
     asset_class_allocation: AssetClassAllocation
     planned_asset_class_allocation: Optional[AssetClassAllocation] = None
     planned_subgroup_amounts: Optional[dict[str, int]] = None
-    elss: ElssBlock
     multi_asset: MultiAssetBlock
     goals_allocated: List[Goal]
     leftover_corpus: int

@@ -193,7 +193,7 @@ def _asset_class_breakdown(
         bucket="medium_term", equity=mt_planned_eq, debt=mt_planned_dt, others=0,
     )
 
-    # Long-term planned: Phase-2 output (before ELSS/multi-asset/overage).
+    # Long-term planned: Phase-2 output (before multi-asset/overage).
     ac_planned = step4.planned_asset_class_allocation or step4.asset_class_allocation
     long_planned = BucketAssetClassSplit(
         bucket="long_term",

@@ -15,7 +15,6 @@ CANONICAL_SUBGROUP_ORDER = [
     "short_debt",
     "arbitrage",
     "arbitrage_plus_income",
-    "tax_efficient_equities",
     "multi_asset",
     "low_beta_equities",
     "medium_beta_equities",
