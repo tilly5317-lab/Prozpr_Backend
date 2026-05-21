@@ -31,13 +31,15 @@ RationaleFn = Callable[
 ]
 
 
-def _client_summary(inp: AllocationInput) -> ClientSummary:
+def _client_summary(inp: AllocationInput, step1: Step1Output) -> ClientSummary:
     return ClientSummary(
         age=inp.age,
         occupation=inp.occupation_type,
         effective_risk_score=inp.effective_risk_score,
         total_corpus=inp.total_corpus,
         goals=list(inp.goals),
+        emergency_fund_months=step1.emergency_fund_months,
+        monthly_household_expense=inp.monthly_household_expense,
     )
 
 
@@ -268,7 +270,7 @@ def run(
     step5: Step5Output,
     rationale_fn: Optional[RationaleFn] = None,
 ) -> GoalAllocationOutput:
-    client_summary = _client_summary(inp)
+    client_summary = _client_summary(inp, step1)
     bucket_allocations = _bucket_allocations(inp, step1, step2, step3, step4)
     aggregated_subgroups = _aggregated_subgroups(step5)
 

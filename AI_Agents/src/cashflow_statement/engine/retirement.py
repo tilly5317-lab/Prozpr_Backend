@@ -67,7 +67,7 @@ def compute_retirement_snapshot(
         inflate(ctx.annual_household_expense, ctx.inflation_household_expense, inflation_years)
     )
 
-    real_annual = real_rate(ctx.retired_portfolio_roi_annual, ctx.inflation_household_expense)
+    real_annual = real_rate(ctx.retired_portfolio_roi_annual, ctx.inflation_post_retirement)
 
     corpus_computed = _round_thousand(retirement_corpus_pv(
         annual_expense_fv=annual_expense_fv,

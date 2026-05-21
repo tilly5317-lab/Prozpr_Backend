@@ -19,7 +19,11 @@ _TRACE_PREFIX = "[AILAX_TRACE]"
 if _AI_AGENTS_SRC not in sys.path:
     sys.path.insert(0, _AI_AGENTS_SRC)
 
-from common import format_inr_indian as format_inr_indian  # noqa: E402  re-export
+from common import (  # noqa: E402  re-exports
+    RISK_CATEGORIES as RISK_CATEGORIES,
+    category_for_effective_risk_score as category_for_effective_risk_score,
+    format_inr_indian as format_inr_indian,
+)
 
 
 # Engine asset_subgroup → high-level asset class for customer-facing summaries.

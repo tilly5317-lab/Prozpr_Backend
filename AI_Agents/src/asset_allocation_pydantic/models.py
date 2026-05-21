@@ -115,6 +115,8 @@ class ClientSummary(BaseModel):
     effective_risk_score: float
     total_corpus: float
     goals: List[Goal]
+    emergency_fund_months: int = 0
+    monthly_household_expense: float = 0.0
 
 
 class BucketAssetClassSplit(BaseModel):
