@@ -17,14 +17,10 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-<<<<<<< HEAD
 from app.models.goals.goal_allocation_run import GoalAllocationRun
-=======
+
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
-
-from app.models.rebalancing import RebalancingRecommendation, RecommendationType
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
@@ -602,9 +598,6 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_ENGINE_ERROR,
         )
 
-<<<<<<< HEAD
-    run_id: Optional[uuid.UUID] = None
-=======
     # Goal-tied bucket block — derived once from the AA output that drove this
     # rebalance, persisted alongside the response so follow-up turns
     # (narrate / educate) see the same goal context.
@@ -614,8 +607,7 @@ async def compute_rebalancing_result(
         logger.warning("goal_buckets_build_failed (non-fatal): %s", exc)
         goal_buckets = None
 
-    rec_id: Optional[uuid.UUID] = None
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
+    run_id: Optional[uuid.UUID] = None
     if persist:
         if source_allocation_run_id is None:
             logger.error(
