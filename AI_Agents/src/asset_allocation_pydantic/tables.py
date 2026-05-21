@@ -102,7 +102,6 @@ SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
     "high_beta_equities": "equity",
     "value_equities": "equity",
     "dividend_equities": "equity",
-    "tax_efficient_equities": "equity",
     "sector_equities": "equity",
     "us_equities": "equity",
     "multi_asset": "equity",
@@ -170,8 +169,8 @@ TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
 
 # Long-term equity subgroups smaller than this share of total long-term equity
 # are dropped and their amount is redistributed proportionally across the
-# remaining equity subgroups (ELSS and multi-asset are excluded from both the
-# filter and the redistribution).
+# remaining equity subgroups (multi-asset is excluded from both the filter
+# and the redistribution).
 MIN_EQUITY_SUBGROUP_SHARE_PCT: float = 8.0
 
 # Phase 5 internal: within the equity-subgroups split itself, any subgroup whose
@@ -196,11 +195,8 @@ INTERGEN_MIN_AGE: int = 60
 INTERGEN_SCORE_BOOST: float = 2.0
 INTERGEN_SCORE_CAP: float = 9.0
 
-# Phase 3 ELSS: section 80C annual limit (₹).
-SECTION_80C_LIMIT: int = 150000
-
 # Phase 4 multi-asset equity cap: the fund's equity slice may consume at most
-# this fraction of the residual equity corpus.
+# this fraction of the long-term equity corpus.
 MULTI_ASSET_EQUITY_CAP_PCT: float = 0.50
 
 # Phase 5 market-view gates: subgroups are dropped when the view <= threshold.
@@ -230,8 +226,8 @@ CLAMP_MAX_ITER: int = 8
 MARKET_VIEW_CENTER: float = 5.0
 MARKET_VIEW_HALF_RANGE: float = 5.0
 
-# Long-term equity subgroups split by Phase 5 (ELSS and multi-asset live
-# outside this list). Shared between step 4 (allocation) and step 6 (guardrails).
+# Long-term equity subgroups split by Phase 5 (multi-asset lives outside this
+# list). Shared between step 4 (allocation) and step 6 (guardrails).
 EQUITY_SUBGROUPS: tuple[str, ...] = (
     "us_equities",
     "low_beta_equities",
@@ -241,11 +237,9 @@ EQUITY_SUBGROUPS: tuple[str, ...] = (
     "value_equities",
 )
 
-# Every subgroup step 4 may write: ELSS + multi-asset + long-term equity split
-# + one debt bucket (arbitrage_plus_income when tax-efficient, else short_debt)
-# + gold.
+# Every subgroup step 4 may write: multi-asset + long-term equity split + one
+# debt bucket (arbitrage_plus_income when tax-efficient, else short_debt) + gold.
 STEP4_SUBGROUPS: tuple[str, ...] = (
-    "tax_efficient_equities",
     "multi_asset",
     *EQUITY_SUBGROUPS,
     "short_debt",

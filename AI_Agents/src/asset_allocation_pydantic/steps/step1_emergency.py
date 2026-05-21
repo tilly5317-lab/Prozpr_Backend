@@ -5,14 +5,6 @@ from ..tables import EMERGENCY_FUND_MONTHS, TAX_RATE_SHORT_TERM_ARBITRAGE_THRESH
 from ..utils import round_to_100
 
 
-FUTURE_INVESTMENT_MSG = (
-    "Your current corpus is just shy of the safety cushion you need right now. "
-    "Think of the remaining amount as wealth to build through your upcoming "
-    "monthly investments — with a modest step-up in savings you'll have this "
-    "reserve fully in place and remain firmly on track for every other goal."
-)
-
-
 def run(inp: AllocationInput) -> Step1Output:
     if not inp.emergency_fund_needed:
         emergency_fund_months = 0
@@ -34,7 +26,6 @@ def run(inp: AllocationInput) -> Step1Output:
         future_investment = FutureInvestment(
             bucket="emergency",
             future_investment_amount=future_investment_amount,
-            message=FUTURE_INVESTMENT_MSG,
         )
     else:
         remaining_corpus = total_corpus_int - total_emergency
