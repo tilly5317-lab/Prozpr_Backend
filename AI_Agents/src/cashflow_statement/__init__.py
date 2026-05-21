@@ -20,7 +20,7 @@ from .models import (
     GoalPropertyDetail,
     TurnAction,
     # Agent types
-    OverrideSpec, NumericOverride, RateOverride, PerGoalRateOverride, PropertyFieldOverride,
+    OverrideSpec, NumericOverride, RateOverride,
     GoalMutation, LeverAction, Lever,
     ExtractedFinancialEvent, ExtractedGoal, ExtractedProperty,
     ExtractedCashflow, ExtractedMutation, ExtractionError,
@@ -45,7 +45,6 @@ __all__ = [
     "GoalPropertyDetail",
     "TurnAction",
     "OverrideSpec", "NumericOverride", "RateOverride",
-    "PerGoalRateOverride", "PropertyFieldOverride",
     "GoalMutation", "LeverAction", "Lever",
     "ExtractedFinancialEvent", "ExtractedGoal", "ExtractedProperty",
     "ExtractedCashflow", "ExtractedMutation", "ExtractionError",

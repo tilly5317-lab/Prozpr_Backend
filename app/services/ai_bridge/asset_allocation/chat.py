@@ -273,7 +273,6 @@ Plain-language translation for any engine jargon:
 - tax_efficient_equities  → "ELSS / tax-saving equity"
 - multi_asset             → "multi-asset (equity + debt + gold blend)"
 - short_debt              → "short-duration debt (ultra-short / low-duration)"
-- debt_subgroup           → "debt"
 - arbitrage / arbitrage_plus_income → "arbitrage (debt-like, equity-taxed)"
 - gold_commodities        → "gold and commodities"
 - emergency / short_term / medium_term / long_term → spell out as

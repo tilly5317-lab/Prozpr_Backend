@@ -12,7 +12,6 @@ from ..utils import round_to_100
 
 
 CANONICAL_SUBGROUP_ORDER = [
-    "debt_subgroup",
     "short_debt",
     "arbitrage",
     "arbitrage_plus_income",

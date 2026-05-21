@@ -12,10 +12,12 @@ from cashflow_statement.models import (
     ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation,
 )
 from cashflow_statement.agent.state import AgentState, CapturedCashflow
-from cashflow_statement.agent.extractor import FinancialEventExtractor
+from cashflow_statement.agent.extractor import extract_event
 
 
-_extractor = FinancialEventExtractor()
+# How many top-shortfall goals to surface in the bounded LLM summary after
+# compute_projection. Higher → more context tokens, more granular signal.
+TOP_UNDERFUNDED_GOALS_SHOWN = 3
 
 
 async def extract_financial_event_impl(
@@ -29,7 +31,10 @@ async def extract_financial_event_impl(
         + [p.name for p in state["baseline_input"].goal_properties]
         + [p.name for p in state["captured_properties"]]
     )
-    result = await _extractor.extract(description, state["anchor_date"], existing_names)
+    result = await extract_event(
+        description, state["anchor_date"], existing_names,
+        assumptions=state["baseline_input"].assumptions,
+    )
 
     if isinstance(result, ExtractionError):
         state["error_log"].append(result.reason)
@@ -140,7 +145,7 @@ def compute_projection_impl(state: AgentState) -> str:
 
     if not state.get("dirty", True) and state.get("last_output") is not None:
         out = state["last_output"]
-        feasible = _is_feasible_inline(out)
+        feasible = out.headline.is_feasible
         return (
             f"Cached projection: feasible={feasible}, "
             f"shortfall=₹{out.headline.total_shortfall_fv:,.0f}, "
@@ -154,20 +159,15 @@ def compute_projection_impl(state: AgentState) -> str:
     return _summarize_output(out)
 
 
-def _is_feasible_inline(out) -> bool:
-    """HeadlineStatus no longer carries is_overall_feasible — recompute."""
-    return all(g.is_funded for g in out.goals) and out.headline.corpus_closing >= 0
-
-
 def _summarize_output(out) -> str:
     """Bounded summary string for the LLM (~300 tokens). Top-3 underfunded goals."""
     h = out.headline
     underfunded = sorted(
         [g for g in out.goals if g.shortfall_fv > 0],
         key=lambda g: g.shortfall_fv, reverse=True,
-    )[:3]
+    )[:TOP_UNDERFUNDED_GOALS_SHOWN]
     lines = [
-        f"Feasible: {_is_feasible_inline(out)}",
+        f"Feasible: {h.is_feasible}",
         f"corpus today: ₹{h.corpus_today:,.0f}; closing corpus: ₹{h.corpus_closing:,.0f}",
         f"Total shortfall (FV): ₹{h.total_shortfall_fv:,.0f}",
         f"Retirement corpus needed: ₹{out.retirement.corpus_required_used:,.0f}",
@@ -186,7 +186,7 @@ def propose_levers_impl(state: AgentState) -> str:
     out = state.get("last_output")
     if out is None:
         return "Run compute_projection first to generate a baseline output."
-    if _is_feasible_inline(out):
+    if out.headline.is_feasible:
         return "No shortfalls — no levers needed; plan is feasible."
 
     inp = _merge_state_into_input(state)
