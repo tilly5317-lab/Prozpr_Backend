@@ -23,12 +23,12 @@ from ..models import (
     RebalancingWarning,
     WarningCode,
 )
-from ..tables import MULTI_CAP_SUB_CATEGORIES
+from ..tables import MULTI_FUND_CAP_SUBGROUPS
 from ..utils import round_to_step
 
 
-def _max_pct_for(sub_category: str) -> float:
-    return MULTI_FUND_CAP_PCT if sub_category in MULTI_CAP_SUB_CATEGORIES else OTHERS_FUND_CAP_PCT
+def _max_pct_for(asset_subgroup: str) -> float:
+    return MULTI_FUND_CAP_PCT if asset_subgroup in MULTI_FUND_CAP_SUBGROUPS else OTHERS_FUND_CAP_PCT
 
 
 def _pct_of_corpus(amount: Decimal, corpus: Decimal) -> float:
@@ -58,7 +58,7 @@ def apply(
         spill_in = [Decimal(0)] * len(ranked)
 
         for i, r in enumerate(ranked):
-            max_pct = _max_pct_for(r.sub_category)
+            max_pct = _max_pct_for(r.asset_subgroup)
             cap_amount = Decimal(str(max_pct)) / Decimal(100) * corpus
 
             own_capped = min(r.target_amount_pre_cap, cap_amount)
@@ -101,7 +101,7 @@ def apply(
             out.append(
                 FundRowAfterStep1(
                     **r.model_dump(),
-                    max_pct=_max_pct_for(r.sub_category),
+                    max_pct=_max_pct_for(r.asset_subgroup),
                     target_pre_cap_pct=0.0,
                     target_own_capped_pct=0.0,
                     final_target_pct=0.0,

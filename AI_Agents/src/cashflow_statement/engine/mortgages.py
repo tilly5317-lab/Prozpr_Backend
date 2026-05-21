@@ -84,9 +84,10 @@ def build_existing_mortgages(
 
         schedules.append(MortgageSchedule(
             property_ref=f"existing:{p.name}",
-            start_date=ctx.latest_update_date,
             end_date=p.mortgage_end_date,
             annual_emi_by_fy=annual_emi_by_fy,
+            emi=p.mortgage_emi,
+            payoff_date=p.mortgage_end_date,
         ))
     return schedules
 
@@ -108,7 +109,7 @@ def build_goal_property_mortgage(
     """
     if principal <= 0 or tenure_months <= 0:
         return MortgageSchedule(
-            property_ref=property_ref, start_date=start_date,
+            property_ref=property_ref,
             end_date=None, annual_emi_by_fy={},
         )
     emi = pmt(monthly_rate, tenure_months, principal)
@@ -120,7 +121,11 @@ def build_goal_property_mortgage(
         horizon_end=horizon_end,
     )
     end_date = analytical_end if analytical_end <= horizon_end else None
+    total_interest = emi * tenure_months - principal
     return MortgageSchedule(
-        property_ref=property_ref, start_date=start_date,
+        property_ref=property_ref,
         end_date=end_date, annual_emi_by_fy=annual_emi_by_fy,
+        emi=emi,
+        payoff_date=analytical_end,
+        total_interest=total_interest,
     )

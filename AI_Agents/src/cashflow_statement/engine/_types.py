@@ -43,9 +43,6 @@ class RunContext(BaseModel):
     default_mortgage_interest_annual: float
 
     def with_retirement(self, snap: RetirementSnapshot) -> "RunContext":
-        # Items #7/#7a: only update retirement_date_considered. The previous overwrites of
-        # retired_portfolio_roi_annual and real_roi_retired_monthly were unused downstream
-        # and silently changed nominal→real semantics for the former.
         return self.model_copy(update={
             "retirement_date_considered": snap.retirement_date,
         })
@@ -59,9 +56,11 @@ class MortgageSchedule(BaseModel):
     The cashflow projection only needs FY-level EMI totals and the date the mortgage closes.
     """
     property_ref: str
-    start_date: date
     end_date: date | None  # last EMI month_end; None if mortgage doesn't close within horizon
     annual_emi_by_fy: dict[date, float]  # fy_end -> sum of EMIs paid in that FY
+    emi: float | None = None              # None when no actual mortgage (principal <= 0)
+    payoff_date: date | None = None       # analytical payoff = start_date + tenure_months (independent of horizon)
+    total_interest: float | None = None   # emi * n_months - principal; None for existing mortgages (no principal known)
 
     def total_emi_in_fy(self, fy_end: date) -> float:
         return self.annual_emi_by_fy.get(fy_end, 0.0)
