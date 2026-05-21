@@ -17,10 +17,14 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+<<<<<<< HEAD
+from app.models.goals.goal_allocation_run import GoalAllocationRun
+=======
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
 
 from app.models.rebalancing import RebalancingRecommendation, RecommendationType
+>>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
@@ -36,7 +40,6 @@ from app.services.ai_bridge.rebalancing.input_builder import (
     build_rebalancing_input_for_user,
 )
 from app.services.ai_module_telemetry import record_ai_module_run
-from app.services.portfolio_service import get_or_create_primary_portfolio
 from app.services.rebalancing_recommendation_persist import (
     persist_rebalancing_recommendation,
 )
@@ -77,9 +80,9 @@ class RebalancingRunOutcome:
     response: Optional[RebalancingComputeResponse]
     formatted_text: Optional[str] = None
     blocking_message: Optional[str] = None
-    recommendation_id: Optional[uuid.UUID] = None
+    rebalancing_run_id: Optional[uuid.UUID] = None
     allocation_snapshot_id: Optional[uuid.UUID] = None
-    source_allocation_id: Optional[uuid.UUID] = None
+    source_allocation_run_id: Optional[uuid.UUID] = None
     used_cached_allocation: bool = False
     # Goal-tied bucket block derived from the AA output that drove this rebalance.
     # None when AA output wasn't available; consumed by the formatter facts pack.
@@ -439,28 +442,48 @@ async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
 async def _load_cached_allocation(
     db: AsyncSession, user_id: uuid.UUID,
 ) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
-    """Latest ALLOCATION row ≤ 90 days old → (parsed output, row_id) or (None, None)."""
-    portfolio = await get_or_create_primary_portfolio(db, user_id)
+    """Latest ``GoalAllocationRun`` ≤ 90 days old → (parsed output, run_id) or (None, None).
+
+    The pipeline output is reconstructed from the IDEAL ``PortfolioAllocationSnapshot``
+    that the persist layer writes alongside each run. The run row itself
+    holds the normalized columns and lacks the full pydantic blob.
+    """
+    from sqlalchemy import and_
+
+    from app.models.mf.enums import PortfolioSnapshotKind
+    from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
-    rec = (await db.execute(
-        select(RebalancingRecommendation)
-        .where(RebalancingRecommendation.portfolio_id == portfolio.id)
-        .where(
-            RebalancingRecommendation.recommendation_type
-            == RecommendationType.ALLOCATION
-        )
-        .where(RebalancingRecommendation.created_at >= cutoff)
-        .order_by(desc(RebalancingRecommendation.created_at))
+    run = (await db.execute(
+        select(GoalAllocationRun)
+        .where(GoalAllocationRun.user_id == user_id)
+        .where(GoalAllocationRun.created_at >= cutoff)
+        .order_by(desc(GoalAllocationRun.created_at))
         .limit(1)
     )).scalar_one_or_none()
-    if rec is None:
+    if run is None:
         return None, None
-    payload = (rec.recommendation_data or {}).get("goal_allocation_output")
+
+    snap = (await db.execute(
+        select(PortfolioAllocationSnapshot)
+        .where(
+            and_(
+                PortfolioAllocationSnapshot.user_id == user_id,
+                PortfolioAllocationSnapshot.snapshot_kind == PortfolioSnapshotKind.IDEAL,
+            )
+        )
+        .order_by(desc(PortfolioAllocationSnapshot.effective_at))
+        .limit(1)
+    )).scalar_one_or_none()
+    if snap is None:
+        return None, None
+
+    payload = (snap.allocation or {}).get("goal_allocation_output")
     if not payload:
         return None, None
     try:
-        return GoalAllocationOutput.model_validate(payload), rec.id
+        return GoalAllocationOutput.model_validate(payload), run.id
     except Exception as exc:
         logger.warning("Cached allocation parse failed (%s); ignoring cache", exc)
         return None, None
@@ -521,10 +544,10 @@ async def compute_rebalancing_result(
     if force_fresh_allocation:
         # Counterfactual scenarios with AA-affecting overrides: skip cache.
         cached_output = None
-        source_allocation_id: Optional[uuid.UUID] = None
+        source_allocation_run_id: Optional[uuid.UUID] = None
         used_cache = False
     else:
-        cached_output, source_allocation_id = await _load_cached_allocation(
+        cached_output, source_allocation_run_id = await _load_cached_allocation(
             db, acting_user_id,
         )
         used_cache = cached_output is not None
@@ -554,7 +577,7 @@ async def compute_rebalancing_result(
                 response=None, blocking_message=_MSG_ENGINE_ERROR,
             )
         cached_output = alloc_outcome.result
-        source_allocation_id = alloc_outcome.rebalancing_recommendation_id
+        source_allocation_run_id = alloc_outcome.goal_allocation_run_id
         allocation_snapshot_id = alloc_outcome.allocation_snapshot_id
 
     try:
@@ -579,6 +602,9 @@ async def compute_rebalancing_result(
             response=None, blocking_message=_MSG_ENGINE_ERROR,
         )
 
+<<<<<<< HEAD
+    run_id: Optional[uuid.UUID] = None
+=======
     # Goal-tied bucket block — derived once from the AA output that drove this
     # rebalance, persisted alongside the response so follow-up turns
     # (narrate / educate) see the same goal context.
@@ -589,15 +615,24 @@ async def compute_rebalancing_result(
         goal_buckets = None
 
     rec_id: Optional[uuid.UUID] = None
+>>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
     if persist:
-        rec_id = await persist_rebalancing_recommendation(
+        if source_allocation_run_id is None:
+            logger.error(
+                "rebalancing: missing source_allocation_run_id — cannot persist run",
+            )
+            return RebalancingRunOutcome(
+                response=None, blocking_message=_MSG_ENGINE_ERROR,
+            )
+        run_id = await persist_rebalancing_recommendation(
             db,
             acting_user_id,
             response,
+            source_allocation_run_id=source_allocation_run_id,
             chat_session_id=chat_session_id,
-            source_allocation_id=source_allocation_id,
             used_cached_allocation=used_cache,
             user_question=user_question,
+            request=request,
         )
 
         try:
@@ -614,9 +649,10 @@ async def compute_rebalancing_result(
                     "rebalancing_response": response.model_dump(mode="json"),
                     "goal_buckets": goal_buckets,
                     "correlation_ids": {
-                        "recommendation_id": str(rec_id),
-                        "source_allocation_id": (
-                            str(source_allocation_id) if source_allocation_id else None
+                        "rebalancing_run_id": str(run_id),
+                        "source_allocation_run_id": (
+                            str(source_allocation_run_id)
+                            if source_allocation_run_id else None
                         ),
                     },
                 },
@@ -632,9 +668,9 @@ async def compute_rebalancing_result(
     return RebalancingRunOutcome(
         response=response,
         formatted_text=formatted,
-        recommendation_id=rec_id,
+        rebalancing_run_id=run_id,
         allocation_snapshot_id=allocation_snapshot_id,
-        source_allocation_id=source_allocation_id,
+        source_allocation_run_id=source_allocation_run_id,
         used_cached_allocation=used_cache,
         goal_buckets=goal_buckets,
     )
