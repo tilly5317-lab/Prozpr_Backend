@@ -33,7 +33,7 @@ def _risk_bucket(score: float) -> Literal["Low", "Medium", "High"]:
 def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
     goals_in_bucket = [
         g for g in inp.goals
-        if MEDIUM_TERM_BOUNDARY_MONTHS <= g.time_to_goal_months <= LONG_TERM_BOUNDARY_MONTHS
+        if MEDIUM_TERM_BOUNDARY_MONTHS <= g.time_to_goal_months < LONG_TERM_BOUNDARY_MONTHS
     ]
     risk_bucket = _risk_bucket(inp.effective_risk_score)
     debt_key = (
