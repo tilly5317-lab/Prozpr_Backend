@@ -178,10 +178,10 @@ MIN_EQUITY_SUBGROUP_SHARE_PCT: float = 8.0
 PHASE5_MIN_SUBGROUP_SHARE_PCT: int = 2
 
 # Medium-term risk-bucket thresholds (on the effective_risk_score 1-10 scale).
-# score < LOW_MAX_EXCLUSIVE → Low
-# LOW_MAX_EXCLUSIVE <= score <= MEDIUM_MAX → Medium
+# lower < score <= LOW_MAX_INCLUSIVE → Low
+# LOW_MAX_INCLUSIVE < score <= MEDIUM_MAX → Medium
 # score > MEDIUM_MAX → High
-MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE: float = 4.0
+MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE: float = 4.0
 MEDIUM_TERM_RISK_MEDIUM_MAX: float = 7.0
 
 
