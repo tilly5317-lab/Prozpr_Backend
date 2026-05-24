@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 class OnboardingProfileCreate(BaseModel):
     date_of_birth: Optional[date] = None
+    occupation: Optional[str] = Field(default=None, max_length=100)
     selected_goals: list[str] = Field(default_factory=list)
     custom_goals: list[str] = Field(default_factory=list)
     investment_horizon: Optional[str] = None

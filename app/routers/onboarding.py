@@ -53,21 +53,30 @@ async def save_onboarding_profile(
     if existing:
         payload_data = payload.model_dump(exclude_unset=True)
         date_of_birth = payload_data.pop("date_of_birth", None)
+        occupation = payload_data.pop("occupation", None)
         for field, value in payload_data.items():
             setattr(existing, field, value)
         if date_of_birth is not None:
             user.date_of_birth = date_of_birth
+        if occupation is not None:
+            user.occupation = occupation.strip()[:100] if occupation.strip() else None
         profile = existing
     else:
         payload_data = payload.model_dump()
         user.date_of_birth = payload_data.pop("date_of_birth", None)
+        occupation = payload_data.pop("occupation", None)
+        if occupation is not None:
+            user.occupation = occupation.strip()[:100] if occupation.strip() else None
         profile = PersonalFinanceProfile(user_id=current_user.id, **payload_data)
         db.add(profile)
 
     await db.commit()
     await db.refresh(profile)
-    await maybe_recalculate_effective_risk(db, current_user.id, "onboarding_profile_update")
-    await db.commit()
+    try:
+        await maybe_recalculate_effective_risk(db, current_user.id, "onboarding_profile_update")
+        await db.commit()
+    except Exception:
+        await db.rollback()
 
     return OnboardingProfileResponse(
         user_id=current_user.id,
