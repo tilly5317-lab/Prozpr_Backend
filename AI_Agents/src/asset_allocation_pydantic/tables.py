@@ -149,10 +149,10 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
 
 # Bucket boundaries (in months) used when classifying goals.
 # short-term:   months <  MEDIUM_TERM_BOUNDARY_MONTHS
-# medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <= LONG_TERM_BOUNDARY_MONTHS
-# long-term:    months >  LONG_TERM_BOUNDARY_MONTHS
-MEDIUM_TERM_BOUNDARY_MONTHS: int = 24
-LONG_TERM_BOUNDARY_MONTHS: int = 60
+# medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <  LONG_TERM_BOUNDARY_MONTHS
+# long-term:    months >= LONG_TERM_BOUNDARY_MONTHS
+MEDIUM_TERM_BOUNDARY_MONTHS: int = 36
+LONG_TERM_BOUNDARY_MONTHS: int = 72
 # Medium-term horizon (years) clamp used to pick a row from MEDIUM_TERM_SPLIT.
 MEDIUM_TERM_HORIZON_MIN: int = 3
 MEDIUM_TERM_HORIZON_MAX: int = 5
