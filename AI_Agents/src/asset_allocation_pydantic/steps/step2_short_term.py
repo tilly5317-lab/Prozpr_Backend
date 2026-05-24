@@ -70,13 +70,13 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
 
     # Decide the headline asset_subgroup label.
     if st1_sg == st2_sg:
-        headline_sg: Literal["short_debt", "arbitrage", "mixed"] = st1_sg  # type: ignore[assignment]
+        headline_sg: Literal["short_debt", "arbitrage", "mixed"] = st1_sg
     elif st1_allocated > 0 and st2_allocated > 0:
         headline_sg = "mixed"
     elif st1_allocated > 0:
-        headline_sg = st1_sg  # type: ignore[assignment]
+        headline_sg = st1_sg
     else:
-        headline_sg = st2_sg  # type: ignore[assignment]
+        headline_sg = st2_sg
 
     return Step2Output(
         goals_allocated=goals_allocated,
