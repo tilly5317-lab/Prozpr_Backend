@@ -14,7 +14,7 @@ from ..tables import (
     MEDIUM_TERM_BOUNDARY_MONTHS,
     MEDIUM_TERM_HORIZON_MAX,
     MEDIUM_TERM_HORIZON_MIN,
-    MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE,
+    MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE,
     MEDIUM_TERM_RISK_MEDIUM_MAX,
     MEDIUM_TERM_SPLIT,
     TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD,
@@ -23,7 +23,8 @@ from ..utils import round_to_100
 
 
 def _risk_bucket(score: float) -> Literal["Low", "Medium", "High"]:
-    if score < MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE:
+    # A.5: lower < score <= upper convention.
+    if score <= MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE:
         return "Low"
     if score <= MEDIUM_TERM_RISK_MEDIUM_MAX:
         return "Medium"
