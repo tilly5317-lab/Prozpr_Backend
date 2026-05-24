@@ -51,6 +51,10 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
             MEDIUM_TERM_HORIZON_MAX, max(MEDIUM_TERM_HORIZON_MIN, floor(g.time_to_goal_months / 12))
         )
         eq_pct, dt_pct = MEDIUM_TERM_SPLIT[(horizon, risk_bucket)]
+        # A.4: when equities market view is very bearish (<= 3), force the Low
+        # (most conservative) column across all medium-term horizons.
+        if inp.market_commentary.equities <= 3:
+            eq_pct, dt_pct = MEDIUM_TERM_SPLIT[(horizon, "Low")]
         eq_amt = round_to_100(g.amount_needed * eq_pct / 100)
         dt_amt = round_to_100(g.amount_needed * dt_pct / 100)
         total_equity += eq_amt
