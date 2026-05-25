@@ -7,6 +7,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.services.ai_bridge.asset_allocation.overrides import with_chat_overrides
+
+__all__ = [
+    "with_chat_overrides",
+    "_REBAL_ALLOWED_OVERRIDE_KEYS",
+    "effective_param",
+]
+
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
 

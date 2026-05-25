@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -32,6 +33,10 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 from app.services.ai_bridge.answer_formatter import format_with_telemetry
 from app.services.ai_bridge.intent_router import classify_action
+from app.services.ai_bridge.asset_allocation.allocation_tables_md import (
+    build_allocation_tables_markdown,
+    is_allocation_output_complete,
+)
 from app.services.ai_bridge.asset_allocation.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
@@ -169,6 +174,7 @@ goal-based asset allocation. Pick exactly one of seven modes.
     • off-topic / out-of-scope (other asset classes, news, politics, etc.)
     • inputs we can't override (anything outside the allow-list below)
   Note: fund-name swaps and specific fund picks ("switch from X to Y", "which large-cap fund should I pick?") should be classified as `rebalancing` upstream and should not normally reach this classifier; if such a question DOES slip through, redirect with reason "fund-level question — please ask explicitly to rebalance".
+  NEVER redirect risk or allocation tuning: "more risk", "less conservative", "higher risk allocation", "do allocation with more risk", "change my risk" → `clarify` (no number) or `counterfactual_explore` (number given). The word "which" in "allocation which more risk" does NOT mean fund-picking.
 
 ALLOWED override keys and ranges (overrides outside this list → redirect):
   effective_risk_score:       number 1–10
@@ -198,6 +204,9 @@ Examples:
   (only when the previous turn was a counterfactual_explore — the system
   loads the previous overrides and persists)
 - "make this my plan"                  → save_last_counterfactual
+- "do asset allocation which more risk" → clarify (current risk from snapshot)
+- "allocation with more risk"          → clarify or counterfactual_explore if
+                                         a score is given — NOT redirect
 - "I can take more risk"               → clarify, "Your current risk is 5.5
                                          — would 7 feel right?"
 - "I want to be more conservative"     → clarify, "Your current risk is 5.5
@@ -334,6 +343,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     # Follow-up turn → decide what to do.
     try:
         action = await _detect_action(last_alloc, ctx)
+        action = _coerce_misclassified_redirect_action(ctx.user_question, action, last_alloc)
     except Exception as exc:
         logger.error(
             "detect_action_failed error_class=%s",
@@ -402,6 +412,102 @@ async def _dispatch_action(
     return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason))
 
 
+_COUNTERFACTUAL_SAVE_OFFER = (
+    "\n\n_Want to save this as your active plan? Say **save** or **lock it in**._"
+)
+
+
+async def _reply_with_allocation_tables(
+    *,
+    ctx: TurnContext,
+    output: Any,
+    action_mode: str,
+    spine_mode: str,
+    hypothetical: bool = False,
+) -> str:
+    """Prefer full DB-parity tables; fall back to LLM formatter if output incomplete."""
+    if is_allocation_output_complete(output):
+        text = build_allocation_tables_markdown(output)
+        if hypothetical:
+            text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
+        return text
+    return await _format_or_fallback(
+        ctx=ctx, output=output, action_mode=action_mode, spine_mode=spine_mode,
+    )
+
+
+def _risk_score_from_snapshot(last_alloc: AgentRunRecord) -> float:
+    payload = (last_alloc.output_payload or {}).get("allocation_result") or {}
+    cs = payload.get("client_summary") or {}
+    return _float(cs.get("effective_risk_score"), 7.0)
+
+
+def _float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_misclassified_redirect_action(
+    question: str,
+    action: ChatAction,
+    last_alloc: AgentRunRecord,
+) -> ChatAction:
+    """Recover when Haiku wrongly redirects risk/allocation tuning to Profile."""
+    if action.mode != "redirect":
+        return action
+    reason = (action.redirect_reason or "").lower()
+    if "fund-level" not in reason and "fund level" not in reason:
+        return action
+
+    q = question.lower()
+    fund_phrases = (
+        "switch from", "switch to", "which fund", "which scheme",
+        "large-cap fund", "large cap fund", "mid-cap fund", " folio ",
+    )
+    if any(p in q for p in fund_phrases):
+        return action
+
+    tuning_markers = (
+        "risk", "allocat", "conservative", "aggressive", "equity", "debt",
+        "corpus", "income", "expense", "emergency",
+    )
+    if not any(m in q for m in tuning_markers):
+        return action
+
+    risk = _risk_score_from_snapshot(last_alloc)
+    num = re.search(r"\b(\d+(?:\.\d+)?)\b", question)
+    if num:
+        return ChatAction(
+            mode="counterfactual_explore",
+            overrides={"effective_risk_score": float(num.group(1))},
+        )
+    if re.search(r"more\s+risk|higher\s+risk|more\s+aggressive|take\s+more\s+risk", q):
+        target = min(10.0, round(risk + 1.5, 1))
+        return ChatAction(
+            mode="counterfactual_explore",
+            overrides={"effective_risk_score": target},
+        )
+    if re.search(r"less\s+risk|lower\s+risk|more\s+conservative|less\s+aggressive", q):
+        target = max(1.0, round(risk - 1.5, 1))
+        return ChatAction(
+            mode="counterfactual_explore",
+            overrides={"effective_risk_score": target},
+        )
+    direction = "higher" if re.search(r"more|higher|aggressive", q) else "lower"
+    suggested = min(10.0, round(risk + 1.5, 1)) if direction == "higher" else max(1.0, round(risk - 1.5, 1))
+    return ChatAction(
+        mode="clarify",
+        clarification_question=(
+            f"Your current risk score is {risk:.1f}. "
+            f"Would {suggested:.1f} work for a {direction}-risk allocation?"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-mode handlers
 # ---------------------------------------------------------------------------
@@ -422,8 +528,11 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
         return ChatHandlerResult(
             text="I couldn't produce an allocation right now. Please try again."
         )
-    text = await _format_or_fallback(
-        ctx=ctx, output=outcome.result, action_mode="compute", spine_mode="full",
+    text = await _reply_with_allocation_tables(
+        ctx=ctx,
+        output=outcome.result,
+        action_mode="compute",
+        spine_mode="full",
     )
     return ChatHandlerResult(
         text=text,
@@ -486,9 +595,12 @@ async def _counterfactual_explore(
         except Exception as exc:
             logger.warning("awaiting_save_upsert_failed: %s", exc)
 
-    text = await _format_or_fallback(
-        ctx=ctx, output=outcome.result,
-        action_mode="counterfactual_explore", spine_mode="counterfactual",
+    text = await _reply_with_allocation_tables(
+        ctx=ctx,
+        output=outcome.result,
+        action_mode="counterfactual_explore",
+        spine_mode="counterfactual",
+        hypothetical=True,
     )
     return ChatHandlerResult(text=text)
 
@@ -540,9 +652,11 @@ async def _save_last_counterfactual(
         except Exception as exc:
             logger.warning("awaiting_save_reset_failed: %s", exc)
 
-    text = await _format_or_fallback(
-        ctx=ctx, output=outcome.result,
-        action_mode="save_last_counterfactual", spine_mode="full",
+    text = "Saved.\n\n" + await _reply_with_allocation_tables(
+        ctx=ctx,
+        output=outcome.result,
+        action_mode="save_last_counterfactual",
+        spine_mode="full",
     )
     return ChatHandlerResult(
         text=text,

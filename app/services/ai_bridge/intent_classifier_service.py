@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 
 import httpx
 
@@ -28,6 +29,12 @@ from intent_classifier.prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# TEMP(rebalancing-chat): see rebalancing/_temp_chat_deferral.py — remove with that module.
+_REBALANCE_UTTERANCE = re.compile(
+    r"\b(?:re-?\s*balan\w*|rebalcance|relablace)\b",
+    re.IGNORECASE,
+)
 
 # Human-readable labels for each intent value. The dict only contains the
 # intents that have a customer-visible "label" surface; the OpenAI fallback's
@@ -168,6 +175,39 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
     return [m for i, m in enumerate(history) if i not in drop]
 
 
+def _apply_rebalancing_keyword_override(
+    question: str,
+    result: ClassificationResult,
+) -> ClassificationResult:
+    """TEMP(rebalancing-chat): map rebalance phrasing → ``rebalancing`` intent."""
+    from app.services.ai_bridge.rebalancing._temp_chat_deferral import (
+        TEMP_REBALANCING_INTENT_KEYWORD_OVERRIDE,
+    )
+
+    if not TEMP_REBALANCING_INTENT_KEYWORD_OVERRIDE:
+        return result
+    if result.intent == Intent.REBALANCING:
+        return result
+    if not _REBALANCE_UTTERANCE.search(question):
+        return result
+    if result.intent not in (Intent.ASSET_ALLOCATION, Intent.PORTFOLIO_QUERY):
+        return result
+    logger.info(
+        "intent keyword override: %s → rebalancing (question=%r)",
+        result.intent.value,
+        question[:120],
+    )
+    return ClassificationResult(
+        intent=Intent.REBALANCING,
+        confidence=max(float(result.confidence), 0.9),
+        reasoning=(
+            f"{result.reasoning} "
+            "(Adjusted: customer asked to rebalance the portfolio, not to design a new ideal allocation.)"
+        ),
+        out_of_scope_message=result.out_of_scope_message,
+    )
+
+
 async def classify_user_message(
     customer_question: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -188,13 +228,15 @@ async def classify_user_message(
     active = Intent(active_intent) if active_intent else None
     try:
         inp = ClassificationInput(customer_question=customer_question, conversation_history=history, active_intent=active)
-        return await asyncio.to_thread(_get_classifier().classify, inp)
+        result = await asyncio.to_thread(_get_classifier().classify, inp)
+        return _apply_rebalancing_keyword_override(customer_question, result)
     except Exception as exc:
         logger.warning("Anthropic classifier failed (%s), trying OpenAI fallback...", exc)
 
     # NOTE: active_intent is intentionally not forwarded to the OpenAI fallback;
     # the bias is a small loss when the system is already degraded to recovery.
-    return await _classify_via_openai(customer_question, filtered_history)
+    result = await _classify_via_openai(customer_question, filtered_history)
+    return _apply_rebalancing_keyword_override(customer_question, result)
 
 
 def format_intent_response(result: ClassificationResult) -> str:
