@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from app.config import get_settings
 from app.services.ai_module_telemetry import log_chat_turn_flow_summary
 from app.services.ai_bridge import (
     classify_user_message,
@@ -225,15 +226,40 @@ class ChatBrain:
                 return await finalize(result.text)
 
             if intent_value == "rebalancing":
-                # Local import — chat handler self-registers via @register at import time.
-                from app.services.ai_bridge.rebalancing import chat as _rb_chat  # noqa: F401
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
-                flow.append("dispatch_chat → rebalancing_chat")
-                trace_line("next module: chat_dispatcher → rebalancing_chat")
-
-                result = await run_handler(
-                    dispatch_chat(intent_value, turn_context), "rebalancing",
+                from app.services.ai_bridge.rebalancing._temp_chat_deferral import (
+                    TEMP_REBALANCING_RUN_ALLOCATION_ONLY,
                 )
+
+                # TEMP(rebalancing-chat): allocation + snapshot only until engine ships.
+                if (
+                    TEMP_REBALANCING_RUN_ALLOCATION_ONLY
+                    and not get_settings().rebalancing_engine_enabled()
+                ):
+                    from app.services.ai_bridge.rebalancing.allocation_only_stub import (
+                        handle_rebalancing_as_allocation_only,
+                    )
+
+                    flow.append(
+                        "TEMP: rebalancing → asset_allocation only (engine disabled)",
+                    )
+                    trace_line(
+                        "TEMP(rebalancing-chat): allocation_only_stub "
+                        "(REBALANCING_ENGINE_ENABLED=false)",
+                    )
+                    result = await run_handler(
+                        handle_rebalancing_as_allocation_only(turn_context),
+                        "rebalancing→allocation_only",
+                    )
+                else:
+                    from app.services.ai_bridge.rebalancing import chat as _rb_chat  # noqa: F401
+
+                    flow.append("dispatch_chat → rebalancing_chat")
+                    trace_line("next module: chat_dispatcher → rebalancing_chat")
+                    result = await run_handler(
+                        dispatch_chat(intent_value, turn_context), "rebalancing",
+                    )
+
                 if result is None:
                     return await finalize(_INTENT_TIMEOUT_MESSAGE)
 

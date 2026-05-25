@@ -1,5 +1,8 @@
 # app/services/ai_bridge/rebalancing/ — Rebalancing bridge
 
+**TEMP(rebalancing-chat):** Until rebalancing ships in chat, see `_temp_chat_deferral.py`,
+`allocation_only_stub.py`, and the gated branch in `chat_core/brain.py`.
+
 Bridges `AI_Agents/src/Rebalancing` into chat. Pulls the most recent goal
 allocation (re-running it inline if absent or > 90 days old), materialises
 engine inputs from User + holdings + tax state, runs the pipeline on a worker

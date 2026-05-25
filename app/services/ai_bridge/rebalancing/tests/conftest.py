@@ -205,7 +205,6 @@ def fixture_goal_allocation_output_one_subgroup():
     })
 
 
-<<<<<<< HEAD
 def _serialised_one_subgroup_allocation() -> dict:
     """JSON payload mirroring ``fixture_goal_allocation_output_one_subgroup``."""
     return {
@@ -215,7 +214,8 @@ def _serialised_one_subgroup_allocation() -> dict:
         "grand_total": 1_000_000.0,
         "all_amounts_in_multiples_of_100": True,
     }
-=======
+
+
 def _minimal_long_term_equity_breakdown(long_term_equity: int):
     """Build a minimal AssetClassBreakdown with one all-equity long-term row."""
     from app.services.ai_bridge.common import ensure_ai_agents_path
@@ -254,7 +254,6 @@ def _minimal_long_term_equity_breakdown(long_term_equity: int):
         recommended=block,
         recommended_sum_matches_grand_total=True,
     )
->>>>>>> b2f79f24251de7c3d998e50894bd50c2683dfbcf
 
 
 @pytest.fixture
