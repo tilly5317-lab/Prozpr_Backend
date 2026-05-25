@@ -1,6 +1,7 @@
 """practical_asset_allocation pipeline — see module __init__ docstring."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -12,6 +13,11 @@ from asset_allocation_pydantic.models import (
     BucketAllocation,
     ClientSummary,
     FutureInvestment,
+)
+from asset_allocation_pydantic.steps import (
+    step1_emergency,
+    step2_short_term,
+    step3_medium_term,
 )
 
 
@@ -86,7 +92,73 @@ class PracticalAllocationOutput(BaseModel):
     corpus_breakdown: CorpusBreakdown
 
 
-def run_practical_allocation(inp):  # type: ignore[no-untyped-def]
+@dataclass
+class _PracticalLongTermResult:
+    """Internal-only — full shape filled in across Tasks 5-10. Mirrors what
+    Step4Output exposes plus practical-only extras (non_mf_equity_actual,
+    excess_direct_stocks, residual_equity_corpus, etc.)."""
+    # Placeholder fields; Tasks 5-10 expand this.
+    pass
+
+
+def _run_practical_long_term(
+    *,
+    inp: AllocationInput,
+    remaining_corpus: int,
+    elss_amount: float,
+    non_mf_equity_input: float,
+    nfa: Optional[float],
+    max_non_mf_equity_pct_client_input: Optional[float],
+) -> _PracticalLongTermResult:
+    """Long-term step — Excel R157-R222. Filled in across Tasks 5-10."""
     raise NotImplementedError(
-        "run_practical_allocation: implementation lands in Tasks 4-12."
+        "_run_practical_long_term: implementation lands in Tasks 5-10."
+    )
+
+
+def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocationOutput:
+    """Holdings-aware goal-based allocation. Spec §B.4.
+
+    Pipeline:
+      1. ELSS freeze — subtract elss_corpus to get rebalancing_corpus.
+      2. Build sub-AllocationInput with total_corpus = rebalancing_corpus.
+      3. Run upstream steps 1-3 (emergency, short-term, medium-term) verbatim.
+      4. Run _run_practical_long_term (Excel R157-R222) for the long-term step.
+      5. Aggregate with step5_aggregation_with_frozen (adds two frozen rows).
+      6. Assemble PracticalAllocationOutput.
+    """
+    rebalancing_corpus = inp.total_corpus - inp.elss_corpus
+    if rebalancing_corpus < 0:
+        # Edge case (α) per spec §B.7 — should never happen in practice.
+        raise InfeasibleGoalError(
+            f"ELSS corpus ({inp.elss_corpus}) exceeds total corpus ({inp.total_corpus})"
+        )
+
+    # Build a sub-AllocationInput with rebalancing_corpus as total_corpus.
+    # model_dump() preserves all parent fields; we override total_corpus only.
+    parent_fields = AllocationInput.model_fields.keys()
+    sub_inp = AllocationInput(
+        **{k: getattr(inp, k) for k in parent_fields if k != "total_corpus"},
+        total_corpus=rebalancing_corpus,
+    )
+
+    s1 = step1_emergency.run(sub_inp)
+    s2 = step2_short_term.run(sub_inp, s1.remaining_corpus)
+    s3 = step3_medium_term.run(sub_inp, s2.remaining_corpus)
+
+    s4_practical = _run_practical_long_term(
+        inp=sub_inp,
+        remaining_corpus=s3.remaining_corpus,
+        elss_amount=inp.elss_corpus,
+        non_mf_equity_input=inp.non_mf_equity_corpus,
+        nfa=inp.net_financial_assets,
+        max_non_mf_equity_pct_client_input=inp.max_non_mf_equity_pct_client_input,
+    )
+
+    # Tasks 11-12 implement step5_aggregation_with_frozen and _build_output.
+    # Until then, this orchestrator can be unit-tested via monkeypatch of
+    # _run_practical_long_term (see test_orchestrator_skeleton.py).
+    raise NotImplementedError(
+        "Output assembly lands in Tasks 11-12; the long-term path above "
+        "is structurally complete and is exercised under monkeypatch."
     )
