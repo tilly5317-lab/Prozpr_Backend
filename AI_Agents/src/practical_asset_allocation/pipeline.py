@@ -22,7 +22,14 @@ from asset_allocation_pydantic.steps import (
 from asset_allocation_pydantic.steps.step4_long_term import (
     ResolvedBounds,
     phase1_bounds,
+    phase2_asset_class_pcts,
 )
+
+
+# Spec §B.5 step 4 — practical-side others-gate (stricter than upstream).
+# Upstream uses score >= 8 AND view <= 6; practical uses score > 8 AND view < 7.
+PRACTICAL_OTHERS_GATE_SCORE_THRESHOLD: float = 8.0
+PRACTICAL_OTHERS_GATE_VIEW_THRESHOLD: float = 7.0
 
 
 class InfeasibleGoalError(ValueError):
@@ -104,10 +111,15 @@ class _PracticalLongTermResult:
     total_long_term_corpus: int
     min_equity_elss_pct: float
     phase1_bounds_allocation_1: ResolvedBounds
-    # Tasks 6-10 will add: allocation_2_*, equities_amount, debt_amount,
-    # others_amount, non_mf_equity_actual, excess_direct_stocks,
-    # residual_equity_corpus, multi_asset block, equity_subgroup_amounts,
-    # subgroup_amounts, future_investment, goals_allocated, etc.
+    # R167-R174 (Task 6):
+    practical_others_gate_fired: bool
+    allocation_2_equity_pct: int
+    allocation_2_debt_pct: int
+    allocation_2_others_pct: int
+    # Tasks 7-10 will add: equities_amount, debt_amount, others_amount,
+    # non_mf_equity_actual, excess_direct_stocks, residual_equity_corpus,
+    # multi_asset block, equity_subgroup_amounts, subgroup_amounts,
+    # future_investment, goals_allocated, etc.
 
 
 def _run_practical_long_term(
@@ -148,10 +160,79 @@ def _run_practical_long_term(
         intergenerational_transfer=inp.intergenerational_transfer,
     )
 
+    # R167-R168: stricter practical others-gate. Note: phase1_bounds already
+    # applied the upstream gate (score >= 8 AND view <= 6) inside bounds_1.
+    # We layer the stricter variant (score > 8 AND view < 7) on top so the
+    # practical engine zeros others slightly earlier than the ideal engine.
+    practical_others_gate_fired = (
+        inp.effective_risk_score > PRACTICAL_OTHERS_GATE_SCORE_THRESHOLD
+        and inp.market_commentary.others < PRACTICAL_OTHERS_GATE_VIEW_THRESHOLD
+    )
+    bounds_for_phase2 = bounds_1
+    if practical_others_gate_fired and (bounds_1.others_min > 0 or bounds_1.others_max > 0):
+        # Pro-rata redistribute the zeroed others to equity and debt mins.
+        freed_max = bounds_1.others_max
+        freed_min = bounds_1.others_min
+        eq_max_new = bounds_1.eq_max
+        debt_max_new = bounds_1.debt_max
+        eq_min_new = bounds_1.eq_min
+        debt_min_new = bounds_1.debt_min
+        total_max = bounds_1.eq_max + bounds_1.debt_max
+        if total_max > 0 and freed_max > 0:
+            eq_add = int(round(freed_max * bounds_1.eq_max / total_max))
+            eq_max_new += eq_add
+            debt_max_new += freed_max - eq_add
+        total_min = bounds_1.eq_min + bounds_1.debt_min
+        if total_min > 0 and freed_min > 0:
+            eq_add_min = int(round(freed_min * bounds_1.eq_min / total_min))
+            eq_min_new += eq_add_min
+            debt_min_new += freed_min - eq_add_min
+        bounds_for_phase2 = ResolvedBounds(
+            eq_min=eq_min_new, eq_max=eq_max_new,
+            debt_min=debt_min_new, debt_max=debt_max_new,
+            others_min=0, others_max=0,
+        )
+
+    # R170: market-view tilt → phase2_asset_class_pcts (reused upstream).
+    a2_eq_pct_raw, a2_debt_pct_raw, a2_oth_pct_raw = phase2_asset_class_pcts(
+        bounds_for_phase2, inp.market_commentary,
+    )
+
+    # R171: ELSS floor lifts equity allocation if needed.
+    elss_floor_pct_int = int(round(min_equity_elss_pct * 100))
+    allocation_2_equity_pct = max(a2_eq_pct_raw, elss_floor_pct_int)
+
+    # R172: pro-rata redistribution of the residual into debt / others.
+    # Excel formula: (100-F171) * E172 / (E172+E173) where E172/E173 are the
+    # allocation_1 tilted averages. We use the same denominator (the upstream
+    # phase2 tilted raws), not the phase1 mins, so an asset class with mins=0
+    # still receives its tilt-driven share.
+    remaining_pct = 100 - allocation_2_equity_pct
+    if remaining_pct <= 0:
+        allocation_2_debt_pct = 0
+        allocation_2_others_pct = 0
+        # Force-clamp equity at 100 if the ELSS floor overshot.
+        allocation_2_equity_pct = 100
+    else:
+        dt_oth_raw = a2_debt_pct_raw + a2_oth_pct_raw
+        if dt_oth_raw > 0:
+            allocation_2_debt_pct = int(round(
+                remaining_pct * a2_debt_pct_raw / dt_oth_raw
+            ))
+            allocation_2_others_pct = remaining_pct - allocation_2_debt_pct
+        else:
+            # Degenerate: both raws zero. All residual → debt by default.
+            allocation_2_debt_pct = remaining_pct
+            allocation_2_others_pct = 0
+
     return _PracticalLongTermResult(
         total_long_term_corpus=total_long_term_corpus,
         min_equity_elss_pct=min_equity_elss_pct,
         phase1_bounds_allocation_1=bounds_1,
+        practical_others_gate_fired=practical_others_gate_fired,
+        allocation_2_equity_pct=allocation_2_equity_pct,
+        allocation_2_debt_pct=allocation_2_debt_pct,
+        allocation_2_others_pct=allocation_2_others_pct,
     )
 
 
