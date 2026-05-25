@@ -68,7 +68,8 @@ class CashflowPlanRun(Base):
     )
     engine_version: Mapped[str] = mapped_column(Text, nullable=False)
     detail_level: Mapped[DetailLevel] = mapped_column(
-        SAEnum(DetailLevel, name="detail_level_enum", create_constraint=True),
+        SAEnum(DetailLevel, name="detail_level_enum", create_constraint=False,
+               values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=DetailLevel.DEFAULT,
     )

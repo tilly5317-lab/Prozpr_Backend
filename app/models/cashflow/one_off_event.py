@@ -53,7 +53,8 @@ class CashflowInputOneOffEvent(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     direction: Mapped[OneOffDirection] = mapped_column(
-        SAEnum(OneOffDirection, name="one_off_direction_enum", create_constraint=True),
+        SAEnum(OneOffDirection, name="one_off_direction_enum", create_constraint=False,
+               values_callable=lambda e: [m.value for m in e]),
         nullable=False,
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)

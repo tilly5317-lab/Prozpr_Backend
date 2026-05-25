@@ -55,7 +55,7 @@ async def compute_goal_planning_snapshot(
 
     input_kwargs = await build_goal_planning_input_for_user(user, db, anchor_date)
 
-    from cashflow_statement import (
+    from cashflow_statement.models import (
         Assumptions,
         ClientProfile,
         CurrentProperty,
@@ -65,9 +65,9 @@ async def compute_goal_planning_snapshot(
         GoalProperty,
         OneOffEvent,
         RetirementInput,
-        compute_full_projection,
-        summarize_plan,
     )
+    from cashflow_statement.engine import compute_full_projection
+    from cashflow_statement.summarizer import summarize_plan
 
     gp_input = GoalPlanningInput(
         assumptions=Assumptions(**input_kwargs["assumptions"]),
@@ -264,6 +264,26 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
                 "funded" if g.is_funded
                 else ("unfunded" if g.funded_amount == 0 else "partially_funded")
             ),
+        })
+
+    # Annual cashflow table
+    facts["annual_cashflow"] = []
+    for row in output.annual_cashflow:
+        facts["annual_cashflow"].append({
+            "fy_label": row.fy_label,
+            "income": format_inr_indian(row.income),
+            "income_tax": format_inr_indian(row.income_tax),
+            "household_expense": format_inr_indian(row.household_expense),
+            "savings_pre_emi": format_inr_indian(row.savings_pre_emi),
+            "existing_mortgage_emi": format_inr_indian(row.existing_mortgage_emi),
+            "goal_mortgage_emi": format_inr_indian(row.goal_mortgage_emi),
+            "savings_post_emi": format_inr_indian(row.savings_post_emi),
+            "corpus_opening": format_inr_indian(row.corpus_opening),
+            "monthly_investment": format_inr_indian(row.monthly_investment),
+            "investment_returns": format_inr_indian(row.investment_returns),
+            "goal_payout": format_inr_indian(row.goal_payout),
+            "corpus_closing": format_inr_indian(row.corpus_closing),
+            "is_funded": row.is_funded,
         })
 
     if summary:
