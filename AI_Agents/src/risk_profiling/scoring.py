@@ -2,6 +2,8 @@
 
 from typing import Any, Dict
 
+from common import category_for_effective_risk_score
+
 AGE_ANCHORS = [
     (20, 10), (30, 9), (40, 8), (50, 7), (55, 6),
     (60, 5), (65, 4), (70, 3), (80, 2), (90, 1),
@@ -206,6 +208,7 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
         "effective_risk_score_formula": (
             f"0.7 * {risk_willingness} + 0.3 * {risk_capacity_score} = {effective_risk_score}"
         ),
+        "risk_profile_category": category_for_effective_risk_score(effective_risk_score),
     }
 
     return {

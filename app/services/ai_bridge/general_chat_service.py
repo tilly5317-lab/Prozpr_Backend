@@ -40,25 +40,28 @@ _OOS_REPLIES_BY_SUBREASON: dict[OutOfScopeSubreason, str] = {
         "the markets."
     ),
     OutOfScopeSubreason.IDENTITY_OR_META: (
-        "I'm Tilly — an AI assistant from Prozpr, here to help you with your "
-        "investments. I'm not a human; ask me anything about your portfolio, "
-        "allocation, or the markets."
+        "I'm Tilly — an AI assistant built by Prozpr to help you with your "
+        "portfolio, your asset allocation, rebalancing, and the markets. "
+        "Ask me anything in that space and I'll dive in."
     ),
     OutOfScopeSubreason.SECURITY_OR_CREDENTIALS: (
-        "I can't help with passwords, login details, or other account "
-        "credentials — that's strictly a security matter. If you've lost "
-        "access, please use the app's account recovery flow or reach out to "
-        "Prozpr support."
+        "For your account safety, anything to do with passwords, logins, or "
+        "credentials is handled through Prozpr's secure account recovery flow "
+        "rather than through me. If you've lost access, head to the recovery "
+        "option in the app or reach out to Prozpr support, and they'll get "
+        "you sorted quickly."
     ),
     OutOfScopeSubreason.CHAT_SUMMARY: (
-        "Session summaries aren't built in yet — you can scroll up to review "
-        "what we've covered. If you'd like, I can pick up where we left off "
-        "on any specific topic."
+        "I'm right here to keep going on whatever we were working on — just "
+        "point me at a topic (your allocation, a fund, a market question) and "
+        "we'll pick up from there. You can also scroll up anytime to see "
+        "everything we've covered so far."
     ),
     OutOfScopeSubreason.OFF_TOPIC: (
-        "That's outside what I can help with — I'm built for portfolio, "
-        "allocation, rebalancing, and Indian-market questions. Ask me about "
-        "any of those and I'll dive in."
+        "I'm Tilly — I'm here to help you with your portfolio, your asset "
+        "allocation, rebalancing, and what's happening in the Indian markets. "
+        "I'd love to dive into any of those with you — just ask, and we'll "
+        "take it from there."
     ),
     OutOfScopeSubreason.OTHER: OUT_OF_SCOPE_MESSAGE,
 }

@@ -6,7 +6,7 @@ from cashflow_statement.models import (
     Assumptions, CustomGoal, GoalType, RetirementSnapshot,
 )
 from cashflow_statement.engine._types import RunContext, GoalInternal, GoalPropertyOutcome
-from cashflow_statement.engine.dates import _round_thousand, eomonth, fy_end_after, fy_years_between
+from cashflow_statement.engine.dates import _round_thousand, eomonth, fy_end_after
 from financial_primitives.inflation import inflate
 
 
@@ -83,8 +83,8 @@ def build_goals_table(
     # 3. Custom goals
     for g in custom_goals:
         # Past-date check handled at engine entry (validate_input_only) — no guard needed here.
-        # Integer FY-year diff is the single engine convention.
-        inflation_years = fy_years_between(ctx.latest_update_date, g.goal_date)
+        # Day-precise convention: inflate to EOMONTH(goal_date), symmetric with _fund_today_pv.
+        inflation_years = (eomonth(g.goal_date, 0) - ctx.latest_update_date).days / 365
         inflation = (
             g.inflation_rate_override
             if g.inflation_rate_override is not None
@@ -126,10 +126,7 @@ def build_goals_table(
 
 
 def _fund_today_pv(corpus_required_fv: float, expected_roi: float, ctx: RunContext, goal_date: date) -> float:
-    # Excel parity: day-precise discount using EOMONTH(goal_date) / 365.
-    # This is intentionally NOT the engine's integer-FY convention (used for
-    # inflation FV) — Excel's headline cells O113 / S105 are the published
-    # truth for total_corpus_required_today and surplus_or_shortfall_today,
-    # and they use this day-precise basis.
+    # Day-precise discount using EOMONTH(goal_date) / 365 — symmetric with the
+    # inflation FV in properties.py and goals_table.py above.
     years_to = (eomonth(goal_date, 0) - ctx.latest_update_date).days / 365
     return corpus_required_fv / (1 + expected_roi) ** years_to

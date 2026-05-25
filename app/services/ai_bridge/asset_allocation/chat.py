@@ -224,9 +224,24 @@ goal-based asset allocation plan. The shared house-style rules above apply.
 FACTS_PACK shape (treat fields not present as unknown):
 
   risk_score: number — customer's effective risk score (1-10)
+  risk_profile_category: string — the named band that maps the score, one of
+                       Conservative / Moderately Conservative / Moderate /
+                       Moderately Aggressive / Aggressive. Use this as the
+                       primary way to describe the customer's investing style
+                       (see the shared house-style rule above).
   age: int
   total_corpus_inr: number — total invested corpus, market value in ₹
   total_corpus_indian: string — same value pre-formatted in Indian notation
+  emergency_fund_months: int — how many months of the customer's
+                       household expenses the emergency reserve covers.
+                       3 is the default; 6 applies when the customer's
+                       primary income comes from their portfolio
+                       (typically retirees or full-time investors).
+  monthly_household_expense_inr: number — the customer's stated monthly
+                       household spend (₹).
+  monthly_household_expense_indian: string — same value, pre-formatted
+                       in Indian notation (copy verbatim per the
+                       money-formatting rule).
   recommended_mix_pct: {equity, debt, others} — the AA engine's RECOMMENDED
                        deployment mix as percentages. This is what the engine
                        suggests the customer should hold, NOT what they
@@ -282,7 +297,6 @@ Plain-language translation for any engine jargon:
 - tax_efficient_equities  → "ELSS / tax-saving equity"
 - multi_asset             → "multi-asset (equity + debt + gold blend)"
 - short_debt              → "short-duration debt (ultra-short / low-duration)"
-- debt_subgroup           → "debt"
 - arbitrage / arbitrage_plus_income → "arbitrage (debt-like, equity-taxed)"
 - gold_commodities        → "gold and commodities"
 - emergency / short_term / medium_term / long_term → spell out as

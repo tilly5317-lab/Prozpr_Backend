@@ -9,10 +9,6 @@ from cashflow_statement.engine.dates import (
 )
 
 
-# Excel emulator hardcodes 0.75 at excel_emulator.py:304 — the K-branch SIP fraction.
-DEFAULT_SIP_SHARE = 0.75
-
-
 def _current_date() -> date:
     """Indirection so tests can monkeypatch the engine's notion of 'today'."""
     return date.today()
@@ -44,10 +40,11 @@ def build_initial_context(profile: ClientProfile, assumptions: Assumptions) -> R
         medium_term_end=medium_term_end,
         retirement_date_considered=None,
         retired_portfolio_roi_annual=assumptions.roi_retired_portfolio_annual,
-        sip_share=DEFAULT_SIP_SHARE,
+        sip_share=assumptions.default_sip_share,
         annual_income_growth=assumptions.annual_income_growth,
         annual_invested_amount_growth=assumptions.annual_invested_amount_growth,
         inflation_household_expense=assumptions.inflation_household_expense,
+        inflation_post_retirement=assumptions.inflation_post_retirement,
         inflation_property=assumptions.inflation_property,
         near_term_roi=assumptions.roi_near_term_post_tax,
         mid_term_roi=assumptions.roi_mid_term_post_tax,

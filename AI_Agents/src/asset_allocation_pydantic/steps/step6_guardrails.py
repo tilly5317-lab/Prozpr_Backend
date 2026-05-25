@@ -46,7 +46,7 @@ def run(step4: Step4Output, step5: Step5Output, score: float) -> Step6Output:
         )
 
     # Rule 3 — equity subgroup shares of equity_for_subgroups within Phase 5 bounds.
-    # Phase 5 splits the pool left after ELSS + multi-asset equity carve-out, so
+    # Phase 5 splits the pool left after the multi-asset equity carve-out, so
     # the validation must use the same denominator.
     p5 = PHASE5_EQUITY_SUBGROUP_BOUNDS[ceil_to_half(score)]
     equity_pool = step4.multi_asset.equity_for_subgroups
