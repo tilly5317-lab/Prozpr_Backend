@@ -13,6 +13,7 @@ from asset_allocation_pydantic.models import (
     BucketAllocation,
     ClientSummary,
     FutureInvestment,
+    Goal,
     MultiAssetBlock,
 )
 from asset_allocation_pydantic.steps import (
@@ -27,7 +28,11 @@ from asset_allocation_pydantic.steps.step4_long_term import (
     phase4_multi_asset,
     phase5_equity_subgroups,
 )
-from asset_allocation_pydantic.tables import EQUITY_SUBGROUPS
+from asset_allocation_pydantic.tables import (
+    EQUITY_SUBGROUPS,
+    LONG_TERM_BOUNDARY_MONTHS,
+    STEP4_SUBGROUPS,
+)
 from asset_allocation_pydantic.utils import round_to_100
 
 
@@ -174,7 +179,11 @@ class _PracticalLongTermResult:
     average_equity_subgroup_allocation_pct: float
     min_equity_pct_required: float
     equity_subgroup_amounts: dict[str, int]  # one entry per EQUITY_SUBGROUPS
-    # Task 10 will add: subgroup_amounts, future_investment, goals_allocated, etc.
+    # R217-R222 (Task 10):
+    residual_other_corpus: int
+    long_term_subgroup_amounts: dict[str, int]  # one entry per STEP4_SUBGROUPS
+    goals_allocated: List[Goal]
+    future_investment: Optional[FutureInvestment]
 
 
 def _run_practical_long_term(
@@ -196,6 +205,21 @@ def _run_practical_long_term(
       Task 9  (R196-R215): equity subgroup gates, slider, amounts.
       Task 10 (R217-R222): debt and others residuals.
     """
+    # R-pre: filter long-term goals using LONG_TERM_BOUNDARY_MONTHS (same
+    # operator as upstream step4_long_term.run). Emit FutureInvestment when
+    # corpus is short of the goal sum (spec §B.7 edge case β).
+    lt_goals = [
+        g for g in inp.goals
+        if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS
+    ]
+    sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
+    future_investment: Optional[FutureInvestment] = None
+    if sum_goals > remaining_corpus:
+        future_investment = FutureInvestment(
+            bucket="long_term",
+            future_investment_amount=sum_goals - remaining_corpus,
+        )
+
     # R158: long-term corpus includes ELSS added back (ELSS is locked but
     # counted toward the long-term equity-class budget).
     total_long_term_corpus = max(0, int(remaining_corpus + elss_amount))
@@ -466,6 +490,30 @@ def _run_practical_long_term(
             0, equity_subgroup_amounts[largest_sg] + drift,
         )
 
+    # R220-R222: gold / commodities = others budget minus what the multi-asset
+    # fund's own others slice already absorbed (less any excess we already
+    # redistributed to eq/debt).
+    others_minus_multi = max(
+        0,
+        others_amount - (
+            multi_asset_block.others_component - multi_asset_others_excess
+        ),
+    )
+    residual_other_corpus = round_to_100(others_minus_multi)
+
+    # R217-R219: assemble the long-term subgroup_amounts dict, exhaustive
+    # over STEP4_SUBGROUPS.
+    long_term_subgroup_amounts: dict[str, int] = {sg: 0 for sg in STEP4_SUBGROUPS}
+    long_term_subgroup_amounts["multi_asset"] = multi_asset_block.multi_asset_amount
+    for sg, amt in equity_subgroup_amounts.items():
+        long_term_subgroup_amounts[sg] = amt
+    # Spec §B.5 step 11: long-term debt residual ALWAYS routes to
+    # arbitrage_plus_income; the tax-rate gate on debt routing applies to
+    # medium-term only (asset_allocation Part A.4).
+    long_term_subgroup_amounts["arbitrage_plus_income"] = residual_debt_corpus
+    long_term_subgroup_amounts["short_debt"] = 0  # explicit zero
+    long_term_subgroup_amounts["gold_commodities"] = residual_other_corpus
+
     return _PracticalLongTermResult(
         total_long_term_corpus=total_long_term_corpus,
         min_equity_elss_pct=min_equity_elss_pct,
@@ -493,6 +541,10 @@ def _run_practical_long_term(
         average_equity_subgroup_allocation_pct=average_equity_subgroup_allocation_pct,
         min_equity_pct_required=min_equity_pct_required,
         equity_subgroup_amounts=equity_subgroup_amounts,
+        residual_other_corpus=residual_other_corpus,
+        long_term_subgroup_amounts=long_term_subgroup_amounts,
+        goals_allocated=lt_goals,
+        future_investment=future_investment,
     )
 
 
