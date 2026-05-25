@@ -13,6 +13,7 @@ from asset_allocation_pydantic.models import (
     BucketAllocation,
     ClientSummary,
     FutureInvestment,
+    MultiAssetBlock,
 )
 from asset_allocation_pydantic.steps import (
     step1_emergency,
@@ -23,6 +24,7 @@ from asset_allocation_pydantic.steps.step4_long_term import (
     ResolvedBounds,
     phase1_bounds,
     phase2_asset_class_pcts,
+    phase4_multi_asset,
 )
 from asset_allocation_pydantic.utils import round_to_100
 
@@ -152,8 +154,15 @@ class _PracticalLongTermResult:
     non_mf_equity_actual: int
     excess_direct_stocks: int
     residual_equity_corpus_pre_multi_asset: int
-    # Tasks 8-10 will add: multi_asset block, equity_subgroup_amounts,
-    # subgroup_amounts, future_investment, goals_allocated, etc.
+    # R187-R194 (Task 8):
+    multi_asset_block: MultiAssetBlock
+    multi_asset_others_excess: int
+    excess_to_debt: int
+    excess_to_equity: int
+    residual_equity_corpus_final: int
+    residual_debt_corpus: int
+    # Tasks 9-10 will add: equity_subgroup_amounts, subgroup_amounts,
+    # future_investment, goals_allocated, etc.
 
 
 def _run_practical_long_term(
@@ -314,6 +323,58 @@ def _run_practical_long_term(
         0, equities_amount - non_mf_equity_actual - elss_amount_frozen,
     )
 
+    # R187: multi-asset block. The upstream helper already caps the multi-asset
+    # equity slice at MULTI_ASSET_EQUITY_CAP_PCT and rounds to 100. We feed it
+    # the practical RESIDUAL equity (post-ELSS, post-non-MF) rather than
+    # equities_amount, so the multi-asset cap respects what we can actually
+    # deploy via MFs.
+    multi_asset_block = phase4_multi_asset(
+        equities_amount=residual_equity_corpus_pre_multi_asset,
+        debt_amount=debt_amount,
+        others_amount=others_amount,
+        composition=inp.multi_asset_composition,
+    )
+
+    # R193: overflow redistribution. When the multi-asset others slice exceeds
+    # the budgeted others_amount, the excess is split between equity (residual)
+    # and debt (allocation_2_debt_pct-weighted, clamped to remaining debt
+    # capacity after the multi-asset debt component).
+    multi_asset_others_excess = max(
+        0, multi_asset_block.others_component - others_amount,
+    )
+    debt_capacity_after_multi = max(
+        0, debt_amount - multi_asset_block.debt_component,
+    )
+    if multi_asset_others_excess > 0 and (
+        allocation_2_debt_pct + allocation_2_equity_pct
+    ) > 0:
+        # Spec wording: excess_to_debt = min(round_to_100(excess × allocation_2_debt
+        # / 100), debt_amount − multi_asset_debt_component).
+        excess_to_debt = min(
+            round_to_100(multi_asset_others_excess * allocation_2_debt_pct / 100),
+            debt_capacity_after_multi,
+        )
+        excess_to_equity = multi_asset_others_excess - excess_to_debt
+    else:
+        excess_to_debt = 0
+        excess_to_equity = 0
+
+    # R194: residual equity corpus AFTER multi-asset equity component AND the
+    # excess-to-equity redirect.
+    residual_equity_corpus_final = max(
+        0,
+        residual_equity_corpus_pre_multi_asset
+        - multi_asset_block.equity_component
+        - excess_to_equity,
+    )
+
+    # R217 (preview for Task 10): residual debt corpus after multi-asset debt
+    # component AND the excess-to-debt redirect.
+    residual_debt_corpus = max(
+        0,
+        debt_amount - multi_asset_block.debt_component - excess_to_debt,
+    )
+
     return _PracticalLongTermResult(
         total_long_term_corpus=total_long_term_corpus,
         min_equity_elss_pct=min_equity_elss_pct,
@@ -332,6 +393,12 @@ def _run_practical_long_term(
         non_mf_equity_actual=non_mf_equity_actual,
         excess_direct_stocks=excess_direct_stocks,
         residual_equity_corpus_pre_multi_asset=residual_equity_corpus_pre_multi_asset,
+        multi_asset_block=multi_asset_block,
+        multi_asset_others_excess=multi_asset_others_excess,
+        excess_to_debt=excess_to_debt,
+        excess_to_equity=excess_to_equity,
+        residual_equity_corpus_final=residual_equity_corpus_final,
+        residual_debt_corpus=residual_debt_corpus,
     )
 
 
