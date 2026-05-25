@@ -7,19 +7,27 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from asset_allocation_pydantic.models import (
+    AggregatedRow,
     AggregatedSubgroupRow,
     AllocationInput,
+    AssetClassAllocation,
     AssetClassBreakdown,
     BucketAllocation,
     ClientSummary,
     FutureInvestment,
     Goal,
     MultiAssetBlock,
+    Step1Output,
+    Step2Output,
+    Step3Output,
+    Step4Output,
+    Step5Output,
 )
 from asset_allocation_pydantic.steps import (
     step1_emergency,
     step2_short_term,
     step3_medium_term,
+    step5_aggregation,
 )
 from asset_allocation_pydantic.steps.step4_long_term import (
     ResolvedBounds,
@@ -593,4 +601,81 @@ def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocati
     raise NotImplementedError(
         "Output assembly lands in Tasks 11-12; the long-term path above "
         "is structurally complete and is exercised under monkeypatch."
+    )
+
+
+def _adapt_practical_to_step4_output(
+    s4_practical: _PracticalLongTermResult,
+) -> Step4Output:
+    """Build a Step4Output whose subgroup_amounts is the practical long-term
+    distribution. asset_allocation_pydantic.step5_aggregation only reads
+    .subgroup_amounts on the step4 input, so the other fields are best-effort
+    placeholders. We construct minimal valid pydantic objects."""
+    zero_alloc = AssetClassAllocation(
+        equities_pct=0, debt_pct=0, others_pct=0,
+        equities_amount=s4_practical.equities_amount,
+        debt_amount=s4_practical.debt_amount,
+        others_amount=s4_practical.others_amount,
+    )
+    return Step4Output(
+        asset_class_allocation=zero_alloc,
+        planned_asset_class_allocation=zero_alloc,
+        planned_subgroup_amounts=s4_practical.long_term_subgroup_amounts,
+        multi_asset=s4_practical.multi_asset_block,
+        goals_allocated=s4_practical.goals_allocated,
+        leftover_corpus=0,
+        total_long_term_corpus=s4_practical.total_long_term_corpus,
+        total_allocated=sum(s4_practical.long_term_subgroup_amounts.values()),
+        remaining_corpus=0,
+        future_investment=s4_practical.future_investment,
+        subgroup_amounts=s4_practical.long_term_subgroup_amounts,
+    )
+
+
+def _step5_aggregation_with_frozen(
+    *,
+    total_corpus: float,
+    s1: Step1Output,
+    s2: Step2Output,
+    s3: Step3Output,
+    s4_practical: _PracticalLongTermResult,
+    elss_amount: float,
+    non_mf_equity_actual: int,
+) -> Step5Output:
+    """Wraps upstream step5_aggregation.run and appends two frozen subgroup
+    rows: tax_efficient_equities (ELSS) and non_mf_equities (non-MF actual).
+
+    grand_total reconciles to total_corpus (NOT rebalancing_corpus) because
+    the two frozen rows make ELSS and non-MF actual visible.
+    """
+    s4_adapter = _adapt_practical_to_step4_output(s4_practical)
+    # Call upstream against total_corpus, not rebalancing_corpus, so the
+    # match-flag uses the correct denominator. The upstream function does not
+    # subtract anything; it just sums the four bucket dicts.
+    base = step5_aggregation.run(total_corpus, s1, s2, s3, s4_adapter)
+
+    rows = list(base.rows)
+    elss_int = int(round(elss_amount))
+    if elss_int > 0:
+        rows.append(AggregatedRow(
+            subgroup="tax_efficient_equities",
+            emergency=0, short_term=0, medium_term=0,
+            long_term=elss_int, total=elss_int,
+        ))
+    if non_mf_equity_actual > 0:
+        rows.append(AggregatedRow(
+            subgroup="non_mf_equities",
+            emergency=0, short_term=0, medium_term=0,
+            long_term=non_mf_equity_actual, total=non_mf_equity_actual,
+        ))
+
+    grand_total = sum(row.total for row in rows)
+    grand_total_matches_corpus = abs(
+        grand_total - round_to_100(total_corpus)
+    ) <= 500
+
+    return Step5Output(
+        rows=rows,
+        grand_total=grand_total,
+        grand_total_matches_corpus=grand_total_matches_corpus,
     )
