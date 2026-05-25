@@ -85,7 +85,8 @@ class CashflowMonthlyRow(Base):
         Numeric(18, 2), nullable=False, server_default="0"
     )
     investment_source: Mapped[InvestmentSource] = mapped_column(
-        SAEnum(InvestmentSource, name="investment_source_enum", create_constraint=True),
+        SAEnum(InvestmentSource, name="investment_source_enum", create_constraint=False,
+               values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         server_default=sa_text("'zero'"),
     )
