@@ -24,12 +24,37 @@ from asset_allocation_pydantic.steps.step4_long_term import (
     phase1_bounds,
     phase2_asset_class_pcts,
 )
+from asset_allocation_pydantic.utils import round_to_100
 
 
 # Spec §B.5 step 4 — practical-side others-gate (stricter than upstream).
 # Upstream uses score >= 8 AND view <= 6; practical uses score > 8 AND view < 7.
 PRACTICAL_OTHERS_GATE_SCORE_THRESHOLD: float = 8.0
 PRACTICAL_OTHERS_GATE_VIEW_THRESHOLD: float = 7.0
+
+# Spec §B.5 step 7 (R182) — NFA-banded max non-MF equity %.
+# > 5Cr → 75%, > 2Cr → 60%, > 1Cr → 50%, else → 33%.
+NFA_BAND_5CR_INR: float = 50_000_000.0
+NFA_BAND_2CR_INR: float = 20_000_000.0
+NFA_BAND_1CR_INR: float = 10_000_000.0
+NFA_BAND_PCT_ABOVE_5CR: float = 0.75
+NFA_BAND_PCT_ABOVE_2CR: float = 0.60
+NFA_BAND_PCT_ABOVE_1CR: float = 0.50
+NFA_BAND_PCT_DEFAULT: float = 0.33
+
+
+def _nfa_banded_max_non_mf_equity_pct(nfa: Optional[float]) -> float:
+    """R182: returns the NFA-banded max non-MF equity %. Treats None NFA as the
+    bottom band (33%) — defensive: callers normally pass NFA always."""
+    if nfa is None:
+        return NFA_BAND_PCT_DEFAULT
+    if nfa > NFA_BAND_5CR_INR:
+        return NFA_BAND_PCT_ABOVE_5CR
+    if nfa > NFA_BAND_2CR_INR:
+        return NFA_BAND_PCT_ABOVE_2CR
+    if nfa > NFA_BAND_1CR_INR:
+        return NFA_BAND_PCT_ABOVE_1CR
+    return NFA_BAND_PCT_DEFAULT
 
 
 class InfeasibleGoalError(ValueError):
@@ -116,10 +141,19 @@ class _PracticalLongTermResult:
     allocation_2_equity_pct: int
     allocation_2_debt_pct: int
     allocation_2_others_pct: int
-    # Tasks 7-10 will add: equities_amount, debt_amount, others_amount,
-    # non_mf_equity_actual, excess_direct_stocks, residual_equity_corpus,
-    # multi_asset block, equity_subgroup_amounts, subgroup_amounts,
-    # future_investment, goals_allocated, etc.
+    # R177-R186 (Task 7):
+    equities_amount: int
+    debt_amount: int
+    others_amount: int
+    elss_amount_frozen: int
+    max_non_mf_equity_pct_computed: float
+    max_non_mf_equity_pct_considered: float
+    max_equities_shares: int
+    non_mf_equity_actual: int
+    excess_direct_stocks: int
+    residual_equity_corpus_pre_multi_asset: int
+    # Tasks 8-10 will add: multi_asset block, equity_subgroup_amounts,
+    # subgroup_amounts, future_investment, goals_allocated, etc.
 
 
 def _run_practical_long_term(
@@ -225,6 +259,61 @@ def _run_practical_long_term(
             allocation_2_debt_pct = remaining_pct
             allocation_2_others_pct = 0
 
+    # R177-R179: amounts.
+    equities_amount = round_to_100(
+        total_long_term_corpus * allocation_2_equity_pct / 100
+    )
+    others_amount = round_to_100(
+        total_long_term_corpus * allocation_2_others_pct / 100
+    )
+    debt_amount = max(0, total_long_term_corpus - equities_amount - others_amount)
+    debt_amount = round_to_100(debt_amount)
+
+    # Reconcile rounding drift onto the largest amount (mirrors upstream pattern).
+    drift = total_long_term_corpus - (equities_amount + debt_amount + others_amount)
+    if drift != 0:
+        amounts_by_name = {"eq": equities_amount, "dt": debt_amount, "oth": others_amount}
+        largest = max(amounts_by_name, key=lambda k: amounts_by_name[k])
+        amounts_by_name[largest] += drift
+        equities_amount = max(0, amounts_by_name["eq"])
+        debt_amount = max(0, amounts_by_name["dt"])
+        others_amount = max(0, amounts_by_name["oth"])
+
+    # R180: ELSS frozen amount.
+    elss_amount_frozen = int(round(elss_amount))
+
+    # R182-R184: NFA-banded cap + advisor override (Option A — client wins).
+    max_non_mf_equity_pct_computed = _nfa_banded_max_non_mf_equity_pct(nfa)
+    max_non_mf_equity_pct_considered = (
+        max_non_mf_equity_pct_client_input
+        if max_non_mf_equity_pct_client_input is not None
+        else max_non_mf_equity_pct_computed
+    )
+
+    # R185: ceiling for non-MF equity absorption.
+    max_equities_shares = int(round(
+        max_non_mf_equity_pct_considered * equities_amount
+    ))
+
+    # R186: non-MF actual = min(input, equities_amount - elss, max_equities_shares).
+    available_after_elss = max(0, equities_amount - elss_amount_frozen)
+    non_mf_equity_actual = int(round(min(
+        non_mf_equity_input,
+        available_after_elss,
+        max_equities_shares,
+    )))
+    non_mf_equity_actual = max(0, non_mf_equity_actual)
+
+    # Excess (drives SELL_DIRECT_STOCKS downstream in Rebalancing).
+    excess_direct_stocks = max(
+        0, int(round(non_mf_equity_input)) - non_mf_equity_actual,
+    )
+
+    # Residual equity corpus available for MF subgroups (pre-multi-asset).
+    residual_equity_corpus_pre_multi_asset = max(
+        0, equities_amount - non_mf_equity_actual - elss_amount_frozen,
+    )
+
     return _PracticalLongTermResult(
         total_long_term_corpus=total_long_term_corpus,
         min_equity_elss_pct=min_equity_elss_pct,
@@ -233,6 +322,16 @@ def _run_practical_long_term(
         allocation_2_equity_pct=allocation_2_equity_pct,
         allocation_2_debt_pct=allocation_2_debt_pct,
         allocation_2_others_pct=allocation_2_others_pct,
+        equities_amount=equities_amount,
+        debt_amount=debt_amount,
+        others_amount=others_amount,
+        elss_amount_frozen=elss_amount_frozen,
+        max_non_mf_equity_pct_computed=max_non_mf_equity_pct_computed,
+        max_non_mf_equity_pct_considered=max_non_mf_equity_pct_considered,
+        max_equities_shares=max_equities_shares,
+        non_mf_equity_actual=non_mf_equity_actual,
+        excess_direct_stocks=excess_direct_stocks,
+        residual_equity_corpus_pre_multi_asset=residual_equity_corpus_pre_multi_asset,
     )
 
 
