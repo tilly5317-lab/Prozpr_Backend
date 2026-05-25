@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.asset_allocation import AssetAllocationRun
+from app.models.mf.enums import PortfolioSnapshotKind
+from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
+
 if TYPE_CHECKING:
     from app.services.chat_core.turn_context import TurnContext
-
-from app.models.asset_allocation.run import AssetAllocationRun
-from app.models.mf.portfolio_allocation_snapshot import PortfolioAllocationSnapshot
-from app.models.mf.enums import PortfolioSnapshotKind
 from app.services.ai_bridge.asset_allocation.service import (
     AllocationRunOutcome,
     compute_allocation_result,
@@ -157,9 +157,9 @@ def build_goal_buckets_block(
                 bucket_alloc.allocated_amount,
             ),
             "planned_split_pct": {
-                "equity": float(split.equity_pct) if split else 0.0,
-                "debt": float(split.debt_pct) if split else 0.0,
-                "others": float(split.others_pct) if split else 0.0,
+                "equity": round(float(split.equity_pct)) if split else 0,
+                "debt": round(float(split.debt_pct)) if split else 0,
+                "others": round(float(split.others_pct)) if split else 0,
             },
         })
     return out
@@ -223,6 +223,7 @@ def build_rebal_facts_pack(
             "buy_inr":            <float>, "buy_indian":            <str>,
             "sell_inr":           <float>, "sell_indian":           <str>,
             "planned_final_inr":  <float>, "planned_final_indian":  <str>,
+            "reason":             <str>,                                     # selection_reason for buys, joined rejection reasons for sells; "" otherwise
         }, ...],
         # Number of additional smaller holdings beyond fund_actions cap
         # (only present when truncated).
@@ -305,6 +306,15 @@ def build_rebal_facts_pack(
 
             fund_name = getattr(action, "recommended_fund", None)
             if fund_name:
+                # Per-fund rationale: selection text on a buy, rejection text on
+                # a sell. None when neither (held-as-is row). Lets the LLM cite
+                # "why this fund" on customer follow-up without computing it.
+                if buy > 0:
+                    reason = getattr(action, "selection_reason", None) or ""
+                elif sell > 0:
+                    reason = getattr(action, "rejection_reason", None) or ""
+                else:
+                    reason = ""
                 fund_rows.append({
                     "fund_name": fund_name,
                     "sub_category": sub_cat,
@@ -313,6 +323,7 @@ def build_rebal_facts_pack(
                     "buy_inr": buy,
                     "sell_inr": sell,
                     "planned_final_inr": present + buy - sell,
+                    "reason": reason,
                 })
 
     buckets: list[dict[str, Any]] = []
@@ -333,7 +344,7 @@ def build_rebal_facts_pack(
         asset_class_inr[cls] = asset_class_inr.get(cls, 0.0) + b["current_inr"]
     asset_class_total = sum(asset_class_inr.values()) or 0.0
     asset_class_pct = {
-        cls: (amt / asset_class_total * 100 if asset_class_total > 0 else 0.0)
+        cls: (round(amt / asset_class_total * 100) if asset_class_total > 0 else 0)
         for cls, amt in asset_class_inr.items()
     }
     asset_class_indian = {
@@ -593,7 +604,7 @@ async def compute_rebalancing_result(
         logger.warning("goal_buckets_build_failed (non-fatal): %s", exc)
         goal_buckets = None
 
-    rec_id: Optional[uuid.UUID] = None
+    run_id: Optional[uuid.UUID] = None
     if persist:
         rec_id = await persist_rebalancing_recommendation(
             db,

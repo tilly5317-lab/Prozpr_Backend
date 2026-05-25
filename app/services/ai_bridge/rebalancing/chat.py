@@ -402,7 +402,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             return ChatHandlerResult(
                 text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
                 snapshot_id=None,
-                rebalancing_recommendation_id=None,
+                goal_allocation_run_id=None,
+                rebalancing_run_id=None,
             )
         return await _save_last_counterfactual(ctx)
 
@@ -562,7 +563,9 @@ async def _save_last_counterfactual(
         # telemetry row found. Same guidance message as the state gate.
         return ChatHandlerResult(
             text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
-            snapshot_id=None, rebalancing_recommendation_id=None,
+            snapshot_id=None,
+            goal_allocation_run_id=None,
+            rebalancing_run_id=None,
         )
 
     overrides = payload.get("overrides", {})

@@ -63,8 +63,12 @@ lakh/crore yourself. NEVER say "million" or "billion" for INR amounts.
 
 ## Content — weave these points in naturally
 
-1. INVESTING STYLE: What their profile means in plain terms — are they
-   playing it safe, open to some risk, or happy to ride the waves?
+1. INVESTING STYLE: Name the customer's investing-style category exactly
+   as given in `risk_profile_category` — one of Conservative, Moderately
+   Conservative, Moderate, Moderately Aggressive, or Aggressive. Use the
+   label verbatim (you may bold it). Then briefly translate what that
+   category means for them in plain terms — are they playing it safe,
+   open to some risk, or happy to ride the waves?
 
 2. STRENGTHS: What's working in their favour — call out the concrete
    advantages among: age (younger = more time to recover), strong savings
@@ -99,6 +103,9 @@ lakh/crore yourself. NEVER say "million" or "billion" for INR amounts.
 The human message gives you these pre-translated fields:
   - age (years)
   - effective_risk_score (1-10) — the customer's "Investing Style Score"
+  - risk_profile_category — the named band that maps the score: one of
+    Conservative, Moderately Conservative, Moderate, Moderately
+    Aggressive, or Aggressive. Use this VERBATIM when naming their style.
   - risk_capacity_score (1-10) — what their finances can comfortably handle
   - risk_willingness (1-10) — how adventurous they want to be
   - gap_exceeds_3 — boolean: capacity vs. willingness gap > 3 points
@@ -120,6 +127,7 @@ Treat the output as a description of the customer's profile, not personalized in
 _HUMAN = """Customer Profile Data:
 - Age: {age}
 - Investing Style Score: {effective_risk_score}/10
+- Investing Style Category: {risk_profile_category}
 - Financial Comfort Score: {risk_capacity_score}/10
 - How adventurous they want to be: {risk_willingness}/10
 - Big mismatch between comfort and adventurousness: {gap_exceeds_3}

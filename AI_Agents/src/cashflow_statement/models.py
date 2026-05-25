@@ -17,6 +17,7 @@ class Assumptions(BaseModel):
     inflation_child_local_education: float = 0.06
     inflation_child_marriage: float = 0.06
     inflation_household_expense: float = 0.06
+    inflation_post_retirement: float = 0.06
     annual_income_growth: float = 0.08
     annual_invested_amount_growth: float = 0.08
     roi_near_term_post_tax: float = 0.05
@@ -27,11 +28,14 @@ class Assumptions(BaseModel):
     medium_term_horizon_years: int = 3
     default_mortgage_tenure_years: int = 20
     default_mortgage_interest_annual: float = 0.075
+    default_property_downpayment_pct: float = 0.20
+    default_sip_share: float = 0.75
 
 
 class ClientProfile(BaseModel):
     annual_income: float
     effective_tax_rate: float = Field(
+        ge=0.0, le=1.0,
         description=(
             "Average post-deduction blended income-tax rate, applied as "
             "`gross_income × effective_tax_rate`. Typical: 0.10–0.25 salaried, "
@@ -65,6 +69,10 @@ class CurrentProperty(BaseModel):
     The engine projects EMI outflows from today through `mortgage_end_date` per FY.
     """
     name: str
+    property_value: float | None = Field(
+        default=None,
+        description="Current market value of the property in ₹.",
+    )
     has_mortgage: bool
     mortgage_emi: float | None = Field(
         default=None,
@@ -103,9 +111,9 @@ class GoalProperty(BaseModel):
         ),
     )
     goal_date: date
-    inflation_annual: float | None = None
+    inflation_annual: float | None = Field(default=None, ge=0.0, le=1.0)
     mortgage_tenure_years: int | None = None  # falls back to assumptions.default_mortgage_tenure_years
-    mortgage_interest_annual: float | None = None  # falls back to assumptions.default_mortgage_interest_annual
+    mortgage_interest_annual: float | None = Field(default=None, ge=0.0, le=1.0)  # falls back to assumptions.default_mortgage_interest_annual
 
     @model_validator(mode="after")
     def _validate_goal_property(self) -> "GoalProperty":
@@ -145,6 +153,7 @@ class CustomGoal(BaseModel):
     goal_date: date
     inflation_rate_override: float | None = Field(
         default=None,
+        ge=0.0, le=1.0,
         description=(
             "Per-goal inflation rate override. When None, the engine falls back to "
             "the rate from `Assumptions` keyed by `goal_type` "
@@ -197,21 +206,25 @@ class GoalPlanningInput(BaseModel):
 
 
 class HeadlineStatus(BaseModel):
-    """Top-line metrics. Every field is Excel-traceable (cell IDs in field comments).
+    """Top-line metrics.
 
-    Engine-only fields (`is_overall_feasible`, `overall_shortfall_*`) were
-    dropped — callers can recompute feasibility from `all(g.is_funded) and corpus_closing >= 0`.
+    `is_feasible` is the canonical end-of-horizon feasibility verdict: all goals
+    funded AND corpus_closing >= 0. Use this for any customer question about plan
+    feasibility. `surplus_or_shortfall_today` is the PV-view "as-of-today" check
+    — surface only when the customer explicitly asks "can I fund this from
+    today's corpus alone?".
     """
-    years_to_last_goal: int             # B89
-    last_goal_date: date                # B87
-    last_fy_end_date: date              # B88
-    number_of_goals: int                # B86
-    corpus_today: float   # B26
-    total_corpus_required_today: float  # O113 — PV today of all goals combined
-    surplus_or_shortfall_today: float   # S105 — corpus today minus PV of all goals
-    corpus_closing: float                  # S214 — corpus at end of projection horizon
-    total_shortfall_fv: float           # L113 — sum of per-goal shortfalls (FV)
-    total_funded_amount: float          # M113 — sum of per-goal funded amounts
+    years_to_last_goal: int
+    last_goal_date: date
+    last_fy_end_date: date
+    number_of_goals: int
+    corpus_today: float
+    total_corpus_required_today: float  # PV today of all goals combined
+    surplus_or_shortfall_today: float   # PV-view "as-of-today": corpus_today − total_corpus_required_today
+    corpus_closing: float               # corpus at end of projection horizon
+    is_feasible: bool                   # Canonical: all(goal.is_funded) AND corpus_closing >= 0
+    total_shortfall_fv: float           # sum of per-goal shortfalls (FV)
+    total_funded_amount: float          # sum of per-goal funded amounts
 
 
 class RetirementSnapshot(BaseModel):
@@ -338,13 +351,13 @@ class FundFlowSummary(BaseModel):
     FundFlowSummary get the PV view without a second model.
     """
     # --- Horizon bridge -----------------------------------------------------
-    corpus_opening: float          # B26
-    total_investments: float    # S94 — signed sum of monthly_investment (negative = withdrawal)
-    total_roi: float            # S95
-    total_one_off_in: float     # S96 — positive magnitude
-    total_one_off_out: float    # -S97 — positive magnitude (Excel stores as negative)
-    total_goals_paid: float     # -S98 — positive magnitude (Excel stores as negative)
-    corpus_closing: float          # S214
+    corpus_opening: float
+    total_investments: float    # signed sum of monthly_investment (negative = withdrawal)
+    total_roi: float
+    total_one_off_in: float     # positive magnitude
+    total_one_off_out: float    # positive magnitude
+    total_goals_paid: float     # positive magnitude
+    corpus_closing: float
 
     # --- Goal funding status (present-value view; mirrors HeadlineStatus) ---
     corpus_today: float           # = corpus_opening; kept as its own field for clarity
@@ -406,7 +419,6 @@ class GoalPlanningOutput(BaseModel):
     annual_cashflow: list[AnnualCashflowRow]
     fund_flow_summary: FundFlowSummary
     goal_property_details: list[GoalPropertyDetail] = []
-    # DerivedStats deleted entirely (engine-only, no Excel parallel).
 
     # Detail γ — populated only when detail_level == "full".
     # monthly_cashflow is the combined cashflow + corpus monthly view (see MonthlyCashflowRow).
@@ -448,36 +460,15 @@ class RateOverride(BaseModel):
     value: float
 
 
-class PerGoalRateOverride(BaseModel):
-    kind: Literal["per_goal_rate"]
-    goal_name: str
-    rate_kind: Literal["inflation"]
-    value: float
-
-
-class PropertyFieldOverride(BaseModel):
-    kind: Literal["property_field"]
-    property_name: str
-    field: Literal[
-        "mortgage_tenure_years",
-        "mortgage_interest_annual",
-        "upfront_amount",
-        "downpayment_pct",
-        "is_downpayment_only",
-        "goal_date",
-    ]
-    value: float | int | bool | date
-
-
 OverrideSpec = Annotated[
-    Union[NumericOverride, RateOverride, PerGoalRateOverride, PropertyFieldOverride],
+    Union[NumericOverride, RateOverride],
     Field(discriminator="kind"),
 ]
 
 
 class GoalMutation(BaseModel):
     kind: Literal["mutation"]
-    op: Literal["add", "remove", "update"]
+    op: Literal["remove", "update"]
     goal_name: str
     fields: dict[str, Any] = {}
 
@@ -486,8 +477,6 @@ LeverAction = Annotated[
     Union[
         NumericOverride,
         RateOverride,
-        PerGoalRateOverride,
-        PropertyFieldOverride,
         GoalMutation,
     ],
     Field(discriminator="kind"),
@@ -526,8 +515,7 @@ class GoalPropertyDetail(BaseModel):
     goal_date: date
 
 
-# DerivedStats + GoalCategoryAggregate deleted (engine-only, no Excel parallel).
-# Callers wanting peak/min corpus, debt-free date, etc. should scan corpus_monthly_series directly.
+# Callers wanting peak/min corpus, debt-free date, etc. should scan monthly_cashflow directly.
 
 
 class ExtractedGoal(BaseModel):
@@ -559,7 +547,7 @@ class ExtractedCashflow(BaseModel):
 
 class ExtractedMutation(BaseModel):
     kind: Literal["goal_mutation"]
-    op: Literal["add", "remove", "update"]
+    op: Literal["remove", "update"]
     goal_name: str
     fields: dict[str, Any] = {}
 

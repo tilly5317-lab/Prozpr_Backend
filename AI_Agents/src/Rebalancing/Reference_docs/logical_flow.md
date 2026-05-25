@@ -211,10 +211,11 @@ LTCG_RATE_EQUITY_PCT = float(os.getenv("REBAL_LTCG_RATE_EQUITY", "12.5"))
 ST_THRESHOLD_MONTHS_EQUITY = int(os.getenv("REBAL_ST_THRESHOLD_EQUITY", "12"))
 ST_THRESHOLD_MONTHS_DEBT = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 
-# Sub-categories that get the "multi" cap (20%) instead of "others" (10%)
-MULTI_CAP_SUB_CATEGORIES: frozenset[str] = frozenset({
-    "Multi Cap Fund",
-    # add others if & when the sheet's row 280 cap applies to them
+# Asset subgroups that get the "multi" cap (20%) instead of "others" (10%).
+# Multi-asset funds are diversified across asset classes internally, so
+# per-fund concentration risk is lower and the cap is raised.
+MULTI_FUND_CAP_SUBGROUPS: frozenset[str] = frozenset({
+    "multi_asset",
 })
 ```
 
@@ -232,7 +233,7 @@ Tunable without editing code; documented in `CLAUDE.md`.
 
 **Logic:**
 1. Group rows by `asset_subgroup`; within each, sort by `rank` ascending.
-2. For each row: `max_pct = MULTI_FUND_CAP_PCT if sub_category in MULTI_CAP_SUB_CATEGORIES else OTHERS_FUND_CAP_PCT`.
+2. For each row: `max_pct = MULTI_FUND_CAP_PCT if asset_subgroup in MULTI_FUND_CAP_SUBGROUPS else OTHERS_FUND_CAP_PCT`.
 3. Walk ranks in order: if rank-N's `pct > max_pct`, cap it and push the overflow (`(pct − max_pct) × corpus / 100`) into rank-(N+1)'s pre-cap amount. Repeat until all overflow absorbed or last rank reached (residual stays — feeds the "logic not covered" caveat in sheet row 325; engine raises a structured warning instead of silently dropping).
 4. Set `final_target_amount = final_target_pct × corpus / 100`, rounded to `request.rounding_step`.
 

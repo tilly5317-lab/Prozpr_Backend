@@ -16,6 +16,33 @@ _ONE_LAKH = 100_000.0
 _ONE_CRORE = 10_000_000.0
 
 
+# Keep in sync with app/models/profile/risk_profile.RISK_CATEGORIES.
+# Bands are midpoints of the legacy risk_level → willingness conversion
+# (risk_willingness = 1.0 + risk_level * 9.0 / 4.0): anchors are
+# 1.0 / 3.25 / 5.5 / 7.75 / 10.0, so midpoints fall at 2.125, 4.375,
+# 6.625, 8.875.
+RISK_CATEGORIES = (
+    "Conservative",
+    "Moderately Conservative",
+    "Moderate",
+    "Moderately Aggressive",
+    "Aggressive",
+)
+
+
+def category_for_effective_risk_score(score: float) -> str:
+    """Map a 1.0-10.0 effective risk score to one of the five categories."""
+    if score < 2.125:
+        return RISK_CATEGORIES[0]
+    if score < 4.375:
+        return RISK_CATEGORIES[1]
+    if score < 6.625:
+        return RISK_CATEGORIES[2]
+    if score < 8.875:
+        return RISK_CATEGORIES[3]
+    return RISK_CATEGORIES[4]
+
+
 def format_inr_indian(amount: Any) -> str | None:
     """Format a rupee amount in Indian notation (₹X.XX lakh / ₹X.XX crore).
 

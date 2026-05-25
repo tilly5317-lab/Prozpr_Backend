@@ -10,13 +10,18 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.cashflow import (
+        CashflowInputAssumption,
+        CashflowInputOneOffEvent,
+        CashflowPlanRun,
+    )
     from app.models.chat import ChatSession
     from app.models.chat_ai_module_run import ChatAiModuleRun
     from app.models.family_member import FamilyMember
@@ -47,10 +52,17 @@ if TYPE_CHECKING:
         TaxProfile,
         PersonalFinanceProfile,
     )
+    from app.models.profile.user_current_property import UserCurrentProperty
 
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "assumed_lifespan_years IS NULL OR (assumed_lifespan_years BETWEEN 40 AND 130)",
+            name="ck_users_assumed_lifespan_years_range",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -73,6 +85,7 @@ class User(Base):
     currency: Mapped[str] = mapped_column(String(3), default="GBP", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    assumed_lifespan_years: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -159,5 +172,17 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     ai_module_runs: Mapped[List["ChatAiModuleRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    cashflow_assumption: Mapped[Optional["CashflowInputAssumption"]] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    cashflow_one_off_events: Mapped[List["CashflowInputOneOffEvent"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    cashflow_plan_runs: Mapped[List["CashflowPlanRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    current_properties: Mapped[List["UserCurrentProperty"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

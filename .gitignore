@@ -103,3 +103,6 @@ scripts/
 /AI_Agents/src/chat_eval
 MF_Logics/MF_fund_view_data/MF_evaluation framework.xlsx
 MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt
+/AI_Agents/src/asset_allocation_pydantic/Master_testing
+.claude/worktrees/relaxed-hermann-5c135c/
+.claude/worktrees/quirky-bhabha-632a4b/

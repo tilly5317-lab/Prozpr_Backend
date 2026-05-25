@@ -1,6 +1,6 @@
 """Chat handler for the GOAL_PLANNING intent.
 
-Runs the input builder + agent service for the turn's User, then hands the
+Runs the input builder + cashflow engine for the turn's User, then hands the
 resulting ``facts_pack`` to the shared answer-formatter. The formatter LLM
 is the customer-facing voice — this module never templates user-visible
 prose itself; it produces facts and lets the formatter speak.
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _BODY_PROMPT = """\
 You are answering a customer question about their long-term financial plan,
 using a pre-computed goal-planning snapshot produced by Prozpr's deterministic
-engine (which the customer cannot see). The FACTS_PACK gives you every
+cashflow engine (which the customer cannot see). The FACTS_PACK gives you every
 quotable number.
 
 How to read the FACTS_PACK:
@@ -34,9 +34,11 @@ How to read the FACTS_PACK:
   retirement, today's-rupee equivalent.
 - `cashflow_horizon` — totals across the projection (investments, returns,
   one-offs, goal payouts) so you can describe how money flows.
-- `goals` — per-goal verdict (`funded` | `partially_funded` | `unfunded`),
-  the headline amount (already Indian-notation), and a one-sentence note.
-  Use the verdict to colour the language ("on track" vs "short by …").
+- `goals` — per-goal detail: each goal has `verdict` (`funded` |
+  `partially_funded` | `unfunded`), `corpus_required_fv_indian` (the
+  headline amount already in Indian-notation), `shortfall_fv_indian`, and
+  `funded_amount_indian`. Use the verdict to colour the language ("on
+  track" vs "short by …").
 - `narrative` — when present, has `top_line` (a vetted one-line summary
   you may quote), `retirement_note`, `cashflow_note`, and `risks` (a
   vetted bullet list of concerns). When `narrative` is `null` the
@@ -65,20 +67,30 @@ Voice and length:
 
 @register("goal_planning")
 async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
-    """Single chat handler — runs the agent, formats the reply."""
+    """Single chat handler — runs the cashflow engine, formats the reply."""
     try:
         outcome = await compute_goal_planning_snapshot(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
             chat_session_id=str(ctx.session_id),
             anchor_date=date.today(),
+            db=ctx.db,
         )
     except ValueError as e:
         if str(e) == "missing_date_of_birth":
             return ChatHandlerResult(
                 text=(
-                    "I can't run a goal projection yet — your date of birth "
-                    "isn't on your profile. Add it in settings and ask me again."
+                    "To run a goal projection for you, I'll need your date of "
+                    "birth — it anchors the math. Add it in settings, and "
+                    "we'll pick this up right away."
+                ),
+            )
+        if str(e) == "missing_financial_profile":
+            return ChatHandlerResult(
+                text=(
+                    "I need your financial profile to run a cashflow projection — "
+                    "things like annual income, expenses, and current assets. "
+                    "Please update your profile and we'll get this done."
                 ),
             )
         raise

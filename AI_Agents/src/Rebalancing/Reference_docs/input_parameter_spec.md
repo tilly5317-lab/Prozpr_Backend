@@ -65,8 +65,8 @@ Five buckets. Each row: **name · type · default (if any) · source · what it 
 
 | # | Name | Type | Default | Drives |
 | --- | --- | --- | --- | --- |
-| A1 | `multi_fund_cap_pct` | float | 20.0 | Per-fund cap when `sub_category` ∈ multi-cap set (col H, rows 302–304) |
-| A2 | `others_fund_cap_pct` | float | 10.0 | Per-fund cap for every other sub_category (col H) |
+| A1 | `multi_fund_cap_pct` | float | 20.0 | Per-fund cap when `asset_subgroup` ∈ `MULTI_FUND_CAP_SUBGROUPS` (currently `{multi_asset}`); col H |
+| A2 | `others_fund_cap_pct` | float | 10.0 | Per-fund cap for every other `asset_subgroup` (col H) |
 | A3 | `rebalance_min_change_pct` | float | 0.10 | `worth_to_change` flag — skip rebalance if abs(diff) < this fraction of target (col P) |
 | A4 | `exit_floor_rating` | int | 5 | Force `exit_flag=True` (sheet col N `Exit?`) when fund's `our_rating_parameter_1` < this |
 
