@@ -19,6 +19,10 @@ from asset_allocation_pydantic.steps import (
     step2_short_term,
     step3_medium_term,
 )
+from asset_allocation_pydantic.steps.step4_long_term import (
+    ResolvedBounds,
+    phase1_bounds,
+)
 
 
 class InfeasibleGoalError(ValueError):
@@ -94,11 +98,16 @@ class PracticalAllocationOutput(BaseModel):
 
 @dataclass
 class _PracticalLongTermResult:
-    """Internal-only — full shape filled in across Tasks 5-10. Mirrors what
-    Step4Output exposes plus practical-only extras (non_mf_equity_actual,
-    excess_direct_stocks, residual_equity_corpus, etc.)."""
-    # Placeholder fields; Tasks 5-10 expand this.
-    pass
+    """Internal carrier for the long-term step output. Filled in across
+    Tasks 5-10; output assembly (Tasks 11-12) reads from here."""
+    # R157-R165 (Task 5):
+    total_long_term_corpus: int
+    min_equity_elss_pct: float
+    phase1_bounds_allocation_1: ResolvedBounds
+    # Tasks 6-10 will add: allocation_2_*, equities_amount, debt_amount,
+    # others_amount, non_mf_equity_actual, excess_direct_stocks,
+    # residual_equity_corpus, multi_asset block, equity_subgroup_amounts,
+    # subgroup_amounts, future_investment, goals_allocated, etc.
 
 
 def _run_practical_long_term(
@@ -110,9 +119,39 @@ def _run_practical_long_term(
     nfa: Optional[float],
     max_non_mf_equity_pct_client_input: Optional[float],
 ) -> _PracticalLongTermResult:
-    """Long-term step — Excel R157-R222. Filled in across Tasks 5-10."""
-    raise NotImplementedError(
-        "_run_practical_long_term: implementation lands in Tasks 5-10."
+    """Long-term step — Excel R157-R222. Holdings-aware.
+
+    Layout (split across Tasks 5-10):
+      Task 5  (R157-R165): corpus assembly, ELSS floor, first-level bounds.
+      Task 6  (R167-R174): others-gate, second-level allocation pct.
+      Task 7  (R177-R186): amounts, ELSS, non-MF cap, residual_equity.
+      Task 8  (R187-R194): multi-asset block.
+      Task 9  (R196-R215): equity subgroup gates, slider, amounts.
+      Task 10 (R217-R222): debt and others residuals.
+    """
+    # R158: long-term corpus includes ELSS added back (ELSS is locked but
+    # counted toward the long-term equity-class budget).
+    total_long_term_corpus = max(0, int(remaining_corpus + elss_amount))
+
+    # R159: ELSS-as-floor share of long-term equity.
+    if total_long_term_corpus > 0:
+        min_equity_elss_pct = elss_amount / total_long_term_corpus
+    else:
+        min_equity_elss_pct = 0.0
+
+    # R161-R165: first-level asset-class bounds from PHASE1_RISK_BOUNDS,
+    # reused verbatim from asset_allocation_pydantic.
+    bounds_1 = phase1_bounds(
+        score=inp.effective_risk_score,
+        market_commentary=inp.market_commentary,
+        goals=[],  # phase1_bounds does not use goals; pass empty for now.
+        intergenerational_transfer=inp.intergenerational_transfer,
+    )
+
+    return _PracticalLongTermResult(
+        total_long_term_corpus=total_long_term_corpus,
+        min_equity_elss_pct=min_equity_elss_pct,
+        phase1_bounds_allocation_1=bounds_1,
     )
 
 
