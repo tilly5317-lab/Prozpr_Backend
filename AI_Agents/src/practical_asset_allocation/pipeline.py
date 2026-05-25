@@ -25,7 +25,9 @@ from asset_allocation_pydantic.steps.step4_long_term import (
     phase1_bounds,
     phase2_asset_class_pcts,
     phase4_multi_asset,
+    phase5_equity_subgroups,
 )
+from asset_allocation_pydantic.tables import EQUITY_SUBGROUPS
 from asset_allocation_pydantic.utils import round_to_100
 
 
@@ -43,6 +45,13 @@ NFA_BAND_PCT_ABOVE_5CR: float = 0.75
 NFA_BAND_PCT_ABOVE_2CR: float = 0.60
 NFA_BAND_PCT_ABOVE_1CR: float = 0.50
 NFA_BAND_PCT_DEFAULT: float = 0.33
+
+# Spec §B.5 step 9 (R198-R199) — v2 average-based slider.
+# min_equity_pct_required = max(8 - max(0, locked_share - 0.20) * 10, min(3, avg))
+SLIDER_BASE_PCT: float = 8.0
+SLIDER_LOCKED_THRESHOLD: float = 0.20
+SLIDER_LOCKED_MULTIPLIER: float = 10.0
+SLIDER_AVG_CAP_PCT: float = 3.0
 
 
 def _nfa_banded_max_non_mf_equity_pct(nfa: Optional[float]) -> float:
@@ -161,8 +170,11 @@ class _PracticalLongTermResult:
     excess_to_equity: int
     residual_equity_corpus_final: int
     residual_debt_corpus: int
-    # Tasks 9-10 will add: equity_subgroup_amounts, subgroup_amounts,
-    # future_investment, goals_allocated, etc.
+    # R196-R215 (Task 9):
+    average_equity_subgroup_allocation_pct: float
+    min_equity_pct_required: float
+    equity_subgroup_amounts: dict[str, int]  # one entry per EQUITY_SUBGROUPS
+    # Task 10 will add: subgroup_amounts, future_investment, goals_allocated, etc.
 
 
 def _run_practical_long_term(
@@ -375,6 +387,85 @@ def _run_practical_long_term(
         debt_amount - multi_asset_block.debt_component - excess_to_debt,
     )
 
+    # R196-R200: equity subgroup allocation via upstream phase5_equity_subgroups.
+    # This already applies the sector/value view-<= 7 gates and the upstream
+    # PHASE5_MIN_SUBGROUP_SHARE_PCT (2%) internal drop. We then layer the v2
+    # average-based slider on top (R198-R199) and drop+renormalise.
+    initial_subgroup_amounts = phase5_equity_subgroups(
+        total_equity_for_subgroups=residual_equity_corpus_final,
+        score=inp.effective_risk_score,
+        market_commentary=inp.market_commentary,
+    )
+
+    # R198: per-subgroup % OF EQUITIES (the equity slice that funds the MF
+    # subgroup pool — NOT total long-term equities_amount, since ELSS and
+    # non-MF actual are NOT MF subgroup deployment).
+    pct_of_equity_per_subgroup: dict[str, float] = {}
+    if residual_equity_corpus_final > 0:
+        for sg, amt in initial_subgroup_amounts.items():
+            pct_of_equity_per_subgroup[sg] = (
+                amt * 100.0 / residual_equity_corpus_final
+            )
+    else:
+        pct_of_equity_per_subgroup = {sg: 0.0 for sg in initial_subgroup_amounts}
+
+    non_zero_pcts = [pct for pct in pct_of_equity_per_subgroup.values() if pct > 0]
+    average_equity_subgroup_allocation_pct = (
+        sum(non_zero_pcts) / len(non_zero_pcts) if non_zero_pcts else 0.0
+    )
+
+    # R199 (v2 slider): with heavily-locked equity (ELSS + non-MF actual >
+    # 20% of equities_amount), allow a lower-than-8% threshold; cap the lower
+    # bound at min(3, average_subgroup_allocation).
+    if equities_amount > 0:
+        locked_share = (
+            elss_amount_frozen + non_mf_equity_actual
+        ) / equities_amount
+    else:
+        locked_share = 0.0
+    first_term = (
+        SLIDER_BASE_PCT
+        - max(0.0, locked_share - SLIDER_LOCKED_THRESHOLD)
+        * SLIDER_LOCKED_MULTIPLIER
+    )
+    second_term = min(SLIDER_AVG_CAP_PCT, average_equity_subgroup_allocation_pct)
+    min_equity_pct_required = max(first_term, second_term)
+
+    # R200-R215: drop subgroups below the slider threshold; redistribute
+    # proportionally over survivors; convert back to amounts.
+    surviving = {
+        sg: amt for sg, amt in initial_subgroup_amounts.items()
+        if pct_of_equity_per_subgroup.get(sg, 0.0) >= min_equity_pct_required
+    }
+    dropped_total = sum(
+        amt for sg, amt in initial_subgroup_amounts.items()
+        if sg not in surviving
+    )
+    surviving_sum = sum(surviving.values())
+    if surviving_sum > 0 and dropped_total > 0:
+        renormalised = {
+            sg: round_to_100(amt + dropped_total * amt / surviving_sum)
+            for sg, amt in surviving.items()
+        }
+    else:
+        renormalised = dict(surviving)
+
+    # Pad with zeros for the dropped subgroups so the result dict shape stays
+    # exhaustive over EQUITY_SUBGROUPS.
+    equity_subgroup_amounts: dict[str, int] = {sg: 0 for sg in EQUITY_SUBGROUPS}
+    for sg, amt in renormalised.items():
+        equity_subgroup_amounts[sg] = amt
+
+    # Reconcile any residual rounding drift against residual_equity_corpus_final.
+    drift = residual_equity_corpus_final - sum(equity_subgroup_amounts.values())
+    if drift != 0 and any(v > 0 for v in equity_subgroup_amounts.values()):
+        largest_sg = max(
+            equity_subgroup_amounts, key=lambda k: equity_subgroup_amounts[k],
+        )
+        equity_subgroup_amounts[largest_sg] = max(
+            0, equity_subgroup_amounts[largest_sg] + drift,
+        )
+
     return _PracticalLongTermResult(
         total_long_term_corpus=total_long_term_corpus,
         min_equity_elss_pct=min_equity_elss_pct,
@@ -399,6 +490,9 @@ def _run_practical_long_term(
         excess_to_equity=excess_to_equity,
         residual_equity_corpus_final=residual_equity_corpus_final,
         residual_debt_corpus=residual_debt_corpus,
+        average_equity_subgroup_allocation_pct=average_equity_subgroup_allocation_pct,
+        min_equity_pct_required=min_equity_pct_required,
+        equity_subgroup_amounts=equity_subgroup_amounts,
     )
 
 
