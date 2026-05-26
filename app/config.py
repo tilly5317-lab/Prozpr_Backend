@@ -316,6 +316,11 @@ class Settings:
         return Settings._anthropic_key("GENERAL_CHAT_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
+    def get_anthropic_chart_selector_key() -> str | None:
+        """Chart-selector LLM call for chat answers."""
+        return Settings._anthropic_key("CHART_SELECTOR_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
     def get_anthropic_goal_planning_key() -> str | None:
         """Goal planning LangGraph agent + Haiku-based NL extractor."""
         return Settings._anthropic_key("ANTHROPIC_GOAL_PLANNING_API_KEY", "ANTHROPIC_API_KEY")

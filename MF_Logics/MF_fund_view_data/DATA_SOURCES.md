@@ -16,7 +16,7 @@ Both Groww endpoints are public JSON used by groww.in itself — no auth, no Clo
 
 | File | What's in it | Notes |
 |---|---|---|
-| `latest_nav_active.csv` | Universe of active MF schemes with `schemeCode`, `schemeName`, `ISIN_No` (growth / div-reinvestment), `sub_category`, `fundHouse` | Snapshot — refresh per quarter from AMFI/your existing extraction pipeline. This is the only seed input; everything else is fetched or derived from these rows. |
+| `latest_nav_active.csv` | Universe of active MF schemes with `schemeCode`, `schemeName`, `isinGrowth`, `isinDivReinvestment`, `sub_category`, `fundHouse` | Snapshot — refresh per quarter from AMFI/your existing extraction pipeline. This is the only seed input; everything else is fetched or derived from these rows. Both ISIN columns are preserved downstream (`isin_growth`, `isin_div_reinvest`) because customer CAS holdings can be in either. |
 | `MF_evaluation framework.xlsx` | Column layout / section grouping for the output workbook | Reference only; the actual column order is hardcoded in [src/build_xlsx.py](src/build_xlsx.py) `SECTION_GROUPS`. |
 
 ## Derived locally (no network)
@@ -49,7 +49,7 @@ Section ordering matches `SECTION_GROUPS` in [src/build_xlsx.py](src/build_xlsx.
 | Column | Source |
 |---|---|
 | `schemeCode`, `schemeName` | input CSV |
-| `ISIN_No` | input CSV (`isinGrowth` or `isinDivReinvestment`) |
+| `isin_growth`, `isin_div_reinvest` | input CSV (`isinGrowth`, `isinDivReinvestment`) — both carried through; either may match a customer's CAS holding |
 | `asset_class`, `asset_subcategory`, `plan_class`, `div_or_growth`, `investor` | Tier 1 derived |
 | `min_investment`, `asset_size_cr` | **Groww detail** (`min_investment_amount`, `aum`) |
 
@@ -95,7 +95,7 @@ All four (`st_rate`, `st_period`, `lt_rate`, `lt_period`) — Tier 1 rule-based,
 |---|---|
 | `benchmark_token` | our pick (scheme code int or `FIXED_*`/`BLEND_*` token) |
 | `groww_benchmark` | **Groww detail** (`benchmark_name`/`benchmark`) — useful for sanity-checking our mapping |
-| `groww_isin_match` | bool — does Groww's `isin` equal the input CSV's `ISIN_No`? |
+| `groww_isin_match` | bool — does Groww's `isin` equal either `isin_growth` or `isin_div_reinvest` for this scheme? |
 | `_groww_slug` | Groww `search_id` we resolved to (for debugging mismatches) |
 | `nav_start`, `nav_end`, `nav_points` | mfapi.in series span |
 

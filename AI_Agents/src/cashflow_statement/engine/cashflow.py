@@ -99,6 +99,12 @@ def project_cashflow(
             # MONTH-level so the retirement month itself reflects zero income — the
             # corpus payout at retirement_date funds post-retirement expenses in our
             # lump-sum model. Aligns with funding.py's M147 retirement check.
+            #
+            # household_expense is intentionally NOT zeroed here for post-retirement
+            # rows. This loop generates a full FY of rows (including months after
+            # retirement_date in the retirement FY), but pipeline.py truncates those
+            # rows before funding sees them — so the post-retirement expense values
+            # are dead data, never observed downstream.
             is_post_retire = retirement_date is not None and me > retirement_date
             monthly_income = 0.0 if is_post_retire else pre_retire_monthly_income
             monthly_tax = 0.0 if is_post_retire else pre_retire_monthly_tax

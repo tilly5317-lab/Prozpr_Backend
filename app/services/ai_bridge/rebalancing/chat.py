@@ -562,7 +562,8 @@ async def _save_last_counterfactual(
         # telemetry row found. Same guidance message as the state gate.
         return ChatHandlerResult(
             text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
-            snapshot_id=None, rebalancing_recommendation_id=None,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
         )
 
     overrides = payload.get("overrides", {})
