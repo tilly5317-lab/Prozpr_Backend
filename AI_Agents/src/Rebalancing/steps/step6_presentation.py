@@ -37,7 +37,7 @@ from ..models import (
     TradeAction,
 )
 from ..rationales import get_rationale
-from ..tables import MULTI_CAP_SUB_CATEGORIES
+from ..tables import MULTI_FUND_CAP_SUBGROUPS
 from ..utils import estimate_tax
 
 
@@ -52,7 +52,7 @@ def _build_knob_snapshot() -> KnobSnapshot:
         ltcg_rate_equity_pct=LTCG_RATE_EQUITY_PCT,
         st_threshold_months_equity=ST_THRESHOLD_MONTHS_EQUITY,
         st_threshold_months_debt=ST_THRESHOLD_MONTHS_DEBT,
-        multi_cap_sub_categories=sorted(MULTI_CAP_SUB_CATEGORIES),
+        multi_fund_cap_subgroups=sorted(MULTI_FUND_CAP_SUBGROUPS),
     )
 
 
@@ -71,10 +71,12 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
         else:
             action, reason = "SELL", "trim_over_target"
         amt = sold
+        fund_reason = r.rejection_reason
     elif bought > 0:
         action = "BUY"
         reason = "cap_spill_buy" if r.rank > 1 else "add_to_target"
         amt = bought
+        fund_reason = r.selection_reason
     else:
         return None
     title, text = get_rationale(reason)
@@ -88,6 +90,7 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
         reason_code=reason,
         reason_title=title,
         reason_text=text,
+        fund_reason=fund_reason,
     )
 
 

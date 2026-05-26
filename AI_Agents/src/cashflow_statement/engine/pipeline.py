@@ -2,18 +2,17 @@
 from __future__ import annotations
 from datetime import date, datetime, timezone
 
-from financial_primitives.annuity import pmt as pmt_calc
-
 from cashflow_statement.engine import profile as profile_module
-from cashflow_statement.engine.mortgages import _add_months
 
 from cashflow_statement.models import (
-    GoalPlanningInput, GoalPlanningOutput, GoalPropertyDetail, ValidationIssue,
+    GoalPlanningInput, GoalPlanningOutput, ValidationIssue,
 )
 from cashflow_statement.engine.profile import build_initial_context
 from cashflow_statement.engine.retirement import compute_retirement_snapshot
 from cashflow_statement.engine.mortgages import build_existing_mortgages
-from cashflow_statement.engine.properties import build_goal_properties
+from cashflow_statement.engine.properties import (
+    build_goal_properties, build_goal_property_details,
+)
 from cashflow_statement.engine.goals_table import build_goals_table
 from cashflow_statement.engine.cashflow import (
     project_cashflow, derive_annual_cashflow, compute_horizon_years,
@@ -72,51 +71,9 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
 
     existing_mortgages = build_existing_mortgages(input.current_properties, ctx, warnings)
     goal_property_outcomes = build_goal_properties(input.goal_properties, ctx, horizon_end, warnings)
-
-    # Build public-facing GoalPropertyDetail list (lifts internal outcome + source spec).
-    goal_property_details: list[GoalPropertyDetail] = []
-    name_to_goalprop = {gp.name: gp for gp in input.goal_properties}
-    for outcome in goal_property_outcomes:
-        src = name_to_goalprop[outcome.name]
-        # Resolve tenure/interest: user override wins, else assumption default via ctx.
-        tenure_used = (
-            src.mortgage_tenure_years
-            if src.mortgage_tenure_years is not None
-            else ctx.default_mortgage_tenure_years
-        )
-        interest_used = (
-            src.mortgage_interest_annual
-            if src.mortgage_interest_annual is not None
-            else ctx.default_mortgage_interest_annual
-        )
-        if outcome.amortization is not None and outcome.mortgage_amount > 0:
-            # Simple monthly rate `annual/12` everywhere (matches Indian banking).
-            n_months = tenure_used * 12
-            monthly_rate = interest_used / 12
-            emi = pmt_calc(monthly_rate, n_months, outcome.mortgage_amount)
-            total_interest = emi * n_months - outcome.mortgage_amount
-            # Analytical payoff = goal_date + tenure_months (independent of horizon).
-            payoff_date = _add_months(src.goal_date, n_months)
-        else:
-            emi = None
-            total_interest = None
-            payoff_date = None
-        goal_property_details.append(GoalPropertyDetail(
-            name=outcome.name,
-            target_pv=src.target_pv if src.target_pv is not None else outcome.target_fv,
-            target_fv=outcome.target_fv,
-            corpus_required_fv=outcome.corpus_required_fv,
-            is_downpayment_only=src.is_downpayment_only,
-            upfront_amount=src.upfront_amount,
-            downpayment_pct=src.downpayment_pct,
-            mortgage_amount=outcome.mortgage_amount,
-            mortgage_tenure_years=tenure_used,
-            mortgage_interest_annual=interest_used,
-            mortgage_emi_monthly=emi,
-            mortgage_total_interest=total_interest,
-            mortgage_payoff_date=payoff_date,
-            goal_date=src.goal_date,
-        ))
+    goal_property_details = build_goal_property_details(
+        goal_property_outcomes, input.goal_properties, ctx,
+    )
 
     goals_internal = build_goals_table(
         retirement, goal_property_outcomes, input.custom_goals, ctx, input.assumptions, warnings

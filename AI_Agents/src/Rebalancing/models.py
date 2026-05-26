@@ -59,6 +59,12 @@ class FundRowInput(BaseModel):
     fund_rating: int = Field(default=10, ge=1, le=10)
     is_recommended: bool = True
 
+    # Per-fund rationale (carried from the ranking CSV). Populated for recommended
+    # rows (selection_reason) and BAD rows (rejection_reason); the other side is
+    # None. Step 6 surfaces the appropriate one on TradeAction.fund_reason.
+    selection_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
 
 class FundRowAfterStep1(FundRowInput):
     max_pct: float                       # cap that applies to this fund (% of corpus)
@@ -164,7 +170,7 @@ class KnobSnapshot(BaseModel):
     ltcg_rate_equity_pct: float
     st_threshold_months_equity: int
     st_threshold_months_debt: int
-    multi_cap_sub_categories: list[str]
+    multi_fund_cap_subgroups: list[str]
 
 
 class RebalancingRunMetadata(BaseModel):
@@ -185,6 +191,11 @@ class TradeAction(BaseModel):
     reason_code: str                 # machine — stable, analytics
     reason_title: str                # customer card header
     reason_text: str                 # customer card body, one sentence
+    # Per-fund rationale from the ranking CSV. BUY → selection_reason of the
+    # picked fund; SELL/EXIT of a BAD fund → joined rejection reasons.
+    # None when no fund-specific reason applies (e.g., a trim of a recommended
+    # fund — reason_text already covers the "why").
+    fund_reason: Optional[str] = None
 
 
 class SubgroupSummary(BaseModel):
