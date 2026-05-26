@@ -12,7 +12,9 @@ from asset_allocation_pydantic.models import (
     AllocationInput,
     AssetClassAllocation,
     AssetClassBreakdown,
+    AssetClassSplitBlock,
     BucketAllocation,
+    BucketAssetClassSplit,
     ClientSummary,
     FutureInvestment,
     Goal,
@@ -40,6 +42,7 @@ from asset_allocation_pydantic.tables import (
     EQUITY_SUBGROUPS,
     LONG_TERM_BOUNDARY_MONTHS,
     STEP4_SUBGROUPS,
+    SUBGROUP_TO_ASSET_CLASS,
 )
 from asset_allocation_pydantic.utils import round_to_100
 
@@ -595,13 +598,14 @@ def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocati
         max_non_mf_equity_pct_client_input=inp.max_non_mf_equity_pct_client_input,
     )
 
-    # Tasks 11-12 implement step5_aggregation_with_frozen and _build_output.
-    # Until then, this orchestrator can be unit-tested via monkeypatch of
-    # _run_practical_long_term (see test_orchestrator_skeleton.py).
-    raise NotImplementedError(
-        "Output assembly lands in Tasks 11-12; the long-term path above "
-        "is structurally complete and is exercised under monkeypatch."
+    s5 = _step5_aggregation_with_frozen(
+        total_corpus=inp.total_corpus,
+        s1=s1, s2=s2, s3=s3, s4_practical=s4_practical,
+        elss_amount=inp.elss_corpus,
+        non_mf_equity_actual=s4_practical.non_mf_equity_actual,
     )
+
+    return _build_output(inp, s1, s2, s3, s4_practical, s5)
 
 
 def _adapt_practical_to_step4_output(
@@ -678,4 +682,199 @@ def _step5_aggregation_with_frozen(
         rows=rows,
         grand_total=grand_total,
         grand_total_matches_corpus=grand_total_matches_corpus,
+    )
+
+
+def _build_asset_class_breakdown(
+    s1: Step1Output,
+    s2: Step2Output,
+    s3: Step3Output,
+    s4_practical: _PracticalLongTermResult,
+) -> AssetClassBreakdown:
+    """Roll up subgroup amounts to (equity, debt, others) per bucket and
+    overall. Mirrors what step7_presentation does in asset_allocation_pydantic
+    but inlined here so we don't pull in that file's LLM rationale plumbing.
+
+    tax_efficient_equities and non_mf_equities are added as equity in the
+    long_term bucket via the practical-side rollup.
+    """
+    # Long-term: include the frozen ELSS + non-MF as equity (they ARE equity
+    # exposure, just not via MF subgroups in the allocation_pydantic dict).
+    lt_subs = dict(s4_practical.long_term_subgroup_amounts)
+    lt_subs["tax_efficient_equities"] = s4_practical.elss_amount_frozen
+    lt_subs["non_mf_equities"] = s4_practical.non_mf_equity_actual
+
+    bucket_dicts = {
+        "emergency": s1.subgroup_amounts,
+        "short_term": s2.subgroup_amounts,
+        "medium_term": s3.subgroup_amounts,
+        "long_term": lt_subs,
+    }
+
+    # SUBGROUP_TO_ASSET_CLASS doesn't have the two practical-only subgroups;
+    # add them locally as equity.
+    extended_map = dict(SUBGROUP_TO_ASSET_CLASS)
+    extended_map["tax_efficient_equities"] = "equity"
+    extended_map["non_mf_equities"] = "equity"
+
+    def split_with(subs: dict[str, int]) -> tuple[int, int, int]:
+        eq = dt = oth = 0
+        for sg, amt in subs.items():
+            cls = extended_map.get(sg, "others")
+            if cls == "equity":
+                eq += amt
+            elif cls == "debt":
+                dt += amt
+            else:
+                oth += amt
+        return eq, dt, oth
+
+    per_bucket: List[BucketAssetClassSplit] = []
+    for bucket_name, subs in bucket_dicts.items():
+        eq, dt, oth = split_with(subs)
+        tot = eq + dt + oth
+        per_bucket.append(BucketAssetClassSplit(
+            bucket=bucket_name,  # type: ignore[arg-type]
+            equity=eq, debt=dt, others=oth,
+            equity_pct=(eq * 100.0 / tot) if tot else 0.0,
+            debt_pct=(dt * 100.0 / tot) if tot else 0.0,
+            others_pct=(oth * 100.0 / tot) if tot else 0.0,
+        ))
+
+    eq_total = sum(b.equity for b in per_bucket)
+    dt_total = sum(b.debt for b in per_bucket)
+    oth_total = sum(b.others for b in per_bucket)
+    grand = eq_total + dt_total + oth_total
+
+    block = AssetClassSplitBlock(
+        per_bucket=per_bucket,
+        equity_total=eq_total, debt_total=dt_total, others_total=oth_total,
+        equity_total_pct=(eq_total * 100.0 / grand) if grand else 0.0,
+        debt_total_pct=(dt_total * 100.0 / grand) if grand else 0.0,
+        others_total_pct=(oth_total * 100.0 / grand) if grand else 0.0,
+    )
+
+    return AssetClassBreakdown(
+        planned=block,
+        recommended=block,  # practical engine has no separate planned/recommended split
+        recommended_sum_matches_grand_total=True,
+        subgroups=None,
+    )
+
+
+def _build_output(
+    inp: PracticalAllocationInput,
+    s1: Step1Output,
+    s2: Step2Output,
+    s3: Step3Output,
+    s4_practical: _PracticalLongTermResult,
+    s5: Step5Output,
+) -> PracticalAllocationOutput:
+    """Assemble the seven shared fields + corpus_breakdown."""
+
+    # 1. client_summary
+    client_summary = ClientSummary(
+        age=inp.age,
+        occupation=inp.occupation_type,
+        effective_risk_score=inp.effective_risk_score,
+        total_corpus=inp.total_corpus,
+        goals=inp.goals,
+        emergency_fund_months=s1.emergency_fund_months,
+        monthly_household_expense=inp.monthly_household_expense,
+    )
+
+    # 2. bucket_allocations
+    emergency_bucket = BucketAllocation(
+        bucket="emergency",
+        goals=[],
+        total_goal_amount=s1.total_emergency,
+        allocated_amount=s1.total_emergency,
+        future_investment=s1.future_investment,
+        subgroup_amounts=s1.subgroup_amounts,
+    )
+    short_bucket = BucketAllocation(
+        bucket="short_term",
+        goals=s2.goals_allocated,
+        total_goal_amount=s2.total_goal_amount,
+        allocated_amount=s2.allocated_amount,
+        future_investment=s2.future_investment,
+        subgroup_amounts=s2.subgroup_amounts,
+    )
+    medium_bucket = BucketAllocation(
+        bucket="medium_term",
+        goals=[],  # MediumTermGoalAllocation is not the Goal type; keep empty
+        total_goal_amount=s3.total_goal_amount,
+        allocated_amount=s3.allocated_amount,
+        future_investment=s3.future_investment,
+        subgroup_amounts=s3.subgroup_amounts,
+    )
+    long_bucket = BucketAllocation(
+        bucket="long_term",
+        goals=s4_practical.goals_allocated,
+        total_goal_amount=round_to_100(
+            sum(g.amount_needed for g in s4_practical.goals_allocated),
+        ),
+        allocated_amount=sum(s4_practical.long_term_subgroup_amounts.values()),
+        future_investment=s4_practical.future_investment,
+        subgroup_amounts=s4_practical.long_term_subgroup_amounts,
+    )
+
+    # 3. aggregated_subgroups — convert Step5Output.rows to AggregatedSubgroupRow.
+    aggregated = [
+        AggregatedSubgroupRow(
+            subgroup=row.subgroup,
+            emergency=float(row.emergency),
+            short_term=float(row.short_term),
+            medium_term=float(row.medium_term),
+            long_term=float(row.long_term),
+            total=float(row.total),
+        )
+        for row in s5.rows
+    ]
+
+    # 4. future_investments_summary
+    future_summary: List[FutureInvestment] = []
+    for step_out in (s1, s2, s3):
+        if step_out.future_investment is not None:
+            future_summary.append(step_out.future_investment)
+    if s4_practical.future_investment is not None:
+        future_summary.append(s4_practical.future_investment)
+
+    # 5. grand_total, 6. all_amounts_in_multiples_of_100
+    grand_total = float(s5.grand_total)
+    all_mult_100 = all(
+        v % 100 == 0
+        for d in (
+            s1.subgroup_amounts, s2.subgroup_amounts,
+            s3.subgroup_amounts, s4_practical.long_term_subgroup_amounts,
+        )
+        for v in d.values()
+    )
+
+    # 7. asset_class_breakdown
+    asset_class_breakdown = _build_asset_class_breakdown(
+        s1, s2, s3, s4_practical,
+    )
+
+    # corpus_breakdown extras
+    corpus_breakdown = CorpusBreakdown(
+        total_corpus_inr=int(round(inp.total_corpus)),
+        mf_corpus_inr=int(round(inp.mf_corpus)),
+        non_mf_equity_input_inr=int(round(inp.non_mf_equity_corpus)),
+        elss_corpus_inr=int(round(inp.elss_corpus)),
+        rebalancing_corpus_inr=int(round(inp.total_corpus - inp.elss_corpus)),
+        non_mf_equity_actual_inr=s4_practical.non_mf_equity_actual,
+        excess_direct_stocks_inr=s4_practical.excess_direct_stocks,
+        max_non_mf_equity_pct_computed=s4_practical.max_non_mf_equity_pct_considered,
+    )
+
+    return PracticalAllocationOutput(
+        client_summary=client_summary,
+        bucket_allocations=[emergency_bucket, short_bucket, medium_bucket, long_bucket],
+        aggregated_subgroups=aggregated,
+        future_investments_summary=future_summary,
+        grand_total=grand_total,
+        all_amounts_in_multiples_of_100=all_mult_100,
+        asset_class_breakdown=asset_class_breakdown,
+        corpus_breakdown=corpus_breakdown,
     )
