@@ -6,6 +6,7 @@ keep the test offline. Verifies the handler:
 - routes through dispatch_chat
 - propagates the formatter's text back
 - returns the fallback text + an apology when DOB is missing
+- returns an apology when financial profile is missing
 """
 from __future__ import annotations
 
@@ -18,19 +19,19 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _stub_dependencies(monkeypatch):
-    # Importing the chat module triggers @register("goal_planning") side-effect.
     from app.services.ai_bridge.goal_planning import chat as gp_chat
-    from app.services.ai_bridge.goal_planning import service as gp_svc
+    from app.services.ai_bridge.goal_planning.service import (
+        GoalPlanningServiceOutcome,
+    )
 
-    async def fake_compute(*, user, user_question, chat_session_id, anchor_date):
+    async def fake_compute(*, user, user_question, chat_session_id, anchor_date, db=None):
         if getattr(user, "date_of_birth", None) is None:
             raise ValueError("missing_date_of_birth")
-        return SimpleNamespace(
-            snapshot=SimpleNamespace(summary=None),
+        if getattr(user, "personal_finance_profile", None) is None:
+            raise ValueError("missing_financial_profile")
+        return GoalPlanningServiceOutcome(
             facts_pack={"headline": {"corpus_today_indian": "₹5 lakh"}},
             fallback_text="Stub fallback text.",
-            validation_issues=[],
-            defaults_applied=[],
         )
 
     async def fake_formatter(**kwargs):
@@ -38,8 +39,6 @@ def _stub_dependencies(monkeypatch):
 
     monkeypatch.setattr(gp_chat, "compute_goal_planning_snapshot", fake_compute)
     monkeypatch.setattr(gp_chat, "format_with_telemetry", fake_formatter)
-    # Also patch the service's symbol so callers that don't reuse gp_chat work.
-    monkeypatch.setattr(gp_svc, "run_cashflow_statement", lambda *_a, **_k: None)
 
 
 def _ctx(user):
@@ -56,11 +55,12 @@ def _ctx(user):
 @pytest.mark.asyncio
 async def test_handler_routes_through_dispatcher():
     from app.services.ai_bridge.chat_dispatcher import dispatch_chat
-    # Trigger @register side-effect.
     from app.services.ai_bridge.goal_planning import chat as _gp_chat  # noqa: F401
 
     user = SimpleNamespace(
-        date_of_birth=date(1990, 1, 1), first_name="Asha",
+        date_of_birth=date(1990, 1, 1),
+        first_name="Asha",
+        personal_finance_profile=SimpleNamespace(annual_income=1_000_000),
     )
     result = await dispatch_chat("goal_planning", _ctx(user))
     assert result.text.startswith("FORMATTED(goal_planning/narrate)")
@@ -71,6 +71,23 @@ async def test_missing_dob_returns_apology_text():
     from app.services.ai_bridge.chat_dispatcher import dispatch_chat
     from app.services.ai_bridge.goal_planning import chat as _gp_chat  # noqa: F401
 
-    user = SimpleNamespace(date_of_birth=None, first_name=None)
+    user = SimpleNamespace(
+        date_of_birth=None, first_name=None,
+        personal_finance_profile=SimpleNamespace(annual_income=1_000_000),
+    )
     result = await dispatch_chat("goal_planning", _ctx(user))
     assert "date of birth" in result.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_missing_financial_profile_returns_apology():
+    from app.services.ai_bridge.chat_dispatcher import dispatch_chat
+    from app.services.ai_bridge.goal_planning import chat as _gp_chat  # noqa: F401
+
+    user = SimpleNamespace(
+        date_of_birth=date(1990, 1, 1),
+        first_name=None,
+        personal_finance_profile=None,
+    )
+    result = await dispatch_chat("goal_planning", _ctx(user))
+    assert "financial profile" in result.text.lower()
