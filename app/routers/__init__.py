@@ -21,6 +21,7 @@ from app.routers.family import router as family_router
 from app.routers.simbanks import router as simbanks_router
 from app.routers.mf import router as mf_data_router
 from app.routers.mf_ingest import router as mf_ingest_router
+from app.routers.cashflow import router as cashflow_router
 from app.routers.ai_modules import router as ai_modules_router
 
 all_routers = [
@@ -41,5 +42,6 @@ all_routers = [
     simbanks_router,
     mf_data_router,
     mf_ingest_router,
+    cashflow_router,
     ai_modules_router,
 ]

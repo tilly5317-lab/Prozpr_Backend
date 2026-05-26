@@ -13,7 +13,6 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
     Date,
     DateTime,
     Enum as SAEnum,
@@ -34,22 +33,6 @@ from app.models.goals.enums import GoalPriority, GoalStatus
 
 class FinancialGoal(Base):
     __tablename__ = "goals"
-    __table_args__ = (
-        CheckConstraint(
-            "goal_type IN ('retirement', 'property') "
-            "OR goal_value_pv IS NOT NULL OR goal_value_fv IS NOT NULL",
-            name="chk_goal_value_present",
-        ),
-        CheckConstraint(
-            "goal_type <> 'property' OR target_pv IS NOT NULL OR target_fv IS NOT NULL",
-            name="chk_property_target_present",
-        ),
-        CheckConstraint(
-            "goal_type <> 'retirement' "
-            "OR date_of_birth IS NOT NULL",
-            name="chk_retirement_dob",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -58,18 +41,18 @@ class FinancialGoal(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
 
-    # --- Cashflow-unified fields (viewer_db_schema §5.4) ---
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    goal_type: Mapped[CashflowGoalType] = mapped_column(
+    # --- Cashflow-unified fields (added later; nullable for legacy rows) ---
+    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    goal_type: Mapped[Optional[CashflowGoalType]] = mapped_column(
         SAEnum(
             CashflowGoalType,
-            name="goal_type_enum",
+            name="cashflow_goal_type_enum",
             values_callable=lambda e: [m.value for m in e],
-            create_constraint=True,
+            create_constraint=False,
         ),
-        nullable=False,
+        nullable=True,
     )
-    goal_date: Mapped[date] = mapped_column(Date, nullable=False)
+    goal_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     goal_value_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     goal_value_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
@@ -77,8 +60,8 @@ class FinancialGoal(Base):
 
     target_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     target_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
-    is_downpayment_only: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false"
+    is_downpayment_only: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True, server_default="false"
     )
     upfront_amount: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     downpayment_pct: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
@@ -90,16 +73,16 @@ class FinancialGoal(Base):
 
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    # --- Legacy allocation / onboarding (nullable during migration) ---
+    # --- Legacy allocation / onboarding ---
     goal_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     present_value_amount: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     target_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     priority: Mapped[Optional[GoalPriority]] = mapped_column(
-        SAEnum(GoalPriority, name="goal_priority_enum_v2", create_constraint=True),
+        SAEnum(GoalPriority, name="goal_priority_enum_v2", create_constraint=False),
         nullable=True,
     )
     status: Mapped[Optional[GoalStatus]] = mapped_column(
-        SAEnum(GoalStatus, name="goal_status_enum_v2", create_constraint=True),
+        SAEnum(GoalStatus, name="goal_status_enum_v2", create_constraint=False),
         nullable=True,
         default=GoalStatus.ACTIVE,
     )

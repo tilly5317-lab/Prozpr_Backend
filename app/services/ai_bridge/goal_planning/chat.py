@@ -63,6 +63,75 @@ Voice and length:
 """
 
 
+def _build_cashflow_chart_payloads(snapshot) -> list[dict]:
+    """Build chart_payloads for the frontend from the cashflow snapshot."""
+    annual = snapshot.annual_cashflow
+    if not annual:
+        return []
+
+    return [{
+        "type": "cashflow_annual_bar",
+        "title": "Annual Cashflow Projection",
+        "data": [
+            {
+                "fy_label": row.fy_label,
+                "income": float(row.income),
+                "household_expense": float(row.household_expense),
+                "savings_post_emi": float(row.savings_post_emi),
+                "corpus_closing": float(row.corpus_closing),
+                "monthly_investment": float(row.monthly_investment),
+                "goal_payout": float(row.goal_payout),
+            }
+            for row in annual
+        ],
+        "annual_cashflow": [
+            {
+                "fy_end_date": str(row.fy_end_date),
+                "fy_label": row.fy_label,
+                "income": float(row.income),
+                "income_tax": float(row.income_tax),
+                "household_expense": float(row.household_expense),
+                "savings_pre_emi": float(row.savings_pre_emi),
+                "existing_mortgage_emi": float(row.existing_mortgage_emi),
+                "goal_mortgage_emi": float(row.goal_mortgage_emi),
+                "savings_post_emi": float(row.savings_post_emi),
+                "one_off_inflow": float(row.one_off_inflow),
+                "one_off_outflow": float(row.one_off_outflow),
+                "corpus_opening": float(row.corpus_opening),
+                "monthly_investment": float(row.monthly_investment),
+                "investment_returns": float(row.investment_returns),
+                "goal_payout": float(row.goal_payout),
+                "corpus_closing": float(row.corpus_closing),
+                "is_funded": row.is_funded,
+            }
+            for row in annual
+        ],
+        "monthly_cashflow": [
+            {
+                "month_end_date": str(row.month_end_date),
+                "fy_label": row.fy_label,
+                "income": float(row.income),
+                "income_tax": float(row.income_tax),
+                "household_expense": float(row.household_expense),
+                "savings_pre_emi": float(row.savings_pre_emi),
+                "existing_mortgage_emi": float(row.existing_mortgage_emi),
+                "goal_mortgage_emi": float(row.goal_mortgage_emi),
+                "savings_post_emi": float(row.savings_post_emi),
+                "one_off_inflow": float(row.one_off_inflow),
+                "one_off_outflow": float(row.one_off_outflow),
+                "corpus_opening": float(row.corpus_opening),
+                "monthly_investment": float(row.monthly_investment),
+                "investment_source": row.investment_source,
+                "investment_returns": float(row.investment_returns),
+                "goal_payout": float(row.goal_payout),
+                "corpus_closing": float(row.corpus_closing),
+                "is_funded": row.is_funded,
+            }
+            for row in (snapshot.monthly_cashflow or [])
+        ],
+    }]
+
+
 @register("goal_planning")
 async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
     """Single chat handler — runs the agent, formats the reply."""
@@ -93,4 +162,6 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
         profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
         build_fallback=lambda: outcome.fallback_text,
     )
-    return ChatHandlerResult(text=text)
+
+    chart_payloads = _build_cashflow_chart_payloads(outcome.snapshot)
+    return ChatHandlerResult(text=text, chart_payloads=chart_payloads)

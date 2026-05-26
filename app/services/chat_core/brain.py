@@ -104,6 +104,7 @@ class ChatBrain:
             asset_allocation_run_id: uuid.UUID | None = None,
             ideal_allocation_rebalancing_id: uuid.UUID | None = None,
             ideal_allocation_snapshot_id: uuid.UUID | None = None,
+            chart_payloads: list[dict] | None = None,
         ) -> ChatBrainResult:
             ms = int((time.perf_counter() - t_all) * 1000)
             trace_line(f"file: app/services/chat_core/brain.py → finalize (session={sid})")
@@ -140,6 +141,7 @@ class ChatBrain:
                 asset_allocation_run_id=asset_allocation_run_id,
                 ideal_allocation_rebalancing_id=ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=ideal_allocation_snapshot_id,
+                chart_payloads=chart_payloads,
             )
 
         async def run_handler(coro, label: str):
@@ -223,7 +225,7 @@ class ChatBrain:
                 )
                 if result is None:
                     return await finalize(_INTENT_TIMEOUT_MESSAGE)
-                return await finalize(result.text)
+                return await finalize(result.text, chart_payloads=result.chart_payloads)
 
             if intent_value == "rebalancing":
                 from app.services.ai_bridge.chat_dispatcher import dispatch_chat
