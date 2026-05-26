@@ -24,12 +24,18 @@ from asset_allocation_pydantic.models import (
     Step3Output,
     Step4Output,
     Step5Output,
+    SubgroupBreakdown,
+    SubgroupBucketAllocation,
+    SubgroupBucketSplit,
 )
 from asset_allocation_pydantic.steps import (
     step1_emergency,
     step2_short_term,
     step3_medium_term,
     step5_aggregation,
+)
+from asset_allocation_pydantic.equity_subgroup_slider import (
+    apply_equity_subgroup_slider,
 )
 from asset_allocation_pydantic.steps.step4_long_term import (
     ResolvedBounds,
@@ -61,14 +67,6 @@ NFA_BAND_PCT_ABOVE_5CR: float = 0.75
 NFA_BAND_PCT_ABOVE_2CR: float = 0.60
 NFA_BAND_PCT_ABOVE_1CR: float = 0.50
 NFA_BAND_PCT_DEFAULT: float = 0.33
-
-# Spec §B.5 step 9 (R198-R199) — v2 average-based slider.
-# min_equity_pct_required = max(8 - max(0, locked_share - 0.20) * 10, min(3, avg))
-SLIDER_BASE_PCT: float = 8.0
-SLIDER_LOCKED_THRESHOLD: float = 0.20
-SLIDER_LOCKED_MULTIPLIER: float = 10.0
-SLIDER_AVG_CAP_PCT: float = 3.0
-
 
 def _nfa_banded_max_non_mf_equity_pct(nfa: Optional[float]) -> float:
     """R182: returns the NFA-banded max non-MF equity %. Treats None NFA as the
@@ -133,6 +131,10 @@ class CorpusBreakdown(BaseModel):
     """input - actual; drives the SELL_DIRECT_STOCKS recommendation downstream."""
     max_non_mf_equity_pct_computed: float = Field(..., ge=0.0, le=1.0)
     """NFA-banded value used (or override if the advisor provided one)."""
+    lt_equities_amount_inr: int = Field(..., ge=0)
+    """Long-term equity budget (Excel R177). Denominator for the non-MF cap."""
+    non_mf_equity_cap_inr: int = Field(..., ge=0)
+    """Absolute INR cap on non-MF equity = max_pct × lt_equities_amount."""
 
 
 class PracticalAllocationOutput(BaseModel):
@@ -424,69 +426,28 @@ def _run_practical_long_term(
 
     # R196-R200: equity subgroup allocation via upstream phase5_equity_subgroups.
     # This already applies the sector/value view-<= 7 gates and the upstream
-    # PHASE5_MIN_SUBGROUP_SHARE_PCT (2%) internal drop. We then layer the v2
-    # average-based slider on top (R198-R199) and drop+renormalise.
+    # PHASE5_MIN_SUBGROUP_SHARE_PCT (2%) internal drop.
     initial_subgroup_amounts = phase5_equity_subgroups(
         total_equity_for_subgroups=residual_equity_corpus_final,
         score=inp.effective_risk_score,
         market_commentary=inp.market_commentary,
     )
 
-    # R198: per-subgroup % OF EQUITIES (the equity slice that funds the MF
-    # subgroup pool — NOT total long-term equities_amount, since ELSS and
-    # non-MF actual are NOT MF subgroup deployment).
-    pct_of_equity_per_subgroup: dict[str, float] = {}
-    if residual_equity_corpus_final > 0:
-        for sg, amt in initial_subgroup_amounts.items():
-            pct_of_equity_per_subgroup[sg] = (
-                amt * 100.0 / residual_equity_corpus_final
-            )
-    else:
-        pct_of_equity_per_subgroup = {sg: 0.0 for sg in initial_subgroup_amounts}
-
-    non_zero_pcts = [pct for pct in pct_of_equity_per_subgroup.values() if pct > 0]
-    average_equity_subgroup_allocation_pct = (
-        sum(non_zero_pcts) / len(non_zero_pcts) if non_zero_pcts else 0.0
+    # R198-R215: v2 average-based slider via shared helper (single source of
+    # truth across the ideal and practical engines). Denominator for share %
+    # is the MF equity pool (residual_equity_corpus_final, post-ELSS/non-MF/
+    # multi-asset); locked_share denominator is equities_amount (full LT
+    # equity budget) per the spec.
+    renormalised, min_equity_pct_required, average_equity_subgroup_allocation_pct = (
+        apply_equity_subgroup_slider(
+            initial_subgroup_amounts,
+            equity_pool=residual_equity_corpus_final,
+            equities_amount=equities_amount,
+            locked_amount=elss_amount_frozen + non_mf_equity_actual,
+        )
     )
 
-    # R199 (v2 slider): with heavily-locked equity (ELSS + non-MF actual >
-    # 20% of equities_amount), allow a lower-than-8% threshold; cap the lower
-    # bound at min(3, average_subgroup_allocation).
-    if equities_amount > 0:
-        locked_share = (
-            elss_amount_frozen + non_mf_equity_actual
-        ) / equities_amount
-    else:
-        locked_share = 0.0
-    first_term = (
-        SLIDER_BASE_PCT
-        - max(0.0, locked_share - SLIDER_LOCKED_THRESHOLD)
-        * SLIDER_LOCKED_MULTIPLIER
-    )
-    second_term = min(SLIDER_AVG_CAP_PCT, average_equity_subgroup_allocation_pct)
-    min_equity_pct_required = max(first_term, second_term)
-
-    # R200-R215: drop subgroups below the slider threshold; redistribute
-    # proportionally over survivors; convert back to amounts.
-    surviving = {
-        sg: amt for sg, amt in initial_subgroup_amounts.items()
-        if pct_of_equity_per_subgroup.get(sg, 0.0) >= min_equity_pct_required
-    }
-    dropped_total = sum(
-        amt for sg, amt in initial_subgroup_amounts.items()
-        if sg not in surviving
-    )
-    surviving_sum = sum(surviving.values())
-    if surviving_sum > 0 and dropped_total > 0:
-        renormalised = {
-            sg: round_to_100(amt + dropped_total * amt / surviving_sum)
-            for sg, amt in surviving.items()
-        }
-    else:
-        renormalised = dict(surviving)
-
-    # Pad with zeros for the dropped subgroups so the result dict shape stays
-    # exhaustive over EQUITY_SUBGROUPS.
+    # Pad with zeros so the dict stays exhaustive over EQUITY_SUBGROUPS.
     equity_subgroup_amounts: dict[str, int] = {sg: 0 for sg in EQUITY_SUBGROUPS}
     for sg, amt in renormalised.items():
         equity_subgroup_amounts[sg] = amt
@@ -686,6 +647,7 @@ def _step5_aggregation_with_frozen(
 
 
 def _build_asset_class_breakdown(
+    inp: PracticalAllocationInput,
     s1: Step1Output,
     s2: Step2Output,
     s3: Step3Output,
@@ -694,6 +656,12 @@ def _build_asset_class_breakdown(
     """Roll up subgroup amounts to (equity, debt, others) per bucket and
     overall. Mirrors what step7_presentation does in asset_allocation_pydantic
     but inlined here so we don't pull in that file's LLM rationale plumbing.
+
+    Multi-asset subgroup amounts are carved into equity/debt/others using
+    ``inp.multi_asset_composition`` (defaults 65/25/10) before rollup, matching
+    the ideal engine's step7_presentation behaviour. Without this carve, the
+    full multi-asset amount would land in equity (via SUBGROUP_TO_ASSET_CLASS),
+    overstating equity and understating debt/others at the bucket level.
 
     tax_efficient_equities and non_mf_equities are added as equity in the
     long_term bucket via the practical-side rollup.
@@ -717,9 +685,23 @@ def _build_asset_class_breakdown(
     extended_map["tax_efficient_equities"] = "equity"
     extended_map["non_mf_equities"] = "equity"
 
+    comp = inp.multi_asset_composition
+
     def split_with(subs: dict[str, int]) -> tuple[int, int, int]:
         eq = dt = oth = 0
         for sg, amt in subs.items():
+            if sg == "multi_asset" and amt > 0:
+                # Carve the multi-asset slice into its true eq/dt/oth components
+                # (matches step7_presentation._asset_class_breakdown). Round
+                # equity and others, give debt the residual so the three pieces
+                # sum exactly to amt.
+                eq_part = int(round(amt * comp.equity_pct / 100.0))
+                oth_part = int(round(amt * comp.others_pct / 100.0))
+                dt_part = amt - eq_part - oth_part
+                eq += eq_part
+                dt += dt_part
+                oth += oth_part
+                continue
             cls = extended_map.get(sg, "others")
             if cls == "equity":
                 eq += amt
@@ -754,11 +736,43 @@ def _build_asset_class_breakdown(
         others_total_pct=(oth_total * 100.0 / grand) if grand else 0.0,
     )
 
+    # Bucket-keyed subgroup block, matching what the ideal engine emits via
+    # step7_presentation._subgroup_breakdown. The practical engine has no
+    # separate planned/recommended split, so both lists carry identical data.
+    # Long-term picks up the two frozen practical-only rows so they appear in
+    # the structured block too (not just in aggregated_subgroups).
+    def _subgroup_bucket(bucket: str, amounts: dict[str, int]) -> SubgroupBucketSplit:
+        total = sum(amounts.values())
+        rows = [
+            SubgroupBucketAllocation(
+                subgroup=sg,
+                amount=amt,
+                pct_of_bucket=(amt * 100.0 / total) if total else 0.0,
+            )
+            for sg, amt in amounts.items()
+            if amt > 0
+        ]
+        return SubgroupBucketSplit(
+            bucket=bucket,  # type: ignore[arg-type]
+            subgroups=rows,
+        )
+
+    buckets_block = [
+        _subgroup_bucket("emergency", s1.subgroup_amounts),
+        _subgroup_bucket("short_term", s2.subgroup_amounts),
+        _subgroup_bucket("medium_term", s3.subgroup_amounts),
+        _subgroup_bucket("long_term", lt_subs),
+    ]
+    subgroups_block = SubgroupBreakdown(
+        planned=buckets_block,
+        recommended=buckets_block,
+    )
+
     return AssetClassBreakdown(
         planned=block,
         recommended=block,  # practical engine has no separate planned/recommended split
         recommended_sum_matches_grand_total=True,
-        subgroups=None,
+        subgroups=subgroups_block,
     )
 
 
@@ -853,7 +867,7 @@ def _build_output(
 
     # 7. asset_class_breakdown
     asset_class_breakdown = _build_asset_class_breakdown(
-        s1, s2, s3, s4_practical,
+        inp, s1, s2, s3, s4_practical,
     )
 
     # corpus_breakdown extras
@@ -866,6 +880,11 @@ def _build_output(
         non_mf_equity_actual_inr=s4_practical.non_mf_equity_actual,
         excess_direct_stocks_inr=s4_practical.excess_direct_stocks,
         max_non_mf_equity_pct_computed=s4_practical.max_non_mf_equity_pct_considered,
+        lt_equities_amount_inr=s4_practical.equities_amount,
+        non_mf_equity_cap_inr=int(round(
+            s4_practical.max_non_mf_equity_pct_considered
+            * s4_practical.equities_amount,
+        )),
     )
 
     return PracticalAllocationOutput(
