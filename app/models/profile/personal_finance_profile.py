@@ -1,8 +1,9 @@
-"""SQLAlchemy ORM model — `personal_finance_profile.py`.
+"""Household personal-finance profile (1:1 per user).
 
-Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
+Canonical store for income, tax, assets, liabilities, and monthly cashflow
+inputs used by onboarding and the cashflow engine. Scalar duplicates that
+formerly lived on ``investment_profiles`` or ``user_financial`` belong here only.
 """
-
 
 from __future__ import annotations
 
@@ -31,16 +32,24 @@ class PersonalFinanceProfile(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
     )
 
-    # Financially-oriented onboarding/profile fields
     selected_goals: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     custom_goals: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     investment_horizon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    annual_income_min: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    annual_income_max: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    annual_expense_min: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    annual_expense_max: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     wealth_sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     personal_values: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+
+    annual_income: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    effective_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+    financial_assets: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    financial_liabilities_excl_mortgage: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    monthly_household_expense: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    starting_monthly_investment: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

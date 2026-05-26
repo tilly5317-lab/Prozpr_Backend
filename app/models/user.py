@@ -10,7 +10,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, String, func
+from sqlalchemy import Boolean, Date, DateTime, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +47,11 @@ if TYPE_CHECKING:
         TaxProfile,
         PersonalFinanceProfile,
     )
+    from app.models.cashflow import (
+        CashflowInputAssumptions,
+        CashflowOneOffEvent,
+        CashflowPlanRun,
+    )
 
 
 class User(Base):
@@ -67,6 +72,7 @@ class User(Base):
     last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     pan: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True)
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    assumed_lifespan_years: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     occupation: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     family_status: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -83,6 +89,15 @@ class User(Base):
 
     personal_finance_profile: Mapped[Optional["PersonalFinanceProfile"]] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    cashflow_assumptions: Mapped[Optional["CashflowInputAssumptions"]] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    cashflow_one_off_events: Mapped[List["CashflowOneOffEvent"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    cashflow_plan_runs: Mapped[List["CashflowPlanRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
     linked_accounts: Mapped[List["LinkedAccount"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

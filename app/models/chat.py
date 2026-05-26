@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.cashflow.plan_run import CashflowPlanRun
     from app.models.chat_ai_module_run import ChatAiModuleRun
     from app.models.user import User
 
@@ -60,6 +61,9 @@ class ChatSession(Base):
         back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at"
     )
     ai_module_runs: Mapped[List["ChatAiModuleRun"]] = relationship(back_populates="session")
+    cashflow_plan_runs: Mapped[List["CashflowPlanRun"]] = relationship(
+        back_populates="chat_session"
+    )
 
 
 class ChatMessage(Base):
