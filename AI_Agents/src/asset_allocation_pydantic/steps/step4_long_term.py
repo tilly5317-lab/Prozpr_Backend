@@ -12,6 +12,7 @@ from ..models import (
     MultiAssetFundComposition,
     Step4Output,
 )
+from ..equity_subgroup_slider import apply_equity_subgroup_slider
 from ..tables import (
     ASSET_CLASS_RECONCILIATION_TOLERANCE,
     CLAMP_EPSILON,
@@ -22,7 +23,6 @@ from ..tables import (
     LONG_TERM_BOUNDARY_MONTHS,
     MARKET_VIEW_CENTER,
     MARKET_VIEW_HALF_RANGE,
-    MIN_EQUITY_SUBGROUP_SHARE_PCT,
     MULTI_ASSET_EQUITY_CAP_PCT,
     OTHERS_GATE_MARKET_VIEW_THRESHOLD,
     OTHERS_GATE_SCORE_THRESHOLD,
@@ -321,41 +321,29 @@ def phase5_equity_subgroups(
 
 
 def _drop_small_equity_subgroups(
-    equity_subgroup_amounts: dict[str, int], equities_amount: int
+    equity_subgroup_amounts: dict[str, int], equity_for_subgroups: int
 ) -> dict[str, int]:
-    """Drop any equity subgroup whose amount is below MIN_EQUITY_SUBGROUP_SHARE_PCT
-    of total long-term equity, redistributing the freed amount proportionally
-    across the surviving subgroups. Multi-asset is not in this dict so it is
-    naturally excluded from both the filter and the redistribution.
+    """Apply the v2 average-based equity-subgroup slider (spec §B.5 step 9,
+    R196-R215) via the shared ``apply_equity_subgroup_slider`` helper.
+
+    In the ideal engine ``locked_amount = 0`` (no ELSS / non-MF exposure), so
+    the slider collapses to a flat 8% threshold (``SLIDER_BASE_PCT``) — same
+    behaviour as the prior ``MIN_EQUITY_SUBGROUP_SHARE_PCT`` constant but now
+    applied against the equity-for-subgroups pool (post-multi-asset carve)
+    rather than the full long-term equity budget, matching the practical
+    engine's denominator and the share denominator used in
+    ``step6_guardrails`` Rule 3.
+
+    Multi-asset is not in this dict so it is naturally excluded from both the
+    filter and the redistribution.
     """
-    if equities_amount <= 0 or not equity_subgroup_amounts:
-        return equity_subgroup_amounts
-
-    threshold = equities_amount * MIN_EQUITY_SUBGROUP_SHARE_PCT / 100
-    freed = 0
-    working = dict(equity_subgroup_amounts)
-    for sg, amt in list(working.items()):
-        if 0 < amt < threshold:
-            freed += amt
-            working[sg] = 0
-
-    if freed == 0:
-        return working
-
-    surviving_sum = sum(working.values())
-    target_total = surviving_sum + freed
-    if surviving_sum == 0:
-        return working  # nothing left to redistribute into
-
-    redistributed = {
-        sg: round_to_100(amt + freed * amt / surviving_sum) if amt > 0 else 0
-        for sg, amt in working.items()
-    }
-    drift = target_total - sum(redistributed.values())
-    if drift != 0:
-        largest = max(redistributed, key=lambda k: redistributed[k])
-        redistributed[largest] += drift
-    return redistributed
+    result, _min_pct, _avg = apply_equity_subgroup_slider(
+        equity_subgroup_amounts,
+        equity_pool=equity_for_subgroups,
+        equities_amount=0,   # ideal engine: no ELSS/non-MF → locked_share = 0
+        locked_amount=0,
+    )
+    return result
 
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
@@ -404,8 +392,11 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     planned_equity_subgroup_amounts = phase5_equity_subgroups(
         multi.equity_for_subgroups, inp.effective_risk_score, inp.market_commentary
     )
+    # Slider denominator unified across engines: use the equity pool that
+    # actually funds these subgroups (post-multi-asset carve), matching what
+    # step6_guardrails Rule 3 already validates against.
     equity_subgroup_amounts = _drop_small_equity_subgroups(
-        planned_equity_subgroup_amounts, equities_amount
+        planned_equity_subgroup_amounts, multi.equity_for_subgroups
     )
 
     debt_key = (
