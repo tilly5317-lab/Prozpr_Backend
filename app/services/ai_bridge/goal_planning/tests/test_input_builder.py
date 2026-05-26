@@ -166,6 +166,28 @@ def test_home_purchase_emits_property_validation_issue():
     assert any("HOME_PURCHASE" in v for v in debug["validation_issues"])
 
 
+def test_skips_retirement_by_name_not_only_goal_type():
+    """A goal named 'Retirement' must not duplicate engine RetirementInput."""
+    today = date(2026, 5, 15)
+    goals = [
+        _goal(name="Retirement", goal_type="OTHER",
+              pv=20_000_000, target=date(2045, 1, 1)),
+        _goal(name="travel", goal_type="TRAVEL",
+              pv=500_000, target=date(2030, 6, 1)),
+    ]
+    pfp = SimpleNamespace(
+        annual_income=1_000_000,
+        monthly_household_expense=30_000,
+        financial_assets=0,
+        financial_liabilities_excl_mortgage=0,
+        effective_tax_rate=0.25,
+    )
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=goals)
+    inp, debug = build_goal_planning_input_for_user(user, anchor_date=today)
+    assert [g.name for g in inp.custom_goals] == ["travel"]
+    assert any("skipped" in v and "retirement" in v.lower() for v in debug["validation_issues"])
+
+
 def test_output_is_engine_consumable():
     from cashflow_statement import compute_full_projection
 

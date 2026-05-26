@@ -124,8 +124,62 @@ async def apply_postgres_schema_patches() -> None:
                 "ON mf_fund_metadata (isin) WHERE isin IS NOT NULL"
             )
         )
+        # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
+        goal_cols = {
+            row[0]
+            for row in (
+                await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = 'goals'"
+                    )
+                )
+            ).fetchall()
+        }
+        if "name" in goal_cols and "goal_name" in goal_cols:
+            await conn.execute(
+                text(
+                    "UPDATE goals SET goal_name = name "
+                    "WHERE goal_name IS NULL AND name IS NOT NULL AND TRIM(name) <> ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "UPDATE goals SET name = goal_name "
+                    "WHERE name IS NULL AND goal_name IS NOT NULL AND TRIM(goal_name) <> ''"
+                )
+            )
+        if "present_value_amount" in goal_cols:
+            pv_sources = [c for c in ("goal_value_pv", "target_pv", "amount_needed") if c in goal_cols]
+            if pv_sources:
+                coalesce = "COALESCE(present_value_amount, " + ", ".join(pv_sources) + ")"
+                await conn.execute(
+                    text(f"UPDATE goals SET present_value_amount = {coalesce} WHERE present_value_amount IS NULL")
+                )
+        if "goal_value_pv" in goal_cols and "present_value_amount" in goal_cols:
+            await conn.execute(
+                text(
+                    """
+                    UPDATE goals SET goal_value_pv = COALESCE(goal_value_pv, present_value_amount)
+                    WHERE goal_value_pv IS NULL AND present_value_amount IS NOT NULL
+                    """
+                )
+            )
+        if "target_date" in goal_cols and "goal_date" in goal_cols:
+            await conn.execute(
+                text(
+                    "UPDATE goals SET target_date = goal_date "
+                    "WHERE target_date IS NULL AND goal_date IS NOT NULL"
+                )
+            )
+            await conn.execute(
+                text(
+                    "UPDATE goals SET goal_date = target_date "
+                    "WHERE goal_date IS NULL AND target_date IS NOT NULL"
+                )
+            )
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata isin columns)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill)"
     )
 
 

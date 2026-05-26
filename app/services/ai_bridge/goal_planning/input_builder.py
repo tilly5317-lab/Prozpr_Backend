@@ -35,12 +35,23 @@ _ORM_GOAL_TYPE_TO_ENGINE: dict[str, GoalType] = {
     "HOME_PURCHASE": GoalType.property,
 }
 
+# GoalPlanningInput reserves this name for RetirementInput (see engine validator).
+_ENGINE_RESERVED_GOAL_NAMES = frozenset({"retirement"})
+
+
+def _is_engine_retirement_goal(goal_name: str, goal_type_name: str) -> bool:
+    """True when the row duplicates engine retirement (profile + RetirementInput)."""
+    if goal_type_name.upper() == "RETIREMENT":
+        return True
+    return goal_name.casefold() in _ENGINE_RESERVED_GOAL_NAMES
+
 
 def _map_custom_goals(
     financial_goals: List[Any], today: date,
 ) -> tuple[List[CustomGoal], List[str]]:
     issues: List[str] = []
     mapped: List[CustomGoal] = []
+    seen_names: set[str] = set()
     for g in financial_goals:
         status_val = getattr(g, "status", None)
         status_name = (
@@ -54,11 +65,20 @@ def _map_custom_goals(
 
         gt = getattr(g, "goal_type", None)
         gt_name = (gt.value if hasattr(gt, "value") else str(gt or "")).upper()
-        if gt_name in {"RETIREMENT", "retirement"}:
+        goal_name = getattr(g, "name", None) or getattr(g, "goal_name", None) or "goal"
+        norm = goal_name.casefold()
+        if norm in seen_names:
+            issues.append(f"goal:{goal_name} skipped — duplicate name in your goals list.")
+            continue
+        seen_names.add(norm)
+        if _is_engine_retirement_goal(goal_name, gt_name):
+            issues.append(
+                f"goal:{goal_name} skipped — retirement is modeled from your profile "
+                "(date of birth, retirement age, target corpus), not as a custom goal."
+            )
             continue
 
         engine_type = _ORM_GOAL_TYPE_TO_ENGINE.get(gt_name, GoalType.custom)
-        goal_name = getattr(g, "name", None) or getattr(g, "goal_name", None) or "goal"
         pv = float(
             getattr(g, "goal_value_pv", None)
             or getattr(g, "present_value_amount", None)

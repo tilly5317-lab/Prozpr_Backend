@@ -1,26 +1,20 @@
-"""Pydantic schema — `effective_risk.py`.
-
-Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
-"""
-
+"""Pydantic schemas for EffectiveRiskAssessment read/recalculate."""
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class EffectiveRiskAssessmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
-    id: uuid.UUID
     step_name: str = "risk_profile"
-    payload: dict[str, Any]
-    calculations: dict[str, Any] = Field(default_factory=dict)
-    output: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = {}
+    calculations: dict[str, Any] = {}
+    output: dict[str, Any] = {}
     effective_risk_score: Optional[float] = None
     risk_capacity_score: Optional[float] = None
     risk_willingness: Optional[float] = None
@@ -29,9 +23,7 @@ class EffectiveRiskAssessmentResponse(BaseModel):
 
 
 class EffectiveRiskRecalculateResponse(BaseModel):
-    updated: bool
-    assessment: Optional[EffectiveRiskAssessmentResponse] = None
-    detail: Optional[str] = Field(
-        default=None,
-        description="Set when assessment could not be computed (e.g. missing date of birth).",
-    )
+    effective_risk_score: Optional[float] = None
+    risk_capacity_score: Optional[float] = None
+    risk_willingness: Optional[float] = None
+    recalculated: bool = True
