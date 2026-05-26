@@ -1,8 +1,9 @@
-"""SQLAlchemy ORM model — `financial_goal.py`.
+"""SQLAlchemy ORM model — unified ``goals`` table for cashflow + legacy allocation.
 
-Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
+Cashflow engine fields follow ``viewer_db_schema.md`` (retirement, property,
+education, marriage, custom). Legacy allocation columns remain nullable for
+migration from the prior goal shape.
 """
-
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -26,16 +28,26 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-
+from app.models.cashflow.enums import CashflowGoalType
 from app.models.goals.enums import GoalPriority, GoalStatus
 
 
 class FinancialGoal(Base):
     __tablename__ = "goals"
     __table_args__ = (
-        CheckConstraint("present_value_amount > 0", name="ck_goals_present_value_positive"),
         CheckConstraint(
-            "inflation_rate >= 0 AND inflation_rate <= 50", name="ck_goals_inflation_range"
+            "goal_type IN ('retirement', 'property') "
+            "OR goal_value_pv IS NOT NULL OR goal_value_fv IS NOT NULL",
+            name="chk_goal_value_present",
+        ),
+        CheckConstraint(
+            "goal_type <> 'property' OR target_pv IS NOT NULL OR target_fv IS NOT NULL",
+            name="chk_property_target_present",
+        ),
+        CheckConstraint(
+            "goal_type <> 'retirement' "
+            "OR date_of_birth IS NOT NULL",
+            name="chk_retirement_dob",
         ),
     )
 
@@ -46,26 +58,52 @@ class FinancialGoal(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
 
-    goal_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    present_value_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    inflation_rate: Mapped[float] = mapped_column(
-        Numeric(5, 2), nullable=False, server_default="6.00"
+    # --- Cashflow-unified fields (viewer_db_schema §5.4) ---
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    goal_type: Mapped[CashflowGoalType] = mapped_column(
+        SAEnum(
+            CashflowGoalType,
+            name="goal_type_enum",
+            values_callable=lambda e: [m.value for m in e],
+            create_constraint=True,
+        ),
+        nullable=False,
     )
-    target_date: Mapped[date] = mapped_column(Date, nullable=False)
-    priority: Mapped[GoalPriority] = mapped_column(
+    goal_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    goal_value_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    goal_value_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    inflation_rate: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+
+    target_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    target_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    is_downpayment_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    upfront_amount: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    downpayment_pct: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+    inflation_annual: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+    mortgage_tenure_years: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mortgage_interest_annual: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 6), nullable=True
+    )
+
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    # --- Legacy allocation / onboarding (nullable during migration) ---
+    goal_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    present_value_amount: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
+    target_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    priority: Mapped[Optional[GoalPriority]] = mapped_column(
         SAEnum(GoalPriority, name="goal_priority_enum_v2", create_constraint=True),
-        nullable=False,
-        default=GoalPriority.HIGH,
+        nullable=True,
     )
-    status: Mapped[GoalStatus] = mapped_column(
+    status: Mapped[Optional[GoalStatus]] = mapped_column(
         SAEnum(GoalStatus, name="goal_status_enum_v2", create_constraint=True),
-        nullable=False,
+        nullable=True,
         default=GoalStatus.ACTIVE,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # --- Asset-allocation pipeline fields (formerly the per-run snapshot table
-    # ``goal_allocation_goals``; now folded into the canonical goal row). ---
     time_to_goal_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     amount_needed: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     goal_priority: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
@@ -85,3 +123,8 @@ class FinancialGoal(Base):
     holdings: Mapped[List["GoalHolding"]] = relationship(
         back_populates="goal", cascade="all, delete-orphan"
     )
+
+    @property
+    def display_name(self) -> str:
+        """Prefer canonical ``name``; fall back to legacy ``goal_name``."""
+        return self.name or self.goal_name or ""

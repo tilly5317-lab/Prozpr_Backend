@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.portfolio import Portfolio, PortfolioHolding
+from app.models.profile.investment_profile import InvestmentProfile
 from app.models.user import User
 
 
@@ -22,7 +23,9 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
         .options(
             selectinload(User.personal_finance_profile),
             selectinload(User.risk_profile),
-            selectinload(User.investment_profile),
+            selectinload(User.investment_profile).selectinload(
+                InvestmentProfile.current_properties
+            ),
             selectinload(User.effective_risk_assessment),
             selectinload(User.tax_profile),
             selectinload(User.financial_goals),

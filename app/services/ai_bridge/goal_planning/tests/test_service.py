@@ -18,11 +18,15 @@ from app.services.ai_bridge.goal_planning import service as svc
 
 def _user_with_shortfall():
     """Synthetic profile that produces an underfunded plan."""
-    inv = SimpleNamespace(
-        annual_income=1_800_000, regular_outgoings=60_000,
-        investable_assets=1_500_000, total_liabilities=200_000,
-        monthly_savings=20_000, retirement_age=60,
+    pfp = SimpleNamespace(
+        annual_income=1_800_000,
+        monthly_household_expense=60_000,
+        financial_assets=1_500_000,
+        financial_liabilities_excl_mortgage=200_000,
+        starting_monthly_investment=20_000,
+        effective_tax_rate=0.18,
     )
+    inv = SimpleNamespace(retirement_age=60)
     tax = SimpleNamespace(income_tax_rate=18.0)
     goals = [SimpleNamespace(
         goal_name="dream_home",
@@ -34,6 +38,8 @@ def _user_with_shortfall():
     )]
     return SimpleNamespace(
         date_of_birth=date(1994, 7, 22),
+        assumed_lifespan_years=85,
+        personal_finance_profile=pfp,
         investment_profile=inv,
         tax_profile=tax,
         financial_goals=goals,
