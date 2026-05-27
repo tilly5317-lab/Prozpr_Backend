@@ -120,6 +120,7 @@ async def _persist_plan_run(
             user_id=user_id,
             chat_session_id=uuid.UUID(chat_session_id) if chat_session_id else None,
             engine_version=output.engine_version,
+            assumption_id=uuid.uuid4(),
             warnings=output.warnings or [],
             computed_at=output.computed_at,
         )
