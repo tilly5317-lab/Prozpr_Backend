@@ -106,6 +106,12 @@ async def save_onboarding_profile(
     for field, value in user_updates.items():
         if field == "occupation" and value is not None:
             value = value.strip()[:100] if value.strip() else None
+        # `users.currency` is NOT NULL with default 'GBP'. The onboarding
+        # schema carries `currency: Optional[str] = None`, so when the client
+        # omits it on first-time onboarding model_dump() returns None and
+        # SQLAlchemy would write that NULL over the default. Skip it.
+        if field == "currency" and value is None:
+            continue
         setattr(user, field, value)
 
     if existing:
