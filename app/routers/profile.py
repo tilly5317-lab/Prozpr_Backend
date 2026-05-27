@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import CurrentUser, get_effective_user
@@ -64,7 +65,11 @@ async def get_full_profile(
         )
     ).scalar_one_or_none()
     inv_profile = (
-        await db.execute(select(InvestmentProfile).where(InvestmentProfile.user_id == uid))
+        await db.execute(
+            select(InvestmentProfile)
+            .options(selectinload(InvestmentProfile.current_properties))
+            .where(InvestmentProfile.user_id == uid)
+        )
     ).scalar_one_or_none()
     risk = (
         await db.execute(select(RiskProfile).where(RiskProfile.user_id == uid))
@@ -197,17 +202,29 @@ async def update_investment_profile(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(InvestmentProfile).where(InvestmentProfile.user_id == current_user.id)
+    stmt = (
+        select(InvestmentProfile)
+        .options(selectinload(InvestmentProfile.current_properties))
+        .where(InvestmentProfile.user_id == current_user.id)
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
         profile = InvestmentProfile(user_id=current_user.id)
         db.add(profile)
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    payload_data = payload.model_dump(exclude_unset=True)
+    # current_properties is a relationship, not a scalar column — strip it
+    # before the generic setattr loop. (Mutating that list here would also
+    # need eager-loaded existing rows; the dedicated sub-resource endpoint
+    # owns property writes.)
+    payload_data.pop("current_properties", None)
+    for field, value in payload_data.items():
         setattr(profile, field, value)
 
     await db.commit()
-    await db.refresh(profile)
+    # Re-fetch with the relationship eagerly loaded so Pydantic can serialise
+    # without triggering implicit IO under expired attributes.
+    profile = (await db.execute(stmt)).scalar_one()
     await maybe_recalculate_effective_risk(db, current_user.id, "investment_profile_update")
     await db.commit()
     return InvestmentProfileResponse.model_validate(profile)
@@ -218,7 +235,11 @@ async def get_investment_profile(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(InvestmentProfile).where(InvestmentProfile.user_id == current_user.id)
+    stmt = (
+        select(InvestmentProfile)
+        .options(selectinload(InvestmentProfile.current_properties))
+        .where(InvestmentProfile.user_id == current_user.id)
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investment profile not found")
