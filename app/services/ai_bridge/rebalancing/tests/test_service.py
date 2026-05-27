@@ -18,6 +18,51 @@ ensure_ai_agents_path()
 # ── Task 12: build_rebal_facts_pack + build_fallback_rebal_brief ─────────────
 
 
+def _build_min_practical_output():
+    """Minimal PracticalAllocationOutput for tests that don't exercise it."""
+    from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]
+        AssetClassBreakdown,
+        AssetClassSplitBlock,
+        BucketAssetClassSplit,
+        ClientSummary,
+    )
+    from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
+        CorpusBreakdown,
+        PracticalAllocationOutput,
+    )
+
+    empty_bucket = BucketAssetClassSplit(
+        bucket="long_term", equity=0, debt=0, others=0,
+        equity_pct=0.0, debt_pct=0.0, others_pct=0.0,
+    )
+    block = AssetClassSplitBlock(
+        per_bucket=[empty_bucket],
+        equity_total=0, debt_total=0, others_total=0,
+        equity_total_pct=0.0, debt_total_pct=0.0, others_total_pct=0.0,
+    )
+    return PracticalAllocationOutput(
+        client_summary=ClientSummary(
+            age=35, effective_risk_score=5.0, total_corpus=0.0, goals=[],
+        ),
+        bucket_allocations=[],
+        aggregated_subgroups=[],
+        future_investments_summary=[],
+        grand_total=0.0,
+        all_amounts_in_multiples_of_100=True,
+        asset_class_breakdown=AssetClassBreakdown(
+            planned=block, recommended=block,
+            recommended_sum_matches_grand_total=True,
+        ),
+        corpus_breakdown=CorpusBreakdown(
+            total_corpus_inr=0, mf_corpus_inr=0,
+            non_mf_equity_input_inr=0, elss_corpus_inr=0,
+            rebalancing_corpus_inr=0, non_mf_equity_actual_inr=0,
+            excess_direct_stocks_inr=0, max_non_mf_equity_pct_computed=0.33,
+            lt_equities_amount_inr=0, non_mf_equity_cap_inr=0,
+        ),
+    )
+
+
 def _build_min_response():
     """Minimal RebalancingComputeResponse reused from the conftest fixture pattern."""
     from datetime import datetime
@@ -69,6 +114,7 @@ def _build_min_response():
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=_build_min_practical_output(),
     )
 
 
@@ -137,6 +183,7 @@ def _build_response_with_subgroup(holding_inr: float):
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=_build_min_practical_output(),
     )
 
 
@@ -282,6 +329,7 @@ def _build_response_with_funds(funds: list):
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=_build_min_practical_output(),
     )
 
 
