@@ -52,6 +52,17 @@ RATIONALES: dict[str, dict[str, str]] = {
             "Exiting it maintains the quality standard of your portfolio."
         ),
     },
+    "sell_excess_direct_stocks": {
+        "title": "Trim direct-stock holdings",
+        "text": (
+            "Your direct stock holdings exceed the level we'd recommend for "
+            "your wealth bracket — concentrated single-stock positions are "
+            "hard to manage well without active research. We recommend "
+            "selling ₹{amount} and reallocating to diversified mutual funds, "
+            "which give you the same equity exposure with much less "
+            "single-name risk."
+        ),
+    },
 }
 
 
