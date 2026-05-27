@@ -55,6 +55,7 @@ from app.models.mf import (
 )
 from app.models.notification import Notification
 from app.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHolding, PortfolioHistory
+from app.models.user_portfolio_nav_history import UserPortfolioNavHistory
 from app.models.rebalancing import (
     RebalancingFundRow,
     RebalancingRun,
@@ -157,4 +158,5 @@ __all__ = [
     "UserCurrentProperty",
     "UserInvestmentList",
     "UserMfLatestSnapshot",
+    "UserPortfolioNavHistory",
 ]

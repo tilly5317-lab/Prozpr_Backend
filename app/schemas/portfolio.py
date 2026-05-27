@@ -79,6 +79,25 @@ class PortfolioHistoryResponse(BaseModel):
     total_value: float
 
 
+class PortfolioNavHistoryPoint(BaseModel):
+    """One daily row in the per-user portfolio-NAV time series."""
+
+    model_config = {"from_attributes": True}
+
+    recorded_date: date
+    total_value: float
+    total_invested: float
+    gain_percentage: float
+
+
+class PortfolioNavHistoryResponse(BaseModel):
+    horizon: str
+    points: list[PortfolioNavHistoryPoint]
+    total_invested: float
+    current_value: float
+    gain_percentage: float
+
+
 class RecommendedPlanSnapshotResponse(BaseModel):
     """Latest persisted ideal allocation snapshot (``portfolio_allocation_snapshots``)."""
 

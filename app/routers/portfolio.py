@@ -24,6 +24,8 @@ from app.schemas.portfolio import (
     PortfolioDetailResponse,
     PortfolioHistoryResponse,
     PortfolioHoldingResponse,
+    PortfolioNavHistoryPoint,
+    PortfolioNavHistoryResponse,
     PortfolioResponse,
     RecommendedPlanResponse,
     RecommendedPlanSnapshotResponse,
@@ -31,6 +33,11 @@ from app.schemas.portfolio import (
 from app.services.finvu_portfolio_sync import apply_finvu_bucket_snapshot
 from app.services.effective_risk_profile import maybe_recalculate_effective_risk
 from app.services.portfolio_service import get_or_create_primary_portfolio
+from app.services.user_nav_history_service import (
+    HORIZON_DAYS,
+    get_user_nav_history,
+    recompute_user_nav_history,
+)
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
@@ -181,6 +188,53 @@ async def get_history(
         .limit(limit)
     )
     return [PortfolioHistoryResponse.model_validate(h) for h in result.scalars().all()]
+
+
+@router.get("/nav-history", response_model=PortfolioNavHistoryResponse)
+async def get_nav_history(
+    horizon: str = Query(default="1Y", pattern="^(?i)(1M|1Y|3Y|MAX)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Daily per-user portfolio value series for the dashboard chart.
+
+    Computed from the user's holdings (units × backcast NAV) and cached in
+    ``user_portfolio_nav_history``. Re-runs are idempotent.
+    """
+    horizon_norm = horizon.upper()
+    rows = await get_user_nav_history(db, current_user.id, horizon=horizon_norm)
+    points = [PortfolioNavHistoryPoint.model_validate(r) for r in rows]
+    invested = float(rows[-1].total_invested) if rows else 0.0
+    current = float(rows[-1].total_value) if rows else 0.0
+    gain_pct = float(rows[-1].gain_percentage) if rows else 0.0
+    return PortfolioNavHistoryResponse(
+        horizon=horizon_norm,
+        points=points,
+        total_invested=invested,
+        current_value=current,
+        gain_percentage=gain_pct,
+    )
+
+
+@router.post("/nav-history/refresh", response_model=PortfolioNavHistoryResponse)
+async def refresh_nav_history(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Force a recompute of the user's daily NAV history (MAX window)."""
+    await recompute_user_nav_history(db, current_user.id, days=HORIZON_DAYS["MAX"])
+    rows = await get_user_nav_history(db, current_user.id, horizon="MAX")
+    points = [PortfolioNavHistoryPoint.model_validate(r) for r in rows]
+    invested = float(rows[-1].total_invested) if rows else 0.0
+    current = float(rows[-1].total_value) if rows else 0.0
+    gain_pct = float(rows[-1].gain_percentage) if rows else 0.0
+    return PortfolioNavHistoryResponse(
+        horizon="MAX",
+        points=points,
+        total_invested=invested,
+        current_value=current,
+        gain_percentage=gain_pct,
+    )
 
 
 @router.post("/finvu/sync", response_model=FinvuPortfolioSyncResponse, deprecated=True)
