@@ -37,7 +37,7 @@ from ..models import (
     TradeAction,
 )
 from ..rationales import get_rationale
-from ..tables import MULTI_FUND_CAP_SUBGROUPS
+from ..tables import SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
 
 
@@ -52,7 +52,10 @@ def _build_knob_snapshot() -> KnobSnapshot:
         ltcg_rate_equity_pct=LTCG_RATE_EQUITY_PCT,
         st_threshold_months_equity=ST_THRESHOLD_MONTHS_EQUITY,
         st_threshold_months_debt=ST_THRESHOLD_MONTHS_DEBT,
-        multi_fund_cap_subgroups=sorted(MULTI_FUND_CAP_SUBGROUPS),
+        # Derived from SUBGROUP_FUND_CAP_PCT to preserve the legacy snapshot
+        # field (set of subgroups with a non-default cap). Task 9 replaces the
+        # whole snapshot to expose the full cap dict instead.
+        multi_fund_cap_subgroups=sorted(SUBGROUP_FUND_CAP_PCT.keys()),
     )
 
 
