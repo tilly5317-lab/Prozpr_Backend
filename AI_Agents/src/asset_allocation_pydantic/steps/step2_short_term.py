@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ..models import AllocationInput, FutureInvestment, Goal, Step2Output
+from ..models import AllocationInput, FutureInvestment, Step2Output
 from ..tables import (
     MEDIUM_TERM_BOUNDARY_MONTHS,
     TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD,
