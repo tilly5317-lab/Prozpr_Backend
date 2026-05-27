@@ -1,10 +1,11 @@
 import os
-from typing import Literal, Optional
+import re
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .models import (
     ClassificationInput,
@@ -45,6 +46,20 @@ _OutOfScopeSubreasonLiteral = Literal[
 ]
 
 
+# Strips stray XML/tool-call closing tokens that Anthropic structured-output
+# tool-calls occasionally leak into a field value (observed in prod:
+# is_follow_up = "true</is_follow_up>\n</invoke>"). Anything from the first
+# '<' onward — plus trailing whitespace — is discarded.
+_TAG_NOISE_RE = re.compile(r"<[^>]*>.*$", re.DOTALL)
+
+
+def _scrub_tag_noise(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    cleaned = _TAG_NOISE_RE.sub("", value).strip()
+    return cleaned
+
+
 class _LLMOutput(BaseModel):
     """Structured output schema returned by the LLM.
 
@@ -67,6 +82,23 @@ class _LLMOutput(BaseModel):
             "security_or_credentials, chat_summary, off_topic, other. Null otherwise."
         ),
     )
+
+    # Defensive scrubbers: Anthropic's tool-call serializer occasionally leaks
+    # a closing tag into a value (e.g. "true</is_follow_up>"). Strip the tag
+    # debris before each field's type coercion runs.
+    @field_validator("intent", "is_follow_up", "out_of_scope_subreason", mode="before")
+    @classmethod
+    def _scrub_str_fields(cls, v: Any) -> Any:
+        return _scrub_tag_noise(v)
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _scrub_reasoning(cls, v: Any) -> Any:
+        # Reasoning can legitimately contain '<' (rare, but possible). Only
+        # strip a trailing closing tag if it looks like serializer leakage.
+        if not isinstance(v, str):
+            return v
+        return re.sub(r"\s*</[A-Za-z_][\w-]*>\s*$", "", v).strip()
 
 
 def _format_history(history: list[ConversationMessage]) -> str:

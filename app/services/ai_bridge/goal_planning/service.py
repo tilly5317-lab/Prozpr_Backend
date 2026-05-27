@@ -28,6 +28,11 @@ class GoalPlanningServiceOutcome:
     """Result of a goal-planning engine run, ready for the answer-formatter."""
     facts_pack: dict[str, Any]
     fallback_text: str
+    # Raw engine output (`cashflow_statement.GoalPlanningOutput`). The chat
+    # handler reads `snapshot.annual_cashflow` / `snapshot.monthly_cashflow`
+    # to build chart payloads — keep this even though the facts_pack already
+    # mirrors most of it as Indian-notation strings.
+    snapshot: Any = None
     plan_run_id: uuid.UUID | None = None
 
 
@@ -53,32 +58,13 @@ async def compute_goal_planning_snapshot(
     if db is None:
         raise ValueError("Database session required for goal planning")
 
-    input_kwargs = await build_goal_planning_input_for_user(user, db, anchor_date)
+    # Builder is sync and returns the fully-constructed GoalPlanningInput plus
+    # a debug dict. Don't await it and don't try to re-construct from kwargs.
+    gp_input, _debug = build_goal_planning_input_for_user(user, anchor_date)
 
-    from cashflow_statement.models import (
-        Assumptions,
-        ClientProfile,
-        CurrentProperty,
-        CustomGoal,
-        GoalPlanningInput,
-        GoalPlanningOutput,
-        GoalProperty,
-        OneOffEvent,
-        RetirementInput,
-    )
+    from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
     from cashflow_statement.summarizer import summarize_plan
-
-    gp_input = GoalPlanningInput(
-        assumptions=Assumptions(**input_kwargs["assumptions"]),
-        profile=ClientProfile(**input_kwargs["profile"]),
-        retirement=RetirementInput(**input_kwargs["retirement"]),
-        current_properties=[CurrentProperty(**p) for p in input_kwargs["current_properties"]],
-        goal_properties=[GoalProperty(**g) for g in input_kwargs["goal_properties"]],
-        custom_goals=[CustomGoal(**g) for g in input_kwargs["custom_goals"]],
-        one_off_inflows=[OneOffEvent(**e) for e in input_kwargs["one_off_inflows"]],
-        one_off_outflows=[OneOffEvent(**e) for e in input_kwargs["one_off_outflows"]],
-    )
 
     output: GoalPlanningOutput = await asyncio.to_thread(compute_full_projection, gp_input)
 
@@ -96,6 +82,7 @@ async def compute_goal_planning_snapshot(
     return GoalPlanningServiceOutcome(
         facts_pack=facts_pack,
         fallback_text=fallback_text,
+        snapshot=output,
         plan_run_id=plan_run_id,
     )
 
