@@ -65,7 +65,7 @@ def _serialize_plan_run(run) -> CashflowPlanRunDetailResponse:
         chat_session_id=run.chat_session_id,
         engine_version=run.engine_version,
         cause=run.cause,
-        assumption_id=run.assumption_id,
+        assumption_id=run.assumption_id or run.id,
         warnings=run.warnings or [],
         computed_at=run.computed_at,
         created_at=run.created_at,
@@ -102,7 +102,7 @@ async def get_latest_cashflow(
     """Return the latest cashflow plan run. Auto-computes if stale or missing."""
     existing = await get_latest_plan_run(db, current_user.id)
 
-    if existing is None or existing.is_stale:
+    if existing is None or existing.is_stale or existing.assumption_id is None:
         try:
             return await _compute_and_persist(db, user)
         except ValueError as e:

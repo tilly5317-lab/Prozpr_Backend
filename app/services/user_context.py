@@ -35,7 +35,6 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
             .selectinload(PortfolioHolding.fund_metadata),
             selectinload(User.cashflow_assumptions),
             selectinload(User.cashflow_one_off_events),
-            selectinload(User.current_properties),
         )
         .where(User.id == user_id)
     )
