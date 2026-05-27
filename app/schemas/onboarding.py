@@ -7,7 +7,6 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. Kep
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field

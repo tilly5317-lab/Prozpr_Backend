@@ -113,7 +113,6 @@ async def _persist_plan_run(
             CashflowFundFlowSummary,
             CashflowHeadline,
             CashflowPlanRun,
-            CashflowPlanSummary,
         )
 
         run = CashflowPlanRun(

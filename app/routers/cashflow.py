@@ -25,7 +25,6 @@ from app.schemas.cashflow.outputs import (
 )
 from app.services.cashflow_persist_service import (
     get_latest_plan_run,
-    mark_stale,
     persist_plan_run,
 )
 
