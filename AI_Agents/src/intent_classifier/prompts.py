@@ -38,7 +38,7 @@ Example questions:
 ---
 
 ### 2. goal_planning
-The customer's **primary ask is feasibility, achievability, or required-savings math** — questions whose natural answer is a number or a yes/no about whether a future target is reachable. The hallmark is that the answer requires running future-value math (and possibly probability bands), not producing an allocation.
+The customer's **primary ask is feasibility, achievability, required-savings math, or a cashflow projection** — questions whose natural answer is a number, a yes/no about whether a future target is reachable, or a full cashflow / goal-funding breakdown. The hallmark is that the answer requires running future-value math, cashflow projections, or goal-funding analysis — not producing an allocation.
 
 Triggers when the customer is asking:
 - Whether a future financial target (retirement corpus, child's education, house down-payment, vacation, car, emergency fund) is achievable on their current trajectory
@@ -46,6 +46,9 @@ Triggers when the customer is asking:
 - How much they need to save / invest each month to reach a target by a date
 - What corpus they will end up with given a current SIP and horizon
 - Whether their current savings rate is sufficient to meet a goal
+- For a **cashflow statement, cashflow projection, or cashflow analysis** — how their income, expenses, savings, and goal payouts flow over time
+- For a **goal funding summary** — which goals are funded, underfunded, or have shortfalls
+- Any question mentioning "cashflow", "cash flow", "goal projection", "financial plan", or "goal funding"
 
 Example questions:
 - "Am I on track for my goals?"
@@ -53,8 +56,16 @@ Example questions:
 - "How much do I need to save monthly for my daughter's college in 10 years?"
 - "At my current ₹50k/month SIP, what corpus will I have in 20 years?"
 - "Will my current SIP be enough to hit ₹2 crore by 2040?"
+- "Show my cashflow"
+- "What does my cashflow look like?"
+- "Run a cashflow projection for me"
+- "Show me my financial plan"
+- "Are my goals funded?"
+- "What's my goal funding status?"
 
 Key distinction from asset_allocation: `asset_allocation` answers **"where should I put my money?"** (target mix given the customer's profile); `goal_planning` answers **"is my plan getting me to my targets — am I on track, and what does it take?"** (feasibility math against a future date). "Am I on track?" / "will I hit my target?" framings ask about the *trajectory*, not the mix, and belong here. A goal mention alone does not flip the intent — only a feasibility / required-savings / on-track ask does. **Compound feasibility + allocation asks** ("at ₹50k/month, can I hit ₹10cr in 15 years, and where should I invest?") classify as `goal_planning` — the feasibility component leads.
+
+Key distinction from portfolio_query: `portfolio_query` answers **"what do I currently hold and how is it performing?"** — a read-back of existing holdings. `goal_planning` answers **"what does my cashflow / financial plan / goal funding look like going forward?"** — a forward-looking projection. Any question about "cashflow", "cash flow", "financial plan", "goal projection", or "goal funding" belongs here, NOT in portfolio_query.
 
 ---
 
@@ -269,25 +280,19 @@ These cases are easy to misclassify. Apply these rules explicitly:
 """
 
 OUT_OF_SCOPE_MESSAGE = (
-    "I'm currently set up to help with asset allocation, portfolio queries, "
-    "and general market commentary. Your question falls outside what I can handle today "
-    "— but we're actively building more capabilities on the platform. Feel free to ask "
-    "me about your portfolio, your investments, or what's happening in the markets!"
-)
-
-GOAL_PLANNING_MESSAGE = (
-    "Goal planning — checking whether a target like '₹5 crore in 15 years' is "
-    "achievable, and what monthly investment would get you there — is something "
-    "we're actively building. I can't run that math for you yet.\n\n"
-    "If you'd like, tell me how much you have to invest (a lump sum, or a monthly "
-    "amount) and your time horizon, and I can suggest an allocation that fits. "
-    "Once goal planning is live, I'll be able to tell you whether the target is "
-    "reachable and what it would take."
+    "I'm Tilly — at Prozpr, I'm here to help you with your portfolio, your "
+    "asset allocation, rebalancing, and what's happening in the markets. "
+    "That's where I can add the most value today, and we're actively expanding "
+    "what I can do for you. In the meantime, I'd be happy to help — ask me "
+    "about your investments, your allocation, or the markets, and we'll take "
+    "it from there."
 )
 
 STOCK_ADVICE_MESSAGE = (
-    "I'm Tilly — at Prozpr, we don't recommend investing directly in individual stocks. "
-    "Instead, we believe in building a well-diversified portfolio through mutual funds "
-    "— a smarter approach that spreads your risk across many companies and helps you "
-    "achieve your financial goals in life. Ask me about which mutual funds might be right for you!"
+    "I'm Tilly — at Prozpr, we typically don't advise on individual stocks unless "
+    "someone has the expertise to actively manage them. Instead, we focus on helping "
+    "you build a well-diversified portfolio through carefully selected funds, designed "
+    "to outperform across market cycles and support your long-term financial goals. "
+    "I'd be happy to help you with your portfolio allocation and identify funds that "
+    "could be a good fit for you."
 )

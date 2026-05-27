@@ -14,7 +14,7 @@ from ..tables import (
     MEDIUM_TERM_BOUNDARY_MONTHS,
     MEDIUM_TERM_HORIZON_MAX,
     MEDIUM_TERM_HORIZON_MIN,
-    MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE,
+    MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE,
     MEDIUM_TERM_RISK_MEDIUM_MAX,
     MEDIUM_TERM_SPLIT,
     TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD,
@@ -23,7 +23,8 @@ from ..utils import round_to_100
 
 
 def _risk_bucket(score: float) -> Literal["Low", "Medium", "High"]:
-    if score < MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE:
+    # A.5: lower < score <= upper convention.
+    if score <= MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE:
         return "Low"
     if score <= MEDIUM_TERM_RISK_MEDIUM_MAX:
         return "Medium"
@@ -33,13 +34,13 @@ def _risk_bucket(score: float) -> Literal["Low", "Medium", "High"]:
 def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
     goals_in_bucket = [
         g for g in inp.goals
-        if MEDIUM_TERM_BOUNDARY_MONTHS <= g.time_to_goal_months <= LONG_TERM_BOUNDARY_MONTHS
+        if MEDIUM_TERM_BOUNDARY_MONTHS <= g.time_to_goal_months < LONG_TERM_BOUNDARY_MONTHS
     ]
     risk_bucket = _risk_bucket(inp.effective_risk_score)
     debt_key = (
         "arbitrage_plus_income"
         if inp.effective_tax_rate >= TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD
-        else "debt_subgroup"
+        else "short_debt"
     )
 
     allocations: list[MediumTermGoalAllocation] = []
@@ -51,6 +52,10 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
             MEDIUM_TERM_HORIZON_MAX, max(MEDIUM_TERM_HORIZON_MIN, floor(g.time_to_goal_months / 12))
         )
         eq_pct, dt_pct = MEDIUM_TERM_SPLIT[(horizon, risk_bucket)]
+        # A.4: when equities market view is very bearish (<= 3), force the Low
+        # (most conservative) column across all medium-term horizons.
+        if inp.market_commentary.equities <= 3:
+            eq_pct, dt_pct = MEDIUM_TERM_SPLIT[(horizon, "Low")]
         eq_amt = round_to_100(g.amount_needed * eq_pct / 100)
         dt_amt = round_to_100(g.amount_needed * dt_pct / 100)
         total_equity += eq_amt

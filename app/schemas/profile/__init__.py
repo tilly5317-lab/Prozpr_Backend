@@ -1,9 +1,3 @@
-"""Pydantic schema — `__init__.py`.
-
-Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
-"""
-
-
 from app.schemas.profile.constraints import (
     AllocationConstraintItem,
     InvestmentConstraintResponse,
@@ -14,14 +8,38 @@ from app.schemas.profile.effective_risk import (
     EffectiveRiskRecalculateResponse,
 )
 from app.schemas.profile.full_profile import FullProfileResponse
-from app.schemas.profile.investment import InvestmentProfileResponse, InvestmentProfileUpdate
-from app.schemas.profile.personal import PersonalInfoResponse, PersonalInfoUpdate
-from app.schemas.profile.review import ReviewPreferenceResponse, ReviewPreferenceUpdate
-from app.schemas.profile.risk import RiskProfileResponse, RiskProfileUpdate
-from app.schemas.profile.tax import TaxProfileResponse, TaxProfileUpdate
+from app.schemas.profile.investment import (
+    CurrentPropertyItem,
+    CurrentPropertyResponse,
+    InvestmentProfileResponse,
+    InvestmentProfileUpdate,
+)
+from app.schemas.profile.personal import (
+    PersonalFinanceFields,
+    PersonalFinanceResponse,
+    PersonalFinanceUpdate,
+    PersonalInfoResponse,
+    PersonalInfoUpdate,
+    PersonalProfileResponse,
+    PersonalProfileUpdate,
+)
+from app.schemas.profile.review import (
+    ReviewPreferenceResponse,
+    ReviewPreferenceUpdate,
+)
+from app.schemas.profile.risk import (
+    RiskProfileResponse,
+    RiskProfileUpdate,
+)
+from app.schemas.profile.tax import (
+    TaxProfileResponse,
+    TaxProfileUpdate,
+)
 
 __all__ = [
     "AllocationConstraintItem",
+    "CurrentPropertyItem",
+    "CurrentPropertyResponse",
     "EffectiveRiskAssessmentResponse",
     "EffectiveRiskRecalculateResponse",
     "FullProfileResponse",
@@ -29,8 +47,13 @@ __all__ = [
     "InvestmentConstraintUpdate",
     "InvestmentProfileResponse",
     "InvestmentProfileUpdate",
+    "PersonalFinanceFields",
+    "PersonalFinanceResponse",
+    "PersonalFinanceUpdate",
     "PersonalInfoResponse",
     "PersonalInfoUpdate",
+    "PersonalProfileResponse",
+    "PersonalProfileUpdate",
     "ReviewPreferenceResponse",
     "ReviewPreferenceUpdate",
     "RiskProfileResponse",

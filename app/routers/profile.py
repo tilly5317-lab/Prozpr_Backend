@@ -109,8 +109,8 @@ async def get_full_profile(
                 {
                     "occupation": user.occupation if user else None,
                     "family_status": user.family_status if user else None,
-                    "wealth_sources": profile.wealth_sources if profile else None,
-                    "personal_values": profile.personal_values if profile else None,
+                    "wealth_sources": (profile.wealth_sources or []) if profile else [],
+                    "personal_values": (profile.personal_values or []) if profile else [],
                     "address": user.address if user else None,
                     "currency": user.currency if user else "GBP",
                 }
@@ -143,8 +143,8 @@ async def get_personal_info(
         {
             "occupation": user.occupation if user else None,
             "family_status": user.family_status if user else None,
-            "wealth_sources": profile.wealth_sources if profile else None,
-            "personal_values": profile.personal_values if profile else None,
+            "wealth_sources": (profile.wealth_sources or []) if profile else [],
+            "personal_values": (profile.personal_values or []) if profile else [],
             "address": user.address if user else None,
             "currency": user.currency if user else "GBP",
         }
@@ -182,8 +182,8 @@ async def update_personal_info(
         {
             "occupation": user.occupation,
             "family_status": user.family_status,
-            "wealth_sources": profile.wealth_sources,
-            "personal_values": profile.personal_values,
+            "wealth_sources": profile.wealth_sources or [],
+            "personal_values": profile.personal_values or [],
             "address": user.address,
             "currency": user.currency,
         }

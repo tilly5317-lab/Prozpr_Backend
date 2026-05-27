@@ -1,8 +1,4 @@
-"""FastAPI router — `onboarding.py`.
-
-Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
-"""
-
+"""FastAPI router — `onboarding.py`."""
 
 from __future__ import annotations
 
@@ -27,6 +23,21 @@ from app.schemas.onboarding import (
 
 router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
 
+_USER_FIELDS = {"date_of_birth", "occupation", "assumed_lifespan_years", "family_status", "address", "currency"}
+_PFP_FIELDS = {
+    "selected_goals",
+    "custom_goals",
+    "investment_horizon",
+    "wealth_sources",
+    "personal_values",
+    "annual_income",
+    "effective_tax_rate",
+    "financial_assets",
+    "financial_liabilities_excl_mortgage",
+    "monthly_household_expense",
+    "starting_monthly_investment",
+}
+
 
 def _other_investment_to_legacy_response(row: OtherInvestment) -> OtherAssetResponse:
     return OtherAssetResponse(
@@ -34,6 +45,46 @@ def _other_investment_to_legacy_response(row: OtherInvestment) -> OtherAssetResp
         asset_name=row.investment_name,
         asset_type=row.investment_type,
         current_value=float(row.present_value),
+    )
+
+
+def _profile_to_response(user: User, profile: PersonalFinanceProfile) -> OnboardingProfileResponse:
+    return OnboardingProfileResponse(
+        user_id=user.id,
+        date_of_birth=user.date_of_birth,
+        assumed_lifespan_years=user.assumed_lifespan_years,
+        occupation=user.occupation,
+        family_status=user.family_status,
+        address=user.address,
+        currency=user.currency,
+        selected_goals=profile.selected_goals or [],
+        custom_goals=profile.custom_goals or [],
+        investment_horizon=profile.investment_horizon,
+        wealth_sources=profile.wealth_sources or [],
+        personal_values=profile.personal_values or [],
+        annual_income=float(profile.annual_income) if profile.annual_income is not None else None,
+        effective_tax_rate=(
+            float(profile.effective_tax_rate) if profile.effective_tax_rate is not None else None
+        ),
+        financial_assets=(
+            float(profile.financial_assets) if profile.financial_assets is not None else None
+        ),
+        financial_liabilities_excl_mortgage=(
+            float(profile.financial_liabilities_excl_mortgage)
+            if profile.financial_liabilities_excl_mortgage is not None
+            else None
+        ),
+        monthly_household_expense=(
+            float(profile.monthly_household_expense)
+            if profile.monthly_household_expense is not None
+            else None
+        ),
+        starting_monthly_investment=(
+            float(profile.starting_monthly_investment)
+            if profile.starting_monthly_investment is not None
+            else None
+        ),
+        updated_at=profile.updated_at,
     )
 
 
@@ -50,23 +101,19 @@ async def save_onboarding_profile(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    payload_data = payload.model_dump(exclude_unset=existing is not None)
+    user_updates = {k: payload_data.pop(k) for k in list(payload_data) if k in _USER_FIELDS}
+    for field, value in user_updates.items():
+        if field == "occupation" and value is not None:
+            value = value.strip()[:100] if value.strip() else None
+        setattr(user, field, value)
+
     if existing:
-        payload_data = payload.model_dump(exclude_unset=True)
-        date_of_birth = payload_data.pop("date_of_birth", None)
-        occupation = payload_data.pop("occupation", None)
         for field, value in payload_data.items():
-            setattr(existing, field, value)
-        if date_of_birth is not None:
-            user.date_of_birth = date_of_birth
-        if occupation is not None:
-            user.occupation = occupation.strip()[:100] if occupation.strip() else None
+            if field in _PFP_FIELDS:
+                setattr(existing, field, value)
         profile = existing
     else:
-        payload_data = payload.model_dump()
-        user.date_of_birth = payload_data.pop("date_of_birth", None)
-        occupation = payload_data.pop("occupation", None)
-        if occupation is not None:
-            user.occupation = occupation.strip()[:100] if occupation.strip() else None
         profile = PersonalFinanceProfile(user_id=current_user.id, **payload_data)
         db.add(profile)
 
@@ -78,17 +125,7 @@ async def save_onboarding_profile(
     except Exception:
         await db.rollback()
 
-    return OnboardingProfileResponse(
-        user_id=current_user.id,
-        date_of_birth=user.date_of_birth,
-        selected_goals=profile.selected_goals or [],
-        custom_goals=profile.custom_goals or [],
-        investment_horizon=profile.investment_horizon,
-        annual_income_min=profile.annual_income_min,
-        annual_income_max=profile.annual_income_max,
-        annual_expense_min=profile.annual_expense_min,
-        annual_expense_max=profile.annual_expense_max,
-    )
+    return _profile_to_response(user, profile)
 
 
 @router.get("/profile", response_model=OnboardingProfileResponse)
@@ -103,17 +140,7 @@ async def get_onboarding_profile(
     if not profile or not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
 
-    return OnboardingProfileResponse(
-        user_id=current_user.id,
-        date_of_birth=user.date_of_birth,
-        selected_goals=profile.selected_goals or [],
-        custom_goals=profile.custom_goals or [],
-        investment_horizon=profile.investment_horizon,
-        annual_income_min=profile.annual_income_min,
-        annual_income_max=profile.annual_income_max,
-        annual_expense_min=profile.annual_expense_min,
-        annual_expense_max=profile.annual_expense_max,
-    )
+    return _profile_to_response(user, profile)
 
 
 @router.post("/other-assets", response_model=list[OtherAssetResponse])
@@ -122,51 +149,36 @@ async def save_other_assets(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    await db.execute(delete(OtherInvestment).where(OtherInvestment.user_id == current_user.id))
-
-    today = datetime.now(timezone.utc).date()
-    assets = []
-    for item in payload.assets:
-        pv = item.current_value if item.current_value is not None else 0.0
-        inv = OtherInvestment(
+    await db.execute(
+        delete(OtherInvestment).where(OtherInvestment.user_id == current_user.id)
+    )
+    rows = [
+        OtherInvestment(
             user_id=current_user.id,
-            investment_type=(item.asset_type or "OTHER").strip()[:50],
-            investment_name=item.asset_name.strip()[:200],
-            present_value=pv,
-            as_of_date=today,
+            investment_name=asset.asset_name,
+            investment_type=asset.asset_type,
+            present_value=asset.current_value or 0,
             status=OtherInvestmentStatus.ACTIVE,
         )
-        db.add(inv)
-        assets.append(inv)
-
+        for asset in payload.assets
+    ]
+    db.add_all(rows)
     await db.commit()
-    for a in assets:
-        await db.refresh(a)
-
-    return [_other_investment_to_legacy_response(a) for a in assets]
-
-
-@router.get("/other-assets", response_model=list[OtherAssetResponse])
-async def get_other_assets(
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(get_effective_user),
-):
-    stmt = select(OtherInvestment).where(OtherInvestment.user_id == current_user.id)
-    result = await db.execute(stmt)
-    return [_other_investment_to_legacy_response(a) for a in result.scalars().all()]
+    for row in rows:
+        await db.refresh(row)
+    return [_other_investment_to_legacy_response(r) for r in rows]
 
 
-@router.post("/complete")
+@router.post("/complete", status_code=status.HTTP_204_NO_CONTENT)
 async def complete_onboarding(
     payload: OnboardingCompleteRequest,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(User).where(User.id == current_user.id)
-    user = (await db.execute(stmt)).scalar_one_or_none()
+    user_stmt = select(User).where(User.id == current_user.id)
+    user = (await db.execute(user_stmt)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
     user.is_onboarding_complete = payload.is_complete
+    user.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return {"message": "Onboarding completed", "is_onboarding_complete": payload.is_complete}

@@ -1,27 +1,23 @@
-"""Pydantic schema — `constraints.py`.
-
-Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
-"""
-
+"""Pydantic schemas for InvestmentConstraint and AllocationConstraint read/update."""
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
 
 class AllocationConstraintItem(BaseModel):
+    model_config = {"from_attributes": True}
+
     asset_class: str
     min_allocation: Optional[float] = None
     max_allocation: Optional[float] = None
 
 
 class InvestmentConstraintUpdate(BaseModel):
-    permitted_assets: Optional[list[str]] = None
-    prohibited_instruments: Optional[list[str]] = None
+    permitted_assets: Optional[list[Any]] = None
+    prohibited_instruments: Optional[list[Any]] = None
     is_leverage_allowed: Optional[bool] = None
     is_derivatives_allowed: Optional[bool] = None
     diversification_notes: Optional[str] = None
@@ -31,11 +27,9 @@ class InvestmentConstraintUpdate(BaseModel):
 class InvestmentConstraintResponse(BaseModel):
     model_config = {"from_attributes": True}
 
-    id: uuid.UUID
-    permitted_assets: Optional[list[str]] = None
-    prohibited_instruments: Optional[list[str]] = None
+    permitted_assets: Optional[list[Any]] = None
+    prohibited_instruments: Optional[list[Any]] = None
     is_leverage_allowed: Optional[bool] = None
     is_derivatives_allowed: Optional[bool] = None
     diversification_notes: Optional[str] = None
     allocation_constraints: list[AllocationConstraintItem] = []
-    updated_at: Optional[datetime] = None

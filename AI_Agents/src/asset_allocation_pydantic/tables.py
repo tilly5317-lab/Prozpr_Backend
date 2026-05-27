@@ -102,11 +102,9 @@ SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
     "high_beta_equities": "equity",
     "value_equities": "equity",
     "dividend_equities": "equity",
-    "tax_efficient_equities": "equity",
     "sector_equities": "equity",
     "us_equities": "equity",
     "multi_asset": "equity",
-    "debt_subgroup": "debt",
     "short_debt": "debt",
     "arbitrage": "debt",
     "arbitrage_plus_income": "debt",
@@ -151,25 +149,28 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
 
 # Bucket boundaries (in months) used when classifying goals.
 # short-term:   months <  MEDIUM_TERM_BOUNDARY_MONTHS
-# medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <= LONG_TERM_BOUNDARY_MONTHS
-# long-term:    months >  LONG_TERM_BOUNDARY_MONTHS
-MEDIUM_TERM_BOUNDARY_MONTHS: int = 24
-LONG_TERM_BOUNDARY_MONTHS: int = 60
+# medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <  LONG_TERM_BOUNDARY_MONTHS
+# long-term:    months >= LONG_TERM_BOUNDARY_MONTHS
+MEDIUM_TERM_BOUNDARY_MONTHS: int = 36
+LONG_TERM_BOUNDARY_MONTHS: int = 72
 # Medium-term horizon (years) clamp used to pick a row from MEDIUM_TERM_SPLIT.
 MEDIUM_TERM_HORIZON_MIN: int = 3
 MEDIUM_TERM_HORIZON_MAX: int = 5
 
-# Tax-rate thresholds (%) for routing debt allocations to arbitrage vs pure debt.
-# `>=` comparison: at the threshold itself, allocation routes to arbitrage.
-# Short-term uses a higher bar (30%) since tax efficiency matters less for <2y
-# holdings; medium/long-term uses 15% since arbitrage gains get equity taxation.
-TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 30.0
+# Tax-rate thresholds (%) for routing debt allocations.
+#
+# Emergency + short-term: strict `>` comparison against 20%. Above 20% → pure
+# arbitrage (short-duration, equity-taxed); 20% or below → short_debt.
+#
+# Medium + long-term: `>=` comparison against 15%. At or above 15% →
+# arbitrage_plus_income (FoF, equity-taxed); strictly below → short_debt.
+TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 20.0
 TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
 
 # Long-term equity subgroups smaller than this share of total long-term equity
 # are dropped and their amount is redistributed proportionally across the
-# remaining equity subgroups (ELSS and multi-asset are excluded from both the
-# filter and the redistribution).
+# remaining equity subgroups (multi-asset is excluded from both the filter
+# and the redistribution).
 MIN_EQUITY_SUBGROUP_SHARE_PCT: float = 8.0
 
 # Phase 5 internal: within the equity-subgroups split itself, any subgroup whose
@@ -177,10 +178,10 @@ MIN_EQUITY_SUBGROUP_SHARE_PCT: float = 8.0
 PHASE5_MIN_SUBGROUP_SHARE_PCT: int = 2
 
 # Medium-term risk-bucket thresholds (on the effective_risk_score 1-10 scale).
-# score < LOW_MAX_EXCLUSIVE → Low
-# LOW_MAX_EXCLUSIVE <= score <= MEDIUM_MAX → Medium
+# lower < score <= LOW_MAX_INCLUSIVE → Low
+# LOW_MAX_INCLUSIVE < score <= MEDIUM_MAX → Medium
 # score > MEDIUM_MAX → High
-MEDIUM_TERM_RISK_LOW_MAX_EXCLUSIVE: float = 4.0
+MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE: float = 4.0
 MEDIUM_TERM_RISK_MEDIUM_MAX: float = 7.0
 
 
@@ -194,11 +195,8 @@ INTERGEN_MIN_AGE: int = 60
 INTERGEN_SCORE_BOOST: float = 2.0
 INTERGEN_SCORE_CAP: float = 9.0
 
-# Phase 3 ELSS: section 80C annual limit (₹).
-SECTION_80C_LIMIT: int = 150000
-
 # Phase 4 multi-asset equity cap: the fund's equity slice may consume at most
-# this fraction of the residual equity corpus.
+# this fraction of the long-term equity corpus.
 MULTI_ASSET_EQUITY_CAP_PCT: float = 0.50
 
 # Phase 5 market-view gates: subgroups are dropped when the view <= threshold.
@@ -228,8 +226,8 @@ CLAMP_MAX_ITER: int = 8
 MARKET_VIEW_CENTER: float = 5.0
 MARKET_VIEW_HALF_RANGE: float = 5.0
 
-# Long-term equity subgroups split by Phase 5 (ELSS and multi-asset live
-# outside this list). Shared between step 4 (allocation) and step 6 (guardrails).
+# Long-term equity subgroups split by Phase 5 (multi-asset lives outside this
+# list). Shared between step 4 (allocation) and step 6 (guardrails).
 EQUITY_SUBGROUPS: tuple[str, ...] = (
     "us_equities",
     "low_beta_equities",
@@ -239,13 +237,12 @@ EQUITY_SUBGROUPS: tuple[str, ...] = (
     "value_equities",
 )
 
-# Every subgroup step 4 may write: ELSS + multi-asset + long-term equity split
-# + one debt bucket + gold. (short_debt and arbitrage are short-term-only.)
+# Every subgroup step 4 may write: multi-asset + long-term equity split + one
+# debt bucket (arbitrage_plus_income when tax-efficient, else short_debt) + gold.
 STEP4_SUBGROUPS: tuple[str, ...] = (
-    "tax_efficient_equities",
     "multi_asset",
     *EQUITY_SUBGROUPS,
-    "debt_subgroup",
+    "short_debt",
     "arbitrage_plus_income",
     "gold_commodities",
 )

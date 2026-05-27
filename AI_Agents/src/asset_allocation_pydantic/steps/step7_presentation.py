@@ -31,13 +31,15 @@ RationaleFn = Callable[
 ]
 
 
-def _client_summary(inp: AllocationInput) -> ClientSummary:
+def _client_summary(inp: AllocationInput, step1: Step1Output) -> ClientSummary:
     return ClientSummary(
         age=inp.age,
         occupation=inp.occupation_type,
         effective_risk_score=inp.effective_risk_score,
         total_corpus=inp.total_corpus,
         goals=list(inp.goals),
+        emergency_fund_months=step1.emergency_fund_months,
+        monthly_household_expense=inp.monthly_household_expense,
     )
 
 
@@ -191,7 +193,7 @@ def _asset_class_breakdown(
         bucket="medium_term", equity=mt_planned_eq, debt=mt_planned_dt, others=0,
     )
 
-    # Long-term planned: Phase-2 output (before ELSS/multi-asset/overage).
+    # Long-term planned: Phase-2 output (before multi-asset/overage).
     ac_planned = step4.planned_asset_class_allocation or step4.asset_class_allocation
     long_planned = BucketAssetClassSplit(
         bucket="long_term",
@@ -204,7 +206,7 @@ def _asset_class_breakdown(
     # Medium-term: multi-asset slice decomposed via inp composition.
     mt_multi = step3.subgroup_amounts.get("multi_asset", 0)
     mt_pure_debt = (
-        step3.subgroup_amounts.get("debt_subgroup", 0)
+        step3.subgroup_amounts.get("short_debt", 0)
         + step3.subgroup_amounts.get("arbitrage_plus_income", 0)
     )
     comp = inp.multi_asset_composition
@@ -268,7 +270,7 @@ def run(
     step5: Step5Output,
     rationale_fn: Optional[RationaleFn] = None,
 ) -> GoalAllocationOutput:
-    client_summary = _client_summary(inp)
+    client_summary = _client_summary(inp, step1)
     bucket_allocations = _bucket_allocations(inp, step1, step2, step3, step4)
     aggregated_subgroups = _aggregated_subgroups(step5)
 

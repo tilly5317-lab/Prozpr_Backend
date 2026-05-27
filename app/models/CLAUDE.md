@@ -6,8 +6,12 @@ One file or subpackage per domain. Column-level detail lives in
 ## Child modules
 
 - **profile/** — user profile tables: risk tolerance, tax, constraints, other
-  assets.
-- **goals/** — goals, contributions, goal-holdings.
+  assets, current properties, personal-finance / cashflow `ClientProfile` row.
+- **goals/** — goals (legacy + cashflow-engine columns merged into one
+  `goals` table), contributions, goal-holdings.
+- **cashflow/** — cashflow-statement persistence: per-user inputs
+  (assumptions, one-off events) plus per-run outputs (plan runs, annual /
+  monthly rows, headline, fund flow summary, plan summary).
 - **mf/** — MF ledger, SIPs, NAV, snapshots, fund lists.
 - **stocks/** — equity transactions, prices, company metadata.
 
