@@ -209,6 +209,7 @@ async def send_message(
     assistant_response.intent = brain_result.intent
     assistant_response.intent_confidence = brain_result.intent_confidence
     assistant_response.intent_reasoning = brain_result.intent_reasoning
+    assistant_response.chart_payloads = brain_result.chart_payloads
 
     return ChatSendMessageResponse(
         user_message=ChatMessageResponse.model_validate(user_msg),

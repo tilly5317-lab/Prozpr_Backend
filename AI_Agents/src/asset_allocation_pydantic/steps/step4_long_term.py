@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from ..models import (
     AllocationInput,
     AssetClassAllocation,
-    ElssBlock,
     FutureInvestment,
     Goal,
     MarketCommentaryScores,
@@ -32,7 +30,6 @@ from ..tables import (
     PHASE5_EQUITY_SUBGROUP_BOUNDS,
     PHASE5_MARKET_VIEW_GATES,
     PHASE5_MIN_SUBGROUP_SHARE_PCT,
-    SECTION_80C_LIMIT,
     STEP4_SUBGROUPS,
     TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD,
 )
@@ -184,38 +181,11 @@ def phase2_asset_class_pcts(
     return ints[0], ints[1], ints[2]
 
 
-# ── Phase 3 — ELSS first-pass ─────────────────────────────────────────────────
-
-
-def phase3_elss(
-    equities_amount: int,
-    tax_regime: Literal["old", "new"],
-    section_80c_utilized: float,
-) -> ElssBlock:
-    applicable = tax_regime == "old" and section_80c_utilized < SECTION_80C_LIMIT
-    if not applicable:
-        return ElssBlock(
-            applicable=False,
-            elss_headroom=None,
-            elss_amount=0,
-            residual_equity_corpus=equities_amount,
-        )
-    headroom = SECTION_80C_LIMIT - int(section_80c_utilized)
-    elss_amount = round_to_100(min(headroom, equities_amount))
-    residual = max(0, equities_amount - elss_amount)
-    return ElssBlock(
-        applicable=True,
-        elss_headroom=headroom,
-        elss_amount=elss_amount,
-        residual_equity_corpus=residual,
-    )
-
-
 # ── Phase 4 — multi-asset fund decomposition ──────────────────────────────────
 
 
 def phase4_multi_asset(
-    residual_equity_corpus: int,
+    equities_amount: int,
     debt_amount: int,
     others_amount: int,
     composition: MultiAssetFundComposition,
@@ -226,12 +196,12 @@ def phase4_multi_asset(
 
     INF = float("inf")
     max_x_eq = (
-        (MULTI_ASSET_EQUITY_CAP_PCT * residual_equity_corpus) / eq_pct if eq_pct > 0 else INF
+        (MULTI_ASSET_EQUITY_CAP_PCT * equities_amount) / eq_pct if eq_pct > 0 else INF
     )
     max_x_dt = debt_amount / dt_pct if dt_pct > 0 else INF
 
     candidate = min(max_x_eq, max_x_dt)
-    if candidate == INF or candidate <= 0 or residual_equity_corpus <= 0 or debt_amount <= 0:
+    if candidate == INF or candidate <= 0 or equities_amount <= 0 or debt_amount <= 0:
         multi_asset_amount = 0
     else:
         multi_asset_amount = round_to_100(candidate)
@@ -244,9 +214,9 @@ def phase4_multi_asset(
     # (e.g. others_gate zeroed it), the excess is funded by shrinking the equity
     # subgroup pool — not by trimming the fund.
     overage = max(0, others_component - others_amount)
-    equity_for_subgroups = max(0, residual_equity_corpus - equity_component - overage)
-    debt_for_subgroups = max(0, debt_amount - debt_component)
-    remaining_others_for_gold = max(0, others_amount - others_component)
+    equity_for_subgroups = round_to_100(max(0, equities_amount - equity_component - overage))
+    debt_for_subgroups = round_to_100(max(0, debt_amount - debt_component))
+    remaining_others_for_gold = round_to_100(max(0, others_amount - others_component))
 
     return MultiAssetBlock(
         multi_asset_amount=multi_asset_amount,
@@ -355,8 +325,8 @@ def _drop_small_equity_subgroups(
 ) -> dict[str, int]:
     """Drop any equity subgroup whose amount is below MIN_EQUITY_SUBGROUP_SHARE_PCT
     of total long-term equity, redistributing the freed amount proportionally
-    across the surviving subgroups. ELSS and multi-asset are not in this dict
-    so they are naturally excluded from both the filter and the redistribution.
+    across the surviving subgroups. Multi-asset is not in this dict so it is
+    naturally excluded from both the filter and the redistribution.
     """
     if equities_amount <= 0 or not equity_subgroup_amounts:
         return equity_subgroup_amounts
@@ -389,24 +359,13 @@ def _drop_small_equity_subgroups(
 
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
-    lt_goals = [g for g in inp.goals if g.time_to_goal_months > LONG_TERM_BOUNDARY_MONTHS]
+    lt_goals = [g for g in inp.goals if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
 
     if sum_goals > remaining_corpus:
-        negotiable = [g.goal_name for g in lt_goals if g.goal_priority == "negotiable"]
-        negotiable_str = ", ".join(negotiable) if negotiable else "none flagged"
         future_investment = FutureInvestment(
             bucket="long_term",
             future_investment_amount=sum_goals - remaining_corpus,
-            message=(
-                f"Your long-term goals ask for more than your current corpus "
-                f"alone can provide today. The balance is wealth your monthly "
-                f"investments will compound into over the years ahead — and "
-                f"long-term is precisely where disciplined investing has the "
-                f"biggest impact. Sticking with your SIPs, or flexing "
-                f"negotiable goals ({negotiable_str}), makes all of these "
-                f"firmly reachable."
-            ),
         )
         total_long_term_corpus = remaining_corpus
         leftover_corpus = 0
@@ -439,9 +398,8 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         debt_amount = amounts_by_name["dt"]
         others_amount = amounts_by_name["oth"]
 
-    elss = phase3_elss(equities_amount, inp.tax_regime, inp.section_80c_utilized)
     multi = phase4_multi_asset(
-        elss.residual_equity_corpus, debt_amount, others_amount, inp.multi_asset_composition
+        equities_amount, debt_amount, others_amount, inp.multi_asset_composition
     )
     planned_equity_subgroup_amounts = phase5_equity_subgroups(
         multi.equity_for_subgroups, inp.effective_risk_score, inp.market_commentary
@@ -453,11 +411,10 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     debt_key = (
         "arbitrage_plus_income"
         if inp.effective_tax_rate >= TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD
-        else "debt_subgroup"
+        else "short_debt"
     )
 
     subgroup_amounts: dict[str, int] = {sg: 0 for sg in STEP4_SUBGROUPS}
-    subgroup_amounts["tax_efficient_equities"] = elss.elss_amount
     subgroup_amounts["multi_asset"] = multi.multi_asset_amount
     for sg, amt in equity_subgroup_amounts.items():
         subgroup_amounts[sg] = amt
@@ -490,7 +447,6 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     )
 
     planned_subgroup_amounts: dict[str, int] = {sg: 0 for sg in STEP4_SUBGROUPS}
-    planned_subgroup_amounts["tax_efficient_equities"] = elss.elss_amount
     planned_subgroup_amounts["multi_asset"] = multi.multi_asset_amount
     for sg, amt in planned_equity_subgroup_amounts.items():
         planned_subgroup_amounts[sg] = amt
@@ -501,7 +457,6 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         asset_class_allocation=asset_class_allocation,
         planned_asset_class_allocation=planned_asset_class_allocation,
         planned_subgroup_amounts=planned_subgroup_amounts,
-        elss=elss,
         multi_asset=multi,
         goals_allocated=lt_goals,
         leftover_corpus=leftover_corpus,
@@ -529,7 +484,7 @@ def _verify_invariants(out: Step4Output) -> None:
     assert eq_sub_sum == m.equity_for_subgroups, (
         f"equity subgroups sum {eq_sub_sum} != equity_for_subgroups {m.equity_for_subgroups}"
     )
-    assert abs(eq_sub_sum + out.elss.elss_amount + m.equity_component - ac.equities_amount) <= tol, (
+    assert abs(eq_sub_sum + m.equity_component - ac.equities_amount) <= tol, (
         f"equity reconciliation off by more than {tol}"
     )
     assert abs(m.debt_component + m.debt_for_subgroups - ac.debt_amount) <= tol

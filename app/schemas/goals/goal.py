@@ -174,35 +174,69 @@ class GoalHoldingResponse(BaseModel):
     gain_percentage: Optional[float] = None
 
 
+def _first_float(goal: Any, *attrs: str) -> float | None:
+    """Read the first non-null numeric column (legacy + cashflow shapes)."""
+    for attr in attrs:
+        raw = getattr(goal, attr, None)
+        if raw is not None:
+            return float(raw)
+    return None
+
+
+def _goal_display_name(goal: Any) -> str:
+    for attr in ("name", "goal_name"):
+        raw = getattr(goal, attr, None)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()[:100]
+    return "Unnamed goal"
+
+
+def _goal_target_date(goal: Any) -> date | None:
+    return getattr(goal, "target_date", None) or getattr(goal, "goal_date", None)
+
+
+def _enum_value(value: Any, default: str) -> str:
+    if value is None:
+        return default
+    return value.value if hasattr(value, "value") else str(value)
+
+
 def goal_to_response(
     goal: Any,
     *,
     invested_amount: float = 0.0,
     current_value: float = 0.0,
 ) -> GoalResponse:
+    gt = getattr(goal, "goal_type", None)
+    goal_type_str = gt.value if gt is not None and hasattr(gt, "value") else (str(gt) if gt else None)
+
     return GoalResponse(
         id=goal.id,
-        name=goal.goal_name,
+        name=_goal_display_name(goal),
         slug=None,
         icon=None,
         description=None,
-        target_amount=float(goal.present_value_amount),
-        target_date=goal.target_date,
+        target_amount=_first_float(
+            goal,
+            "present_value_amount",
+            "goal_value_pv",
+            "target_pv",
+            "amount_needed",
+            "goal_value_fv",
+            "target_fv",
+        ),
+        target_date=_goal_target_date(goal),
         invested_amount=invested_amount,
         current_value=current_value,
         monthly_contribution=None,
         suggested_contribution=None,
-        priority=goal.priority.value if hasattr(goal.priority, "value") else str(goal.priority),
-        status=goal.status.value if hasattr(goal.status, "value") else str(goal.status),
-        goal_type=None,
-        inflation_rate=float(goal.inflation_rate) if goal.inflation_rate is not None else None,
-        notes=goal.notes,
+        priority=_enum_value(getattr(goal, "priority", None), "HIGH"),
+        status=_enum_value(getattr(goal, "status", None), "ACTIVE"),
+        goal_type=goal_type_str,
+        inflation_rate=_first_float(goal, "inflation_rate", "inflation_annual"),
+        notes=getattr(goal, "notes", None),
         time_to_goal_months=getattr(goal, "time_to_goal_months", None),
-        amount_needed=(
-            float(goal.amount_needed)
-            if getattr(goal, "amount_needed", None) is not None
-            else None
-        ),
+        amount_needed=_first_float(goal, "amount_needed"),
         goal_priority=getattr(goal, "goal_priority", None),
         investment_goal=getattr(goal, "investment_goal", None),
         created_at=goal.created_at,

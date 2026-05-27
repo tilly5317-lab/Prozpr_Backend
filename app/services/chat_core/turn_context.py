@@ -173,7 +173,7 @@ async def _load_active_intent(
     as active_intent biases the classifier to keep refusing/redirecting on the
     next turn, which mis-routes legitimate follow-ups.
     """
-    canned_redirect_intents = ("out_of_scope", "goal_planning", "stock_advice")
+    canned_redirect_intents = ("out_of_scope", "stock_advice")
     stmt = (
         select(ChatAiModuleRun.intent_detected)
         .where(ChatAiModuleRun.session_id == session_id)

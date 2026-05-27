@@ -13,6 +13,7 @@ from app.models.profile.review_preference import ReviewPreference
 from app.models.profile.risk_profile import RISK_CATEGORIES, RiskProfile
 from app.models.profile.tax_profile import TaxProfile
 from app.models.profile.personal_finance_profile import PersonalFinanceProfile
+from app.models.profile.user_current_property import UserCurrentProperty
 
 __all__ = [
     "AssetAllocationConstraint",
@@ -26,4 +27,5 @@ __all__ = [
     "RiskProfile",
     "TaxProfile",
     "PersonalFinanceProfile",
+    "UserCurrentProperty",
 ]

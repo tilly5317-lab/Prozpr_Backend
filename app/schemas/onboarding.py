@@ -12,31 +12,15 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
-class OnboardingProfileCreate(BaseModel):
-    date_of_birth: Optional[date] = None
-    occupation: Optional[str] = Field(default=None, max_length=100)
-    selected_goals: list[str] = Field(default_factory=list)
-    custom_goals: list[str] = Field(default_factory=list)
-    investment_horizon: Optional[str] = None
-    annual_income_min: Optional[float] = None
-    annual_income_max: Optional[float] = None
-    annual_expense_min: Optional[float] = None
-    annual_expense_max: Optional[float] = None
+from app.schemas.profile.personal import PersonalProfileResponse, PersonalProfileUpdate
 
 
-class OnboardingProfileResponse(BaseModel):
+class OnboardingProfileCreate(PersonalProfileUpdate):
+    """Onboarding write — personal info + household finance (no duplicate scalars)."""
+
+
+class OnboardingProfileResponse(PersonalProfileResponse):
     model_config = {"from_attributes": True}
-
-    user_id: uuid.UUID
-    date_of_birth: Optional[date] = None
-    selected_goals: list[str] = []
-    custom_goals: list[str] = []
-    investment_horizon: Optional[str] = None
-    annual_income_min: Optional[float] = None
-    annual_income_max: Optional[float] = None
-    annual_expense_min: Optional[float] = None
-    annual_expense_max: Optional[float] = None
 
 
 class OnboardingCompleteRequest(BaseModel):

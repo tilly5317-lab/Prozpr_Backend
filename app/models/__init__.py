@@ -4,6 +4,20 @@ Defines a database table mapping, columns, and relationships. Imported by servic
 """
 
 
+from app.models.cashflow import (
+    CashflowAnnualRow,
+    CashflowFundFlowSummary,
+    CashflowGoalType,
+    CashflowHeadline,
+    CashflowInputAssumptions,
+    CashflowMonthlyRow,
+    CashflowOneOffEvent,
+    CashflowPlanRun,
+    CashflowPlanSummary,
+    DetailLevel,
+    InvestmentSource,
+    OneOffDirection,
+)
 from app.models.chat import ChatMessage, ChatSession
 from app.models.chat_ai_module_run import ChatAiModuleRun
 from app.models.asset_allocation import (
@@ -66,6 +80,7 @@ from app.models.profile import (
     RiskProfile,
     TaxProfile,
     PersonalFinanceProfile,
+    UserCurrentProperty,
 )
 
 __all__ = [
@@ -80,8 +95,20 @@ __all__ = [
     "AssetAllocationRunStatus",
     "AssetAllocationRunTarget",
     "AssetClassSplitKind",
-    "EffectiveRiskAssessment",
+    "CashflowAnnualRow",
+    "CashflowFundFlowSummary",
+    "CashflowGoalType",
+    "CashflowHeadline",
+    "CashflowInputAssumptions",
+    "CashflowMonthlyRow",
+    "CashflowOneOffEvent",
+    "CashflowPlanRun",
+    "CashflowPlanSummary",
     "ChatAiModuleRun",
+    "DetailLevel",
+    "EffectiveRiskAssessment",
+    "InvestmentSource",
+    "OneOffDirection",
     "ChatMessage",
     "ChatSession",
     "ChatSessionState",
@@ -127,6 +154,7 @@ __all__ = [
     "TradeAction",
     "TradeExecutionStatus",
     "User",
+    "UserCurrentProperty",
     "UserInvestmentList",
     "UserMfLatestSnapshot",
 ]

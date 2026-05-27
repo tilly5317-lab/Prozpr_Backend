@@ -60,7 +60,7 @@ Decide one of four kinds and produce the matching structured output:
 - goal_mutation — change to existing: "increase my retirement target by 20%"
 
 Defaults you may use (disclose in `assumptions_used` if applied):
-- Property downpayment: {default_property_downpayment_pct}%
+- Property downpayment: {default_property_downpayment_pct:.0%}
 - Mortgage tenure: {default_mortgage_tenure_years} years
 - Mortgage interest: {default_mortgage_interest:.1%} annual
 
@@ -79,7 +79,7 @@ Few-shot examples:
 
 Example 1 — Property goal with mortgage:
 INPUT: "Want to buy a 2cr second home in 2032 with 30% downpayment"
-OUTPUT: kind=property_goal, property={{name="second_home", target_pv=20000000, is_downpayment_only=true, upfront_amount=6000000, goal_date="2032-12-31", mortgage_tenure_years=20, mortgage_interest_annual=0.085}}
+OUTPUT: kind=property_goal, property={{name="second_home", target_pv=20000000, is_downpayment_only=true, upfront_amount=6000000, goal_date="2032-12-31", mortgage_tenure_years=20, mortgage_interest_annual=0.075}}
 
 Example 2 — Custom goal in PV:
 INPUT: "Save 50L in today's money for daughter's college in 2040"

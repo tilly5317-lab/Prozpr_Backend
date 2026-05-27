@@ -33,6 +33,7 @@ from app.schemas.goals.goal import (
     GoalUpdate,
     goal_to_response,
 )
+from app.services.cashflow_persist_service import mark_stale as mark_cashflow_stale
 
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
@@ -101,18 +102,24 @@ async def create_goal(
     notes = next((p for p in notes_parts if p), None)
     infl = payload.inflation_rate if payload.inflation_rate is not None else 6.0
     td = payload.target_date or (date.today() + timedelta(days=365 * 15))
+    label = payload.name.strip()[:100]
     goal = FinancialGoal(
         user_id=current_user.id,
-        goal_name=payload.name.strip()[:100],
+        name=label,
+        goal_name=label,
         present_value_amount=payload.target_amount,
+        goal_value_pv=payload.target_amount,
         inflation_rate=infl,
         target_date=td,
+        goal_date=td,
         priority=GoalPriority(payload.priority),
+        status=GoalStatus.ACTIVE,
         notes=notes,
     )
     db.add(goal)
     await db.commit()
     await db.refresh(goal)
+    await mark_cashflow_stale(db, current_user.id)
     return goal_to_response(goal, invested_amount=0.0, current_value=0.0)
 
 
@@ -157,11 +164,17 @@ async def update_goal(
 
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
-        goal.goal_name = str(data.pop("name"))[:100]
+        label = str(data.pop("name"))[:100]
+        goal.name = label
+        goal.goal_name = label
     if "target_amount" in data and data["target_amount"] is not None:
-        goal.present_value_amount = data.pop("target_amount")
+        amt = data.pop("target_amount")
+        goal.present_value_amount = amt
+        goal.goal_value_pv = amt
     if "present_value_amount" in data and data["present_value_amount"] is not None:
-        goal.present_value_amount = data.pop("present_value_amount")
+        amt = data.pop("present_value_amount")
+        goal.present_value_amount = amt
+        goal.goal_value_pv = amt
     if "description" in data:
         desc = data.pop("description")
         if desc is not None:
@@ -190,12 +203,18 @@ async def update_goal(
             goal.status = _LEGACY_STATUS[raw]
         data.pop("status", None)
 
-    for field in ("inflation_rate", "target_date", "notes"):
+    for field in ("inflation_rate", "notes"):
         if field in data:
             setattr(goal, field, data.pop(field))
 
+    if "target_date" in data:
+        td = data.pop("target_date")
+        goal.target_date = td
+        goal.goal_date = td
+
     await db.commit()
     await db.refresh(goal)
+    await mark_cashflow_stale(db, current_user.id)
     totals = await _goal_totals_map(db, [goal.id])
     inv, cur = totals.get(goal.id, (0.0, 0.0))
     return goal_to_response(goal, invested_amount=inv, current_value=cur)
@@ -215,6 +234,7 @@ async def delete_goal(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
     await db.delete(goal)
     await db.commit()
+    await mark_cashflow_stale(db, current_user.id)
 
 
 @router.post("/{goal_id}/contributions", response_model=GoalContributionResponse, status_code=status.HTTP_201_CREATED)

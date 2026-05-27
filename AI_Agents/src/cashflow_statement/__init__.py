@@ -4,7 +4,6 @@ Bridge code imports from here only. Internal types (RunContext, MortgageSchedule
 live in engine/_types.py and are NOT exported.
 """
 from .engine import compute_full_projection, validate_input_only, ENGINE_VERSION
-from .agent import cashflow_statement_graph, run_cashflow_statement
 from .models import (
     # Inputs
     GoalPlanningInput, Assumptions, ClientProfile, RetirementInput,
@@ -20,7 +19,7 @@ from .models import (
     GoalPropertyDetail,
     TurnAction,
     # Agent types
-    OverrideSpec, NumericOverride, RateOverride, PerGoalRateOverride, PropertyFieldOverride,
+    OverrideSpec, NumericOverride, RateOverride,
     GoalMutation, LeverAction, Lever,
     ExtractedFinancialEvent, ExtractedGoal, ExtractedProperty,
     ExtractedCashflow, ExtractedMutation, ExtractionError,
@@ -30,6 +29,17 @@ from .models import (
     GoalType,
 )
 from .summarizer import summarize_plan
+
+
+def __getattr__(name: str):
+    """Lazy-load the agent submodule (requires langgraph) only when accessed."""
+    if name in ("cashflow_statement_graph", "run_cashflow_statement"):
+        from .agent import cashflow_statement_graph, run_cashflow_statement
+        globals()["cashflow_statement_graph"] = cashflow_statement_graph
+        globals()["run_cashflow_statement"] = run_cashflow_statement
+        return globals()[name]
+    raise AttributeError(f"module 'cashflow_statement' has no attribute {name!r}")
+
 
 __all__ = [
     "compute_full_projection", "validate_input_only", "ENGINE_VERSION",
@@ -45,7 +55,6 @@ __all__ = [
     "GoalPropertyDetail",
     "TurnAction",
     "OverrideSpec", "NumericOverride", "RateOverride",
-    "PerGoalRateOverride", "PropertyFieldOverride",
     "GoalMutation", "LeverAction", "Lever",
     "ExtractedFinancialEvent", "ExtractedGoal", "ExtractedProperty",
     "ExtractedCashflow", "ExtractedMutation", "ExtractionError",
