@@ -677,3 +677,55 @@ def fixture_goal_allocation_outcome(fixture_goal_allocation_output_one_subgroup)
         rebalancing_recommendation_id=uuid.uuid4(),
         allocation_snapshot_id=uuid.uuid4(),
     )
+
+
+@pytest_asyncio.fixture
+async def fixture_user_with_elss_holding(
+    db_session: AsyncSession, fixture_user_with_dob: User,
+) -> tuple[User, str]:
+    """User with one ELSS MF holding (asset_subgroup='tax_efficient_equities')."""
+    elss_isin = "INF846K01EW2"
+    await _add_holding(
+        db_session,
+        user=fixture_user_with_dob,
+        scheme_code=f"SCH_{elss_isin}",
+        isin=elss_isin,
+        units=Decimal("100"),
+        nav=Decimal("50"),
+        txn_date=date(2024, 1, 1),
+        asset_subgroup="tax_efficient_equities",
+        sub_category="ELSS",
+    )
+    return fixture_user_with_dob, elss_isin
+
+
+@pytest_asyncio.fixture
+async def fixture_user_with_stock_holding(
+    db_session: AsyncSession, fixture_user_with_dob: User,
+) -> tuple[User, float]:
+    """User with one direct-stock holding; returns (user, expected_total_inr)."""
+    from sqlalchemy import select
+
+    from app.models.stocks.company_metadata import CompanyMetadata
+    from app.models.stocks.enums import StockTransactionType
+    from app.models.stocks.stock_transaction import StockTransaction
+
+    existing = (await db_session.execute(
+        select(CompanyMetadata).where(CompanyMetadata.symbol == "RELIANCE")
+    )).scalar_one_or_none()
+    if existing is None:
+        db_session.add(CompanyMetadata(symbol="RELIANCE", company_name="Reliance Industries"))
+        await db_session.flush()
+
+    buy_amount = 200_000.0  # 100 shares @ 2000
+    db_session.add(StockTransaction(
+        user_id=fixture_user_with_dob.id,
+        symbol="RELIANCE",
+        transaction_type=StockTransactionType.BUY,
+        transaction_date=date(2024, 1, 1),
+        quantity=Decimal("100"),
+        price=Decimal("2000"),
+        amount=Decimal(str(buy_amount)),
+    ))
+    await db_session.flush()
+    return fixture_user_with_dob, buy_amount
