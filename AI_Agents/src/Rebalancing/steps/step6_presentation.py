@@ -219,26 +219,6 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
     return out
 
 
-def _exit_load_realised_total(rows: list[FundRowAfterStep5]) -> Decimal:
-    """Approximate realised exit load. Assumes in-period units are sold
-    LAST within a fund (per the LT → ST OOL → ST IL priority), so
-    the load only kicks in when the sold amount exceeds the
-    out-of-period portion of the holding."""
-    total = Decimal(0)
-    for r in rows:
-        if r.exit_load_pct <= 0:
-            continue
-        in_period_value = r.units_within_exit_load_period * r.current_nav
-        if in_period_value <= 0:
-            continue
-        sold = r.pass1_sell_amount + r.pass2_sell_amount
-        out_of_period = max(r.present_allocation_inr - in_period_value, Decimal(0))
-        from_in_period = max(sold - out_of_period, Decimal(0))
-        from_in_period = min(from_in_period, in_period_value)
-        total += from_in_period * Decimal(str(r.exit_load_pct)) / Decimal(100)
-    return total
-
-
 def apply(
     rows: list[FundRowAfterStep5],
     request: RebalancingComputeRequest,
@@ -251,7 +231,6 @@ def apply(
     total_stcg = sum((r.pass1_realised_stcg for r in rows), Decimal(0))
     total_ltcg = sum((r.pass1_realised_ltcg for r in rows), Decimal(0))
     total_stcg_net_off = sum((r.stcg_offset_amount for r in rows), Decimal(0))
-    total_exit_load = _exit_load_realised_total(rows)
 
     total_tax = estimate_tax(
         total_stcg - total_stcg_net_off,
@@ -283,7 +262,6 @@ def apply(
         total_ltcg_realised=total_ltcg,
         total_stcg_net_off=total_stcg_net_off,
         total_tax_estimate_inr=total_tax,
-        total_exit_load_inr=total_exit_load,
         unrebalanced_remainder_inr=unrebalanced_remainder_inr,
         rows_count=len(rows),
         funds_to_buy_count=funds_to_buy,

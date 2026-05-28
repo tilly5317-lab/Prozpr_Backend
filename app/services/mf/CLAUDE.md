@@ -11,6 +11,8 @@ NAV data.
 - `aa_access.py` — ownership/permission checks for account-aggregator import trees.
 - `aa_import_service.py` — CRUD for AA import batches plus nested summary/transaction rows.
 - `fund_metadata_service.py` — CRUD for the global scheme catalog (`mf_fund_metadata`).
+- `fund_rating_service.py` — fund rating/performance lookups consumed by the investor-detail page and ranking flows.
+- `latest_snapshot_service.py` — fetches the latest `portfolio_allocation_snapshots` row for a user (read-only convenience over `portfolio_snapshot_service`).
 - `mf_investor_detail_service.py` — NAV-based return metrics and chart data for the fund detail (investor) page.
 - `mfapi_fetcher.py` — async client for the public mfapi.in feed (`fetch_universe`, `fetch_scheme_detail`) with retry/backoff and bounded concurrency.
 - `mfapi_ingest_service.py` — full + incremental ingest pipeline that upserts `mf_fund_metadata` and bulk-inserts NAV rows with conflict-do-nothing for idempotency.

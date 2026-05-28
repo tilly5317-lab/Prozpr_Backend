@@ -56,10 +56,9 @@ class FundRowInput(BaseModel):
     lt_value_inr: Decimal = Field(default=Decimal(0), ge=0)
     lt_cost_inr: Decimal = Field(default=Decimal(0), ge=0)
 
-    # Exit-load
-    exit_load_pct: float = Field(default=0.0, ge=0.0)
-    exit_load_months: int = Field(default=0, ge=0)
-    units_within_exit_load_period: Decimal = Field(default=Decimal(0), ge=0)
+    # Current NAV — populated by the bridge for displays; the engine itself
+    # does not consume this field. Kept as input so bridges have a stable
+    # contract and customer-view formatters can show "as of NAV ₹X".
     current_nav: Decimal = Field(default=Decimal(0), ge=0)
 
     # Status
@@ -90,7 +89,6 @@ class FundRowAfterStep2(FundRowAfterStep1):
 class FundRowAfterStep3(FundRowAfterStep2):
     stcg_amount: Decimal                 # st_value − st_cost (signed)
     ltcg_amount: Decimal                 # lt_value − lt_cost (signed)
-    exit_load_amount: Decimal            # potential load if all in-period units sold
 
 
 class FundRowAfterStep4(FundRowAfterStep3):
@@ -170,7 +168,6 @@ class RebalancingTotals(BaseModel):
     total_ltcg_realised: Decimal
     total_stcg_net_off: Decimal
     total_tax_estimate_inr: Decimal
-    total_exit_load_inr: Decimal
     unrebalanced_remainder_inr: Decimal
     rows_count: int
     funds_to_buy_count: int

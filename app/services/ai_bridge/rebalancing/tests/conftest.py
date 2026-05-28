@@ -479,7 +479,6 @@ def fixture_rebalancing_response():
             total_ltcg_realised=Decimal(0),
             total_stcg_net_off=Decimal(0),
             total_tax_estimate_inr=Decimal(0),
-            total_exit_load_inr=Decimal(0),
             unrebalanced_remainder_inr=Decimal(0),
             rows_count=0,
             funds_to_buy_count=0,
