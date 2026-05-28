@@ -43,14 +43,6 @@ def compute_ltcg(lt_value: Decimal, lt_cost: Decimal) -> Decimal:
     return lt_value - lt_cost
 
 
-def compute_exit_load(units_value_inr: Decimal, exit_load_pct: float) -> Decimal:
-    """Exit load on the rupee value of units still inside the exit-load
-    period. Returns 0 for non-positive inputs."""
-    if exit_load_pct <= 0 or units_value_inr <= 0:
-        return Decimal(0)
-    return units_value_inr * Decimal(str(exit_load_pct)) / Decimal(100)
-
-
 def estimate_tax(
     stcg: Decimal,
     ltcg: Decimal,

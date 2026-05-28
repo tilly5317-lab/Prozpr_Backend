@@ -31,7 +31,6 @@ from app.services.ai_bridge.rebalancing.holdings_ledger import (
 from app.services.ai_bridge.rebalancing.tax_aging import (
     LotSplit,
     classify_lots_st_lt,
-    count_units_in_exit_load_window,
 )
 
 ensure_ai_agents_path()
@@ -121,8 +120,6 @@ def _build_row(
     target_amount_pre_cap: Decimal,
     current_nav: Decimal,
     asset_class: str,
-    exit_load_pct: float,
-    exit_load_months: int,
     is_recommended: bool,
     fund_rating: int,
     asof: date,
@@ -153,16 +150,10 @@ def _build_row(
             current_nav=current_nav,
             as_of=asof,
         )
-        units_in_load = count_units_in_exit_load_window(
-            held_entry.lots,
-            exit_load_months=exit_load_months,
-            as_of=asof,
-        )
         present = split.st_value_inr + split.lt_value_inr
         invested = split.st_cost_inr + split.lt_cost_inr
     else:
         split = LotSplit(Decimal(0), Decimal(0), Decimal(0), Decimal(0))
-        units_in_load = Decimal(0)
         present = Decimal(0)
         invested = Decimal(0)
 
@@ -179,9 +170,6 @@ def _build_row(
         st_cost_inr=split.st_cost_inr,
         lt_value_inr=split.lt_value_inr,
         lt_cost_inr=split.lt_cost_inr,
-        exit_load_pct=exit_load_pct,
-        exit_load_months=exit_load_months,
-        units_within_exit_load_period=units_in_load,
         current_nav=current_nav,
         fund_rating=fund_rating,
         is_recommended=is_recommended,
@@ -240,8 +228,6 @@ async def build_rebalancing_input_for_user(
 
             meta = meta_by_isin.get(rr.isin)
             asset_class = (meta.asset_class if meta else None) or "equity"
-            exit_load_pct = float(meta.exit_load_percent or 0.0) if meta else 0.0
-            exit_load_months = int(meta.exit_load_months or 0) if meta else 0
 
             rows.append(_build_row(
                 rank_row=rr,
@@ -249,8 +235,6 @@ async def build_rebalancing_input_for_user(
                 target_amount_pre_cap=rank1_target if rr.rank == 1 else Decimal(0),
                 current_nav=current_nav,
                 asset_class=asset_class,
-                exit_load_pct=exit_load_pct,
-                exit_load_months=exit_load_months,
                 is_recommended=True,
                 fund_rating=_DEFAULT_FUND_RATING,
                 asof=asof,
@@ -272,8 +256,6 @@ async def build_rebalancing_input_for_user(
             target_amount_pre_cap=Decimal(0),
             current_nav=current_nav,
             asset_class=asset_class,
-            exit_load_pct=float(meta.exit_load_percent or 0.0) if meta else 0.0,
-            exit_load_months=int(meta.exit_load_months or 0) if meta else 0,
             is_recommended=False,
             fund_rating=_DEFAULT_FUND_RATING,
             asof=asof,
