@@ -5,24 +5,24 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 
 from app.routers.health import router as health_router
-from app.routers.auth import router as auth_router
-from app.routers.onboarding import router as onboarding_router
-from app.routers.profile import router as profile_router
-from app.routers.goals import router as goals_router
-from app.routers.portfolio import router as portfolio_router
-from app.routers.chat import router as chat_router
-from app.routers.meeting_notes import router as meeting_notes_router
-from app.routers.notifications import router as notifications_router
-from app.routers.discovery import router as discovery_router
-from app.routers.rebalancing import router as rebalancing_router
-from app.routers.ips import router as ips_router
-from app.routers.linked_accounts import router as linked_accounts_router
-from app.routers.family import router as family_router
-from app.routers.simbanks import router as simbanks_router
-from app.routers.mf import router as mf_data_router
-from app.routers.mf_ingest import router as mf_ingest_router
-from app.routers.cashflow import router as cashflow_router
-from app.routers.ai_modules import router as ai_modules_router
+from app.domains.identity.routers.auth_router import router as auth_router
+from app.domains.identity.routers.onboarding_router import router as onboarding_router
+from app.domains.profile.routers.profile_router import router as profile_router
+from app.domains.goals.routers.goals_router import router as goals_router
+from app.domains.portfolio.routers.portfolio_router import router as portfolio_router
+from app.domains.chat.routers.chat_router import router as chat_router
+from app.domains.advisory.routers.meeting_notes_router import router as meeting_notes_router
+from app.domains.notifications.routers.notifications_router import router as notifications_router
+from app.domains.advisory.routers.discovery_router import router as discovery_router
+from app.domains.rebalancing.routers.rebalancing_router import router as rebalancing_router
+from app.domains.advisory.routers.ips_router import router as ips_router
+from app.domains.identity.routers.linked_accounts_router import router as linked_accounts_router
+from app.domains.identity.routers.family_router import router as family_router
+from app.domains.ingestion.routers.simbanks_router import router as simbanks_router
+from app.domains.mutual_funds.routers import router as mf_data_router
+from app.domains.ingestion.routers.mf_ingest_router import router as mf_ingest_router
+from app.domains.cashflow.routers.cashflow_router import router as cashflow_router
+from app.domains.ai_engine.routers import router as ai_modules_router
 
 all_routers = [
     health_router,
