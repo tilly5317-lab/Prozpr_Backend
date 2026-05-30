@@ -23,14 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.database import _get_session_factory, dispose_engine
-from app.models.mf import (
+from app.core.database import _get_session_factory, dispose_engine
+from app.domains.mutual_funds.models import (
     MfAaImport,
     MfFundMetadata,
     MfTransaction,
     MfTransactionSource,
 )
-from app.models.portfolio import Portfolio, PortfolioAllocation
+from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation
 
 
 def _fmt(value: object) -> str:
