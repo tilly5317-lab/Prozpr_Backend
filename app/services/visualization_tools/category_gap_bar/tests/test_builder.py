@@ -15,7 +15,6 @@ def _make_action(present_inr: float, buy: float = 0, sell: float = 0):
     a.pass2_sell_amount = None
     a.pass1_realised_stcg = None
     a.pass1_realised_ltcg = None
-    a.exit_load_amount = None
     a.sub_category = "Large Cap Fund"
     return a
 

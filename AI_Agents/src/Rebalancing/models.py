@@ -16,6 +16,13 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+# Cross-agent import: documented exception to peer-isolation per
+# `docs/superpowers/specs/2026-05-23-allocation-rebalancing-v2-design.md` §B.1.
+from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
+    PracticalAllocationInput,
+    PracticalAllocationOutput,
+)
+
 
 # ── Per-step row models ──────────────────────────────────────────────────────
 
@@ -49,10 +56,9 @@ class FundRowInput(BaseModel):
     lt_value_inr: Decimal = Field(default=Decimal(0), ge=0)
     lt_cost_inr: Decimal = Field(default=Decimal(0), ge=0)
 
-    # Exit-load
-    exit_load_pct: float = Field(default=0.0, ge=0.0)
-    exit_load_months: int = Field(default=0, ge=0)
-    units_within_exit_load_period: Decimal = Field(default=Decimal(0), ge=0)
+    # Current NAV — populated by the bridge for displays; the engine itself
+    # does not consume this field. Kept as input so bridges have a stable
+    # contract and customer-view formatters can show "as of NAV ₹X".
     current_nav: Decimal = Field(default=Decimal(0), ge=0)
 
     # Status
@@ -83,7 +89,6 @@ class FundRowAfterStep2(FundRowAfterStep1):
 class FundRowAfterStep3(FundRowAfterStep2):
     stcg_amount: Decimal                 # st_value − st_cost (signed)
     ltcg_amount: Decimal                 # lt_value − lt_cost (signed)
-    exit_load_amount: Decimal            # potential load if all in-period units sold
 
 
 class FundRowAfterStep4(FundRowAfterStep3):
@@ -113,7 +118,10 @@ class FundRowAfterStep5(FundRowAfterStep4):
 
 
 class RebalancingComputeRequest(BaseModel):
-    total_corpus: Decimal = Field(ge=0)
+    # The four corpus scalars (total / mf / non-MF equity / ELSS) and all
+    # profile/goal/market-view fields ride on this nested input. The previous
+    # top-level `total_corpus` is now `practical_allocation_input.total_corpus`.
+    practical_allocation_input: PracticalAllocationInput
     tax_regime: Literal["old", "new"]
     effective_tax_rate_pct: float = Field(ge=0.0, le=100.0)
     rounding_step: int = Field(default=100, ge=1)
@@ -123,11 +131,20 @@ class RebalancingComputeRequest(BaseModel):
     carryforward_st_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
     carryforward_lt_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
 
-    # All rows: recommended (rank≥1) and BAD (rank=0)
+    # All MF rows: recommended (rank≥1) and BAD (rank=0). ELSS rows are
+    # filtered out by the input builder — ELSS exposure surfaces via
+    # `practical_allocation_input.elss_corpus` and as a frozen subgroup row
+    # in step6's response.
     rows: list[FundRowInput]
 
     # Tracing
     request_id: UUID = Field(default_factory=uuid4)
+
+    @property
+    def total_corpus(self) -> Decimal:
+        """Backwards-compatible accessor; consumers should prefer
+        `practical_allocation_input.total_corpus` directly."""
+        return Decimal(str(self.practical_allocation_input.total_corpus))
 
 
 class WarningCode(str, Enum):
@@ -151,7 +168,6 @@ class RebalancingTotals(BaseModel):
     total_ltcg_realised: Decimal
     total_stcg_net_off: Decimal
     total_tax_estimate_inr: Decimal
-    total_exit_load_inr: Decimal
     unrebalanced_remainder_inr: Decimal
     rows_count: int
     funds_to_buy_count: int
@@ -182,11 +198,11 @@ class RebalancingRunMetadata(BaseModel):
 
 
 class TradeAction(BaseModel):
-    isin: str
+    isin: Optional[str] = None
     asset_subgroup: str
-    sub_category: str
-    recommended_fund: str
-    action: Literal["BUY", "SELL", "EXIT"]
+    sub_category: Optional[str] = None
+    recommended_fund: Optional[str] = None
+    action: Literal["BUY", "SELL", "EXIT", "SELL_DIRECT_STOCKS"]
     amount_inr: Decimal
     reason_code: str                 # machine — stable, analytics
     reason_title: str                # customer card header
@@ -208,7 +224,14 @@ class SubgroupSummary(BaseModel):
     held as-is (target unchanged within tolerance, or already at target).
     Phantom rows (zero target and zero holding) are dropped. To filter to
     only traded rows, use the `ranks_with_action` count or check each
-    row's pass1_buy_amount / pass1_sell_amount / pass2_sell_amount."""
+    row's pass1_buy_amount / pass1_sell_amount / pass2_sell_amount.
+
+    **Frozen subgroups** (`tax_efficient_equities`, `non_mf_equities`):
+    step6 emits these with `actions = []` because they have no MF rows
+    in the engine — their amounts come straight from
+    `practical_allocation.corpus_breakdown` and no trades are generated
+    against them inside the engine (`SELL_DIRECT_STOCKS` rides on
+    `trade_list`, not on `SubgroupSummary.actions`)."""
     asset_subgroup: str
     goal_target_inr: Decimal              # what goal allocation said we want
     current_holding_inr: Decimal          # what's there today (sum of present)
@@ -229,3 +252,7 @@ class RebalancingComputeResponse(BaseModel):
     metadata: RebalancingRunMetadata
     trade_list: list[TradeAction] = Field(default_factory=list)
     warnings: list[RebalancingWarning] = Field(default_factory=list)
+    # Verbatim passthrough of the practical allocation output for the
+    # ideal-vs-practical UI. Same shape as GoalAllocationOutput + an extras
+    # `corpus_breakdown` block surfacing ELSS / non-MF equity numbers.
+    practical_allocation: PracticalAllocationOutput

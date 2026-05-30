@@ -167,11 +167,10 @@ MEDIUM_TERM_HORIZON_MAX: int = 5
 TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 20.0
 TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
 
-# Long-term equity subgroups smaller than this share of total long-term equity
-# are dropped and their amount is redistributed proportionally across the
-# remaining equity subgroups (multi-asset is excluded from both the filter
-# and the redistribution).
-MIN_EQUITY_SUBGROUP_SHARE_PCT: float = 8.0
+# NOTE: The flat 8% equity-subgroup drop threshold (previously
+# MIN_EQUITY_SUBGROUP_SHARE_PCT) is now SLIDER_BASE_PCT inside
+# asset_allocation_pydantic.equity_subgroup_slider — a single helper shared
+# by the ideal and practical engines.
 
 # Phase 5 internal: within the equity-subgroups split itself, any subgroup whose
 # share falls below this percent is rolled into the others (applied up to twice).

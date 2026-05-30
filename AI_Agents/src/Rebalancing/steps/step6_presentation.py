@@ -37,8 +37,13 @@ from ..models import (
     TradeAction,
 )
 from ..rationales import get_rationale
-from ..tables import MULTI_FUND_CAP_SUBGROUPS
+from ..tables import SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
+
+# Cross-agent type — same documented exception as in pipeline.py / models.py.
+from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
+    PracticalAllocationOutput,
+)
 
 
 def _build_knob_snapshot() -> KnobSnapshot:
@@ -52,7 +57,77 @@ def _build_knob_snapshot() -> KnobSnapshot:
         ltcg_rate_equity_pct=LTCG_RATE_EQUITY_PCT,
         st_threshold_months_equity=ST_THRESHOLD_MONTHS_EQUITY,
         st_threshold_months_debt=ST_THRESHOLD_MONTHS_DEBT,
-        multi_fund_cap_subgroups=sorted(MULTI_FUND_CAP_SUBGROUPS),
+        # List of subgroups with a non-default per-fund cap (sorted for stable
+        # output). Includes multi_asset (20%) and short_debt (30%).
+        multi_fund_cap_subgroups=sorted(SUBGROUP_FUND_CAP_PCT.keys()),
+    )
+
+
+def _frozen_subgroups(practical: PracticalAllocationOutput) -> list[SubgroupSummary]:
+    """Two frozen entries for non-MF exposures the engine doesn't trade
+    per-fund. Sourced from practical.corpus_breakdown."""
+    cb = practical.corpus_breakdown
+    elss = Decimal(str(cb.elss_corpus_inr))
+    nme_input = Decimal(str(cb.non_mf_equity_input_inr))
+    nme_actual = Decimal(str(cb.non_mf_equity_actual_inr))
+
+    out: list[SubgroupSummary] = []
+    if elss > 0:
+        out.append(SubgroupSummary(
+            asset_subgroup="tax_efficient_equities",
+            goal_target_inr=elss,
+            current_holding_inr=elss,
+            suggested_final_holding_inr=elss,
+            rebalance_inr=Decimal(0),
+            total_buy_inr=Decimal(0),
+            total_sell_inr=Decimal(0),
+            ranks_total=0,
+            ranks_with_holding=0,
+            ranks_with_action=0,
+            actions=[],
+        ))
+    if nme_input > 0 or nme_actual > 0:
+        out.append(SubgroupSummary(
+            asset_subgroup="non_mf_equities",
+            goal_target_inr=nme_actual,
+            current_holding_inr=nme_input,
+            suggested_final_holding_inr=nme_actual,
+            rebalance_inr=nme_actual - nme_input,
+            total_buy_inr=Decimal(0),
+            total_sell_inr=Decimal(0),
+            ranks_total=0,
+            ranks_with_holding=0,
+            ranks_with_action=0,
+            actions=[],
+        ))
+    return out
+
+
+def _sell_direct_stocks_action(
+    practical: PracticalAllocationOutput,
+) -> TradeAction | None:
+    """C.6(b): single SELL_DIRECT_STOCKS trade when the NFA-banded cap has
+    trimmed the customer's direct-stock allocation."""
+    excess = Decimal(str(practical.corpus_breakdown.excess_direct_stocks_inr))
+    if excess <= 0:
+        return None
+    title, text = get_rationale("sell_excess_direct_stocks")
+    # `common.format_inr_indian` is the project standard (see
+    # `AI_Agents/src/common.py`); import locally to avoid a top-level dep
+    # on the cross-agent helper at module load time.
+    from common import format_inr_indian  # type: ignore[import-not-found]
+
+    return TradeAction(
+        isin=None,
+        asset_subgroup="non_mf_equities",
+        sub_category=None,
+        recommended_fund=None,
+        action="SELL_DIRECT_STOCKS",
+        amount_inr=excess,
+        reason_code="sell_excess_direct_stocks",
+        reason_title=title,
+        reason_text=text.replace("{amount}", format_inr_indian(int(excess))),
+        fund_reason=None,
     )
 
 
@@ -144,38 +219,18 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
     return out
 
 
-def _exit_load_realised_total(rows: list[FundRowAfterStep5]) -> Decimal:
-    """Approximate realised exit load. Assumes in-period units are sold
-    LAST within a fund (per the LT → ST OOL → ST IL priority), so
-    the load only kicks in when the sold amount exceeds the
-    out-of-period portion of the holding."""
-    total = Decimal(0)
-    for r in rows:
-        if r.exit_load_pct <= 0:
-            continue
-        in_period_value = r.units_within_exit_load_period * r.current_nav
-        if in_period_value <= 0:
-            continue
-        sold = r.pass1_sell_amount + r.pass2_sell_amount
-        out_of_period = max(r.present_allocation_inr - in_period_value, Decimal(0))
-        from_in_period = max(sold - out_of_period, Decimal(0))
-        from_in_period = min(from_in_period, in_period_value)
-        total += from_in_period * Decimal(str(r.exit_load_pct)) / Decimal(100)
-    return total
-
-
 def apply(
     rows: list[FundRowAfterStep5],
     request: RebalancingComputeRequest,
     warnings: list[RebalancingWarning],
     unrebalanced_remainder_inr: Decimal,
+    practical: PracticalAllocationOutput,
 ) -> RebalancingComputeResponse:
     total_buy = sum((r.pass1_buy_amount for r in rows), Decimal(0))
     total_sell = sum((r.pass1_sell_amount + r.pass2_sell_amount for r in rows), Decimal(0))
     total_stcg = sum((r.pass1_realised_stcg for r in rows), Decimal(0))
     total_ltcg = sum((r.pass1_realised_ltcg for r in rows), Decimal(0))
     total_stcg_net_off = sum((r.stcg_offset_amount for r in rows), Decimal(0))
-    total_exit_load = _exit_load_realised_total(rows)
 
     total_tax = estimate_tax(
         total_stcg - total_stcg_net_off,
@@ -207,7 +262,6 @@ def apply(
         total_ltcg_realised=total_ltcg,
         total_stcg_net_off=total_stcg_net_off,
         total_tax_estimate_inr=total_tax,
-        total_exit_load_inr=total_exit_load,
         unrebalanced_remainder_inr=unrebalanced_remainder_inr,
         rows_count=len(rows),
         funds_to_buy_count=funds_to_buy,
@@ -219,7 +273,7 @@ def apply(
     metadata = RebalancingRunMetadata(
         computed_at=datetime.now(timezone.utc),
         engine_version=ENGINE_VERSION,
-        request_corpus_inr=request.total_corpus,
+        request_corpus_inr=Decimal(str(request.practical_allocation_input.total_corpus)),
         knob_snapshot=_build_knob_snapshot(),
         request_id=request.request_id,
     )
@@ -229,12 +283,22 @@ def apply(
         ta = _trade_action_for(r)
         if ta:
             trade_list.append(ta)
+    sds = _sell_direct_stocks_action(practical)
+    if sds is not None:
+        trade_list.append(sds)
+
+    subgroups = _build_subgroups(rows) + _frozen_subgroups(practical)
+    # Preserve the biggest-first sort across MF + frozen entries.
+    subgroups.sort(
+        key=lambda s: (-float(s.goal_target_inr), -float(s.current_holding_inr))
+    )
 
     return RebalancingComputeResponse(
         rows=rows,
-        subgroups=_build_subgroups(rows),
+        subgroups=subgroups,
         totals=totals,
         metadata=metadata,
         trade_list=trade_list,
         warnings=warnings,
+        practical_allocation=practical,
     )

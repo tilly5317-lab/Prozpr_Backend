@@ -34,22 +34,17 @@ def apply(
     threshold_factor = Decimal(str(REBALANCE_MIN_CHANGE_PCT))
 
     for r in rows:
-        if r.asset_subgroup == "tax_efficient_equities":
-            # ELSS goal from the AA engine is "fresh purchase headroom this
-            # FY", not a portfolio-share target. Existing ELSS is locked
-            # under the 3-year SEBI lock-in. Treat the goal as pure buy
-            # demand (no comparison to present); never trim or exit, even
-            # for off-list (BAD) ELSS funds.
-            diff = r.final_target_amount
-            exit_flag = False
-            worth_to_change = diff > 0
-        else:
-            diff = r.final_target_amount - r.present_allocation_inr
-            exit_flag = (r.fund_rating < EXIT_FLOOR_RATING) or (not r.is_recommended)
+        # Per C.4 (spec 2026-05-23): the upstream input builder strips ELSS
+        # rows out of `rows`; ELSS exposure now travels as a scalar on
+        # `practical_allocation_input.elss_corpus` and surfaces as a frozen
+        # SubgroupSummary in step6. Step2 therefore has a single uniform
+        # diff/exit/worth-to-change path.
+        diff = r.final_target_amount - r.present_allocation_inr
+        exit_flag = (r.fund_rating < EXIT_FLOOR_RATING) or (not r.is_recommended)
 
-            scale = max(r.final_target_amount, r.present_allocation_inr)
-            threshold = scale * threshold_factor
-            worth_to_change = (abs(diff) >= threshold) or exit_flag
+        scale = max(r.final_target_amount, r.present_allocation_inr)
+        threshold = scale * threshold_factor
+        worth_to_change = (abs(diff) >= threshold) or exit_flag
 
         out.append(
             FundRowAfterStep2(
@@ -60,11 +55,7 @@ def apply(
             )
         )
 
-        if (
-            not r.is_recommended
-            and r.present_allocation_inr > 0
-            and r.asset_subgroup != "tax_efficient_equities"
-        ):
+        if not r.is_recommended and r.present_allocation_inr > 0:
             warnings.append(
                 RebalancingWarning(
                     code=WarningCode.BAD_FUND_DETECTED,
