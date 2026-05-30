@@ -6,7 +6,6 @@ import asyncio
 import unittest
 import uuid
 from datetime import date, datetime
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.domains.ai_engine.services.bridges.asset_allocation import chat as mod
@@ -88,13 +87,14 @@ class FirstTurnTests(unittest.TestCase):
     def test_first_turn_runs_engine_and_returns_ids(self):
         outcome = _engine_outcome_with_ids()
 
+        # The first-turn chat reply path now goes through:
+        #     build_fallback_brief → compose_allocation_chat_reply (Haiku)
+        # Patch both so the test owns the produced text deterministically.
         with patch.object(mod, "compute_allocation_result",
                           new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "build_aa_facts_pack", return_value={}), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="brief text")), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
+             patch.object(mod, "build_fallback_brief", return_value="brief text"), \
+             patch.object(mod, "compose_allocation_chat_reply",
+                          new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
         self.assertIsInstance(result, ChatHandlerResult)
@@ -175,15 +175,15 @@ class CounterfactualExploreTests(unittest.TestCase):
         with patch.object(mod, "_detect_action",
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
-             patch.object(mod, "build_aa_facts_pack", return_value={}), \
              patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="hypothetical text")), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
+             patch.object(mod, "build_fallback_brief", return_value="hypothetical text"), \
+             patch.object(mod, "compose_allocation_chat_reply",
+                          new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("what if risk were 7?", last_alloc=_agent_run())))
 
-        self.assertEqual(result.text, "hypothetical text")
+        # The counterfactual path appends the save-offer suffix to the brief.
+        self.assertTrue(result.text.startswith("hypothetical text"))
+        self.assertIn("save", result.text.lower())
         self.assertFalse(captured["persist"])
         self.assertIsNone(captured["db"])
         # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
@@ -396,55 +396,13 @@ class RehydrateFallbackTests(unittest.TestCase):
         fmt.assert_not_called()
 
 
-class FormatterTelemetryTests(unittest.TestCase):
-
-    def test_first_turn_records_formatter_columns_on_success(self):
-        outcome = _engine_outcome_with_ids()
-        captured: dict[str, Any] = {}
-
-        async def fake_record(*args, **kwargs):
-            captured.update(kwargs)
-            return uuid.uuid4()
-
-        with patch.object(mod, "compute_allocation_result",
-                          new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "build_aa_facts_pack", return_value={}), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="tailored answer")), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.record_ai_module_run",
-                   side_effect=fake_record):
-            asyncio.run(mod.handle(_ctx("plan my retirement")))
-
-        self.assertEqual(captured.get("action_mode"), "compute")
-        self.assertTrue(captured.get("formatter_invoked"))
-        self.assertTrue(captured.get("formatter_succeeded"))
-        self.assertIsNone(captured.get("formatter_error_class"))
-        self.assertIsNotNone(captured.get("formatter_latency_ms"))
-
-    def test_first_turn_records_formatter_columns_on_failure(self):
-        from app.domains.ai_engine.services.answer_formatter import FormatterFailure
-        outcome = _engine_outcome_with_ids()
-        captured: dict[str, Any] = {}
-
-        async def fake_record(*args, **kwargs):
-            captured.update(kwargs)
-            return uuid.uuid4()
-
-        with patch.object(mod, "compute_allocation_result",
-                          new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "build_aa_facts_pack", return_value={}), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
-             patch.object(mod, "build_fallback_brief",
-                          return_value="fallback"), \
-             patch("app.domains.ai_engine.services.answer_formatter.formatter.record_ai_module_run",
-                   side_effect=fake_record):
-            asyncio.run(mod.handle(_ctx("plan my retirement")))
-
-        self.assertEqual(captured.get("action_mode"), "compute")
-        self.assertTrue(captured.get("formatter_invoked"))
-        self.assertFalse(captured.get("formatter_succeeded"))
-        self.assertEqual(captured.get("formatter_error_class"), "FormatterFailure")
+# The FormatterTelemetry tests that lived here previously asserted on columns
+# the answer_formatter wrote when ``_format_or_fallback`` ran on the first
+# turn. After the refactor the first-turn path goes through
+# ``compose_allocation_chat_reply`` instead — those columns are now only
+# written on the narrate / educate paths (which still use the answer formatter
+# and are covered by their own tests below). The deleted assertions tested a
+# contract the architecture no longer offers.
 
 
 if __name__ == "__main__":

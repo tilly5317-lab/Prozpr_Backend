@@ -33,14 +33,11 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.domains.ai_engine.services.answer_formatter import format_with_telemetry
 from app.domains.ai_engine.services.intent_router.classifier_llm import classify_action
-from app.domains.ai_engine.services.bridges.asset_allocation.allocation_tables_md import (
-    build_allocation_tables_markdown,
-    is_allocation_output_complete,
-)
 from app.domains.ai_engine.services.bridges.asset_allocation.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
     build_fallback_brief,
+    compose_allocation_chat_reply,
     compute_allocation_result,
 )
 from app.domains.ai_engine.services.chat_dispatcher import ChatHandlerResult, register
@@ -439,15 +436,41 @@ async def _reply_with_allocation_tables(
     spine_mode: str,
     hypothetical: bool = False,
 ) -> str:
-    """Prefer full DB-parity tables; fall back to LLM formatter if output incomplete."""
-    if is_allocation_output_complete(output):
-        text = build_allocation_tables_markdown(output)
-        if hypothetical:
-            text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
-        return text
-    return await _format_or_fallback(
-        ctx=ctx, output=output, action_mode=action_mode, spine_mode=spine_mode,
-    )
+    """Return a natural-language allocation reply tailored to the customer's question.
+
+    Pipeline:
+        1. ``build_fallback_brief`` — deterministic plain-text summary of the
+           engine output (authoritative for numbers).
+        2. ``compose_allocation_chat_reply`` — Haiku takes the brief + the
+           customer's question and produces a tailored answer that answers
+           THE question, not just dumps the brief.
+        3. Fall back to the deterministic brief if Haiku errors / opts out.
+
+    The previous behaviour of returning the full DB-parity tables markdown
+    moved to the per-row DB writes — chat surfaces a customer-facing answer
+    only.
+    """
+    try:
+        brief = build_fallback_brief(output, spine_mode)
+    except Exception:
+        # Partial engine output (e.g. missing asset_class_breakdown on a stub
+        # run) — surface a minimal acknowledgement rather than crash.
+        logger.exception("build_fallback_brief failed; emitting minimal reply")
+        brief = (
+            "I worked out an allocation for you. Open the allocation tab to "
+            "see the per-bucket details."
+        )
+    try:
+        tailored = await compose_allocation_chat_reply(
+            ctx.user_question, brief, spine_mode,
+        )
+    except Exception:
+        logger.exception("compose_allocation_chat_reply failed; using brief")
+        tailored = None
+    text = tailored or brief
+    if hypothetical:
+        text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
+    return text
 
 
 def _risk_score_from_snapshot(last_alloc: AgentRunRecord) -> float:
