@@ -133,19 +133,37 @@ class ChatOverrideTests(unittest.TestCase):
         # Default emergency_fund_needed is False
         self.assertFalse(alloc_input.emergency_fund_needed)
 
-    def test_corpus_override_propagates_into_synthesized_default_goal(self):
-        """When user has no explicit goals AND a corpus override, the synthesized
-        default goal's amount_needed should reflect the overridden corpus."""
+    def test_no_goals_yields_empty_goals_list(self):
+        """Users with no active financial goals get an empty goals list.
+
+        The engine's ``AllocationInput.goals`` defaults to ``[]`` (see
+        ``AI_Agents/src/asset_allocation_pydantic/models.py``); the input
+        builder used to synthesize a long-term wealth-creation goal as a
+        stand-in but that masked real "user hasn't onboarded" cases. Now we
+        just pass through, the engine handles it, and the debug dict
+        surfaces ``goals_empty`` so we can observe it.
+        """
         user = self._build_minimal_user()
-        user.financial_goals = []  # No explicit goals — triggers the synthesized default.
+        user.financial_goals = []
         ctx = self._make_ctx(user, total_corpus=5_000_000.0)
 
-        alloc_input, _ = build_goal_allocation_input_for_user(ctx)
+        alloc_input, debug = build_goal_allocation_input_for_user(ctx)
 
-        self.assertEqual(len(alloc_input.goals), 1)
-        synthesized = alloc_input.goals[0]
-        self.assertEqual(synthesized.goal_name, "Long-term wealth creation")
-        self.assertEqual(synthesized.amount_needed, 5_000_000.0)
+        self.assertEqual(alloc_input.goals, [])
+        self.assertEqual(debug["active_goal_count"], 0)
+        self.assertIn("goals_empty", debug["defaults_applied"])
+
+    def test_missing_date_of_birth_defaults_to_age_35(self):
+        """No DOB on file → age defaults to 35; the engine still runs."""
+        user = self._build_minimal_user()
+        user.date_of_birth = None
+        ctx = self._make_ctx(user)
+
+        alloc_input, debug = build_goal_allocation_input_for_user(ctx)
+
+        self.assertEqual(alloc_input.age, 35)
+        self.assertFalse(debug["has_date_of_birth"])
+        self.assertIn("date_of_birth_missing", debug["defaults_applied"])
 
 
 if __name__ == "__main__":

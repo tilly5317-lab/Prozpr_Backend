@@ -25,7 +25,12 @@ from asset_allocation_pydantic.models import AllocationInput, Goal
 _DEFAULT_RISK_SCORE = 7.0
 _DEFAULT_TAX_RATE = 30.0
 _MIN_AGE = 18
-_SYNTH_GOAL_HORIZON_MONTHS = 120
+
+# When the customer hasn't filled DOB yet we don't want the allocation flow
+# to refuse to answer — fall back to a working default so the engine still
+# produces an allocation. 35 is the median onboarding age; the actual age is
+# almost always overwritten as soon as the customer completes onboarding.
+_DEFAULT_AGE_WHEN_DOB_MISSING = 35
 
 
 def _f(obj: Any, attr: str, default: float = 0.0) -> float:
@@ -70,7 +75,14 @@ def pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
     return max(investable, portfolio_value, primary_value)
 
 
-def _map_goals(financial_goals: List[Any], total_corpus: float) -> List[Goal]:
+def _map_goals(financial_goals: List[Any]) -> List[Goal]:
+    """Map the user's active financial goals → engine ``Goal`` list.
+
+    Empty list is a valid input to the allocation engine
+    (``AllocationInput.goals`` defaults to ``[]``); no synthesis on the
+    no-goal path — the engine handles an empty list as a "no goals yet"
+    customer and produces a sensible long-term default allocation.
+    """
     today = date.today()
     mapped: List[Goal] = []
     for g in financial_goals:
@@ -94,18 +106,7 @@ def _map_goals(financial_goals: List[Any], total_corpus: float) -> List[Goal]:
                 investment_goal=gt_val.lower(),
             )
         )
-    if mapped:
-        return mapped
-    # Zero active goals → synthesize a long-term wealth creation goal.
-    return [
-        Goal(
-            goal_name="Long-term wealth creation",
-            time_to_goal_months=_SYNTH_GOAL_HORIZON_MONTHS,
-            amount_needed=max(total_corpus, 1.0),
-            goal_priority="non_negotiable",
-            investment_goal="wealth_creation",
-        )
-    ]
+    return mapped
 
 
 def build_goal_allocation_input_for_user(
@@ -113,11 +114,12 @@ def build_goal_allocation_input_for_user(
 ) -> tuple[AllocationInput, Dict[str, Any]]:
     """Return ``(AllocationInput, debug)`` for the User in ``ctx.user_ctx``.
 
-    Raises ``ValueError("missing_date_of_birth")`` when DOB is absent.
+    Tolerant by design — missing fields fall back to documented defaults so
+    the engine can always produce an answer. The ``debug`` dict reports which
+    defaults were applied.
     """
     user = ctx.user_ctx
-    if getattr(user, "date_of_birth", None) is None:
-        raise ValueError("missing_date_of_birth")
+    dob = getattr(user, "date_of_birth", None)
 
     era = getattr(user, "effective_risk_assessment", None)
     inv = getattr(user, "investment_profile", None)
@@ -166,7 +168,11 @@ def build_goal_allocation_input_for_user(
         shortfall_amount = None
         net_financial_assets = None
 
-    age = _age_from_dob(user.date_of_birth)
+    if dob is None:
+        defaults_applied.append("date_of_birth_missing")
+        age = _DEFAULT_AGE_WHEN_DOB_MISSING
+    else:
+        age = _age_from_dob(dob)
     annual_income = _f(inv, "annual_income")
     monthly_household_expense = _f(inv, "regular_outgoings")
     total_corpus = pick_total_corpus(inv, portfolios)
@@ -222,9 +228,9 @@ def build_goal_allocation_input_for_user(
     # the assertion. Sheds at most ₹99.
     total_corpus = float(int(max(total_corpus, 0.0) // 100 * 100))
 
-    # Goals are mapped AFTER the corpus override so synthesized-default goals
-    # (used when the user has no explicit goals) reflect the overridden corpus.
-    goals = _map_goals(financial_goals, total_corpus)
+    goals = _map_goals(financial_goals)
+    if not goals:
+        defaults_applied.append("goals_empty")
 
     alloc_input = AllocationInput(
         effective_risk_score=effective_risk_score,
@@ -254,16 +260,8 @@ def build_goal_allocation_input_for_user(
         "has_investment_profile": inv is not None,
         "has_risk_profile": rp is not None,
         "has_tax_profile": tp is not None,
-        "active_goal_count": sum(1 for g in goals if g.goal_name != "Long-term wealth creation")
-        if any(g.goal_name != "Long-term wealth creation" for g in goals)
-        else 0,
-        "synthesized_default_goal": len(financial_goals) == 0
-        or all(
-            (getattr(g, "status", None).value if hasattr(getattr(g, "status", None), "value") else str(getattr(g, "status", "") or ""))
-            .upper()
-            != "ACTIVE"
-            for g in financial_goals
-        ),
+        "has_date_of_birth": dob is not None,
+        "active_goal_count": len(goals),
         "defaults_applied": defaults_applied,
     }
     return alloc_input, debug

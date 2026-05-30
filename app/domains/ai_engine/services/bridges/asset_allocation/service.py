@@ -571,11 +571,13 @@ async def compute_allocation_result(
     spine_mode: str | None = None,
     chat_ctx: TurnContext | None = None,
 ) -> AllocationRunOutcome:
-    """Build inputs, run the 7-step pipeline, optionally persist, and return."""
-    trace_line("module: asset_allocation — building inputs")
+    """Build inputs, run the 7-step pipeline, optionally persist, and return.
 
-    if getattr(user, "date_of_birth", None) is None:
-        return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
+    Tolerant of partial profiles — missing DOB / risk profile / tax profile /
+    investment profile / goals all degrade to documented defaults in the
+    input_builder. The engine still runs and produces an answer.
+    """
+    trace_line("module: asset_allocation — building inputs")
 
     if chat_ctx is None:
         from app.domains.ai_engine.services.chat_orchestrator.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
@@ -595,8 +597,11 @@ async def compute_allocation_result(
 
     try:
         alloc_input, build_debug = build_goal_allocation_input_for_user(chat_ctx)
-    except ValueError:
-        return AllocationRunOutcome(result=None, blocking_message=_MSG_MISSING_DOB)
+    except Exception as exc:
+        # Input builder is tolerant by design — anything reaching here is an
+        # unexpected programming error, not a missing-field signal.
+        logger.exception("asset_allocation input build failed: %s", exc)
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_ENGINE_ERROR)
 
     trace_line(
         f"effective_risk_score={alloc_input.effective_risk_score} "
