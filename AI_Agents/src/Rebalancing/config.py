@@ -15,6 +15,10 @@ from decimal import Decimal
 
 MULTI_FUND_CAP_PCT: float = float(os.getenv("REBAL_MULTI_FUND_CAP_PCT", "20.0"))
 OTHERS_FUND_CAP_PCT: float = float(os.getenv("REBAL_OTHERS_FUND_CAP_PCT", "10.0"))
+# Per Excel R247: `short_debt` carries a higher per-fund cap than the
+# generic 10% because the universe of high-quality short-duration debt
+# funds is small and concentration risk is correspondingly lower.
+SHORT_DEBT_FUND_CAP_PCT: float = float(os.getenv("REBAL_SHORT_DEBT_FUND_CAP_PCT", "30.0"))
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
 EXIT_FLOOR_RATING: int = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
 

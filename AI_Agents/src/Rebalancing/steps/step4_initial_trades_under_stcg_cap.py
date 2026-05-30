@@ -36,16 +36,14 @@ from ..utils import floor_to_step
 
 
 def _tax_cheapness_key(row: FundRowAfterStep3) -> float:
-    """Lower = cheaper. Average tax + exit-load cost per rupee sold from
-    this fund. Used to sort sell candidates within a bucket."""
+    """Lower = cheaper. Average tax cost per rupee sold from this fund.
+    Used to sort sell candidates within a bucket."""
     total = float(row.present_allocation_inr)
     if total <= 0:
         return 0.0
 
     lt_share = float(row.lt_value_inr) / total
     st_share = float(row.st_value_inr) / total
-    in_period_value = float(row.units_within_exit_load_period * row.current_nav)
-    il_share = in_period_value / total if total > 0 else 0.0
 
     lt_gain_ratio = (
         float(row.ltcg_amount) / float(row.lt_value_inr)
@@ -60,9 +58,7 @@ def _tax_cheapness_key(row: FundRowAfterStep3) -> float:
     # Negative ratio (loss) → negative effective rate (cheaper).
     st_eff = st_gain_ratio * STCG_RATE_EQUITY_PCT / 100.0
 
-    il_eff = il_share * row.exit_load_pct / 100.0
-
-    return lt_share * lt_eff + st_share * st_eff + il_eff
+    return lt_share * lt_eff + st_share * st_eff
 
 
 def _sell_from_row(
@@ -70,17 +66,16 @@ def _sell_from_row(
     amount: Decimal,
     stcg_remaining: Optional[Decimal],
 ) -> dict:
-    """Sell up to `amount` rupees from `row`, walking LT → ST OOL → ST IL.
+    """Sell up to `amount` rupees from `row`, walking LT → ST (LT first
+    because LT is the cheaper tax bucket).
     `stcg_remaining` is the per-portfolio STCG budget (None = unlimited).
     Caller is responsible for threading the returned `stcg_remaining` to
     the next call.
     """
     sold_lt = Decimal(0)
-    sold_st_ool = Decimal(0)
-    sold_st_il = Decimal(0)
+    sold_st = Decimal(0)
     ltcg_realised = Decimal(0)
     stcg_realised = Decimal(0)
-    exit_load_realised = Decimal(0)
     undersold = Decimal(0)
     undersold_stcg = Decimal(0)
 
@@ -93,52 +88,28 @@ def _sell_from_row(
         ltcg_realised = from_lt * row.ltcg_amount / row.lt_value_inr
         remaining -= from_lt
 
-    in_period_value = row.units_within_exit_load_period * row.current_nav
-    st_ool_value = max(row.st_value_inr - in_period_value, Decimal(0))
-    st_il_value = min(row.st_value_inr, in_period_value)
-    st_gain_ratio = (
-        row.stcg_amount / row.st_value_inr
-        if row.st_value_inr > 0 else Decimal(0)
-    )
-
-    # 2. ST out-of-load.
-    if remaining > 0 and st_ool_value > 0:
-        from_st_ool = min(remaining, st_ool_value)
-        stcg_from_ool = from_st_ool * st_gain_ratio
-        from_st_ool, stcg_from_ool, stcg_remaining, u, u_stcg = _apply_stcg_budget(
-            from_st_ool, stcg_from_ool, stcg_remaining
+    # 2. ST.
+    if remaining > 0 and row.st_value_inr > 0:
+        st_gain_ratio = row.stcg_amount / row.st_value_inr
+        from_st = min(remaining, row.st_value_inr)
+        stcg_from_st = from_st * st_gain_ratio
+        from_st, stcg_from_st, stcg_remaining, u, u_stcg = _apply_stcg_budget(
+            from_st, stcg_from_st, stcg_remaining
         )
         undersold += u
         undersold_stcg += u_stcg
-        sold_st_ool = from_st_ool
-        stcg_realised += stcg_from_ool
-        remaining -= from_st_ool
-
-    # 3. ST in-load (incurs exit load on the slice sold).
-    if remaining > 0 and st_il_value > 0:
-        from_st_il = min(remaining, st_il_value)
-        stcg_from_il = from_st_il * st_gain_ratio
-        from_st_il, stcg_from_il, stcg_remaining, u, u_stcg = _apply_stcg_budget(
-            from_st_il, stcg_from_il, stcg_remaining
-        )
-        undersold += u
-        undersold_stcg += u_stcg
-        sold_st_il = from_st_il
-        stcg_realised += stcg_from_il
-        if from_st_il > 0:
-            exit_load_realised = from_st_il * Decimal(str(row.exit_load_pct)) / Decimal(100)
-        remaining -= from_st_il
+        sold_st = from_st
+        stcg_realised += stcg_from_st
+        remaining -= from_st
 
     # Any leftover demand we couldn't satisfy from this row's buckets.
     undersold += remaining
 
     return {
         "sold_lt": sold_lt,
-        "sold_st_ool": sold_st_ool,
-        "sold_st_il": sold_st_il,
+        "sold_st": sold_st,
         "ltcg": ltcg_realised,
         "stcg": stcg_realised,
-        "exit_load": exit_load_realised,
         "undersold": undersold,
         "undersold_stcg": undersold_stcg,
         "stcg_remaining": stcg_remaining,
@@ -214,7 +185,7 @@ def _execute_sells(
         stcg_remaining = result["stcg_remaining"]
 
         sold_lt = result["sold_lt"]
-        sold_st = result["sold_st_ool"] + result["sold_st_il"]
+        sold_st = result["sold_st"]
         sold = sold_lt + sold_st
 
         s = state[r.isin]
@@ -245,7 +216,7 @@ def _counterfactual_sold_per_row(
 
     for r in forced_sorted:
         result = _sell_from_row(r, r.present_allocation_inr, None)
-        sold = result["sold_lt"] + result["sold_st_ool"] + result["sold_st_il"]
+        sold = result["sold_lt"] + result["sold_st"]
         sold_per_row[r.isin] = sold_per_row.get(r.isin, Decimal(0)) + sold
         cumulative += sold
 
@@ -258,7 +229,7 @@ def _counterfactual_sold_per_row(
         if demand <= 0:
             continue
         result = _sell_from_row(r, demand, None)
-        sold = result["sold_lt"] + result["sold_st_ool"] + result["sold_st_il"]
+        sold = result["sold_lt"] + result["sold_st"]
         sold_per_row[r.isin] = sold_per_row.get(r.isin, Decimal(0)) + sold
         remaining_buy -= sold
 

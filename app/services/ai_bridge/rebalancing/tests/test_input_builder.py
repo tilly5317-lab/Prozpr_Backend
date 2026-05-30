@@ -133,6 +133,98 @@ async def test_total_corpus_sums_held_market_values(
 
 
 @pytest.mark.asyncio
+async def test_builder_excludes_elss_rows(
+    db_session,
+    fixture_user_with_elss_holding,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    """ELSS holdings must not appear as MF rows; they ride on
+    practical_allocation_input.elss_corpus instead."""
+    from app.services.ai_bridge.rebalancing.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    user, _elss_isin = fixture_user_with_elss_holding
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(user, db_session),
+        fixture_goal_allocation_output_one_subgroup,
+    )
+    assert all(
+        r.asset_subgroup != "tax_efficient_equities" for r in request.rows
+    )
+    assert request.practical_allocation_input.elss_corpus > 0
+
+
+@pytest.mark.asyncio
+async def test_builder_sums_non_mf_equity_from_stock_transactions(
+    db_session,
+    fixture_user_with_stock_holding,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    """non_mf_equity_corpus = sum of cost basis from StockTransaction BUYs minus SELLs."""
+    from app.services.ai_bridge.rebalancing.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    user, expected_total = fixture_user_with_stock_holding
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(user, db_session),
+        fixture_goal_allocation_output_one_subgroup,
+    )
+    assert (
+        request.practical_allocation_input.non_mf_equity_corpus == expected_total
+    )
+
+
+@pytest.mark.asyncio
+async def test_builder_sets_target_amount_zero_on_all_rows(
+    db_session,
+    fixture_user_with_holdings,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    """Post-C.10 the engine assigns targets; the builder leaves them at 0."""
+    from app.services.ai_bridge.rebalancing.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    user, _ = fixture_user_with_holdings
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(user, db_session),
+        fixture_goal_allocation_output_one_subgroup,
+    )
+    assert all(r.target_amount_pre_cap == Decimal(0) for r in request.rows)
+
+
+@pytest.mark.asyncio
+async def test_builder_passes_through_total_corpus_via_practical_input(
+    db_session,
+    fixture_user_with_two_holdings,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    """request.practical_allocation_input.total_corpus must equal MF + non-MF + cash."""
+    from app.services.ai_bridge.rebalancing.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(fixture_user_with_two_holdings, db_session),
+        fixture_goal_allocation_output_one_subgroup,
+    )
+    mf_expected = Decimal("10") * Decimal("60") + Decimal("5") * Decimal("80")
+    assert request.practical_allocation_input.mf_corpus == float(mf_expected)
+    assert request.practical_allocation_input.non_mf_equity_corpus == 0.0
+    assert request.practical_allocation_input.total_corpus == float(mf_expected)
+
+
+@pytest.mark.asyncio
 async def test_missing_tax_profile_uses_defaults(
     db_session,
     fixture_user_with_holdings_no_tax_profile,

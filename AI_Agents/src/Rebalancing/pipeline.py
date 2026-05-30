@@ -1,12 +1,26 @@
 """Pipeline orchestrator. Pure-sync, DB-free.
 
-Composes the six steps in order, threads the warnings + unrebalanced
-remainder from step 1 through to step 6, and returns the final response.
+Runs the upstream practical asset-allocation engine first, lifts its
+per-subgroup totals onto rank-1 MF rows, then threads the six rebalancing
+steps in order. The practical output is also passed through verbatim on
+the response for the ideal-vs-practical UI.
 """
 
 from __future__ import annotations
 
-from .models import RebalancingComputeRequest, RebalancingComputeResponse
+from decimal import Decimal
+
+# Documented cross-agent import per spec §B.1 / §C.3.
+from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
+    PracticalAllocationOutput,
+    run_practical_allocation,
+)
+
+from .models import (
+    FundRowInput,
+    RebalancingComputeRequest,
+    RebalancingComputeResponse,
+)
 from .steps import (
     step1_cap_and_spill,
     step2_compare_and_decide,
@@ -17,9 +31,49 @@ from .steps import (
 )
 
 
+# Subgroups that exist in `practical.aggregated_subgroups` but have no MF
+# rows in the engine — their amounts are surfaced as frozen
+# `SubgroupSummary` entries in step6, not lifted onto rank-1 rows here.
+_FROZEN_SUBGROUPS: frozenset[str] = frozenset({
+    "tax_efficient_equities",
+    "non_mf_equities",
+})
+
+
+def _assign_targets_to_rank1(
+    rows: list[FundRowInput],
+    practical: PracticalAllocationOutput,
+) -> list[FundRowInput]:
+    """Return a new list of rows where the rank-1 row of each MF subgroup
+    has `target_amount_pre_cap` set to the practical engine's aggregated
+    total for that subgroup. Rows for frozen subgroups (ELSS, non-MF
+    equity) and rank-2+ MF rows are passed through unchanged."""
+    target_by_subgroup: dict[str, Decimal] = {
+        r.subgroup: Decimal(str(r.total))
+        for r in practical.aggregated_subgroups
+        if r.subgroup not in _FROZEN_SUBGROUPS
+    }
+    out: list[FundRowInput] = []
+    for r in rows:
+        if r.rank == 1 and r.asset_subgroup in target_by_subgroup:
+            out.append(r.model_copy(update={
+                "target_amount_pre_cap": target_by_subgroup[r.asset_subgroup],
+            }))
+        else:
+            out.append(r)
+    return out
+
+
 def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeResponse:
+    # 1. Practical allocation (holdings-aware; consumes ELSS + non-MF scalars).
+    practical = run_practical_allocation(request.practical_allocation_input)
+
+    # 2. Lift per-subgroup MF targets onto rank-1 rows.
+    rows_with_targets = _assign_targets_to_rank1(request.rows, practical)
+
+    # 3. Six-step rebalancing engine (interface unchanged).
     s1_rows, s1_warnings, unrebalanced_total = step1_cap_and_spill.apply(
-        request.rows, request
+        rows_with_targets, request
     )
     s2_rows, s2_warnings = step2_compare_and_decide.apply(s1_rows, request)
     s3_rows = step3_tax_classification.apply(s2_rows, request)
@@ -28,5 +82,5 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
 
     all_warnings = list(s1_warnings) + list(s2_warnings) + list(s4_warnings)
     return step6_presentation.apply(
-        s5_rows, request, all_warnings, unrebalanced_total
+        s5_rows, request, all_warnings, unrebalanced_total, practical=practical,
     )

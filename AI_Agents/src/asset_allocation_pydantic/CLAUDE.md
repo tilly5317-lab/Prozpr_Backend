@@ -30,6 +30,16 @@ Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes
 - Command: `pytest AI_Agents/src/asset_allocation_pydantic/Testing -v`
 - Key suites: `test_pipeline.py` (end-to-end), `test_step1_emergency.py` … `test_step7_presentation.py` (per-step), `test_tables.py`, `test_utils.py`
 
+## Consumed by
+
+- **`practical_asset_allocation/`** — per spec §B.1 (the first cross-agent edge
+  under `AI_Agents/src/`), imports `step1_emergency.run`,
+  `step2_short_term.run`, `step3_medium_term.run`, `step5_aggregation.run`,
+  selected helpers from `step4_long_term` (`phase1_bounds`,
+  `phase4_multi_asset`, `phase5_equity_subgroups`), `utils.round_to_100` /
+  `ceil_to_half`, and the public models. **Do not rename these symbols
+  without a cross-module sweep.**
+
 ## Don't read
 
 - `__pycache__/`
