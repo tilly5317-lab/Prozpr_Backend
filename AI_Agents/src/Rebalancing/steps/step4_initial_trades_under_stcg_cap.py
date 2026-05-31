@@ -65,12 +65,22 @@ def _sell_from_row(
     row: FundRowAfterStep3,
     amount: Decimal,
     stcg_remaining: Optional[Decimal],
+    *,
+    lt_available: Optional[Decimal] = None,
+    st_available: Optional[Decimal] = None,
 ) -> dict:
     """Sell up to `amount` rupees from `row`, walking LT → ST (LT first
     because LT is the cheaper tax bucket).
     `stcg_remaining` is the per-portfolio STCG budget (None = unlimited).
     Caller is responsible for threading the returned `stcg_remaining` to
     the next call.
+
+    `lt_available` / `st_available` override the per-bucket capacity when the
+    row has already been partially sold (e.g. step 5 pass-2 retries on rows
+    that had pass-1 sells). Default `None` → use the row's original LT/ST
+    values, which is the pass-1 behaviour. Gain *ratios* always use the
+    original `row.lt_value_inr` / `row.st_value_inr` denominators because
+    gain-per-rupee is a property of the holding, not the residual.
     """
     sold_lt = Decimal(0)
     sold_st = Decimal(0)
@@ -79,19 +89,22 @@ def _sell_from_row(
     undersold = Decimal(0)
     undersold_stcg = Decimal(0)
 
+    lt_avail = row.lt_value_inr if lt_available is None else lt_available
+    st_avail = row.st_value_inr if st_available is None else st_available
+
     remaining = amount
 
     # 1. LT first (cheapest tax bucket).
-    if remaining > 0 and row.lt_value_inr > 0:
-        from_lt = min(remaining, row.lt_value_inr)
+    if remaining > 0 and lt_avail > 0:
+        from_lt = min(remaining, lt_avail)
         sold_lt = from_lt
         ltcg_realised = from_lt * row.ltcg_amount / row.lt_value_inr
         remaining -= from_lt
 
     # 2. ST.
-    if remaining > 0 and row.st_value_inr > 0:
+    if remaining > 0 and st_avail > 0:
         st_gain_ratio = row.stcg_amount / row.st_value_inr
-        from_st = min(remaining, row.st_value_inr)
+        from_st = min(remaining, st_avail)
         stcg_from_st = from_st * st_gain_ratio
         from_st, stcg_from_st, stcg_remaining, u, u_stcg = _apply_stcg_budget(
             from_st, stcg_from_st, stcg_remaining
