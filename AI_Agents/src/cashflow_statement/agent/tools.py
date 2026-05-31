@@ -1,15 +1,25 @@
-"""Six tool impls for the LangGraph agent.
+"""The six LangGraph agent tools — pure-Python impls plus their @tool wrappers.
 
-Each tool's *implementation function* (foo_impl) is a pure-Python operation on AgentState.
-The @tool decorator wrappers live in agent/graph.py.
+Each tool has an *implementation function* (foo_impl): a pure-Python operation on
+AgentState, unit-testable without LangGraph. The @tool-decorated wrappers (bottom
+of this file) adapt those impls to LangGraph — they read InjectedState, call the
+impl, and return a Command that propagates state mutations plus a ToolMessage.
+`TOOLS` is the list bound to the agent node and the ToolNode.
 """
 from __future__ import annotations
+import asyncio
 from datetime import date
-from typing import Any
+from typing import Annotated, Any
+
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import tool, InjectedToolCallId
+from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
 
 from cashflow_statement.models import (
     OverrideSpec, GoalMutation, ExtractedFinancialEvent, ExtractionError,
     ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation,
+    TurnAction,
 )
 from cashflow_statement.agent.state import AgentState, CapturedCashflow
 from cashflow_statement.agent.extractor import extract_event
@@ -64,9 +74,8 @@ def apply_override_impl(override: OverrideSpec, state: AgentState) -> str:
     """Stage a parameter override."""
     state["accumulated_overrides"].append(override)
     state["dirty"] = True
-    if hasattr(override, "key"):
-        return f"Override staged: {override.key}={override.value}. Run compute_projection to see impact."
-    return "Override staged. Run compute_projection to see impact."
+    # Every OverrideSpec variant (NumericOverride / RateOverride) has a `key`.
+    return f"Override staged: {override.key}={override.value}. Run compute_projection to see impact."
 
 
 def clear_overrides_impl(keys: list[str] | None, state: AgentState) -> str:
@@ -78,7 +87,7 @@ def clear_overrides_impl(keys: list[str] | None, state: AgentState) -> str:
         return f"Cleared {n} override(s)."
     before = len(state["accumulated_overrides"])
     state["accumulated_overrides"] = [
-        o for o in state["accumulated_overrides"] if getattr(o, "key", None) not in keys
+        o for o in state["accumulated_overrides"] if o.key not in keys
     ]
     state["dirty"] = True
     return f"Cleared {before - len(state['accumulated_overrides'])} override(s)."
@@ -107,13 +116,10 @@ def _merge_state_into_input(state: AgentState):
         else:
             inp.one_off_outflows = inp.one_off_outflows + [cc.event]
 
-    # Apply overrides (last-write-wins per key)
-    by_key: dict[Any, OverrideSpec] = {}
+    # Apply overrides (last-write-wins per key). Every OverrideSpec has a `key`.
+    by_key: dict[str, OverrideSpec] = {}
     for o in state["accumulated_overrides"]:
-        if hasattr(o, "key"):
-            by_key[o.key] = o
-        else:
-            by_key[id(o)] = o
+        by_key[o.key] = o
 
     for o in by_key.values():
         if o.kind == "numeric":
@@ -196,3 +202,158 @@ def propose_levers_impl(state: AgentState) -> str:
         return "No lever within the search bounds closes the gap."
     lines = [f"{i+1}. {l.description} (confidence: {l.confidence})" for i, l in enumerate(levers)]
     return "Recommended levers:\n" + "\n".join(lines)
+
+
+# === @tool wrappers ===
+#
+# Each wrapper returns a Command(update={...}, messages=[ToolMessage(...)]) so that
+# state mutations made by the *_impl functions propagate back to the outer graph state.
+# Without this, InjectedState gives the impl a snapshot whose mutations are discarded.
+#
+# The shared TurnAction + Command construction lives in _build_tool_command below
+# so the six wrappers don't repeat the same five lines of audit-logging boilerplate.
+
+
+def _build_tool_command(
+    state: AgentState,
+    tool_name: str,
+    arguments: dict[str, Any],
+    summary: str,
+    tool_call_id: str,
+    state_updates: dict[str, Any],
+) -> Command:
+    """Build a Command that merges state updates, appends a TurnAction, and emits a ToolMessage."""
+    new_action = TurnAction(
+        tool_name=tool_name,
+        arguments=arguments,
+        summary=summary,
+    )
+    return Command(update={
+        **state_updates,
+        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
+        "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
+    })
+
+
+@tool
+def extract_financial_event(
+    description: str,
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Parse a natural-language description of a financial goal, property purchase, or one-off cashflow."""
+    summary, event = asyncio.run(extract_financial_event_impl(description, state))
+    state_updates: dict[str, Any] = {
+        "captured_goals": state["captured_goals"],
+        "captured_properties": state["captured_properties"],
+        "captured_cashflows": state["captured_cashflows"],
+        "captured_mutations": state["captured_mutations"],
+        "dirty": state["dirty"],
+        "error_log": state["error_log"],
+    }
+    if event is not None:
+        state_updates["extracted_events_this_turn"] = [
+            *state["extracted_events_this_turn"], event,
+        ]
+    return _build_tool_command(
+        state, "extract_financial_event", {"description": description},
+        summary, tool_call_id, state_updates,
+    )
+
+
+@tool
+def apply_override(
+    override: dict,
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Stage a what-if change to a parameter (income, expense, SIP, rate)."""
+    from pydantic import TypeAdapter
+    parsed = TypeAdapter(OverrideSpec).validate_python(override)
+    summary = apply_override_impl(parsed, state)
+    return _build_tool_command(
+        state, "apply_override", {"override": override},
+        summary, tool_call_id,
+        state_updates={
+            "accumulated_overrides": state["accumulated_overrides"],
+            "dirty": state["dirty"],
+        },
+    )
+
+
+@tool
+def clear_overrides(
+    keys: list[str] | None,
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Clear staged overrides (all if keys=None, or specific keys)."""
+    summary = clear_overrides_impl(keys, state)
+    return _build_tool_command(
+        state, "clear_overrides", {"keys": keys},
+        summary, tool_call_id,
+        state_updates={
+            "accumulated_overrides": state["accumulated_overrides"],
+            "dirty": state["dirty"],
+        },
+    )
+
+
+@tool
+def mutate_goal(
+    op: str,
+    goal_name: str,
+    fields: dict[str, Any],
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Remove/update a goal (incl. retirement)."""
+    summary = mutate_goal_impl(op, goal_name, fields, state)
+    return _build_tool_command(
+        state, "mutate_goal",
+        {"op": op, "goal_name": goal_name, "fields": fields},
+        summary, tool_call_id,
+        state_updates={
+            "captured_mutations": state["captured_mutations"],
+            "dirty": state["dirty"],
+        },
+    )
+
+
+@tool
+def compute_projection(
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Run the goal-planning engine. Idempotent."""
+    summary = compute_projection_impl(state)
+    return _build_tool_command(
+        state, "compute_projection", {},
+        summary, tool_call_id,
+        state_updates={
+            "last_output": state["last_output"],
+            "dirty": state["dirty"],
+        },
+    )
+
+
+@tool
+def propose_levers(
+    state: Annotated[AgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Generate up to 3 deterministic recommendations to close shortfalls."""
+    summary = propose_levers_impl(state)
+    return _build_tool_command(
+        state, "propose_levers", {},
+        summary, tool_call_id,
+        state_updates={
+            "last_levers": state["last_levers"],
+        },
+    )
+
+
+TOOLS = [
+    extract_financial_event, apply_override, clear_overrides,
+    mutate_goal, compute_projection, propose_levers,
+]

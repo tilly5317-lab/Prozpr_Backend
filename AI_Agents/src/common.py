@@ -16,7 +16,10 @@ _ONE_LAKH = 100_000.0
 _ONE_CRORE = 10_000_000.0
 
 
-# Keep in sync with app/models/profile/risk_profile.RISK_CATEGORIES.
+# Canonical source for risk-category names. The app layer (app/models/profile/
+# risk_profile.RISK_CATEGORIES) re-imports from here via the sys.path hook in
+# app/__init__.py — no parallel copy to keep in sync.
+#
 # Bands are midpoints of the legacy risk_level → willingness conversion
 # (risk_willingness = 1.0 + risk_level * 9.0 / 4.0): anchors are
 # 1.0 / 3.25 / 5.5 / 7.75 / 10.0, so midpoints fall at 2.125, 4.375,

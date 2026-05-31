@@ -11,6 +11,7 @@ from cashflow_statement.agent.state import AgentState
 from cashflow_statement.agent.prompts import SYSTEM_PROMPT
 from cashflow_statement.models import GoalPlanningInput
 from cashflow_statement.summarizer import summarize_plan
+from common import format_inr_indian
 
 
 # Default agent model — overridable via config (Phase 4 will add config.py)
@@ -18,29 +19,25 @@ AGENT_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
 
 def _fmt_inr(amount: float) -> str:
-    """Format a rupee amount in Indian conventions: ₹X.XXCr / ₹X.XXL / ₹X,XXX."""
-    if abs(amount) >= 1_00_00_000:  # 1 crore
-        return f"₹{amount/1_00_00_000:.2f}Cr"
-    if abs(amount) >= 1_00_000:  # 1 lakh
-        return f"₹{amount/1_00_000:.2f}L"
-    return f"₹{amount:,.0f}"
+    """Format a rupee amount in Indian notation for the agent's system-prompt
+    summary. Delegates to the shared ``common.format_inr_indian`` (same pattern
+    as ``summarizer.py``) so the agent's internal summary uses the same notation
+    as every customer-facing surface."""
+    return format_inr_indian(amount) or "₹0"
 
 
 def _years_until(today: date, target: date) -> str:
-    delta = (target - today).days / 365.25
+    delta = (target - today).days / 365
     return f"{delta:.1f}y"
 
 
-def _format_baseline_summary(inp: GoalPlanningInput, anchor: date) -> str:
-    """Render a compact summary of what's loaded for the system prompt."""
+def _format_profile_section(inp: GoalPlanningInput, anchor: date) -> list[str]:
     p = inp.profile
     r = inp.retirement
     age = (anchor - r.date_of_birth).days // 365 if r.date_of_birth else None
     corpus = p.financial_assets - p.financial_liabilities_excl_mortgage
 
-    lines: list[str] = []
-
-    lines.append("PROFILE")
+    lines: list[str] = ["PROFILE"]
     if age is not None:
         lines.append(f"- Date of birth: {r.date_of_birth} (current age ~{age})")
     lines.append(f"- Retirement: planned at age {r.retirement_age} (~year {r.date_of_birth.year + r.retirement_age if r.date_of_birth else 'unknown'}); assumed lifespan {r.assumed_lifespan_years}")
@@ -51,11 +48,16 @@ def _format_baseline_summary(inp: GoalPlanningInput, anchor: date) -> str:
         lines.append(f"- Monthly investment / SIP: {_fmt_inr(p.starting_monthly_investment)}")
     else:
         lines.append("- Monthly investment / SIP: not set")
+    return lines
 
+
+def _format_goals_section(inp: GoalPlanningInput, anchor: date) -> list[str]:
+    r = inp.retirement
     n_goals = 1 + len(inp.goal_properties) + len(inp.custom_goals)
-    lines.append("")
-    lines.append(f"GOALS ({n_goals})")
-    lines.append(f"- retirement: corpus needed at age {r.retirement_age} (will be computed); assumed lifespan {r.assumed_lifespan_years}")
+    lines: list[str] = [
+        f"GOALS ({n_goals})",
+        f"- retirement: corpus needed at age {r.retirement_age} (will be computed); assumed lifespan {r.assumed_lifespan_years}",
+    ]
     for gp in inp.goal_properties:
         target = gp.target_pv if gp.target_pv else gp.target_fv
         mortgage_note = ""
@@ -72,26 +74,56 @@ def _format_baseline_summary(inp: GoalPlanningInput, anchor: date) -> str:
         target = cg.goal_value_pv if cg.goal_value_pv else cg.corpus_required_fv
         units = "PV" if cg.goal_value_pv is not None else "FV"
         lines.append(f"- {cg.name} ({cg.goal_type.value}): {_fmt_inr(target or 0)} {units} in {cg.goal_date.year} ({_years_until(anchor, cg.goal_date)} away)")
+    return lines
 
-    if inp.current_properties:
-        active_mortgages = [
-            cp for cp in inp.current_properties
-            if cp.has_mortgage and cp.mortgage_emi and cp.mortgage_end_date
-        ]
-        if active_mortgages:
+
+def _format_existing_mortgages_section(inp: GoalPlanningInput) -> list[str]:
+    if not inp.current_properties:
+        return []
+    active = [
+        cp for cp in inp.current_properties
+        if cp.has_mortgage and cp.mortgage_emi and cp.mortgage_end_date
+    ]
+    if not active:
+        return []
+    lines = [f"EXISTING MORTGAGES ({len(active)})"]
+    for cp in active:
+        lines.append(f"- {cp.name}: {_fmt_inr(cp.mortgage_emi)}/month EMI through {cp.mortgage_end_date}")
+    return lines
+
+
+def _format_one_off_cashflows_section(inp: GoalPlanningInput) -> list[str]:
+    if not (inp.one_off_inflows or inp.one_off_outflows):
+        return []
+    lines = ["ONE-OFF CASHFLOWS"]
+    for e in inp.one_off_inflows:
+        lines.append(f"- IN: {e.description} {_fmt_inr(e.amount)} on {e.date}")
+    for e in inp.one_off_outflows:
+        lines.append(f"- OUT: {e.description} {_fmt_inr(e.amount)} on {e.date}")
+    return lines
+
+
+def _format_baseline_summary(inp: GoalPlanningInput, anchor: date) -> str:
+    """Render a compact summary of what's loaded for the system prompt.
+
+    Composed of four section helpers (profile / goals / existing-mortgages /
+    one-off-cashflows). Hidden sections (no mortgages, no one-offs) emit no
+    blank-line separator — joining only non-empty sections preserves the
+    original exact byte layout.
+    """
+    sections = [
+        _format_profile_section(inp, anchor),
+        _format_goals_section(inp, anchor),
+        _format_existing_mortgages_section(inp),
+        _format_one_off_cashflows_section(inp),
+    ]
+    lines: list[str] = []
+    for sec in sections:
+        if not sec:
+            continue
+        if lines:
             lines.append("")
-            lines.append(f"EXISTING MORTGAGES ({len(active_mortgages)})")
-            for cp in active_mortgages:
-                lines.append(f"- {cp.name}: {_fmt_inr(cp.mortgage_emi)}/month EMI through {cp.mortgage_end_date}")
-
-    if inp.one_off_inflows or inp.one_off_outflows:
-        lines.append("")
-        lines.append("ONE-OFF CASHFLOWS")
-        for e in inp.one_off_inflows:
-            lines.append(f"- IN: {e.description} {_fmt_inr(e.amount)} on {e.date}")
-        for e in inp.one_off_outflows:
-            lines.append(f"- OUT: {e.description} {_fmt_inr(e.amount)} on {e.date}")
-
+        lines.extend(sec)
     return "\n".join(lines)
 
 

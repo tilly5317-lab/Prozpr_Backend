@@ -192,6 +192,13 @@ class _PracticalLongTermResult:
     average_equity_subgroup_allocation_pct: float
     min_equity_pct_required: float
     equity_subgroup_amounts: dict[str, int]  # one entry per EQUITY_SUBGROUPS
+    # Pre-slider state — what the slider actually compared against
+    # min_equity_pct_required when deciding which subgroups to drop. Final
+    # amounts (above) are post-drop-and-redistribute, so they no longer match
+    # the threshold comparison. Surfaced for Excel-row debugging.
+    initial_equity_subgroup_amounts: dict[str, int]
+    # Denominator for the slider's per-subgroup share % (Excel R194+R187+R181).
+    equity_share_denominator: int
     # R217-R222 (Task 10):
     residual_other_corpus: int
     long_term_subgroup_amounts: dict[str, int]  # one entry per STEP4_SUBGROUPS
@@ -434,16 +441,26 @@ def _run_practical_long_term(
     )
 
     # R198-R215: v2 average-based slider via shared helper (single source of
-    # truth across the ideal and practical engines). Denominator for share %
-    # is the MF equity pool (residual_equity_corpus_final, post-ELSS/non-MF/
-    # multi-asset); locked_share denominator is equities_amount (full LT
-    # equity budget) per the spec.
+    # truth across the ideal and practical engines).
+    #
+    # Practical-engine spec (Excel R204 column "% OF EQUITIES" =
+    # allocation_2 × B194 / (B194 + B187 + B181)): the per-subgroup share % for
+    # the slider's drop decision is taken against the TOTAL equity pool, not
+    # just the MF residual. Total = residual_equity_corpus_final +
+    # multi_asset_amount + non_mf_equity_actual (ELSS deliberately excluded —
+    # frozen and treated separately).
+    total_equity_pool_for_shares = (
+        residual_equity_corpus_final
+        + multi_asset_block.multi_asset_amount
+        + non_mf_equity_actual
+    )
     renormalised, min_equity_pct_required, average_equity_subgroup_allocation_pct = (
         apply_equity_subgroup_slider(
             initial_subgroup_amounts,
             equity_pool=residual_equity_corpus_final,
             equities_amount=equities_amount,
             locked_amount=elss_amount_frozen + non_mf_equity_actual,
+            share_denominator=total_equity_pool_for_shares,
         )
     )
 
@@ -513,6 +530,8 @@ def _run_practical_long_term(
         average_equity_subgroup_allocation_pct=average_equity_subgroup_allocation_pct,
         min_equity_pct_required=min_equity_pct_required,
         equity_subgroup_amounts=equity_subgroup_amounts,
+        initial_equity_subgroup_amounts=dict(initial_subgroup_amounts),
+        equity_share_denominator=int(total_equity_pool_for_shares),
         residual_other_corpus=residual_other_corpus,
         long_term_subgroup_amounts=long_term_subgroup_amounts,
         goals_allocated=lt_goals,
@@ -520,7 +539,10 @@ def _run_practical_long_term(
     )
 
 
-def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocationOutput:
+def run_practical_allocation(
+    inp: PracticalAllocationInput,
+    trace: Optional[dict] = None,
+) -> PracticalAllocationOutput:
     """Holdings-aware goal-based allocation. Spec §B.4.
 
     Pipeline:
@@ -530,6 +552,9 @@ def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocati
       4. Run _run_practical_long_term (Excel R157-R222) for the long-term step.
       5. Aggregate with step5_aggregation_with_frozen (adds two frozen rows).
       6. Assemble PracticalAllocationOutput.
+
+    If `trace` is provided (any dict), populated in-place with intermediate
+    state for downstream Excel-comparison views — never affects the return value.
     """
     rebalancing_corpus = inp.total_corpus - inp.elss_corpus
     if rebalancing_corpus < 0:
@@ -566,7 +591,90 @@ def run_practical_allocation(inp: PracticalAllocationInput) -> PracticalAllocati
         non_mf_equity_actual=s4_practical.non_mf_equity_actual,
     )
 
+    if trace is not None:
+        trace.update({
+            "rebalancing_corpus": rebalancing_corpus,
+            "lt_corpus_entering": s3.remaining_corpus,
+            "inputs": {
+                "elss_corpus": float(inp.elss_corpus),
+                "non_mf_equity_corpus": float(inp.non_mf_equity_corpus),
+                "mf_corpus": float(inp.mf_corpus),
+                "net_financial_assets": (
+                    None if inp.net_financial_assets is None
+                    else float(inp.net_financial_assets)
+                ),
+                "max_non_mf_equity_pct_client_input": inp.max_non_mf_equity_pct_client_input,
+            },
+            "step1_emergency": s1.model_dump(mode="json"),
+            "step2_short_term": s2.model_dump(mode="json"),
+            "step3_medium_term": s3.model_dump(mode="json"),
+            "step4_long_term": _practical_lt_result_to_dict(s4_practical),
+            "step5_aggregation": s5.model_dump(mode="json"),
+        })
+
     return _build_output(inp, s1, s2, s3, s4_practical, s5)
+
+
+def _practical_lt_result_to_dict(r: _PracticalLongTermResult) -> dict:
+    """JSON-serializable view of the long-term step's internal state.
+
+    Field names map 1:1 to the dataclass; values are unwrapped to plain
+    Python primitives so the trace can be JSON-dumped.
+    """
+    return {
+        # Excel R157-R165 (Task 5 — corpus, ELSS floor, phase-1 bounds)
+        "total_long_term_corpus":           r.total_long_term_corpus,
+        "min_equity_elss_pct":              r.min_equity_elss_pct,
+        "phase1_bounds_allocation_1": {
+            "eq_min":     r.phase1_bounds_allocation_1.eq_min,
+            "eq_max":     r.phase1_bounds_allocation_1.eq_max,
+            "debt_min":   r.phase1_bounds_allocation_1.debt_min,
+            "debt_max":   r.phase1_bounds_allocation_1.debt_max,
+            "others_min": r.phase1_bounds_allocation_1.others_min,
+            "others_max": r.phase1_bounds_allocation_1.others_max,
+        },
+        # R167-R174 (Task 6 — others-gate, allocation_2 percentages)
+        "practical_others_gate_fired":      r.practical_others_gate_fired,
+        "allocation_2_equity_pct":          r.allocation_2_equity_pct,
+        "allocation_2_debt_pct":            r.allocation_2_debt_pct,
+        "allocation_2_others_pct":          r.allocation_2_others_pct,
+        # R177-R186 (Task 7 — amounts, ELSS, non-MF cap, residual_equity)
+        "equities_amount":                  r.equities_amount,
+        "debt_amount":                      r.debt_amount,
+        "others_amount":                    r.others_amount,
+        "elss_amount_frozen":               r.elss_amount_frozen,
+        "max_non_mf_equity_pct_computed":   r.max_non_mf_equity_pct_computed,
+        "max_non_mf_equity_pct_considered": r.max_non_mf_equity_pct_considered,
+        "max_equities_shares":              r.max_equities_shares,
+        "non_mf_equity_actual":             r.non_mf_equity_actual,
+        "excess_direct_stocks":             r.excess_direct_stocks,
+        "residual_equity_corpus_pre_multi_asset":
+            r.residual_equity_corpus_pre_multi_asset,
+        # R187-R194 (Task 8 — multi-asset block & overflow)
+        "multi_asset_block":                r.multi_asset_block.model_dump(mode="json"),
+        "multi_asset_others_excess":        r.multi_asset_others_excess,
+        "excess_to_debt":                   r.excess_to_debt,
+        "excess_to_equity":                 r.excess_to_equity,
+        "residual_equity_corpus_final":     r.residual_equity_corpus_final,
+        "residual_debt_corpus":             r.residual_debt_corpus,
+        # R196-R215 (Task 9 — equity subgroup slider)
+        "average_equity_subgroup_allocation_pct":
+            r.average_equity_subgroup_allocation_pct,
+        "min_equity_pct_required":          r.min_equity_pct_required,
+        "equity_subgroup_amounts":          dict(r.equity_subgroup_amounts),
+        "initial_equity_subgroup_amounts":  dict(r.initial_equity_subgroup_amounts),
+        "equity_share_denominator":         r.equity_share_denominator,
+        # R217-R222 (Task 10 — debt & others residuals)
+        "residual_other_corpus":            r.residual_other_corpus,
+        "long_term_subgroup_amounts":       dict(r.long_term_subgroup_amounts),
+        "goals_allocated": [
+            g.model_dump(mode="json") for g in r.goals_allocated
+        ],
+        "future_investment": (
+            r.future_investment.model_dump(mode="json")
+            if r.future_investment is not None else None
+        ),
+    }
 
 
 def _adapt_practical_to_step4_output(
