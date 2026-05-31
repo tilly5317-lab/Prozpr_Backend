@@ -18,7 +18,7 @@ discarded.
 
 from __future__ import annotations
 
-from app.domains.ai_engine.services.types import ModuleOutput
+from app.domains.ai_engine.types import ModuleOutput
 
 
 async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
@@ -29,8 +29,8 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     here so the side-effect lands before ``dispatch_chat`` looks it up.
     """
     # Lazy imports for the @register side-effect and to keep brain startup light.
-    from app.domains.ai_engine.services.bridges.asset_allocation import chat as _aa_chat  # noqa: F401
-    from app.domains.ai_engine.services.chat_dispatcher import dispatch_chat
+    from app.domains.asset_allocation.services.aa_engine import chat as _aa_chat  # noqa: F401
+    from app.domains.ai_engine.chat_dispatcher import dispatch_chat
 
     result = await dispatch_chat("asset_allocation", ctx)
     return ModuleOutput(

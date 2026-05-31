@@ -1,146 +1,129 @@
-# app/domains/ai_engine/ — AI engine domain
+# app/domains/ai_engine/ — the chat brain
 
-The chat orchestrator + intent router + per-intent bridges to `AI_Agents`.
-This is the home of `ChatBrain.run_turn` — the one entry point per chat turn.
+This domain owns ONLY the orchestration of a chat turn. It contains NO
+per-intent / per-domain logic — that lives in each owning domain.
 
-Public surface:
+`services/` holds **exactly two files**:
+
+```
+services/
+  brain.py   # ChatBrain.run_turn — classify intent, run the matching flow
+  flow.py    # FLOWS: intent name -> ordered sequence of domain functions
+```
+
+Public API:
 
 ```python
 from app.domains.ai_engine import ChatBrain, ChatTurnInput, ChatBrainResult
 ```
 
-## Layout
+## The turn (`ChatBrain.run_turn`)
 
-```
-ai_engine/
-  routers/                          # per-agent debug HTTP routes
-  schemas/                          # request/response payloads for those routes
-  services/
-    common.py                       # shared helpers (sys.path inject, tracing,
-                                    # history-block formatting, money formatting)
-    chat_dispatcher.py              # @register / dispatch_chat registry for the
-                                    # per-module chat handlers
-    types.py                        # BranchResult, IntentDecision
-    chat_orchestrator/
-      brain.py                      # ChatBrain — the per-turn loop
-      turn_context.py               # TurnContext + build_turn_context()
-      types.py                      # ChatTurnInput, ChatBrainResult DTOs
-    intent_router/
-      intent_router.py              # _DISPATCH map + dispatch()
-      classifier_llm.py             # shared Haiku structured-output helper
-    bridges/
-      intent_classifier_bridge.py   # routing intent → IntentDecision
-      intent_classifier_service.py  # actual classify_user_message() (LangChain)
-      general_chat_bridge.py
-      general_chat_service.py
-      market_commentary_bridge.py
-      market_commentary_service.py
-      portfolio_query_bridge.py
-      portfolio_query_service.py
-      asset_allocation_bridge.py    # thin run() wrapper
-      asset_allocation/             # implementation (chat, service, input_builder,
-                                    # overrides, allocation_tables_md, persistence)
-      goal_planning_bridge.py
-      goal_planning/                # implementation
-      rebalancing_bridge.py
-      rebalancing/                  # implementation
-      ailax_flow.py                 # legacy allocation-spine helper
-    answer_formatter/
-      formatter.py                  # shared question-aware answer formatter
-    visualizations/
-      registry.py
-      category_gap_bar/builder.py
-```
+1. `build_turn_context(turn)` → `TurnContext` (history + last module runs +
+   active intent + `awaiting_save` gate).
+2. Run the always-first `intent_classifier` (from the intent_classifier
+   domain) → `IntentDecision`.
+3. Classifier-only intents (`out_of_scope`, `stock_advice`) short-circuit with
+   their canned message.
+4. `FLOWS[intent.name]` (or `flow_general_chat` for unknown) picks the flow;
+   `ctx.awaiting_save` overrides to the cashflow save flow.
+5. `await flow(turn, ctx)` under a per-flow timeout — the flow composes the
+   domain calls and returns the final `ModuleOutput`.
+6. `_finalize` shapes `ChatBrainResult` + writes telemetry (best-effort).
 
-## Concepts
+## Flows (`services/flow.py`)
 
-- **`TurnContext`** (`chat_orchestrator/turn_context.py`) — per-turn bag:
-  history + last `ChatAiModuleRun` per module + active intent + `awaiting_save`
-  gate. Built once per turn by `build_turn_context`; bridges read from it.
-- **`IntentDecision`** (`services/types.py`) — routing key (`.name`) +
-  confidence + reasoning + the raw `IntentClassification` pydantic on `.raw`
-  (so bridges that need the full classifier output — `general_chat`,
-  `market_commentary` — don't have to classify again).
-- **`BranchResult`** (`services/types.py`) — every bridge returns this shape:
-  text + optional persisted IDs (allocation / rebalancing / snapshot) +
-  optional chart payloads + a `side_effects` bag reserved for cross-turn
-  gates (e.g. `awaiting_save`).
-
-## The brain loop (`ChatBrain.run_turn`)
-
-1. `build_turn_context(turn)` — history + last AgentRun per module + active
-   intent + `awaiting_save`.
-2. `intent_classifier_bridge.classify_for_turn(turn, ctx)` → `IntentDecision`.
-3. `intent_router.dispatch(ctx, intent, turn=…, flow=…)` — runs the matching
-   bridge under a 60-second hard timeout. Returns a `BranchResult`.
-4. `finalize(branch)` — writes per-turn telemetry under a 5-second cap
-   (best-effort; reply ships even if telemetry hangs) and shapes
-   `ChatBrainResult` for the HTTP layer.
-
-The orchestrator owns ONLY the timeout / error / telemetry envelope. All agent
-shape concerns live in the bridges.
-
-## The dispatch switch (`intent_router._DISPATCH`)
-
-Single source of truth: `intent.name` → bridge `run` coroutine.
+A flow is the ONLY place domains are composed. Each calls one or more domain
+`run(turn, ctx, prior)` entry points in order:
 
 ```python
-_DISPATCH = {
-    "general_market_query": market_commentary_bridge.run,
-    "asset_allocation":     asset_allocation_bridge.run,
-    "goal_planning":        goal_planning_bridge.run,
-    "rebalancing":          rebalancing_bridge.run,
-    "portfolio_query":      portfolio_query_bridge.run,
-    "general_chat":         general_chat_bridge.run,
+FLOWS = {
+  "asset_allocation":     flow_asset_allocation,   # [asset_allocation]
+  "portfolio_query":      flow_portfolio_query,    # [portfolio] (read-only)
+  "general_chat":         flow_general_chat,        # [general_chat]
+  "rebalancing":          flow_rebalancing,         # [asset_allocation, rebalancing]
+  "goal_planning":        flow_goal_planning,       # [cashflow]
+  "general_market_query": flow_market,              # [market_commentary, general_chat]
 }
 ```
 
-Adding a new intent is two edits: a new bridge file + one row here. No edits
-in the brain.
+Rule: a flow may call several domains, but **a domain never calls another
+domain**. Cross-domain data (e.g. the allocation target rebalancing needs) is
+produced by one domain and passed to the next via the `prior` dict.
 
-Cross-turn gate: when `ctx.awaiting_save` is true, dispatch bypasses the
-table and routes to `goal_planning_bridge.run` so the user's
-"yes save / no discard" answer reaches the right handler.
+Adding/altering an intent = one new `flow_*` + one row in `FLOWS`. The brain
+never changes.
 
-## Bridges — same shape every time
+## Shared chat kernel (package root, not `services/`)
 
-```python
-async def run(ctx, *, turn, flow, intent) -> BranchResult: ...
+These are contracts/utilities used across domains — not domain logic:
+
+```
+types.py          ModuleOutput / IntentDecision / AIModule (the contract)
+chat_types.py     ChatTurnInput / ChatBrainResult (brain I/O DTOs)
+turn_context.py   TurnContext + build_turn_context
+common.py         sys.path inject (ensure_ai_agents_path), tracing, money fmt
+classifier_llm.py shared Haiku structured-output helper (classify_action)
+chat_dispatcher.py per-intent chat-handler @register registry + dispatch_chat
+answer_formatter/ shared question-aware answer formatter
+visualizations/   chart-payload builders + registry
 ```
 
-- `ctx` — `TurnContext`
-- `turn` — original `ChatTurnInput`
-- `flow` — `list[str]`, appended to for telemetry
-- `intent` — `IntentDecision`; bridges that want the full classifier shape
-  read `intent.raw`
+## Where the per-intent work lives (owning domains)
 
-The bridge files import from specific service modules
-(`bridges/general_chat_service.py`, `bridges/market_commentary_service.py`,
-etc.) — never from the `bridges/__init__.py` (which is deliberately empty to
-avoid a cycle with those service modules). Each chat handler self-registers
-via `@register` decorators in
-`asset_allocation/chat.py` / `goal_planning/chat.py` / `rebalancing/chat.py`;
-the bridge lazy-imports the matching `chat.py` so the side-effect lands
-before `dispatch_chat` runs.
+| intent / module     | domain entry (`run`)                                                   |
+|---------------------|-----------------------------------------------------------------------|
+| intent_classifier   | `intent_classifier/services/intent_classifier_service.py`             |
+| asset_allocation    | `asset_allocation/services/asset_allocation_module_service.py`        |
+| rebalancing         | `rebalancing/services/rebalancing_module_service.py`                  |
+| cashflow            | `cashflow/services/cashflow_module_service.py`                        |
+| portfolio_query     | `portfolio/services/portfolio_query_service.py` (`answer_portfolio_query`) |
+| market_commentary   | `market_commentary/services/market_commentary_module_service.py`     |
+| general_chat        | `general_chat/services/general_chat_module_service.py`                |
 
-## Depends on
+Each domain keeps its agent implementation in its own subpackage
+(`<domain>/services/<engine>/`), e.g. `asset_allocation/services/aa_engine/`,
+`rebalancing/services/rebal_engine/`, `cashflow/services/goal_planning_engine/`.
 
-- `AI_Agents/src/*` — the orchestrator modules each bridge talks to
-  (intent_classifier, market_commentary, portfolio_query,
-  asset_allocation_pydantic, Rebalancing, cashflow_statement).
-- `app.domains.chat.services.ai_module_telemetry` —
-  `log_chat_turn_flow_summary` per-turn rows.
-- Each AI-driven domain's persistence service:
-  - `app.domains.asset_allocation.services.allocation_persist_service`
-  - `app.domains.rebalancing.services.rebalancing_persist_service`
-  - `app.domains.cashflow.services.cashflow_persist_service`
+## How a domain service produces its reply (the scaling rule)
+
+A domain's `services/` does two kinds of work and **nothing else**:
+
+1. **CRUD / persistence** — normal DB reads + writes for that domain (its
+   `*_persist_service.py`, repositories, model reads).
+2. **AI work — delegated to `AI_Agents/src`, never to Claude directly.** When a
+   reply needs an agent, the service calls `ensure_ai_agents_path()` (from
+   `app.domains.ai_engine.common`) and imports the ready-made agent from
+   `AI_Agents/src/<module>` (e.g. `from asset_allocation_pydantic.pipeline import
+   run_allocation_with_state`, `from Rebalancing.pipeline import run_rebalancing`,
+   `from cashflow_statement.engine import compute_full_projection`,
+   `from portfolio_query import PortfolioQueryOrchestrator`). The agent already
+   does the prompting/formatting — the service builds the input, calls it,
+   persists, and returns the text. **Do NOT hand-roll `ChatAnthropic` /
+   `messages.create` for a reply an agent already produces.**
+
+This is what makes the system scalable. Adding a brand-new AI capability is
+exactly four steps and touches no existing domain:
+
+1. Create the new domain folder `app/domains/<new>/` (models/schemas/routers/
+   services) with its CRUD.
+2. In `<new>/services/<new>_module_service.py`, add
+   `run(turn, ctx, prior) -> ModuleOutput` that builds input, calls the agent
+   from `AI_Agents/src/<new_agent>`, persists, and returns the reply.
+3. Emit the new intent name from `intent_classifier`.
+4. Add one `flow_<new>` + one row in `FLOWS` (`services/flow.py`).
+
+The brain, and every other domain, stay untouched.
 
 ## Tests
 
-- `pytest app/domains/ai_engine -v` covers the shared `services/tests/`
-  suite plus each bridge package's co-located `tests/` folder.
+`app/domains/ai_engine/tests/` — brain + turn_context + classifier-helper
+tests. Engine tests are co-located in each domain's engine subpackage.
 
 ## Don't read
 
-- `__pycache__/`.
-- `tests/` directories — test fixtures, not source of truth.
+- `__pycache__/`, `tests/`.
+
+## Refresh
+
+If this looks stale after a structural change, run `/refresh-context` here.

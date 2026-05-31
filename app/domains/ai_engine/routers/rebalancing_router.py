@@ -16,7 +16,7 @@ from app.domains.ai_engine.schemas import (
     RebalancingComputeApiRequest,
     RebalancingComputeApiResponse,
 )
-from app.domains.ai_engine.services.bridges.rebalancing.service import compute_rebalancing_result
+from app.domains.rebalancing.services.rebal_engine.service import compute_rebalancing_result
 
 
 router = APIRouter(prefix="/rebalancing", tags=["AI — Rebalancing"])

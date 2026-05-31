@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.mutual_funds.models.enums import PortfolioSnapshotKind
 from app.domains.mutual_funds.models.mf_allocation_snapshot import PortfolioAllocationSnapshot
-from app.domains.ai_engine.services.common import ensure_ai_agents_path
+from app.domains.ai_engine.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
 

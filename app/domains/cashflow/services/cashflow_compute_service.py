@@ -6,8 +6,8 @@ import asyncio
 from datetime import date
 
 from app.domains.identity.models.user import User
-from app.domains.ai_engine.services.common import ensure_ai_agents_path
-from app.domains.ai_engine.services.bridges.goal_planning.input_builder import (
+from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.cashflow.services.goal_planning_engine.input_builder import (
     build_goal_planning_input_for_user,
 )
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.ai_engine.schemas import MarketCommentaryResponse
-from app.domains.ai_engine.services.bridges.market_commentary_service import generate_market_commentary
+from app.domains.market_commentary.services.market_commentary_engine import generate_market_commentary
 
 router = APIRouter(prefix="/market-commentary", tags=["AI — Market commentary"])
 

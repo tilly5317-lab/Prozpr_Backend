@@ -12,13 +12,13 @@ classifier verdict.
 
 from __future__ import annotations
 
-from app.domains.ai_engine.services.types import ModuleOutput
+from app.domains.ai_engine.types import ModuleOutput
 
 
 async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     # Lazy imports for the @register side-effect.
-    from app.domains.ai_engine.services.bridges.goal_planning import chat as _gp_chat  # noqa: F401
-    from app.domains.ai_engine.services.chat_dispatcher import dispatch_chat
+    from app.domains.cashflow.services.goal_planning_engine import chat as _gp_chat  # noqa: F401
+    from app.domains.ai_engine.chat_dispatcher import dispatch_chat
 
     result = await dispatch_chat("goal_planning", ctx)
     return ModuleOutput(

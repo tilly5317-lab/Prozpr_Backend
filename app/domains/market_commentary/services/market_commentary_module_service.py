@@ -18,12 +18,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.domains.ai_engine.services.types import ModuleOutput
+from app.domains.ai_engine.types import ModuleOutput
 
 # Note: this re-export is the ONLY permitted import of the legacy market
 # commentary implementation. Search for ``generate_market_commentary`` to
 # confirm.
-from app.domains.ai_engine.services.bridges.market_commentary_service import (  # noqa: F401
+from app.domains.market_commentary.services.market_commentary_engine import (  # noqa: F401
     generate_market_commentary as _generate_market_commentary,
 )
 

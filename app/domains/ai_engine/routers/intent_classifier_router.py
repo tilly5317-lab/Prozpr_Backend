@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.ai_engine.schemas import IntentClassifyRequest, IntentClassifyResponse
-from app.domains.ai_engine.services.bridges.intent_classifier_service import classify_user_message
+from app.domains.intent_classifier.services.intent_classifier_engine import classify_user_message
 
 router = APIRouter(prefix="/intent-classifier", tags=["AI — Intent classifier"])
 

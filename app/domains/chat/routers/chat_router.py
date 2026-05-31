@@ -25,7 +25,7 @@ from app.domains.chat.schemas.chat import (
     ChatSessionResponse,
     UploadStatementResponse,
 )
-from app.domains.ai_engine.services.chat_orchestrator import ChatBrain, ChatTurnInput
+from app.domains.ai_engine import ChatBrain, ChatTurnInput
 from app.domains.chat.services.chat_context import load_conversation_history
 
 logger = logging.getLogger(__name__)
