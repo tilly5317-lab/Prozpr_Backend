@@ -1,0 +1,34 @@
+def get_database_url() -> str:
+        """Resolve DB URL: ``DATABASE_URL`` wins if set; otherwise build from ``POSTGRES_*`` / ``DB_*``."""
+        url = _strip_wrapping_quotes(_getenv("DATABASE_URL") or "")
+        # Common typo: DATABASE_URL=DATABASE_URL=postgresql://...
+        if url.startswith("DATABASE_URL="):
+            url = url.removeprefix("DATABASE_URL=").strip()
+        if not url:
+            load_dotenv(_backend_dir / ".env", encoding="utf-8-sig")
+            url = _strip_wrapping_quotes(_getenv("DATABASE_URL") or "")
+            if url.startswith("DATABASE_URL="):
+                url = url.removeprefix("DATABASE_URL=").strip()
+        if not url:
+            url = (_database_url_from_postgres_env() or "").strip()
+        if not url:
+            raise RuntimeError(
+                "Database URL is not configured. Either set DATABASE_URL in .env, or set "
+                "POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB "
+                "(see .env.example). For local Postgres: "
+                "postgresql+asyncpg://user:password@localhost:5432/dbname"
+            )
+        url = _ensure_asyncpg_scheme(url)
+        url = _ensure_async_sqlite_scheme(url)
+        url = _normalize_database_url(url)
+        url = _strip_pgbouncer_from_url(url)
+        url = _normalize_asyncpg_ssl_query(url)
+        try:
+            parsed = make_url(url)
+        except Exception as exc:
+            raise RuntimeError(
+                "DATABASE_URL could not be parsed by SQLAlchemy. Fix the string in .env — "
+                "no spaces around '=', use postgresql+asyncpg://user:password@host:5432/dbname "
+                "(URL-encode special characters in the password), or use discrete POSTGRES_* "
+                f"variables instead. Underlying error: {exc}"
+   

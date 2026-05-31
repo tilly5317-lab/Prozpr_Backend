@@ -1,23 +1,32 @@
-"""ai_engine domain — bridges to AI_Agents.
+"""ai_engine domain — the chat brain.
 
-Hosts the chat orchestrator (``ChatBrain``), the intent router (the dispatch
-switch), the per-intent bridges that delegate to ``AI_Agents`` orchestrators,
-the intent-classifier bridge, and the answer formatter.
+This domain owns ONLY the orchestration of a chat turn, not the per-intent
+work. ``services/`` holds exactly two files:
+
+    brain.py   ChatBrain.run_turn — classify intent, run the matching flow
+    flow.py    FLOWS — intent name -> ordered sequence of domain functions
+
+The per-intent logic lives in each owning domain (asset_allocation,
+rebalancing, cashflow, portfolio, market_commentary, intent_classifier,
+general_chat). The brain just sequences calls to them.
+
+The modules at this package root are the shared chat *kernel* used across
+domains — contracts/utilities, not domain logic: ``types`` (ModuleOutput /
+IntentDecision / AIModule), ``chat_types`` (ChatTurnInput / ChatBrainResult),
+``turn_context``, ``common``, ``classifier_llm``, ``chat_dispatcher``,
+``answer_formatter/``, ``visualizations/``.
 
 Public surface::
 
     from app.domains.ai_engine import ChatBrain, ChatTurnInput, ChatBrainResult
 
 ``ChatBrain.run_turn`` is the one entry point for a chat turn: it builds the
-``TurnContext``, classifies intent, runs the matching bridge, and returns a
+``TurnContext``, classifies intent, runs the matching flow, and returns a
 ``ChatBrainResult`` ready for the HTTP layer to ship as the assistant reply.
 """
 
-from app.domains.ai_engine.services.chat_orchestrator.brain import ChatBrain
+from app.domains.ai_engine.services.brain import ChatBrain
+from app.domains.ai_engine.types import IntentDecision  # noqa: F401  (re-export)
+from app.domains.ai_engine.chat_types import ChatBrainResult, ChatTurnInput
 
-# The canonical DTOs still live in ``app.domains.ai_engine.services.chat_orchestrator`` (kept there to
-# avoid breaking ~25 import sites that read them today). Re-exporting here so
-# callers can use the new public surface uniformly.
-from app.domains.ai_engine.services.chat_orchestrator.types import ChatBrainResult, ChatTurnInput
-
-__all__ = ["ChatBrain", "ChatBrainResult", "ChatTurnInput"]
+__all__ = ["ChatBrain", "ChatBrainResult", "ChatTurnInput", "IntentDecision"]

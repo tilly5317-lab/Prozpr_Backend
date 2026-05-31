@@ -14,11 +14,11 @@ classifier shape (e.g. ``general_chat`` for sentiment slots).
 
 from __future__ import annotations
 
-from app.domains.ai_engine.services.types import IntentDecision, ModuleOutput
+from app.domains.ai_engine.types import IntentDecision, ModuleOutput
 
 # Note: this re-export is the ONLY permitted import of the legacy classifier
 # implementation. Search for ``classify_user_message`` to confirm.
-from app.domains.ai_engine.services.bridges.intent_classifier_service import (  # noqa: F401
+from app.domains.intent_classifier.services.intent_classifier_engine import (  # noqa: F401
     classify_user_message as _classify_user_message,
     format_intent_response,
     intent_labels,

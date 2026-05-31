@@ -10,10 +10,12 @@ it for ``asyncpg``, and exposes
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import AsyncIterator
 
 from sqlalchemy import JSON, text
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
@@ -25,6 +27,41 @@ from sqlalchemy.engine import make_url
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# How many times to retry establishing the initial DB connection when it fails
+# for a *transient* reason (DNS hiccup -> getaddrinfo failed, connection
+# reset/refused, server still warming up). Each retry waits a short, growing
+# backoff. A hard failure (bad password, host genuinely gone) still surfaces
+# after the attempts are exhausted.
+_CONNECT_RETRIES = 3
+_CONNECT_BACKOFF_S = 0.5
+
+# Substrings that mark a connection error as transient and worth retrying.
+_TRANSIENT_CONNECT_MARKERS = (
+    "getaddrinfo failed",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "connection refused",
+    "connection reset",
+    "connection was closed",
+    "connection timed out",
+    "timeout expired",
+    "the remote computer refused the network connection",
+    "server closed the connection",
+)
+
+
+def _is_transient_connect_error(exc: BaseException) -> bool:
+    """True if ``exc`` (or any cause) looks like a retryable connection blip."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        msg = str(cur).lower()
+        if any(marker in msg for marker in _TRANSIENT_CONNECT_MARKERS):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 
 
 @compiles(JSONB, "sqlite")
@@ -65,11 +102,43 @@ def _get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_db() -> AsyncIterator[AsyncSession]:
     factory = _get_session_factory()
     async with factory() as session:
+        # Establish the connection up front with a short retry so a transient
+        # DNS/network blip (e.g. intermittent "getaddrinfo failed" against RDS)
+        # self-heals instead of failing the request outright. Non-transient
+        # errors (bad credentials, host truly gone) raise on the last attempt.
+        await _connect_with_retry(session)
         try:
             yield session
         except Exception:
             await session.rollback()
             raise
+
+
+async def _connect_with_retry(session: AsyncSession) -> None:
+    """Acquire the session's DB connection, retrying transient failures."""
+    last_exc: BaseException | None = None
+    for attempt in range(1, _CONNECT_RETRIES + 1):
+        try:
+            await session.connection()
+            return
+        except (OperationalError, InterfaceError, DBAPIError, OSError) as exc:
+            last_exc = exc
+            if attempt >= _CONNECT_RETRIES or not _is_transient_connect_error(exc):
+                raise
+            delay = _CONNECT_BACKOFF_S * attempt
+            logger.warning(
+                "DB connect attempt %d/%d failed transiently (%s); retrying in %.1fs",
+                attempt, _CONNECT_RETRIES, exc, delay,
+            )
+            # Drop the half-open connection/transaction before retrying so the
+            # next attempt starts clean.
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+    if last_exc is not None:  # pragma: no cover - loop always raises or returns
+        raise last_exc
 
 
 async def create_all_tables() -> None:

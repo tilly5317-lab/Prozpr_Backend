@@ -17,14 +17,14 @@ engine — see ``_temp_chat_deferral``.
 from __future__ import annotations
 
 from app.core.config import get_settings
-from app.domains.ai_engine.services.types import AIModule, ModuleOutput
+from app.domains.ai_engine.types import AIModule, ModuleOutput
 
 
 async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     # TEMP — engine gated off. Surface the asset allocation output (from
     # prior_outputs, written by the asset_allocation module that ran before us)
     # rather than re-running it.
-    from app.domains.ai_engine.services.bridges.rebalancing._temp_chat_deferral import (
+    from app.domains.rebalancing.services.rebal_engine._temp_chat_deferral import (
         TEMP_REBALANCING_RUN_ALLOCATION_ONLY,
     )
     if (
@@ -37,7 +37,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         # Asset allocation didn't run for some reason — fall back to the stub
         # that runs it inline. Same single-place-imports-AI rule applies via the
         # asset_allocation module service.
-        from app.domains.ai_engine.services.bridges.rebalancing.allocation_only_stub import (
+        from app.domains.rebalancing.services.rebal_engine.allocation_only_stub import (
             handle_rebalancing_as_allocation_only,
         )
         result = await handle_rebalancing_as_allocation_only(ctx)
@@ -51,8 +51,8 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         )
 
     # Engine on — dispatch through the registered handler.
-    from app.domains.ai_engine.services.bridges.rebalancing import chat as _rb_chat  # noqa: F401
-    from app.domains.ai_engine.services.chat_dispatcher import dispatch_chat
+    from app.domains.rebalancing.services.rebal_engine import chat as _rb_chat  # noqa: F401
+    from app.domains.ai_engine.chat_dispatcher import dispatch_chat
 
     result = await dispatch_chat("rebalancing", ctx)
     return ModuleOutput(

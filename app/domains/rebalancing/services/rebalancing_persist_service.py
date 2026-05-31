@@ -33,7 +33,7 @@ from app.domains.rebalancing.models.rebalancing_warning import (
     RebalancingWarning,
     RebalancingWarningCode,
 )
-from app.domains.ai_engine.services.common import ensure_ai_agents_path
+from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
 
 ensure_ai_agents_path()

@@ -35,7 +35,7 @@ from app.domains.asset_allocation.models import (
     AssetAllocationRunStatus,
     AssetClassSplitKind,
 )
-from app.domains.ai_engine.services.common import ensure_ai_agents_path
+from app.domains.ai_engine.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
 
