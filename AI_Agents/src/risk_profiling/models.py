@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal
+from typing import Literal
 from pydantic import BaseModel, Field
 
 OccupationType = Literal[
@@ -21,10 +21,3 @@ class RiskProfileInput(BaseModel):
     annual_mortgage_payment: float
     properties_owned: int  # 0, 1, or >1
     risk_willingness: float = Field(..., ge=1, le=10)
-
-
-class RiskProfileOutput(BaseModel):
-    step_name: str = "risk_profile"
-    inputs: Dict[str, Any]
-    calculations: Dict[str, Any]
-    output: Dict[str, Any]  # effective_risk_score + risk_summary

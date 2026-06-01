@@ -40,7 +40,7 @@ def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
 
     result = _summary_chain.invoke({
         "age": inp["age"],
-        "effective_risk_score": data["output"].get("effective_risk_score", 7),
+        "effective_risk_score": data["output"]["effective_risk_score"],
         "risk_profile_category": calc["risk_profile_category"],
         "risk_capacity_score": calc["risk_capacity_score_clamped"],
         "risk_willingness": inp["risk_willingness"],

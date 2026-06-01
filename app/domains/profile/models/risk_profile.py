@@ -14,12 +14,16 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueCon
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import Base
+from app.database import Base
 
 if TYPE_CHECKING:
-    from app.domains.identity.models.user import User
+    from app.models.user import User
 
-RISK_CATEGORIES = ["Conservative", "Moderately Conservative", "Moderate", "Moderately Aggressive", "Aggressive"]
+# Single source of truth lives in AI_Agents/src/common.py; re-importing here
+# keeps the ORM aligned with what the AI agents emit. The sys.path injection
+# in app/__init__.py guarantees `common` is resolvable by the time this loads
+# (covers both FastAPI boot and alembic env.py).
+from common import RISK_CATEGORIES  # noqa: E402
 
 
 class RiskProfile(Base):
