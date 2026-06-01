@@ -335,16 +335,6 @@ class Settings:
         return True
 
     @staticmethod
-    def rebalancing_engine_enabled() -> bool:
-        """TEMP(rebalancing-chat): when false (default), chat runs allocation-only stub.
-
-        Set ``REBALANCING_ENGINE_ENABLED=true`` for the full rebalancing handler.
-        Remove with ``rebalancing/_temp_chat_deferral.py`` when rebalancing ships.
-        """
-        raw = (_getenv("REBALANCING_ENGINE_ENABLED") or "").strip().lower()
-        return raw in {"1", "true", "yes", "on"}
-
-    @staticmethod
     def skip_startup_db_ddl() -> bool:
         """Skip ``create_all_tables`` and Postgres schema patches on startup (faster against RDS).
 
