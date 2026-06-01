@@ -14,10 +14,10 @@ from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueCon
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.core.database import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.domains.identity.models.user import User
 
 # Single source of truth lives in AI_Agents/src/common.py; re-importing here
 # keeps the ORM aligned with what the AI agents emit. The sys.path injection

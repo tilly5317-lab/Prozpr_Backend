@@ -14,6 +14,9 @@ from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
 from app.domains.profile.models.tax_profile import TaxProfile
 from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
+    build_practical_allocation_input_for_user,
+)
 from app.domains.rebalancing.services.rebal_engine.overrides import effective_param
 
 if TYPE_CHECKING:
@@ -330,11 +333,25 @@ async def build_rebalancing_input_for_user(
         ))
         bad_count += 1
 
-    # 7. Total corpus = sum of held market values.
+    # 7. Total corpus = sum of held market values. Snap down to a multiple of
+    #    100 so the practical pipeline's multiple-of-100 invariant holds.
     total_corpus = sum(
         (r.present_allocation_inr for r in rows if r.present_allocation_inr > 0),
         start=Decimal(0),
     )
+    total_corpus = Decimal(int(max(total_corpus, Decimal(0)) // 100 * 100))
+
+    # 7b. Practical allocation input — the Rebalancing engine runs the practical
+    #     (holdings-aware) allocation internally and lifts its per-subgroup MF
+    #     targets onto the rank-1 rows. Build it via the practical_asset_allocation
+    #     domain, then point the corpus at the held MF value so the targets sum to
+    #     what's actually held (a rebalance, not a fresh cash deployment). Non-MF
+    #     equity ("stocks") and ELSS default to 0 — no holdings breakdown wired yet.
+    practical_input, _paa_debug = build_practical_allocation_input_for_user(ctx)
+    practical_input = practical_input.model_copy(update={
+        "total_corpus": float(total_corpus),
+        "mf_corpus": float(total_corpus),
+    })
 
     # 8. Tax inputs. Query directly — relationship may not be eager-loaded.
     tax_profile = (await db.execute(
@@ -349,7 +366,7 @@ async def build_rebalancing_input_for_user(
     carryforward_lt_override = effective_param(ctx, "carryforward_lt_loss_inr", None)
 
     request = RebalancingComputeRequest(
-        total_corpus=total_corpus,
+        practical_allocation_input=practical_input,
         tax_regime=tax_inputs["tax_regime"],
         effective_tax_rate_pct=(
             float(tax_rate_override) if tax_rate_override is not None

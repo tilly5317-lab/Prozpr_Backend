@@ -27,11 +27,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# app/domains/ai_engine/services/bridges/rebalancing/fund_rank.py:
-# parents[0]=rebalancing, [1]=bridges, [2]=services, [3]=ai_engine,
-# [4]=domains, [5]=app, [6]=repo root (where AI_Agents/ lives).
+# app/domains/rebalancing/services/rebal_engine/fund_rank.py:
+# parents[0]=rebal_engine, [1]=services, [2]=rebalancing, [3]=domains,
+# [4]=app, [5]=repo root (where AI_Agents/ lives).
 _CSV_PATH = (
-    Path(__file__).resolve().parents[6]
+    Path(__file__).resolve().parents[5]
     / "AI_Agents" / "Reference_docs" / "prozpr_fund_ranking_may_2026.csv"
 )
 
