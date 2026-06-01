@@ -64,6 +64,8 @@ conftest.py
 
 # Large data files (CSV)
 *.csv
+!AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
+!AI_Agents/Reference_docs/prozpr_fund_ranking_may_2026.csv
 
 # Alembic auto-generated (keep versions/, ignore stamps)
 # alembic/versions/ is tracked
@@ -104,3 +106,4 @@ MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt
 .claude/worktrees/relaxed-hermann-5c135c/
 .claude/worktrees/quirky-bhabha-632a4b/
 /AI_Agents/src/practical_asset_allocation/Master_testing
+AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
