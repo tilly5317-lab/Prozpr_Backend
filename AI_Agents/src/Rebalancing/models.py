@@ -126,7 +126,20 @@ class RebalancingComputeRequest(BaseModel):
     effective_tax_rate_pct: float = Field(ge=0.0, le=100.0)
     rounding_step: int = Field(default=100, ge=1)
 
-    # Per-request capital-gains state (bucket D)
+    # Per-request capital-gains state (bucket D). The three fields below are
+    # INDEPENDENT inputs — do NOT derive one from another. In particular,
+    # stcg_offset_budget_inr must not be populated from the carryforward losses,
+    # or the same loss capacity is double-counted (a pass-1 realisation cap AND
+    # again as the pass-2 offset).
+    #
+    #   * stcg_offset_budget_inr — pass-1 cap (step4) on how much STCG may be
+    #     realised without tax cost; None = no STCG cap applied.
+    #   * carryforward_st_loss_inr — brought-forward SHORT-term capital loss;
+    #     offsets realised STCG in the step5 pass-2 top-up.
+    #   * carryforward_lt_loss_inr — brought-forward LONG-term capital loss. Per
+    #     Indian IT rules LT losses offset only LTCG, never STCG, so this is NOT
+    #     used in the STCG offset. LTCG-loss set-off is not yet modeled (LTCG tax
+    #     uses the annual exemption only), so this field is currently reserved.
     stcg_offset_budget_inr: Optional[Decimal] = None
     carryforward_st_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
     carryforward_lt_loss_inr: Decimal = Field(default=Decimal(0), ge=0)

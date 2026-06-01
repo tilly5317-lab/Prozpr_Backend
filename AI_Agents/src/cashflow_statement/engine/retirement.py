@@ -36,7 +36,7 @@ def compute_retirement_snapshot(
 
     retirement_date_computed = _add_years(inp.date_of_birth, inp.retirement_age)
     retirement_date = inp.retirement_date_override or retirement_date_computed
-    years_to_retire = (retirement_date - ctx.latest_update_date).days / 365.25
+    years_to_retire = (retirement_date - ctx.latest_update_date).days / 365
 
     # If already retired, plan for REMAINING lifespan (assumed_lifespan_years − current_age),
     # not full retirement duration (assumed_lifespan_years − retirement_age).

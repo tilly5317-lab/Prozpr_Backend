@@ -38,33 +38,31 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
     retirement = compute_retirement_snapshot(input.retirement, ctx, warnings)                  # 2a
     ctx = ctx.with_retirement(retirement)                                                      # 2b
 
-    # Horizon ends at the retirement FY — the engine answers "is retirement feasible?"
-    # by reading corpus-vs-corpus_required at retirement_date. Goals or one-off events
-    # scheduled after retirement are dropped from the projection; warn so the caller
-    # knows their inputs aren't being simulated.
+    # Projection runs until the later of retirement and the last goal, so that
+    # post-retirement goals are simulated and funded from the corpus left after
+    # the retirement lump-sum payout. Only custom goals and goal properties
+    # extend the horizon; one-off outflows do NOT — a one-off scheduled beyond
+    # the projection end is dropped, so warn the caller.
     retire_date = retirement.retirement_date
-    for gp in input.goal_properties:
-        if gp.goal_date > retire_date:
-            warnings.append(
-                f"goal_property '{gp.name}' goal_date={gp.goal_date} is after "
-                f"retirement_date={retire_date}; dropped from projection."
-            )
-    for cg in input.custom_goals:
-        if cg.goal_date > retire_date:
-            warnings.append(
-                f"custom_goal '{cg.name}' goal_date={cg.goal_date} is after "
-                f"retirement_date={retire_date}; dropped from projection."
-            )
+    goal_dates = (
+        [gp.goal_date for gp in input.goal_properties]
+        + [cg.goal_date for cg in input.custom_goals]
+    )
+    last_goal_date = max(goal_dates, default=retire_date)
+    projection_end = max(retire_date, last_goal_date)
+    projection_end_month_end = eomonth(date(projection_end.year, projection_end.month, 1), 0)
+
     for e in input.one_off_outflows:
-        if e.date > retire_date:
+        if e.date > projection_end_month_end:
             warnings.append(
-                f"one_off_outflow '{e.description}' date={e.date} is after "
-                f"retirement_date={retire_date}; dropped from projection."
+                f"one_off_outflow '{e.description}' date={e.date} is after the "
+                f"projection end {projection_end_month_end}; dropped from projection."
             )
 
     horizon = compute_horizon_years(
         retirement_date=retire_date,
         latest_update_date=ctx.latest_update_date,
+        last_goal_date=last_goal_date,
         cap=ctx.horizon_cap_years,
     )
     horizon_end = date(ctx.current_fy_year + horizon, 3, 31)
@@ -86,12 +84,13 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
         years_to_last_goal=horizon,
     )                                                                                          # 6a
 
-    # Truncate at the end of the retirement month — the projection answers
-    # "is retirement feasible?" by reading corpus right after the corpus payout.
-    # Months after the retirement month would only show stuck-corpus noise.
-    retirement_month_end = eomonth(date(retire_date.year, retire_date.month, 1), 0)
+    # Truncate at the end of the projection month (later of retirement and the
+    # last goal). With no post-retirement goals this is the retirement month —
+    # identical to the prior behaviour. With a later goal, the extra months let
+    # the funding stage pay it out of the corpus remaining after the retirement
+    # payout; months beyond the last goal would only show stuck-corpus noise.
     monthly_pre_funding = [
-        r for r in monthly_pre_funding if r.month_end_date <= retirement_month_end
+        r for r in monthly_pre_funding if r.month_end_date <= projection_end_month_end
     ]                                                                                          # 6b
 
     funding = compute_funding(
