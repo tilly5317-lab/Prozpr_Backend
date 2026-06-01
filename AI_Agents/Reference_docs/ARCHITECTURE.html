@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI_Agents — Architecture Walkthrough</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --border: #d0d7de;
+    --code-bg: #f6f8fa;
+    --quote-border: #d0d7de;
+    --table-stripe: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #2f81f7;
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --code-bg: #161b22;
+      --quote-border: #30363d;
+      --table-stripe: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 40px 28px 80px;
+  }
+  h1, h2, h3, h4 { line-height: 1.25; margin-top: 1.8em; margin-bottom: 0.6em; font-weight: 600; }
+  h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+  h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h3 { font-size: 1.2em; }
+  h4 { font-size: 1.05em; color: var(--muted); }
+  p { margin: 0.8em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 2.4em 0; }
+  ul, ol { padding-left: 1.6em; }
+  li { margin: 0.25em 0; }
+  blockquote {
+    margin: 1em 0;
+    padding: 0.2em 1em;
+    border-left: 4px solid var(--quote-border);
+    color: var(--muted);
+    background: var(--panel);
+    border-radius: 0 6px 6px 0;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow: auto;
+  }
+  pre code { background: transparent; border: 0; padding: 0; font-size: 0.85em; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 0.93em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    vertical-align: top;
+    text-align: left;
+  }
+  th { background: var(--panel); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--table-stripe); }
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin: 1.4em 0;
+    text-align: center;
+    overflow: auto;
+  }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 1.4em 0 2em;
+    font-size: 0.95em;
+  }
+  .toc h4 { margin: 0 0 0.4em; color: var(--fg); }
+  .toc ol { margin: 0; padding-left: 1.4em; }
+  .toc li { margin: 0.15em 0; }
+  .tag {
+    display: inline-block;
+    font-size: 0.78em;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .lead {
+    font-size: 1.06em;
+    color: var(--muted);
+    border-left: 4px solid var(--accent);
+    background: var(--panel);
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 1.2em 0 2em;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>AI_Agents — Architecture Walkthrough</h1>
+
+<div class="lead">
+A narrative handoff doc for the <code>AI_Agents/</code> package itself: how each agent thinks, what it takes in, what it gives back, and how they relate. File paths are pinned so you can jump to the code; the prose carries the <em>why</em>. If a diagram contradicts the code, trust the code — and tell me, so I can fix the diagram.
+<br><br>
+This doc is the <strong>inside-the-package</strong> companion to <a href="../../docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a>. The top-level doc covers how chat requests reach the agents (HTTP → ChatBrain → bridge). This one picks up after the bridge: what actually runs inside each agent.
+</div>
+
+<div class="toc">
+<h4>Contents</h4>
+<ol>
+  <li><a href="#how-to-read">How to read this</a></li>
+  <li><a href="#why">Why this doc exists</a></li>
+  <li><a href="#map">The map</a></li>
+  <li><a href="#two-kinds">The two kinds of agents</a></li>
+  <li><a href="#shared">Shared foundation</a></li>
+  <li><a href="#per-agent">Per-agent walkthrough</a></li>
+  <li><a href="#data-flow">The data-flow web</a></li>
+  <li><a href="#conventions">Conventions</a></li>
+  <li><a href="#landmines">Landmines</a></li>
+  <li><a href="#extending">Where to look first when extending</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="how-to-read">How to read this</h2>
+
+<p>You're a Python engineer trying to understand why a recommendation came out the way it did, or to extend an agent without breaking the others. You don't need to memorise every file. You <strong>do</strong> need to understand:</p>
+
+<ol>
+<li>There are two very different kinds of agents — <strong>deterministic engines</strong> (pure-Python math) and <strong>LLM-driven</strong> (Claude + structured output). They have different debuggability and different testing expectations.</li>
+<li>Agents are <strong>peers by default</strong> — they don't import each other. Two blessed exceptions are documented (allocation chains).</li>
+<li>The agents that look most like AI are usually the simplest. The agents that look like plain pipelines are usually where the product logic lives.</li>
+</ol>
+
+<p>Skim section 2 (the map), read section 3 (the two kinds), and use section 5 (per-agent walkthrough) as a reference when you're actually digging into one.</p>
+
+<hr>
+
+<h2 id="why">1. Why this doc exists</h2>
+
+<p>A lot of this code was written with Claude in the loop. That's productive, but it has a failure mode: things get more abstract than they need to be, with multi-step pipelines that look intimidating until you realise each step is doing one small thing. After a few months even the person who built it can stare at <code>step4_long_term.py</code> and not remember which phase does what.</p>
+
+<p>This doc is the antidote. For each agent it answers four questions:</p>
+
+<ul>
+<li><strong>What does it take in?</strong> (the input contract)</li>
+<li><strong>What does it give back?</strong> (the output contract)</li>
+<li><strong>How does it think?</strong> (the step-by-step shape of the work)</li>
+<li><strong>Where is the LLM, if anywhere?</strong> (so you know which parts are deterministic and reproducible vs. probabilistic)</li>
+</ul>
+
+<p>If you ever sit down to "just quickly understand X", start with that agent's row in section 5.</p>
+
+<hr>
+
+<h2 id="map">2. The map</h2>
+
+<div class="mermaid">
+flowchart TB
+    subgraph Shared["📦 Shared foundation — src/"]
+        FP["financial_primitives/<br/>TVM, annuity, inflation, FY dates"]
+        Common["common.py<br/>format_inr_indian"]
+    end
+
+    subgraph Intent["🎯 Intent layer"]
+        IC[intent_classifier<br/>Claude Haiku + structured output]
+    end
+
+    subgraph Profile["🧍 Client profile"]
+        RP[risk_profiling<br/>scoring + Haiku summary]
+    end
+
+    subgraph Macro["🌐 Market context"]
+        MC["market_commentary<br/>scrape → extract → write Reference_docs/"]
+    end
+
+    subgraph Allocate["📊 Allocation"]
+        AA["asset_allocation_pydantic<br/>7-step goal-based pipeline"]
+        PA["practical_asset_allocation<br/>holdings-aware wrapper"]
+    end
+
+    subgraph Rebal["⚖️ Rebalancing"]
+        RB["Rebalancing<br/>6-step tax-aware trade engine"]
+    end
+
+    subgraph Plan["📅 Goal planning"]
+        CFE["cashflow_statement/engine<br/>8-stage projection pipeline"]
+        CFA["cashflow_statement/agent<br/>LangGraph + 6 tools"]
+    end
+
+    subgraph Query["💬 Portfolio Q&amp;A"]
+        PQ["portfolio_query<br/>Haiku + skill markdown + guardrails"]
+    end
+
+    FP --> CFE
+    Common --> PQ
+    Common --> AA
+
+    RP -.->|"effective_risk_score<br/>(wired by caller)"| AA
+    MC -.->|"score block<br/>(wired by caller)"| AA
+    MC -->|"writes market_commentary_latest.md"| RefDocs[(Reference_docs/)]
+    RefDocs -->|"read by"| PQ
+
+    AA -->|"steps 1-3, 5, helpers"| PA
+    PA -->|"run_practical_allocation"| RB
+    CFE --> CFA
+</div>
+
+<p>The solid arrows are real Python imports. The dotted arrows are <strong>caller-wired</strong> dependencies: the data is structurally needed, but the agent doesn't reach across the package to fetch it — the bridge layer fills the fields in. The dashed dependence on <code>Reference_docs/</code> is even looser: it's a <strong>file</strong> contract, not an import contract.</p>
+
+<p>If you remember one thing: <strong>agents are peers, except where this diagram shows a solid arrow.</strong> Adding new arrows is a design decision, not a refactor.</p>
+
+<hr>
+
+<h2 id="two-kinds">3. The two kinds of agents</h2>
+
+<p>Sorting the agents by how they actually work is the single most useful mental model:</p>
+
+<table>
+<thead><tr><th>Kind</th><th>Agents</th><th>What it means</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Deterministic engine</strong></td>
+  <td><code>asset_allocation_pydantic</code>, <code>practical_asset_allocation</code>, <code>Rebalancing</code>, <code>cashflow_statement/engine</code>, <code>risk_profiling</code> (scoring half), <code>financial_primitives</code></td>
+  <td>Pure Python. Same input → same output, byte for byte. Excel-parity for the cashflow engine. These are where the <em>product math</em> lives. Debug them with unit tests. Reading the code answers "why this number" definitively.</td>
+</tr>
+<tr>
+  <td><strong>LLM-driven</strong></td>
+  <td><code>intent_classifier</code>, <code>market_commentary</code>, <code>portfolio_query</code>, <code>cashflow_statement/agent</code>, <code>risk_profiling</code> (summary half), the optional rationale step in <code>asset_allocation_pydantic</code></td>
+  <td>Claude (Haiku, via <code>langchain-anthropic</code>) is the load-bearing piece. Outputs are constrained by structured-output schemas or prompt-encoded house rules, but they're not byte-stable. Debug them by reading prompts in <code>prompts.py</code> and looking at recent runs.</td>
+</tr>
+</tbody>
+</table>
+
+<p>This split matters because the failure modes are different:</p>
+
+<ul>
+<li><strong>A deterministic engine gives a "wrong" answer</strong> → it's a bug in the math or in the input shape. The fix is reproducible. Write a regression test.</li>
+<li><strong>An LLM-driven agent gives a "wrong" answer</strong> → it's usually the prompt, the input context, or a structured-output schema that lets a bad value through. The fix is harder to make reproducible. Add to the eval set in <code>chat_eval/</code>.</li>
+</ul>
+
+<p>The LLM-driven agents are mostly <strong>thin</strong> — <code>intent_classifier</code> is one classification call, <code>portfolio_query</code> is one skill-driven call. The deterministic engines are where the surface area is.</p>
+
+<hr>
+
+<h2 id="shared">4. Shared foundation</h2>
+
+<p>These two pieces aren't agents — they're support.</p>
+
+<h3><code>financial_primitives/</code> — the numeric kernel</h3>
+
+<p>Pure-function library, no LLM, no I/O, fully unit-tested. It's the only thing that should be doing TVM math anywhere in <code>AI_Agents/</code>.</p>
+
+<table>
+<thead><tr><th>File</th><th>What's in it</th></tr></thead>
+<tbody>
+<tr><td><a href="../src/financial_primitives/time_value.py">time_value.py</a></td><td>PV / FV / NPV / IRR</td></tr>
+<tr><td><a href="../src/financial_primitives/annuity.py">annuity.py</a></td><td>Annuity factors via <code>numpy_financial</code></td></tr>
+<tr><td><a href="../src/financial_primitives/inflation.py">inflation.py</a></td><td>Real-vs-nominal conversions</td></tr>
+<tr><td><a href="../src/financial_primitives/dates.py">dates.py</a></td><td>Indian FY helpers, EOMONTH math, <code>ROUND_THOUSAND</code></td></tr>
+<tr><td><a href="../src/financial_primitives/retirement.py">retirement.py</a></td><td>Retirement corpus closed-form</td></tr>
+</tbody>
+</table>
+
+<p>Today the only consumer is <code>cashflow_statement/engine/</code>. <strong>Don't engineer it for hypothetical consumers</strong> — extend only when a real caller appears (<code>AI_Agents/src/CLAUDE.md</code> makes this an explicit rule).</p>
+
+<h3><code>common.py</code> — cross-agent utilities</h3>
+
+<p>Lives at <a href="../src/common.py"><code>AI_Agents/src/common.py</code></a>. Self-contained — stdlib only, no peer-agent imports. Three things in it:</p>
+
+<table>
+<thead><tr><th>Symbol</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>format_inr_indian(amount)</code></td><td>Rupee → Indian notation (<code>123456</code> → <code>"₹1.23 lakh"</code>, <code>22600000</code> → <code>"₹2.26 crore"</code>). Used wherever an LLM-driven agent is about to see a rupee number, so the model <strong>copies</strong> the formatted string rather than reinventing the lakh/crore conversion (Haiku gets this wrong if you let it — frequently drops an order of magnitude).</td></tr>
+<tr><td><code>RISK_CATEGORIES</code></td><td>Tuple of the five canonical risk-category names: <code>Conservative</code>, <code>Moderately Conservative</code>, <code>Moderate</code>, <code>Moderately Aggressive</code>, <code>Aggressive</code>. The app layer re-imports it; no parallel copy to keep in sync.</td></tr>
+<tr><td><code>category_for_effective_risk_score(score)</code></td><td>Maps a 1.0–10.0 <code>effective_risk_score</code> to one of those five categories using band midpoints (<code>2.125 / 4.375 / 6.625 / 8.875</code>).</td></tr>
+</tbody>
+</table>
+
+<p>Rule: every rupee number that touches an LLM prompt has a sibling <code>_indian</code> string. The formatter does that conversion deterministically; the prompt then tells the LLM "use the <code>_indian</code> form verbatim".</p>
+
+<p>The app layer re-exports these via <a href="../../app/services/ai_bridge/common.py"><code>app/services/ai_bridge/common.py</code></a> so there's exactly one source of truth.</p>
+
+<hr>
+
+<h2 id="per-agent">5. Per-agent walkthrough</h2>
+
+<p>Each subsection gives you the same four answers: input → output, how it thinks, where the LLM is. Skim the column you need.</p>
+
+<h3>5.1 <code>intent_classifier/</code> <span class="tag">LLM-driven</span> — what is the user asking?</h3>
+<ul>
+<li><strong>In:</strong> <code>ClassificationInput</code> (question + conversation history + optional active intent).</li>
+<li><strong>Out:</strong> <code>ClassificationResult</code> (one of 7 intents, confidence, reasoning, optional <code>out_of_scope_subreason</code>).</li>
+<li><strong>How it thinks:</strong> <a href="../src/intent_classifier/classifier.py">classifier.py</a> builds an LCEL chain over Claude Haiku with structured output. The system prompt in <a href="../src/intent_classifier/prompts.py">prompts.py</a> enumerates the seven intents and gives examples. The chain returns a parsed <code>ClassificationResult</code>. That's it — one model call.</li>
+<li><strong>LLM:</strong> Claude Haiku, structured output, Anthropic prompt caching on the system prompt.</li>
+<li><strong>The seven intents</strong> are the enum in <a href="../src/intent_classifier/models.py">models.py</a>: <code>asset_allocation</code>, <code>goal_planning</code>, <code>stock_advice</code>, <code>portfolio_query</code>, <code>general_market_query</code>, <code>rebalancing</code>, <code>out_of_scope</code>. <strong>The enum is the source of truth.</strong> If a CLAUDE.md says "six intents", trust the enum.</li>
+<li><strong>Why no imports of other agents:</strong> the classifier returns a label, nothing else. Routing — what to actually do with <code>asset_allocation</code> — happens outside <code>src/</code>, in the bridge layer.</li>
+</ul>
+
+<h3>5.2 <code>risk_profiling/</code> <span class="tag">deterministic + LLM summary</span> — how much risk can this client take?</h3>
+<ul>
+<li><strong>In:</strong> <code>RiskProfileInput</code> (age, income, assets, debt, occupation, stated risk willingness, etc.).</li>
+<li><strong>Out:</strong> a <code>dict</code> with <code>step_name</code>, <code>inputs</code>, <code>calculations</code>, <code>output</code>. The <code>output</code> block carries <code>effective_risk_score</code> and the <code>risk_summary</code> paragraph. The shape is intentionally open — the app layer indexes into it and persists <code>calculations</code>/<code>output</code> as JSON.</li>
+<li><strong>How it thinks:</strong> <a href="../src/risk_profiling/scoring.py">scoring.py</a> is pure Python. It computes risk <em>capacity</em> (from financials), the OSI (occupation stability index), a savings-rate adjustment, applies clamps, and lands on <code>effective_risk_score</code> ∈ [1, 10]. Then <a href="../src/risk_profiling/main.py">main.py</a> appends a Haiku-generated summary paragraph via an LCEL chain.</li>
+<li><strong>LLM:</strong> Haiku, but only for the prose summary. <strong>The score itself is fully deterministic.</strong> If a customer disputes their score, reading <code>scoring.py</code> answers the question. The LLM is doing PR, not arithmetic.</li>
+<li><strong>Downstream:</strong> the <code>effective_risk_score</code> is one of the fields <code>asset_allocation_pydantic</code>'s <code>AllocationInput</code> expects. The caller (bridge) wires it across — <code>risk_profiling</code> does not import allocation, nor vice versa.</li>
+</ul>
+
+<blockquote>
+<p><strong>⚠️ Orphaned-on-purpose: <a href="../src/risk_profiling/willingness.py"><code>willingness.py</code></a>.</strong> This module exports <code>compute_risk_willingness</code> — the canonical scorer for the <strong>4-question customer risk-willingness questionnaire</strong> (Q1 investment preference, Q2 investment experience, Q3 investment focus, Q4 drop reaction → 1–10 float via <code>min(mean(Q1,Q3,Q4), lift, Q2_cap)</code>). It's re-exported from <a href="../src/risk_profiling/__init__.py"><code>__init__.py</code></a> but <strong>nothing in the repo calls it today</strong>.</p>
+<p>Why it matters: <code>scoring.py</code> consumes <code>risk_willingness</code> as an <em>already-computed</em> float on <code>RiskProfileInput</code>. Today that value is sourced from the app layer — <a href="../../app/services/effective_risk_profile/inputs.py"><code>derive_risk_willingness</code></a> reads it off <code>RiskProfile.risk_willingness</code>, falling back to <a href="../../app/services/effective_risk_profile/calculation.py"><code>risk_willingness_from_risk_level</code></a> for legacy <code>risk_level</code> integers. Neither path goes through the Q1–Q4 logic in <code>willingness.py</code>.</p>
+<p><strong>When you wire up the customer-facing risk questionnaire</strong>, <code>compute_risk_willingness</code> is the canonical scorer to use. <strong>Do not</strong> reinvent the Q1–Q4 mapping in the bridge or the frontend — the bands, the lift rule, and the experience cap are product decisions encoded here. Wire the questionnaire input through this function, persist the returned <code>risk_willingness</code> onto <code>RiskProfile</code>, and the existing scoring flow continues to work unchanged.</p>
+</blockquote>
+
+<h3>5.3 <code>market_commentary/</code> <span class="tag">LLM-driven</span> — what does the macro picture look like right now?</h3>
+<ul>
+<li><strong>In:</strong> none. The agent goes and gets the data itself.</li>
+<li><strong>Out:</strong> <code>MacroSnapshot</code> (14 indicators + <code>data_gaps</code> + <code>document_md</code>). Also persisted to disk:
+  <ul>
+    <li><a href="market_commentary_latest.json">Reference_docs/market_commentary_latest.json</a></li>
+    <li><a href="market_commentary_latest.md">Reference_docs/market_commentary_latest.md</a></li>
+  </ul>
+</li>
+<li><strong>How it thinks:</strong> <a href="../src/market_commentary/main.py">main.py</a> drives a two-pass flow. Pass 1 — <code>extraction_chain</code> in <a href="../src/market_commentary/prompts.py">prompts.py</a> — takes scraped raw HTML/text and asks Claude to extract structured indicator values into <code>MacroSnapshot</code>. Pass 2 — <code>document_generation_chain</code> in <a href="../src/market_commentary/document_generator.py">document_generator.py</a> — turns the snapshot into a markdown commentary document.</li>
+<li><strong>LLM:</strong> Haiku, twice (extract + generate). Both calls have prompt caching on their system prompts.</li>
+<li><strong>The persistence is the contract.</strong> <a href="market_commentary_latest.md">Reference_docs/market_commentary_latest.md</a> is what <code>portfolio_query</code> reads. No Python import connects the two agents — the file is the interface. <strong>If you change the file's shape, you break <code>portfolio_query</code> silently.</strong></li>
+</ul>
+
+<h3>5.4 <code>asset_allocation_pydantic/</code> <span class="tag">deterministic engine</span> — the goal-based allocation engine</h3>
+<p>This is the most important deterministic engine. Sit with this one.</p>
+<ul>
+<li><strong>In:</strong> <code>AllocationInput</code> — client profile, goals (each with horizon + target corpus), <code>effective_risk_score</code>, OSI, savings-rate adjustment, a <code>market_commentary</code> score block, and a target <code>corpus</code> (total investable). The risk and market fields come from the two agents named above; the caller wires them in.</li>
+<li><strong>Out:</strong> <code>GoalAllocationOutput</code> — the recommended allocation across buckets (emergency, short-term, medium-term, long-term), per-asset-class splits, recommended fund subgroups, rationale.</li>
+<li><strong>How it thinks:</strong> seven steps in <a href="../src/asset_allocation_pydantic/steps/">steps/</a>, orchestrated by <a href="../src/asset_allocation_pydantic/pipeline.py">pipeline.py</a>:
+<table>
+<thead><tr><th>Step</th><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><a href="../src/asset_allocation_pydantic/steps/step1_emergency.py">step1_emergency.py</a></td><td>Carve out the emergency fund first. Everything below it works on what's left.</td></tr>
+<tr><td>2</td><td><a href="../src/asset_allocation_pydantic/steps/step2_short_term.py">step2_short_term.py</a></td><td>Allocate to goals with horizon &lt; a threshold (instruments lean debt/arbitrage).</td></tr>
+<tr><td>3</td><td><a href="../src/asset_allocation_pydantic/steps/step3_medium_term.py">step3_medium_term.py</a></td><td>Allocate to medium-horizon goals.</td></tr>
+<tr><td>4</td><td><a href="../src/asset_allocation_pydantic/steps/step4_long_term.py">step4_long_term.py</a></td><td>The heaviest step. Multi-phase: <code>phase1_bounds</code> (risk-score → equity bounds), <code>phase4_multi_asset</code> (multi-asset fund composition), <code>phase5_equity_subgroups</code> (large/mid/small/flexi via the slider in <a href="../src/asset_allocation_pydantic/equity_subgroup_slider.py">equity_subgroup_slider.py</a>).</td></tr>
+<tr><td>5</td><td><a href="../src/asset_allocation_pydantic/steps/step5_aggregation.py">step5_aggregation.py</a></td><td>Combine the per-bucket results into aggregated subgroup rows.</td></tr>
+<tr><td>6</td><td><a href="../src/asset_allocation_pydantic/steps/step6_guardrails.py">step6_guardrails.py</a></td><td>Apply allocation guardrails (caps, floors, sanity checks).</td></tr>
+<tr><td>7</td><td><a href="../src/asset_allocation_pydantic/steps/step7_presentation.py">step7_presentation.py</a></td><td>Assemble the final <code>GoalAllocationOutput</code>. Optionally calls <code>rationale_fn</code> (LLM) here.</td></tr>
+</tbody>
+</table>
+</li>
+<li><strong>LLM:</strong> only the optional rationale function injected at step 7 (via <code>_rationale_llm.py</code>). Disable it and the allocation is still produced, byte-identical to the LLM path's structured numbers. <strong>The numbers come from steps 1–6, which never call an LLM.</strong></li>
+<li><strong>Static lookups:</strong> <a href="../src/asset_allocation_pydantic/tables.py">tables.py</a> holds default market commentary scores, multi-asset composition tables, and the fund mappings. If a recommended subgroup looks wrong, it's almost always a table issue, not a step issue.</li>
+<li><strong>Why pydantic everywhere:</strong> each step has its own <code>StepNOutput</code> schema. Step N+1 takes Step N's output as input. This means you can run a single step in isolation in a notebook with the right <code>StepNOutput</code> JSON, which is essential for reproducing customer-reported quirks.</li>
+</ul>
+
+<h3>5.5 <code>practical_asset_allocation/</code> <span class="tag">deterministic engine</span> — holdings-aware version of the above</h3>
+<p>This is the first cross-agent import in the package and the only one that mutates the allocation math.</p>
+<ul>
+<li><strong>In:</strong> <code>PracticalAllocationInput</code> — <code>AllocationInput</code> plus four scalars: <code>mf_corpus</code>, <code>non_mf_equity_corpus</code>, <code>elss_corpus</code>, <code>max_non_mf_equity_pct_client_input</code>.</li>
+<li><strong>Out:</strong> <code>PracticalAllocationOutput</code> — shape-parity with <code>GoalAllocationOutput</code> plus one extra <code>corpus_breakdown</code> block. Consumers that handle <code>GoalAllocationOutput</code> handle this with zero change for the shared seven fields.</li>
+<li><strong>How it thinks:</strong> <a href="../src/practical_asset_allocation/pipeline.py">pipeline.py</a> (single file by design — revisit splitting only past ~500 lines). It calls <code>asset_allocation_pydantic</code> steps 1–3 and 5 directly, lifts selected step-4 helpers (<code>phase1_bounds</code>, <code>phase4_multi_asset</code>, <code>phase5_equity_subgroups</code>), and <strong>reimplements step 4 itself</strong> to be holdings-aware:
+  <ul>
+    <li>ELSS is <strong>frozen</strong> at the customer's existing exposure (SEBI 3-year lock-in means we can't trade it).</li>
+    <li>Non-MF equity (direct stocks / PMS) is <strong>capped by an NFA-banded rule</strong> — the cap scales with the client's net financial assets band. Excess is trimmed.</li>
+    <li>Equity subgroups use the <strong>v2 average-based sliding threshold</strong>, replacing the static threshold used by the upstream module.</li>
+  </ul>
+</li>
+<li><strong>LLM:</strong> none.</li>
+<li><strong>Why a separate module:</strong> the original <code>asset_allocation_pydantic</code> is what you'd recommend if the customer had no existing holdings. The practical one says "given what they already hold, here's the closest target we can realistically reach without a tax-suicidal rebalancing." If you confuse the two, the recommendation will tell the customer to sell things SEBI won't let them sell.</li>
+</ul>
+
+<h3>5.6 <code>Rebalancing/</code> <span class="tag">deterministic engine</span> — what trades to actually do</h3>
+<p>The bridge from "ideal target" to "transactions you submit".</p>
+<ul>
+<li><strong>In:</strong> <code>RebalancingComputeRequest</code> — corpus, tax state (STCG budget, carryforward losses), and a single homogeneous list of <code>FundRowInput</code> rows. Recommended funds carry <code>rank ≥ 1</code>; held-but-not-recommended ("BAD") funds carry <code>rank = 0</code>, <code>is_recommended = False</code>, <code>target_amount_pre_cap = 0</code>. Two things live on the request as <strong>scalars</strong>, not rows, and have special handling:
+  <ul>
+    <li><strong>ELSS</strong> → <code>practical_allocation_input.elss_corpus</code>. No trade is ever generated for ELSS (lock-in). <a href="../src/Rebalancing/steps/step6_presentation.py">step6_presentation.py</a> emits a frozen <code>SubgroupSummary</code> so the customer view still shows ELSS allocation.</li>
+    <li><strong>Non-MF equity</strong> → <code>practical_allocation_input.non_mf_equity_corpus</code>. If the practical engine's NFA cap forces a trim, step 6 emits a single <code>SELL_DIRECT_STOCKS</code> trade for <code>excess_direct_stocks_inr</code>. No per-stock detail.</li>
+  </ul>
+</li>
+<li><strong>Out:</strong> <code>RebalancingComputeResponse</code> — per-fund rows after step 5, totals, the trade list, warnings, metadata. Also surfaces the upstream <code>practical_allocation</code> output verbatim for the customer view.</li>
+<li><strong>How it thinks:</strong> <a href="../src/Rebalancing/pipeline.py">pipeline.py</a> calls <code>practical_asset_allocation.run_practical_allocation</code> first (this is why the import edge exists), then lifts per-subgroup targets onto rank-1 fund rows, then runs the six steps in <a href="../src/Rebalancing/steps/">steps/</a>:
+<table>
+<thead><tr><th>Step</th><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><a href="../src/Rebalancing/steps/step1_cap_and_spill.py">step1_cap_and_spill.py</a></td><td>Apply per-fund caps; spill the overflow within the subgroup.</td></tr>
+<tr><td>2</td><td><a href="../src/Rebalancing/steps/step2_compare_and_decide.py">step2_compare_and_decide.py</a></td><td>For each fund: target vs. current → buy / sell / hold direction.</td></tr>
+<tr><td>3</td><td><a href="../src/Rebalancing/steps/step3_tax_classification.py">step3_tax_classification.py</a></td><td>Classify each potential sell as STCG vs. LTCG using fund category + holding period (<code>config.py</code> thresholds).</td></tr>
+<tr><td>4</td><td><a href="../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py">step4_initial_trades_under_stcg_cap.py</a></td><td>First pass: realise sells up to the STCG offset budget.</td></tr>
+<tr><td>5</td><td><a href="../src/Rebalancing/steps/step5_loss_offset_top_up.py">step5_loss_offset_top_up.py</a></td><td>Second pass: use carryforward losses to unlock additional sells.</td></tr>
+<tr><td>6</td><td><a href="../src/Rebalancing/steps/step6_presentation.py">step6_presentation.py</a></td><td>Emit the trade list, the subgroup summary, the customer-view rationale strings (from <a href="../src/Rebalancing/rationales.py">rationales.py</a>).</td></tr>
+</tbody>
+</table>
+</li>
+<li><strong>LLM:</strong> none. <strong>This engine is fully deterministic.</strong> Every "why am I being asked to sell this" question has an answer that traces to step 1–5 and the <code>reason_code</code> in <code>rationales.py</code>.</li>
+<li><strong>Env knobs:</strong> all caps, thresholds, and tax rates are env-overrideable (see the <code>REBAL_*</code> table in <a href="../src/Rebalancing/CLAUDE.md">Rebalancing/CLAUDE.md</a>). Useful when SEBI changes a rule and you want to reproduce both worlds.</li>
+</ul>
+
+<h3>5.7 <code>cashflow_statement/</code> <span class="tag">deterministic engine</span> <span class="tag">+ LangGraph agent</span> — goal planning</h3>
+<p>This is the only place we use LangGraph, and the only agent with a real loop.</p>
+
+<h4>The engine — <a href="../src/cashflow_statement/engine/pipeline.py">engine/pipeline.py</a></h4>
+<ul>
+<li><strong>In:</strong> <code>GoalPlanningInput</code> — profile (age, income, expenses), retirement plan, properties (with mortgages), custom goals, one-off events.</li>
+<li><strong>Out:</strong> <code>GoalPlanningOutput</code> — headline status (on-track / shortfall / surplus), per-goal funding, monthly + annual cashflow projections, fund-flow summary.</li>
+<li><strong>How it thinks:</strong> an 8-stage pipeline, one file per stage:
+<table>
+<thead><tr><th>Stage</th><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><a href="../src/cashflow_statement/engine/profile.py">profile.py</a></td><td>Normalise the profile (age in months, current FY, etc.).</td></tr>
+<tr><td>2</td><td><a href="../src/cashflow_statement/engine/retirement.py">retirement.py</a></td><td>Project retirement corpus required + accumulated.</td></tr>
+<tr><td>3</td><td><a href="../src/cashflow_statement/engine/mortgages.py">mortgages.py</a></td><td>Build mortgage amortisation schedules.</td></tr>
+<tr><td>4</td><td><a href="../src/cashflow_statement/engine/properties.py">properties.py</a></td><td>FV / PV property values; net of mortgage.</td></tr>
+<tr><td>5</td><td><a href="../src/cashflow_statement/engine/goals_table.py">goals_table.py</a></td><td>One row per goal, with FV target and PV-discounted corpus required.</td></tr>
+<tr><td>6</td><td><a href="../src/cashflow_statement/engine/cashflow.py">cashflow.py</a></td><td>Month-by-month projection: income, expenses, EMIs, goal payouts.</td></tr>
+<tr><td>7</td><td><a href="../src/cashflow_statement/engine/funding.py">funding.py</a></td><td>Walk the cashflow; split shortfalls proportionally across that month's outflows. <strong>One shared corpus pool</strong>, not per-goal.</td></tr>
+<tr><td>8</td><td><a href="../src/cashflow_statement/engine/summary.py">summary.py</a></td><td>Roll up into headline status + per-goal funding tables.</td></tr>
+</tbody>
+</table>
+</li>
+<li><strong>Time conventions:</strong> all inflation FV math and PV-of-corpus-to-today use <strong>day-precise <code>EOMONTH(target_date)/365</code></strong> — symmetric inflate/discount across every stage. Indian FY runs April–March; <code>fy_for_date</code> returns the closing year (April 2026 → FY27). <strong>₹1000 rounding</strong> is applied to FV cashflow anchors only; PV/display fields stay unrounded.</li>
+<li><strong>Sign conventions:</strong> shortfalls positive, EMI/expense/goal payouts positive magnitudes, <code>surplus_or_shortfall_today</code> signed.</li>
+<li><strong>LLM:</strong> none. The engine is Excel-parity by design.</li>
+<li><strong>Internal types live in <code>engine/_types.py</code></strong> and are NOT re-exported from <code>__init__.py</code>. Cross-boundary types live in <a href="../src/cashflow_statement/models.py">models.py</a>. If you need to use a type from the bridge, it must be in <code>models.py</code>.</li>
+</ul>
+
+<h4>The agent — <a href="../src/cashflow_statement/agent/graph.py">agent/graph.py</a></h4>
+<p>This is the only LangGraph usage in the codebase. The reason it earns LangGraph: it's a genuine multi-turn loop where the LLM needs to (1) extract structured goals/properties/events from natural language, (2) decide which deterministic tool to call next, (3) see the tool result and decide again, (4) eventually summarise. That's what <code>StateGraph</code> + a tool-calling node was built for.</p>
+
+<h4 style="margin-top:1.4em;">LangChain vs LangGraph — they're different things</h4>
+<p>This trips people up most often, so worth being explicit:</p>
+<ul>
+<li><strong>LangChain</strong> is the broader framework. <strong>LCEL chains</strong> (the <code>prompt | llm | parser</code> pipes you see in <code>risk_profiling</code>, <code>intent_classifier</code>, <code>market_commentary</code>, the cashflow <code>summarizer</code>) are LangChain's composition primitive — a straight pipeline.</li>
+<li><strong>LangGraph</strong> is a separate layer that sits <em>on top of</em> LangChain. It adds a state machine with named nodes, conditional edges, and tool-calling primitives (<code>ToolNode</code>, <code>InjectedState</code>, <code>Command</code>). LangGraph still uses <code>ChatAnthropic</code> under the hood for the actual LLM call.</li>
+</ul>
+<p>The rule of thumb:</p>
+<table>
+<thead><tr><th>Use…</th><th>When…</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><strong>LCEL</strong> (LangChain)</td><td>Input → prompt → LLM → output. One pass.</td><td><code>intent_classifier</code>, <code>risk_profiling</code> summary, <code>market_commentary</code> document generation</td></tr>
+<tr><td><strong>LangGraph</strong></td><td>The LLM needs to <strong>loop</strong>: call a tool, see the result, decide whether to call another tool, eventually stop.</td><td>The cashflow agent — the only such place in this codebase</td></tr>
+</tbody>
+</table>
+<p>If a flow can be expressed as <code>prompt | llm | parser</code>, you don't need LangGraph. Reach for LangGraph only when an LLM is genuinely deciding "what do I do next" in a loop.</p>
+
+<h4 style="margin-top:1.4em;">The graph, drawn</h4>
+
+<div class="mermaid">
+flowchart LR
+    Start([User question<br/>+ baseline input]) --> Ingest["<b>ingest_baseline</b><br/>validate staged overrides<br/>reset per-turn fields"]
+    Ingest --> Agent{"<b>agent</b><br/>Claude Haiku<br/>+ 6 bound tools"}
+    Agent -->|"wants a tool"| Tools["<b>tools</b> (ToolNode)<br/>executes one of 6"]
+    Tools -->|"tool result<br/>(ToolMessage)"| Agent
+    Agent -->|"no more tool calls"| Finalize["<b>finalize</b><br/>fallback compute_projection<br/>+ summarize_plan"]
+    Finalize --> End([GoalPlanningSnapshot])
+</div>
+
+<p>Four nodes, defined in <code>build_graph()</code> in <a href="../src/cashflow_statement/agent/graph.py">graph.py</a>:</p>
+
+<table>
+<thead><tr><th>Node</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>ingest_baseline</code></td><td>Validates that staged overrides still reference real goals (drops orphans). Resets per-turn audit fields (<code>actions_taken_this_turn</code>, <code>extracted_events_this_turn</code>). Diffs the new baseline against the cached <code>last_output</code> and flags state as <code>dirty</code> if anything changed.</td></tr>
+<tr><td><code>agent</code></td><td>The LLM. Claude Haiku (<code>claude-haiku-4-5</code>), system prompt = a compact summary of profile + goals + mortgages + one-off cashflows (<a href="../src/cashflow_statement/agent/nodes.py">nodes.py: <code>_format_baseline_summary</code></a>). The six tools are <em>bound</em> via <code>.bind_tools(TOOLS)</code>. The LLM decides whether to call a tool or to finish.</td></tr>
+<tr><td><code>tools</code></td><td>LangGraph's prebuilt <code>ToolNode</code> over the six <code>@tool</code>-wrapped functions. Whichever tool the LLM called gets executed; its return value comes back as a <code>ToolMessage</code>.</td></tr>
+<tr><td><code>finalize</code></td><td>End-of-turn cleanup. If the LLM never called <code>compute_projection</code>, this runs the engine as a fallback so the snapshot is always populated. Then <code>summarize_plan</code> writes the customer-facing <code>PlanSummary</code>.</td></tr>
+</tbody>
+</table>
+
+<p>The only conditional edge is <code>should_continue</code> — it inspects the last LLM message for <code>tool_calls</code>: yes → loop to <code>tools</code> → back to <code>agent</code>; no → exit via <code>finalize</code>. Recursion is capped at <strong>15 iterations</strong> (<code>AGENT_RECURSION_LIMIT</code>); past that the graph errors out and a fallback snapshot is returned with the failure flagged in <code>error_log</code>. <strong>The customer always gets something</strong> — never a bare exception.</p>
+
+<h4 style="margin-top:1.4em;">The six tools</h4>
+
+<p>All defined in <a href="../src/cashflow_statement/agent/tools.py">tools.py</a>. Each has a pure-Python <code>_impl</code> (unit-testable in isolation) plus a thin <code>@tool</code>-decorated wrapper that adapts it to LangGraph's <code>InjectedState</code> + <code>Command</code> protocol.</p>
+
+<table>
+<thead><tr><th>Tool</th><th>What the LLM uses it for</th></tr></thead>
+<tbody>
+<tr><td><code>extract_financial_event</code></td><td>Parse free-text ("buy a house in 5 years for ₹1.5 crore") into a structured <code>ExtractedGoal</code> / <code>ExtractedProperty</code> / <code>ExtractedCashflow</code> / <code>ExtractedMutation</code>. Delegates to <a href="../src/cashflow_statement/agent/extractor.py">extractor.py</a> — a separate Haiku structured-output call.</td></tr>
+<tr><td><code>apply_override</code></td><td>Stage a what-if parameter change (income, expense, SIP, growth rate). Accumulates across turns until cleared.</td></tr>
+<tr><td><code>clear_overrides</code></td><td>Undo all or specific overrides.</td></tr>
+<tr><td><code>mutate_goal</code></td><td>Remove or update an existing goal (including retirement).</td></tr>
+<tr><td><code>compute_projection</code></td><td>Run the deterministic <a href="../src/cashflow_statement/engine/pipeline.py">engine</a>. Idempotent (short-circuits if state isn't <code>dirty</code> and <code>last_output</code> exists).</td></tr>
+<tr><td><code>propose_levers</code></td><td>Generate up to 3 deterministic recommendations via <a href="../src/cashflow_statement/agent/levers.py">levers.py</a> (A/B/C/D/E/F: delay retirement, increase savings, reduce a goal, etc.). The LLM picks which to surface; the lever search and ranking are plain Python.</td></tr>
+</tbody>
+</table>
+
+<h4 style="margin-top:1.4em;">One turn, end to end</h4>
+
+<p>Customer says: <em>"What if I delay retirement by 3 years?"</em></p>
+
+<ol>
+<li><strong>ingest_baseline</strong> — pull in the latest <code>GoalPlanningInput</code>, validate that no prior override references a now-deleted goal, reset per-turn audit fields, hand off.</li>
+<li><strong>agent (LLM turn 1)</strong> — Claude sees the question + the compact baseline summary in its system prompt. Decides it needs two tools and emits both: <code>apply_override({key: "retirement_age", value: 63})</code> and <code>compute_projection()</code>.</li>
+<li><strong>tools</strong> — <code>ToolNode</code> runs both. <code>apply_override</code> stages the override onto state. <code>compute_projection</code> merges all staged overrides into a fresh <code>GoalPlanningInput</code>, runs the 8-stage engine, stashes the result on <code>last_output</code>, and returns a bounded "feasibility + top-3 underfunded goals" summary as a <code>ToolMessage</code>.</li>
+<li><strong>agent (LLM turn 2)</strong> — sees the <code>ToolMessage</code>s. Decides it has enough to answer; emits a final assistant message with no tool calls.</li>
+<li><strong>finalize</strong> — <code>last_output</code> is already populated (skips the fallback compute), runs <code>summarize_plan</code> to produce a customer-facing <code>PlanSummary</code>.</li>
+<li>Done. Returns a <code>GoalPlanningSnapshot</code> to the bridge. The chat layer's responder LLM (a separate call, outside this graph) writes the actual customer reply using the snapshot as input.</li>
+</ol>
+
+<p>That whole sequence is two LLM calls + one engine run. The graph's job is to wire them up so the LLM can decide <em>during the turn</em> what to do, instead of you having to hand-write the if/else.</p>
+
+<h4 style="margin-top:1.4em;">Other pieces</h4>
+<ul>
+<li><strong>State</strong> (<a href="../src/cashflow_statement/agent/state.py">state.py</a>) — <code>AgentState</code> TypedDict. Persisted across turns by a <code>MemorySaver</code> checkpointer keyed on <code>chat_session_id</code>: <code>accumulated_overrides</code>, <code>captured_goals</code>, <code>captured_properties</code>, <code>captured_cashflows</code>, <code>captured_mutations</code>. Per-turn fields reset on every <code>ingest_baseline</code>.</li>
+<li><strong>Extractor</strong> (<a href="../src/cashflow_statement/agent/extractor.py">extractor.py</a>) — Haiku structured-output extractor that turns conversation into <code>GoalPlanningInput</code> fields. Called from inside <code>extract_financial_event</code>.</li>
+<li><strong>Levers</strong> (<a href="../src/cashflow_statement/agent/levers.py">levers.py</a>) — deterministic feasibility levers A/B/C/D/E/F. Pure Python. The LLM picks which to propose via <code>propose_levers</code>; the search and ranking are not LLM-driven.</li>
+<li><strong>Summariser</strong> (<a href="../src/cashflow_statement/summarizer.py">summarizer.py</a>) — Haiku <strong>LCEL chain</strong> (LCEL here, not LangGraph — it's a straight prompt-to-summary pipe) that turns <code>GoalPlanningOutput</code> into a <code>PlanSummary</code>. <strong>All rupee values are pre-formatted to Indian notation before the prompt is built.</strong> The model copies them verbatim and never does its own arithmetic.</li>
+</ul>
+
+<p><strong>Don't add LangGraph elsewhere without discussion.</strong> The chat brain itself is intentionally hand-written async; LangGraph there would add ceremony without expressive power. The bar for adding it to a second agent is "we have a real tool-calling loop with intermediate state and have tried plain async first."</p>
+
+<h3>5.8 <code>portfolio_query/</code> <span class="tag">LLM-driven</span> — answering Q&amp;A about the customer's own portfolio</h3>
+<p>Triggered by the <code>portfolio_query</code> intent.</p>
+<ul>
+<li><strong>In:</strong> <code>ClientContext</code>, <code>PortfolioContext</code> (asset-class + sub-category + per-fund detail), the question, optional conversation history.</li>
+<li><strong>Out:</strong> <code>PortfolioQueryResponse</code> — either an <code>answer</code> or a <code>redirect_message</code>, plus <code>guardrail_triggered: bool</code>.</li>
+<li><strong>How it thinks:</strong> <a href="../src/portfolio_query/orchestrator.py">orchestrator.py</a> is the entry point. It loads the market commentary markdown from <a href="market_commentary_latest.md">Reference_docs/market_commentary_latest.md</a> (this is why <code>market_commentary</code> is upstream — no Python import, just the file), packages it with the client + portfolio context, and runs a <strong>single LLM call</strong> through <a href="../src/portfolio_query/skill_executor.py">skill_executor.py</a>, which loads:
+  <ul>
+    <li><a href="../src/portfolio_query/portfolio_query.md">portfolio_query.md</a> — the system + user prompt skill, with YAML front matter</li>
+    <li><a href="../src/portfolio_query/guardrails.md">guardrails.md</a> — embedded into the system prompt; defines in-scope vs. out-of-scope</li>
+  </ul>
+</li>
+<li><strong>LLM:</strong> Haiku via <a href="../src/portfolio_query/llm_client.py">llm_client.py</a> (a thin <code>ChatAnthropic</code> wrapper) with prompt caching and forced tool-use to constrain the output to <code>PortfolioQueryResponse</code>.</li>
+<li><strong>Why "skill" markdown files:</strong> the prompt is long and product-owned; keeping it in <code>.md</code> lets non-engineers iterate without touching code. The YAML front matter lets <code>SkillExecutor</code> parse out the system/user templates without bespoke string handling.</li>
+<li><strong>The guardrail layer matters.</strong> If the question drifts into "should I buy X?" territory or asks for things outside the portfolio, the LLM is instructed to set <code>guardrail_triggered=True</code> and return a <code>redirect_message</code>. The chat layer then doesn't pass the answer through as a normal reply.</li>
+</ul>
+
+<hr>
+
+<h2 id="data-flow">6. The data-flow web</h2>
+
+<p>These dependencies aren't Python imports — they're <strong>shape contracts</strong> that the bridge layer wires up. They matter because changing a field on one side breaks the caller silently.</p>
+
+<div class="mermaid">
+flowchart LR
+    RP_out["risk_profiling output<br/>{effective_risk_score, osi, savings_rate_adjustment}"]
+    MC_out["market_commentary output<br/>{score block + markdown file}"]
+    AA_in["AllocationInput / PracticalAllocationInput"]
+    PA_out["PracticalAllocationOutput<br/>(aggregated_subgroups)"]
+    RB_in["RebalancingComputeRequest"]
+    PQ_in["portfolio_query (reads commentary md)"]
+
+    RP_out -->|"bridge fills fields"| AA_in
+    MC_out -->|"bridge fills score block"| AA_in
+    MC_out -.->|"writes file"| PQ_in
+    AA_in -->|"runs"| PA_out
+    PA_out -->|"per-subgroup targets lifted onto rank-1 rows"| RB_in
+</div>
+
+<p>The three things to internalise:</p>
+<ol>
+<li><strong><code>AllocationInput</code> is the join point.</strong> It carries fields from both <code>risk_profiling</code> and <code>market_commentary</code>, but neither of those agents imports allocation. The bridge does the joining.</li>
+<li><strong><code>market_commentary</code> writes a file; <code>portfolio_query</code> reads it.</strong> No code-level coupling. If you change the file, you change a contract.</li>
+<li><strong><code>Rebalancing</code> builds on <code>practical_asset_allocation</code>'s output.</strong> It calls <code>run_practical_allocation</code> first, then lifts subgroup targets onto rank-1 rows.</li>
+</ol>
+
+<hr>
+
+<h2 id="conventions">7. Conventions</h2>
+
+<ul>
+<li><strong><code>models.py</code> is the boundary.</strong> Top-level pydantic schemas live here. The bridge imports only from <code>models.py</code> and from documented entry points (<code>pipeline.py</code>, <code>main.py</code>, <code>orchestrator.py</code>, <code>classifier.py</code>). It never reaches into <code>steps/</code> or <code>engine/</code>.</li>
+<li><strong>One entry point per agent.</strong> <code>pipeline.py</code> for engine modules, <code>main.py</code> for LCEL-chain modules, <code>orchestrator.py</code> for class-based orchestrators. If you find yourself adding a second entry point, you're probably building a second agent.</li>
+<li><strong>Cross-module imports are forbidden by default.</strong> The only blessed exceptions, listed in <a href="../src/CLAUDE.md">AI_Agents/src/CLAUDE.md</a>, are:
+  <ul>
+    <li><code>practical_asset_allocation</code> → <code>asset_allocation_pydantic</code> (steps 1–3, 5, helpers, models).</li>
+    <li><code>Rebalancing</code> → <code>practical_asset_allocation.run_practical_allocation</code>.</li>
+  </ul>
+</li>
+<li><strong>Shared data flows through the caller, not through imports.</strong> If two agents need to share data, the bridge wires it up. Period.</li>
+<li><strong><code>common.py</code> is the only file every agent may import.</strong> It's small (<code>format_inr_indian</code> + tiny helpers) by design. Don't grow it into a dumping ground.</li>
+<li><strong><code>Reference_docs/</code> is runtime data, not source.</strong> <code>market_commentary_latest.md</code> is rewritten on each commentary run. Don't commit fresh outputs from a local run. The exception is hand-authored reference markdown like this doc and the per-module <code>*.md</code> files in this folder.</li>
+<li><strong>LangChain only for LLM calls.</strong> All Claude calls go through <code>langchain-anthropic</code> (<code>ChatAnthropic</code> / LCEL). The only acceptable raw <code>anthropic</code> import is exception classes for <code>except</code> clauses. No <code>anthropic.Anthropic().messages.create(...)</code>.</li>
+<li><strong>All rupee numbers reaching an LLM are pre-formatted.</strong> <code>format_inr_indian</code> produces the <code>_indian</code> sibling string. The prompt copies it verbatim. The LLM does not do arithmetic on rupees.</li>
+<li><strong><code>sys.path</code> injection, not qualified imports.</strong> Once the bridge has called <code>ensure_ai_agents_path()</code>, agents are imported as <code>from Rebalancing.models import ...</code>, not <code>from AI_Agents.src.Rebalancing.models import ...</code>. If you see the qualified form, it's a bug.</li>
+</ul>
+
+<hr>
+
+<h2 id="landmines">8. Landmines</h2>
+
+<ol>
+<li><strong>The <code>intent_classifier</code> enum vs. its CLAUDE.md.</strong> The CLAUDE.md says seven intents (correct, current). An older comment somewhere may say six. Trust the enum in <a href="../src/intent_classifier/models.py">models.py</a>.</li>
+<li><strong><code>Reference_docs/market_commentary_latest.md</code> is a contract.</strong> Two agents depend on its existence and shape. If you regenerate it during testing, do not commit the result. If you change its structure, search for <code>_load_market_commentary</code> first.</li>
+<li><strong><code>asset_allocation_pydantic</code> step-4 phases are not numbered 1–7.</strong> They're <code>phase1_bounds</code>, <code>phase4_multi_asset</code>, <code>phase5_equity_subgroups</code> — the gaps are intentional, from an earlier refactor. The names are stable now; don't renumber.</li>
+<li><strong><code>practical_asset_allocation/pipeline.py</code> is one file on purpose.</strong> Don't split it "for tidiness" — the design call is to revisit splitting only past ~500 lines. The R157–R222 math is easier to follow contiguously.</li>
+<li><strong><code>Rebalancing</code> doesn't have per-stock or per-ELSS rows.</strong> ELSS and non-MF equity are scalars on the request. If you're trying to add a row for either, you're misreading the input contract — re-read <a href="../src/Rebalancing/CLAUDE.md">Rebalancing/CLAUDE.md</a>.</li>
+<li><strong><code>cashflow_statement/engine/_types.py</code> is private.</strong> It's not re-exported from <code>__init__.py</code>. If you need a type at the boundary, it goes in <a href="../src/cashflow_statement/models.py">models.py</a>.</li>
+<li><strong><code>financial_primitives/</code> is one-consumer today.</strong> Don't add abstractions for hypothetical consumers. When a second consumer appears, extend then.</li>
+<li><strong>The blessed cross-module imports are by symbol name, not by package.</strong> <code>practical_asset_allocation</code> imports <code>step1_emergency.run</code>, <code>phase1_bounds</code>, <code>round_to_100</code>, etc. by name. <strong>Renaming any of those symbols on the upstream side is a cross-module change.</strong> Grep before renaming.</li>
+<li><strong><code>risk_profiling</code> returns a <code>dict</code>, not a pydantic model.</strong> This is intentional — the app layer indexes into it as JSON. Don't "fix" it into a pydantic output; you'll break the persistence layer.</li>
+<li><strong><code>market_commentary</code>'s LLM extracts indicators from scraped text.</strong> When the source site changes its HTML, the scraper fails silently and the extractor gets garbage. If commentary numbers look off, check <code>data_gaps</code> on the snapshot first.</li>
+</ol>
+
+<hr>
+
+<h2 id="extending">9. Where to look first when extending</h2>
+
+<table>
+<thead><tr><th>You want to…</th><th>Start here</th></tr></thead>
+<tbody>
+<tr><td>Understand why an allocation came out a certain way</td><td><a href="../src/asset_allocation_pydantic/pipeline.py">asset_allocation_pydantic/pipeline.py</a>, then walk the seven <code>StepNOutput</code> objects in order</td></tr>
+<tr><td>Understand why a rebalancing trade was generated</td><td><a href="../src/Rebalancing/steps/step6_presentation.py">Rebalancing/steps/step6_presentation.py</a> (rationale + reason_code), then trace back through steps 5 → 1</td></tr>
+<tr><td>Change an allocation guardrail</td><td><a href="../src/asset_allocation_pydantic/steps/step6_guardrails.py">asset_allocation_pydantic/steps/step6_guardrails.py</a> and the lookups in <a href="../src/asset_allocation_pydantic/tables.py">tables.py</a></td></tr>
+<tr><td>Add or change a tax rule</td><td><a href="../src/Rebalancing/config.py">Rebalancing/config.py</a> (env-overrideable knobs) + <a href="../src/Rebalancing/utils.py">Rebalancing/utils.py</a> (tax math)</td></tr>
+<tr><td>Change how a customer-facing rebalancing reason is worded</td><td><a href="../src/Rebalancing/rationales.py">Rebalancing/rationales.py</a> (single source of truth — covers both the dev sweep and prod customer view)</td></tr>
+<tr><td>Adjust the risk-score scale</td><td><a href="../src/risk_profiling/scoring.py">risk_profiling/scoring.py</a>. Update <code>customer_test_data.py</code> cases too.</td></tr>
+<tr><td>Add a new intent</td><td><a href="../src/intent_classifier/models.py">intent_classifier/models.py</a> (enum) + <a href="../src/intent_classifier/prompts.py">intent_classifier/prompts.py</a>. Then add the routing/handler in the bridge — see the top-level <a href="../../docs/ARCHITECTURE.md">docs/ARCHITECTURE.md §10</a>.</td></tr>
+<tr><td>Tune the cashflow agent's behaviour</td><td><a href="../src/cashflow_statement/agent/prompts.py">cashflow_statement/agent/prompts.py</a> (prose) + <a href="../src/cashflow_statement/agent/tools.py">cashflow_statement/agent/tools.py</a> (tool surface)</td></tr>
+<tr><td>Add a new lever to the cashflow agent</td><td><a href="../src/cashflow_statement/agent/levers.py">cashflow_statement/agent/levers.py</a> — deterministic Python, then expose it as a tool</td></tr>
+<tr><td>Reproduce a customer-reported allocation result</td><td>Run <a href="../src/asset_allocation_pydantic/Testing">asset_allocation_pydantic/Testing</a> with the customer's <code>AllocationInput</code>, or use <code>Master_testing/</code> for a parameter sweep</td></tr>
+<tr><td>Smoke-test the cashflow engine</td><td><code>python -m cashflow_statement.dev_run</code> from <code>src/</code>, then open <a href="../src/cashflow_statement/viewer.html">cashflow_statement/viewer.html</a></td></tr>
+<tr><td>See what the chat layer sees</td><td><a href="../src/chat_eval/run_eval.py">chat_eval/run_eval.py</a> — replays a YAML question set and dumps JSON/HTML reports</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<p>If something here doesn't match the code, the code wins — tell me and I'll fix the doc. The first thing to verify when you're confused is: <strong>am I in a deterministic engine or an LLM-driven agent?</strong> If it's the former, read the steps in order. If it's the latter, read <code>prompts.py</code> and the structured-output schema. Those two questions answer 80% of "wait, why is it doing this".</p>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+  });
+</script>
+</body>
+</html>
