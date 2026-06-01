@@ -114,7 +114,9 @@ async def persist_rebalancing_recommendation(
             total_ltcg_realised=_to_decimal(totals.total_ltcg_realised),
             total_stcg_net_off=_to_decimal(totals.total_stcg_net_off),
             total_tax_estimate_inr=_to_decimal(totals.total_tax_estimate_inr),
-            total_exit_load_inr=_to_decimal(totals.total_exit_load_inr),
+            # Exit-load is no longer computed by the engine; persist 0 to keep
+            # the existing DB schema stable (legacy column, no Alembic drop yet).
+            total_exit_load_inr=_to_decimal(0),
             unrebalanced_remainder_inr=_to_decimal(totals.unrebalanced_remainder_inr),
             rows_count=totals.rows_count,
             funds_to_buy_count=totals.funds_to_buy_count,
@@ -167,11 +169,13 @@ async def persist_rebalancing_recommendation(
                 st_cost_inr=_to_decimal(row.st_cost_inr),
                 lt_value_inr=_to_decimal(row.lt_value_inr),
                 lt_cost_inr=_to_decimal(row.lt_cost_inr),
-                exit_load_pct=row.exit_load_pct,
-                exit_load_months=row.exit_load_months,
-                units_within_exit_load_period=_to_decimal(row.units_within_exit_load_period),
+                # Exit-load fields are legacy DB columns; engine no longer
+                # computes them. Persist zeros for now (Alembic drop deferred).
+                exit_load_pct=0.0,
+                exit_load_months=0,
+                units_within_exit_load_period=_to_decimal(0),
                 current_nav=_to_decimal(row.current_nav),
-                exit_load_amount=_to_decimal(row.exit_load_amount),
+                exit_load_amount=_to_decimal(0),
                 diff=_to_decimal(row.diff),
                 exit_flag=row.exit_flag,
                 worth_to_change=row.worth_to_change,
