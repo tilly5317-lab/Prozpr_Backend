@@ -21,13 +21,16 @@ from app.domains.practical_asset_allocation.services.paa_engine.service import (
     build_practical_fallback_brief,
     compute_practical_allocation_result,
 )
+from app.domains.practical_asset_allocation.services.practical_allocation_persist_service import (
+    persist_practical_allocation_run,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @register("practical_asset_allocation")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
-    """Run the practical allocation engine and return a chat brief."""
+    """Run the practical allocation engine, persist the run, and return a brief."""
     outcome = await compute_practical_allocation_result(
         ctx.user_ctx, ctx.user_question, chat_ctx=ctx,
     )
@@ -37,4 +40,25 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         return ChatHandlerResult(
             text="I couldn't produce a practical allocation right now. Please try again."
         )
+
+    # Persist every run that produced a result. Best-effort: a persistence
+    # failure is logged loudly (so it surfaces in alerts) but never blocks the
+    # chat reply or the downstream rebalancing step. Flush only — the chat
+    # router owns the commit.
+    if ctx.db is not None:
+        try:
+            await persist_practical_allocation_run(
+                ctx.db,
+                user_id=ctx.effective_user_id,
+                output=outcome.result,
+                chat_session_id=ctx.session_id,
+                user_question=ctx.user_question,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to persist practical_asset_allocation run for session=%s — "
+                "returning reply anyway; investigate",
+                ctx.session_id,
+            )
+
     return ChatHandlerResult(text=build_practical_fallback_brief(outcome.result))

@@ -1,7 +1,14 @@
-"""Persistence models for the practical_asset_allocation domain.
+"""ORM models for persisted practical-allocation engine output.
 
-Empty for now — the practical allocation runs inside the rebalancing flow and
-hands its result to the rebalancing engine via the ``prior`` dict rather than
-writing its own run rows. Add ORM models here if a standalone practical-run
-history is needed later.
+PostgreSQL table: ``practical_asset_allocation_runs`` — one header row per
+practical-allocation engine run, persisted by
+``practical_allocation_persist_service``.
 """
+
+from app.domains.practical_asset_allocation.models.run import (
+    PracticalAssetAllocationRun,
+)
+
+__all__ = [
+    "PracticalAssetAllocationRun",
+]
