@@ -216,6 +216,7 @@ def build_rebal_facts_pack(
             "fund_name":          <str>,                                     # e.g. "HDFC Top 100"
             "sub_category":       <str>,                                     # SEBI category
             "asset_subgroup":     <str>,                                     # engine grouping (context only)
+            "asset_class":        <str>,                                     # "equity" | "debt" | "others"
             "current_inr":        <float>, "current_indian":        <str>,
             "buy_inr":            <float>, "buy_indian":            <str>,
             "sell_inr":           <float>, "sell_indian":           <str>,
@@ -316,6 +317,7 @@ def build_rebal_facts_pack(
                     "fund_name": fund_name,
                     "sub_category": sub_cat,
                     "asset_subgroup": sg_subgroup,
+                    "asset_class": asset_class_for_subgroup(sg_subgroup),
                     "current_inr": present,
                     "buy_inr": buy,
                     "sell_inr": sell,

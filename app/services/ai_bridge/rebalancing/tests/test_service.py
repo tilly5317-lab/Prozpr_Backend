@@ -356,6 +356,12 @@ def test_fund_actions_includes_one_entry_per_fund():
     assert icici["current_indian"]
     assert icici["planned_final_indian"]
 
+    # asset_class derived from asset_subgroup via asset_class_for_subgroup.
+    from app.services.ai_bridge.common import asset_class_for_subgroup
+    for a in actions:
+        assert a["asset_class"] == asset_class_for_subgroup(a["asset_subgroup"])
+        assert a["asset_class"] in {"equity", "debt", "others"}
+
 
 def test_fund_actions_caps_at_limit_and_signals_overflow():
     from app.services.ai_bridge.rebalancing.service import (
