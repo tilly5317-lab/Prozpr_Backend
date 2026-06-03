@@ -1,0 +1,447 @@
+# AI_Agents — Architecture Walkthrough
+
+> A narrative handoff doc for the `AI_Agents/` package itself: how each agent thinks, what it takes in, what it gives back, and how they relate. File paths are pinned so you can jump to the code; the prose carries the *why*. If a diagram contradicts the code, trust the code — and tell me, so I can fix the diagram.
+>
+> This doc is the **inside-the-package** companion to [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md). The top-level doc covers how chat requests reach the agents (HTTP → ChatBrain → bridge). This one picks up after the bridge: what actually runs inside each agent.
+
+---
+
+## How to read this
+
+You're a Python engineer trying to understand why a recommendation came out the way it did, or to extend an agent without breaking the others. You don't need to memorise every file. You **do** need to understand:
+
+1. There are two very different kinds of agents — **deterministic engines** (pure-Python math) and **LLM-driven** (Claude + structured output). They have different debuggability and different testing expectations.
+2. Agents are **peers by default** — they don't import each other. Two blessed exceptions are documented (allocation chains).
+3. The agents that look most like AI are usually the simplest. The agents that look like plain pipelines are usually where the product logic lives.
+
+Skim section 2 (the map), read section 3 (the two kinds), and use section 5 (per-agent walkthrough) as a reference when you're actually digging into one.
+
+---
+
+## 1. Why this doc exists
+
+A lot of this code was written with Claude in the loop. That's productive, but it has a failure mode: things get more abstract than they need to be, with multi-step pipelines that look intimidating until you realise each step is doing one small thing. After a few months even the person who built it can stare at `step4_long_term.py` and not remember which phase does what.
+
+This doc is the antidote. For each agent it answers four questions:
+
+- **What does it take in?** (the input contract)
+- **What does it give back?** (the output contract)
+- **How does it think?** (the step-by-step shape of the work)
+- **Where is the LLM, if anywhere?** (so you know which parts are deterministic and reproducible vs. probabilistic)
+
+If you ever sit down to "just quickly understand X", start with that agent's row in section 5.
+
+---
+
+## 2. The map
+
+```mermaid
+flowchart TB
+    subgraph Shared["📦 Shared foundation — src/"]
+        FP["financial_primitives/<br/>TVM, annuity, inflation, FY dates"]
+        Common["common.py<br/>format_inr_indian"]
+    end
+
+    subgraph Intent["🎯 Intent layer"]
+        IC[intent_classifier<br/>Claude Haiku + structured output]
+    end
+
+    subgraph Profile["🧍 Client profile"]
+        RP[risk_profiling<br/>scoring + Haiku summary]
+    end
+
+    subgraph Macro["🌐 Market context"]
+        MC["market_commentary<br/>scrape → extract → write Reference_docs/"]
+    end
+
+    subgraph Allocate["📊 Allocation"]
+        AA["asset_allocation_pydantic<br/>7-step goal-based pipeline"]
+        PA["practical_asset_allocation<br/>holdings-aware wrapper"]
+    end
+
+    subgraph Rebal["⚖️ Rebalancing"]
+        RB["Rebalancing<br/>6-step tax-aware trade engine"]
+    end
+
+    subgraph Plan["📅 Goal planning"]
+        CFE["cashflow_statement/engine<br/>8-stage projection pipeline"]
+        CFA["cashflow_statement/agent<br/>LangGraph + 6 tools"]
+    end
+
+    subgraph Query["💬 Portfolio Q&A"]
+        PQ["portfolio_query<br/>Haiku + skill markdown + guardrails"]
+    end
+
+    FP --> CFE
+    Common --> PQ
+    Common --> AA
+
+    RP -.->|"effective_risk_score<br/>(wired by caller)"| AA
+    MC -.->|"score block<br/>(wired by caller)"| AA
+    MC -->|"writes market_commentary_latest.md"| RefDocs[(Reference_docs/)]
+    RefDocs -->|"read by"| PQ
+
+    AA -->|"steps 1-3, 5, helpers"| PA
+    PA -->|"run_practical_allocation"| RB
+    CFE --> CFA
+```
+
+The solid arrows are real Python imports. The dotted arrows are **caller-wired** dependencies: the data is structurally needed, but the agent doesn't reach across the package to fetch it — the bridge layer fills the fields in. The dashed dependence on `Reference_docs/` is even looser: it's a **file** contract, not an import contract.
+
+If you remember one thing: **agents are peers, except where this diagram shows a solid arrow.** Adding new arrows is a design decision, not a refactor.
+
+---
+
+## 3. The two kinds of agents
+
+Sorting the agents by how they actually work is the single most useful mental model:
+
+| Kind | Agents | What it means |
+|---|---|---|
+| **Deterministic engine** | `asset_allocation_pydantic`, `practical_asset_allocation`, `Rebalancing`, `cashflow_statement/engine`, `risk_profiling` (scoring half), `financial_primitives` | Pure Python. Same input → same output, byte for byte. Excel-parity for the cashflow engine. These are where the *product math* lives. Debug them with unit tests. Reading the code answers "why this number" definitively. |
+| **LLM-driven** | `intent_classifier`, `market_commentary`, `portfolio_query`, `cashflow_statement/agent`, `risk_profiling` (summary half), the optional rationale step in `asset_allocation_pydantic` | Claude (Haiku, via `langchain-anthropic`) is the load-bearing piece. Outputs are constrained by structured-output schemas or prompt-encoded house rules, but they're not byte-stable. Debug them by reading prompts in `prompts.py` and looking at recent runs. |
+
+This split matters because the failure modes are different:
+
+- **A deterministic engine gives a "wrong" answer** → it's a bug in the math or in the input shape. The fix is reproducible. Write a regression test.
+- **An LLM-driven agent gives a "wrong" answer** → it's usually the prompt, the input context, or a structured-output schema that lets a bad value through. The fix is harder to make reproducible. Add to the eval set in `chat_eval/`.
+
+The LLM-driven agents are mostly **thin** — `intent_classifier` is one classification call, `portfolio_query` is one skill-driven call. The deterministic engines are where the surface area is.
+
+---
+
+## 4. Shared foundation
+
+These two pieces aren't agents — they're support.
+
+### `financial_primitives/` — the numeric kernel
+
+Pure-function library, no LLM, no I/O, fully unit-tested. It's the only thing that should be doing TVM math anywhere in `AI_Agents/`.
+
+| File | What's in it |
+|---|---|
+| [time_value.py](../src/financial_primitives/time_value.py) | PV / FV / NPV / IRR |
+| [annuity.py](../src/financial_primitives/annuity.py) | Annuity factors via `numpy_financial` |
+| [inflation.py](../src/financial_primitives/inflation.py) | Real-vs-nominal conversions |
+| [dates.py](../src/financial_primitives/dates.py) | Indian FY helpers, EOMONTH math, `ROUND_THOUSAND` |
+| [retirement.py](../src/financial_primitives/retirement.py) | Retirement corpus closed-form |
+
+Today the only consumer is `cashflow_statement/engine/`. **Don't engineer it for hypothetical consumers** — extend only when a real caller appears (`AI_Agents/src/CLAUDE.md` makes this an explicit rule).
+
+### `common.py` — cross-agent utilities
+
+Lives at [`AI_Agents/src/common.py`](../src/common.py). Self-contained — stdlib only, no peer-agent imports. Three things in it:
+
+| Symbol | What it does |
+|---|---|
+| `format_inr_indian(amount)` | Rupee → Indian notation (`123456` → `"₹1.23 lakh"`, `22600000` → `"₹2.26 crore"`). Used wherever an LLM-driven agent is about to see a rupee number, so the model **copies** the formatted string rather than reinventing the lakh/crore conversion (Haiku gets this wrong if you let it — frequently drops an order of magnitude). |
+| `RISK_CATEGORIES` | Tuple of the five canonical risk-category names: `Conservative`, `Moderately Conservative`, `Moderate`, `Moderately Aggressive`, `Aggressive`. The app layer re-imports it; no parallel copy to keep in sync. |
+| `category_for_effective_risk_score(score)` | Maps a 1.0–10.0 `effective_risk_score` to one of those five categories using band midpoints (`2.125 / 4.375 / 6.625 / 8.875`). |
+
+Rule: every rupee number that touches an LLM prompt has a sibling `_indian` string. The formatter does that conversion deterministically; the prompt then tells the LLM "use the `_indian` form verbatim".
+
+The app layer re-exports these via [`app/services/ai_bridge/common.py`](../../app/services/ai_bridge/common.py) so there's exactly one source of truth.
+
+---
+
+## 5. Per-agent walkthrough
+
+Each subsection gives you the same four answers: input → output, how it thinks, where the LLM is. Skim the column you need.
+
+### 5.1 `intent_classifier/` — what is the user asking?
+
+- **In:** `ClassificationInput` (question + conversation history + optional active intent).
+- **Out:** `ClassificationResult` (one of 7 intents, confidence, reasoning, optional `out_of_scope_subreason`).
+- **How it thinks:** [classifier.py](../src/intent_classifier/classifier.py) builds an LCEL chain over Claude Haiku with structured output. The system prompt in [prompts.py](../src/intent_classifier/prompts.py) enumerates the seven intents and gives examples. The chain returns a parsed `ClassificationResult`. That's it — one model call.
+- **LLM:** Claude Haiku, structured output, Anthropic prompt caching on the system prompt.
+- **The seven intents** are the enum in [models.py](../src/intent_classifier/models.py): `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `rebalancing`, `out_of_scope`. **The enum is the source of truth.** If a CLAUDE.md says "six intents", trust the enum.
+- **Why no imports of other agents:** the classifier returns a label, nothing else. Routing — what to actually do with `asset_allocation` — happens outside `src/`, in the bridge layer.
+
+### 5.2 `risk_profiling/` — how much risk can this client take?
+
+- **In:** `RiskProfileInput` (age, income, assets, debt, occupation, stated risk willingness, etc.).
+- **Out:** a `dict` with `step_name`, `inputs`, `calculations`, `output`. The `output` block carries `effective_risk_score` and the `risk_summary` paragraph. The shape is intentionally open — the app layer indexes into it and persists `calculations`/`output` as JSON.
+- **How it thinks:** [scoring.py](../src/risk_profiling/scoring.py) is pure Python. It computes risk *capacity* (from financials), the OSI (occupation stability index), a savings-rate adjustment, applies clamps, and lands on `effective_risk_score` ∈ [1, 10]. Then [main.py](../src/risk_profiling/main.py) appends a Haiku-generated summary paragraph via an LCEL chain.
+- **LLM:** Haiku, but only for the prose summary. **The score itself is fully deterministic.** If a customer disputes their score, reading `scoring.py` answers the question. The LLM is doing PR, not arithmetic.
+- **Downstream:** the `effective_risk_score` is one of the fields `asset_allocation_pydantic`'s `AllocationInput` expects. The caller (bridge) wires it across — `risk_profiling` does not import allocation, nor vice versa.
+
+> **⚠️ Orphaned-on-purpose: [`willingness.py`](../src/risk_profiling/willingness.py).** This module exports `compute_risk_willingness` — the canonical scorer for the **4-question customer risk-willingness questionnaire** (Q1 investment preference, Q2 investment experience, Q3 investment focus, Q4 drop reaction → 1–10 float via `min(mean(Q1,Q3,Q4), lift, Q2_cap)`). It's re-exported from [`__init__.py`](../src/risk_profiling/__init__.py) but **nothing in the repo calls it today**.
+>
+> Why it matters: `scoring.py` consumes `risk_willingness` as an *already-computed* float on `RiskProfileInput`. Today that value is sourced from the app layer — [`derive_risk_willingness`](../../app/services/effective_risk_profile/inputs.py) reads it off `RiskProfile.risk_willingness`, falling back to [`risk_willingness_from_risk_level`](../../app/services/effective_risk_profile/calculation.py) for legacy `risk_level` integers. Neither path goes through the Q1–Q4 logic in `willingness.py`.
+>
+> **When you wire up the customer-facing risk questionnaire**, `compute_risk_willingness` is the canonical scorer to use. **Do not** reinvent the Q1–Q4 mapping in the bridge or the frontend — the bands, the lift rule, and the experience cap are product decisions encoded here. Wire the questionnaire input through this function, persist the returned `risk_willingness` onto `RiskProfile`, and the existing scoring flow continues to work unchanged.
+
+### 5.3 `market_commentary/` — what does the macro picture look like right now?
+
+- **In:** none. The agent goes and gets the data itself.
+- **Out:** `MacroSnapshot` (14 indicators + `data_gaps` + `document_md`). Also persisted to disk:
+  - [Reference_docs/market_commentary_latest.json](market_commentary_latest.json)
+  - [Reference_docs/market_commentary_latest.md](market_commentary_latest.md)
+- **How it thinks:** [main.py](../src/market_commentary/main.py) drives a two-pass flow. Pass 1 — `extraction_chain` in [prompts.py](../src/market_commentary/prompts.py) — takes scraped raw HTML/text and asks Claude to extract structured indicator values into `MacroSnapshot`. Pass 2 — `document_generation_chain` in [document_generator.py](../src/market_commentary/document_generator.py) — turns the snapshot into a markdown commentary document.
+- **LLM:** Haiku, twice (extract + generate). Both calls have prompt caching on their system prompts.
+- **The persistence is the contract.** [Reference_docs/market_commentary_latest.md](market_commentary_latest.md) is what `portfolio_query` reads. No Python import connects the two agents — the file is the interface. **If you change the file's shape, you break `portfolio_query` silently.**
+
+### 5.4 `asset_allocation_pydantic/` — the goal-based allocation engine
+
+This is the most important deterministic engine. Sit with this one.
+
+- **In:** `AllocationInput` — client profile, goals (each with horizon + target corpus), `effective_risk_score`, OSI, savings-rate adjustment, a `market_commentary` score block, and a target `corpus` (total investable). The risk and market fields come from the two agents named above; the caller wires them in.
+- **Out:** `GoalAllocationOutput` — the recommended allocation across buckets (emergency, short-term, medium-term, long-term), per-asset-class splits, recommended fund subgroups, rationale.
+- **How it thinks:** seven steps in [steps/](../src/asset_allocation_pydantic/steps/), orchestrated by [pipeline.py](../src/asset_allocation_pydantic/pipeline.py):
+
+  | Step | File | What it does |
+  |---|---|---|
+  | 1 | [step1_emergency.py](../src/asset_allocation_pydantic/steps/step1_emergency.py) | Carve out the emergency fund first. Everything below it works on what's left. |
+  | 2 | [step2_short_term.py](../src/asset_allocation_pydantic/steps/step2_short_term.py) | Allocate to goals with horizon < a threshold (instruments lean debt/arbitrage). |
+  | 3 | [step3_medium_term.py](../src/asset_allocation_pydantic/steps/step3_medium_term.py) | Allocate to medium-horizon goals. |
+  | 4 | [step4_long_term.py](../src/asset_allocation_pydantic/steps/step4_long_term.py) | The heaviest step. Multi-phase: `phase1_bounds` (risk-score → equity bounds), `phase4_multi_asset` (multi-asset fund composition), `phase5_equity_subgroups` (large/mid/small/flexi via the slider in [equity_subgroup_slider.py](../src/asset_allocation_pydantic/equity_subgroup_slider.py)). |
+  | 5 | [step5_aggregation.py](../src/asset_allocation_pydantic/steps/step5_aggregation.py) | Combine the per-bucket results into aggregated subgroup rows. |
+  | 6 | [step6_guardrails.py](../src/asset_allocation_pydantic/steps/step6_guardrails.py) | Apply allocation guardrails (caps, floors, sanity checks). |
+  | 7 | [step7_presentation.py](../src/asset_allocation_pydantic/steps/step7_presentation.py) | Assemble the final `GoalAllocationOutput`. Optionally calls `rationale_fn` (LLM) here. |
+
+- **LLM:** only the optional rationale function injected at step 7 (via `_rationale_llm.py`). Disable it and the allocation is still produced, byte-identical to the LLM path's structured numbers. **The numbers come from steps 1–6, which never call an LLM.**
+- **Static lookups:** [tables.py](../src/asset_allocation_pydantic/tables.py) holds default market commentary scores, multi-asset composition tables, and the fund mappings. If a recommended subgroup looks wrong, it's almost always a table issue, not a step issue.
+- **Why pydantic everywhere:** each step has its own `StepNOutput` schema. Step N+1 takes Step N's output as input. This means you can run a single step in isolation in a notebook with the right `StepNOutput` JSON, which is essential for reproducing customer-reported quirks.
+
+### 5.5 `practical_asset_allocation/` — holdings-aware version of the above
+
+This is the first cross-agent import in the package and the only one that mutates the allocation math.
+
+- **In:** `PracticalAllocationInput` — `AllocationInput` plus four scalars: `mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`.
+- **Out:** `PracticalAllocationOutput` — shape-parity with `GoalAllocationOutput` plus one extra `corpus_breakdown` block. Consumers that handle `GoalAllocationOutput` handle this with zero change for the shared seven fields.
+- **How it thinks:** [pipeline.py](../src/practical_asset_allocation/pipeline.py) (single file by design — revisit splitting only past ~500 lines). It calls `asset_allocation_pydantic` steps 1–3 and 5 directly, lifts selected step-4 helpers (`phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups`), and **reimplements step 4 itself** to be holdings-aware:
+  - ELSS is **frozen** at the customer's existing exposure (SEBI 3-year lock-in means we can't trade it).
+  - Non-MF equity (direct stocks / PMS) is **capped by an NFA-banded rule** — the cap scales with the client's net financial assets band. Excess is trimmed.
+  - Equity subgroups use the **v2 average-based sliding threshold**, replacing the static threshold used by the upstream module.
+- **LLM:** none.
+- **Why a separate module:** the original `asset_allocation_pydantic` is what you'd recommend if the customer had no existing holdings. The practical one says "given what they already hold, here's the closest target we can realistically reach without a tax-suicidal rebalancing." If you confuse the two, the recommendation will tell the customer to sell things SEBI won't let them sell.
+
+### 5.6 `Rebalancing/` — what trades to actually do
+
+The bridge from "ideal target" to "transactions you submit".
+
+- **In:** `RebalancingComputeRequest` — corpus, tax state (STCG budget, carryforward losses), and a single homogeneous list of `FundRowInput` rows. Recommended funds carry `rank ≥ 1`; held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`. Two things live on the request as **scalars**, not rows, and have special handling:
+  - **ELSS** → `practical_allocation_input.elss_corpus`. No trade is ever generated for ELSS (lock-in). [step6_presentation.py](../src/Rebalancing/steps/step6_presentation.py) emits a frozen `SubgroupSummary` so the customer view still shows ELSS allocation.
+  - **Non-MF equity** → `practical_allocation_input.non_mf_equity_corpus`. If the practical engine's NFA cap forces a trim, step 6 emits a single `SELL_DIRECT_STOCKS` trade for `excess_direct_stocks_inr`. No per-stock detail.
+- **Out:** `RebalancingComputeResponse` — per-fund rows after step 5, totals, the trade list, warnings, metadata. Also surfaces the upstream `practical_allocation` output verbatim for the customer view.
+- **How it thinks:** [pipeline.py](../src/Rebalancing/pipeline.py) calls `practical_asset_allocation.run_practical_allocation` first (this is why the import edge exists), then lifts per-subgroup targets onto rank-1 fund rows, then runs the six steps in [steps/](../src/Rebalancing/steps/):
+
+  | Step | File | What it does |
+  |---|---|---|
+  | 1 | [step1_cap_and_spill.py](../src/Rebalancing/steps/step1_cap_and_spill.py) | Apply per-fund caps; spill the overflow within the subgroup. |
+  | 2 | [step2_compare_and_decide.py](../src/Rebalancing/steps/step2_compare_and_decide.py) | For each fund: target vs. current → buy / sell / hold direction. |
+  | 3 | [step3_tax_classification.py](../src/Rebalancing/steps/step3_tax_classification.py) | Classify each potential sell as STCG vs. LTCG using fund category + holding period (`config.py` thresholds). |
+  | 4 | [step4_initial_trades_under_stcg_cap.py](../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | First pass: realise sells up to the STCG offset budget. |
+  | 5 | [step5_loss_offset_top_up.py](../src/Rebalancing/steps/step5_loss_offset_top_up.py) | Second pass: use carryforward losses to unlock additional sells. |
+  | 6 | [step6_presentation.py](../src/Rebalancing/steps/step6_presentation.py) | Emit the trade list, the subgroup summary, the customer-view rationale strings (from [rationales.py](../src/Rebalancing/rationales.py)). |
+
+- **LLM:** none. **This engine is fully deterministic.** Every "why am I being asked to sell this" question has an answer that traces to step 1–5 and the `reason_code` in `rationales.py`.
+- **Env knobs:** all caps, thresholds, and tax rates are env-overrideable (see the `REBAL_*` table in [Rebalancing/CLAUDE.md](../src/Rebalancing/CLAUDE.md)). Useful when SEBI changes a rule and you want to reproduce both worlds.
+
+### 5.7 `cashflow_statement/` — goal planning (engine + agent)
+
+This is the only place we use LangGraph, and the only agent with a real loop.
+
+#### The engine — [engine/pipeline.py](../src/cashflow_statement/engine/pipeline.py)
+
+- **In:** `GoalPlanningInput` — profile (age, income, expenses), retirement plan, properties (with mortgages), custom goals, one-off events.
+- **Out:** `GoalPlanningOutput` — headline status (on-track / shortfall / surplus), per-goal funding, monthly + annual cashflow projections, fund-flow summary.
+- **How it thinks:** an 8-stage pipeline, one file per stage:
+
+  | Stage | File | What it does |
+  |---|---|---|
+  | 1 | [profile.py](../src/cashflow_statement/engine/profile.py) | Normalise the profile (age in months, current FY, etc.). |
+  | 2 | [retirement.py](../src/cashflow_statement/engine/retirement.py) | Project retirement corpus required + accumulated. |
+  | 3 | [mortgages.py](../src/cashflow_statement/engine/mortgages.py) | Build mortgage amortisation schedules. |
+  | 4 | [properties.py](../src/cashflow_statement/engine/properties.py) | FV / PV property values; net of mortgage. |
+  | 5 | [goals_table.py](../src/cashflow_statement/engine/goals_table.py) | One row per goal, with FV target and PV-discounted corpus required. |
+  | 6 | [cashflow.py](../src/cashflow_statement/engine/cashflow.py) | Month-by-month projection: income, expenses, EMIs, goal payouts. |
+  | 7 | [funding.py](../src/cashflow_statement/engine/funding.py) | Walk the cashflow; split shortfalls proportionally across that month's outflows. **One shared corpus pool**, not per-goal. |
+  | 8 | [summary.py](../src/cashflow_statement/engine/summary.py) | Roll up into headline status + per-goal funding tables. |
+
+- **Time conventions:** all inflation FV math and PV-of-corpus-to-today use **day-precise `EOMONTH(target_date)/365`** — symmetric inflate/discount across every stage. Indian FY runs April–March; `fy_for_date` returns the closing year (April 2026 → FY27). **₹1000 rounding** is applied to FV cashflow anchors only; PV/display fields stay unrounded.
+- **Sign conventions:** shortfalls positive, EMI/expense/goal payouts positive magnitudes, `surplus_or_shortfall_today` signed.
+- **LLM:** none. The engine is Excel-parity by design.
+- **Internal types live in `engine/_types.py`** and are NOT re-exported from `__init__.py`. Cross-boundary types live in [models.py](../src/cashflow_statement/models.py). If you need to use a type from the bridge, it must be in `models.py`.
+
+#### The agent — [agent/graph.py](../src/cashflow_statement/agent/graph.py)
+
+This is the only LangGraph usage in the codebase. The reason it earns LangGraph: it's a genuine multi-turn loop where the LLM needs to (1) extract structured goals/properties/events from natural language, (2) decide which deterministic tool to call next, (3) see the tool result and decide again, (4) eventually summarise. That's what `StateGraph` + a tool-calling node was built for.
+
+##### LangChain vs LangGraph — they're different things
+
+This trips people up most often, so worth being explicit:
+
+- **LangChain** is the broader framework. **LCEL chains** (the `prompt | llm | parser` pipes you see in `risk_profiling`, `intent_classifier`, `market_commentary`, the cashflow `summarizer`) are LangChain's composition primitive — a straight pipeline.
+- **LangGraph** is a separate layer that sits *on top of* LangChain. It adds a state machine with named nodes, conditional edges, and tool-calling primitives (`ToolNode`, `InjectedState`, `Command`). LangGraph still uses `ChatAnthropic` under the hood for the actual LLM call.
+
+The rule of thumb:
+
+| Use… | When… | Example |
+|---|---|---|
+| **LCEL** (LangChain) | Input → prompt → LLM → output. One pass. | `intent_classifier`, `risk_profiling` summary, `market_commentary` document generation |
+| **LangGraph** | The LLM needs to **loop**: call a tool, see the result, decide whether to call another tool, eventually stop. | The cashflow agent — the only such place in this codebase |
+
+If a flow can be expressed as `prompt | llm | parser`, you don't need LangGraph. Reach for LangGraph only when an LLM is genuinely deciding "what do I do next" in a loop.
+
+##### The graph, drawn
+
+```mermaid
+flowchart LR
+    Start([User question<br/>+ baseline input]) --> Ingest["<b>ingest_baseline</b><br/>validate staged overrides<br/>reset per-turn fields"]
+    Ingest --> Agent{"<b>agent</b><br/>Claude Haiku<br/>+ 6 bound tools"}
+    Agent -->|"wants a tool"| Tools["<b>tools</b> (ToolNode)<br/>executes one of 6"]
+    Tools -->|"tool result<br/>(ToolMessage)"| Agent
+    Agent -->|"no more tool calls"| Finalize["<b>finalize</b><br/>fallback compute_projection<br/>+ summarize_plan"]
+    Finalize --> End([GoalPlanningSnapshot])
+```
+
+Four nodes, defined in `build_graph()` in [graph.py](../src/cashflow_statement/agent/graph.py):
+
+| Node | What it does |
+|---|---|
+| `ingest_baseline` | Validates that staged overrides still reference real goals (drops orphans). Resets per-turn audit fields (`actions_taken_this_turn`, `extracted_events_this_turn`). Diffs the new baseline against the cached `last_output` and flags state as `dirty` if anything changed. |
+| `agent` | The LLM. Claude Haiku (`claude-haiku-4-5`), system prompt = a compact summary of profile + goals + mortgages + one-off cashflows ([nodes.py: `_format_baseline_summary`](../src/cashflow_statement/agent/nodes.py)). The six tools are *bound* via `.bind_tools(TOOLS)`. The LLM decides whether to call a tool or to finish. |
+| `tools` | LangGraph's prebuilt `ToolNode` over the six `@tool`-wrapped functions. Whichever tool the LLM called gets executed; its return value comes back as a `ToolMessage`. |
+| `finalize` | End-of-turn cleanup. If the LLM never called `compute_projection`, this runs the engine as a fallback so the snapshot is always populated. Then `summarize_plan` writes the customer-facing `PlanSummary`. |
+
+The only conditional edge is `should_continue` — it inspects the last LLM message for `tool_calls`: yes → loop to `tools` → back to `agent`; no → exit via `finalize`. Recursion is capped at **15 iterations** (`AGENT_RECURSION_LIMIT`); past that the graph errors out and a fallback snapshot is returned with the failure flagged in `error_log`. **The customer always gets something** — never a bare exception.
+
+##### The six tools
+
+All defined in [tools.py](../src/cashflow_statement/agent/tools.py). Each has a pure-Python `_impl` (unit-testable in isolation) plus a thin `@tool`-decorated wrapper that adapts it to LangGraph's `InjectedState` + `Command` protocol.
+
+| Tool | What the LLM uses it for |
+|---|---|
+| `extract_financial_event` | Parse free-text ("buy a house in 5 years for ₹1.5 crore") into a structured `ExtractedGoal` / `ExtractedProperty` / `ExtractedCashflow` / `ExtractedMutation`. Delegates to [extractor.py](../src/cashflow_statement/agent/extractor.py) — a separate Haiku structured-output call. |
+| `apply_override` | Stage a what-if parameter change (income, expense, SIP, growth rate). Accumulates across turns until cleared. |
+| `clear_overrides` | Undo all or specific overrides. |
+| `mutate_goal` | Remove or update an existing goal (including retirement). |
+| `compute_projection` | Run the deterministic [engine](../src/cashflow_statement/engine/pipeline.py). Idempotent (short-circuits if state isn't `dirty` and `last_output` exists). |
+| `propose_levers` | Generate up to 3 deterministic recommendations via [levers.py](../src/cashflow_statement/agent/levers.py) (A/B/C/D/E/F: delay retirement, increase savings, reduce a goal, etc.). The LLM picks which to surface; the lever search and ranking are plain Python. |
+
+##### One turn, end to end
+
+Customer says: *"What if I delay retirement by 3 years?"*
+
+1. **ingest_baseline** — pull in the latest `GoalPlanningInput`, validate that no prior override references a now-deleted goal, reset per-turn audit fields, hand off.
+2. **agent (LLM turn 1)** — Claude sees the question + the compact baseline summary in its system prompt. Decides it needs two tools and emits both: `apply_override({key: "retirement_age", value: 63})` and `compute_projection()`.
+3. **tools** — `ToolNode` runs both. `apply_override` stages the override onto state. `compute_projection` merges all staged overrides into a fresh `GoalPlanningInput`, runs the 8-stage engine, stashes the result on `last_output`, and returns a bounded "feasibility + top-3 underfunded goals" summary as a `ToolMessage`.
+4. **agent (LLM turn 2)** — sees the `ToolMessage`s. Decides it has enough to answer; emits a final assistant message with no tool calls.
+5. **finalize** — `last_output` is already populated (skips the fallback compute), runs `summarize_plan` to produce a customer-facing `PlanSummary`.
+6. Done. Returns a `GoalPlanningSnapshot` to the bridge. The chat layer's responder LLM (a separate call, outside this graph) writes the actual customer reply using the snapshot as input.
+
+That whole sequence is two LLM calls + one engine run. The graph's job is to wire them up so the LLM can decide *during the turn* what to do, instead of you having to hand-write the if/else.
+
+##### Other pieces
+
+- **State** ([state.py](../src/cashflow_statement/agent/state.py)) — `AgentState` TypedDict. Persisted across turns by a `MemorySaver` checkpointer keyed on `chat_session_id`: `accumulated_overrides`, `captured_goals`, `captured_properties`, `captured_cashflows`, `captured_mutations`. Per-turn fields reset on every `ingest_baseline`.
+- **Extractor** ([extractor.py](../src/cashflow_statement/agent/extractor.py)) — Haiku structured-output extractor that turns conversation into `GoalPlanningInput` fields. Called from inside `extract_financial_event`.
+- **Levers** ([levers.py](../src/cashflow_statement/agent/levers.py)) — deterministic feasibility levers A/B/C/D/E/F. Pure Python. The LLM picks which to propose via `propose_levers`; the search and ranking are not LLM-driven.
+- **Summariser** ([summarizer.py](../src/cashflow_statement/summarizer.py)) — Haiku **LCEL chain** (LCEL here, not LangGraph — it's a straight prompt-to-summary pipe) that turns `GoalPlanningOutput` into a `PlanSummary`. **All rupee values are pre-formatted to Indian notation before the prompt is built.** The model copies them verbatim and never does its own arithmetic.
+
+**Don't add LangGraph elsewhere without discussion.** The chat brain itself is intentionally hand-written async; LangGraph there would add ceremony without expressive power. The bar for adding it to a second agent is "we have a real tool-calling loop with intermediate state and have tried plain async first."
+
+### 5.8 `portfolio_query/` — answering Q&A about the customer's own portfolio
+
+Triggered by the `portfolio_query` intent.
+
+- **In:** `ClientContext`, `PortfolioContext` (asset-class + sub-category + per-fund detail), the question, optional conversation history.
+- **Out:** `PortfolioQueryResponse` — either an `answer` or a `redirect_message`, plus `guardrail_triggered: bool`.
+- **How it thinks:** [orchestrator.py](../src/portfolio_query/orchestrator.py) is the entry point. It loads the market commentary markdown from [Reference_docs/market_commentary_latest.md](market_commentary_latest.md) (this is why `market_commentary` is upstream — no Python import, just the file), packages it with the client + portfolio context, and runs a **single LLM call** through [skill_executor.py](../src/portfolio_query/skill_executor.py), which loads:
+  - [portfolio_query.md](../src/portfolio_query/portfolio_query.md) — the system + user prompt skill, with YAML front matter
+  - [guardrails.md](../src/portfolio_query/guardrails.md) — embedded into the system prompt; defines in-scope vs. out-of-scope
+- **LLM:** Haiku via [llm_client.py](../src/portfolio_query/llm_client.py) (a thin `ChatAnthropic` wrapper) with prompt caching and forced tool-use to constrain the output to `PortfolioQueryResponse`.
+- **Why "skill" markdown files:** the prompt is long and product-owned; keeping it in `.md` lets non-engineers iterate without touching code. The YAML front matter lets `SkillExecutor` parse out the system/user templates without bespoke string handling.
+- **The guardrail layer matters.** If the question drifts into "should I buy X?" territory or asks for things outside the portfolio, the LLM is instructed to set `guardrail_triggered=True` and return a `redirect_message`. The chat layer then doesn't pass the answer through as a normal reply.
+
+---
+
+## 6. The data-flow web
+
+These dependencies aren't Python imports — they're **shape contracts** that the bridge layer wires up. They matter because changing a field on one side breaks the caller silently.
+
+```mermaid
+flowchart LR
+    RP_out["risk_profiling output<br/>{effective_risk_score, osi, savings_rate_adjustment}"]
+    MC_out["market_commentary output<br/>{score block + markdown file}"]
+    AA_in["AllocationInput / PracticalAllocationInput"]
+    PA_out["PracticalAllocationOutput<br/>(aggregated_subgroups)"]
+    RB_in["RebalancingComputeRequest"]
+    PQ_in["portfolio_query (reads commentary md)"]
+
+    RP_out -->|"bridge fills fields"| AA_in
+    MC_out -->|"bridge fills score block"| AA_in
+    MC_out -.->|"writes file"| PQ_in
+    AA_in -->|"runs"| PA_out
+    PA_out -->|"per-subgroup targets lifted onto rank-1 rows"| RB_in
+```
+
+The three things to internalise:
+
+1. **`AllocationInput` is the join point.** It carries fields from both `risk_profiling` and `market_commentary`, but neither of those agents imports allocation. The bridge does the joining.
+2. **`market_commentary` writes a file; `portfolio_query` reads it.** No code-level coupling. If you change the file, you change a contract.
+3. **`Rebalancing` builds on `practical_asset_allocation`'s output.** It calls `run_practical_allocation` first, then lifts subgroup targets onto rank-1 rows.
+
+---
+
+## 7. Conventions
+
+- **`models.py` is the boundary.** Top-level pydantic schemas live here. The bridge imports only from `models.py` and from documented entry points (`pipeline.py`, `main.py`, `orchestrator.py`, `classifier.py`). It never reaches into `steps/` or `engine/`.
+- **One entry point per agent.** `pipeline.py` for engine modules, `main.py` for LCEL-chain modules, `orchestrator.py` for class-based orchestrators. If you find yourself adding a second entry point, you're probably building a second agent.
+- **Cross-module imports are forbidden by default.** The only blessed exceptions, listed in [AI_Agents/src/CLAUDE.md](../src/CLAUDE.md), are:
+  - `practical_asset_allocation` → `asset_allocation_pydantic` (steps 1–3, 5, helpers, models).
+  - `Rebalancing` → `practical_asset_allocation.run_practical_allocation`.
+- **Shared data flows through the caller, not through imports.** If two agents need to share data, the bridge wires it up. Period.
+- **`common.py` is the only file every agent may import.** It's small (`format_inr_indian` + tiny helpers) by design. Don't grow it into a dumping ground.
+- **`Reference_docs/` is runtime data, not source.** `market_commentary_latest.md` is rewritten on each commentary run. Don't commit fresh outputs from a local run. The exception is hand-authored reference markdown like this doc and the per-module `*.md` files in this folder.
+- **LangChain only for LLM calls.** All Claude calls go through `langchain-anthropic` (`ChatAnthropic` / LCEL). The only acceptable raw `anthropic` import is exception classes for `except` clauses. No `anthropic.Anthropic().messages.create(...)`.
+- **All rupee numbers reaching an LLM are pre-formatted.** `format_inr_indian` produces the `_indian` sibling string. The prompt copies it verbatim. The LLM does not do arithmetic on rupees.
+- **`sys.path` injection, not qualified imports.** Once the bridge has called `ensure_ai_agents_path()`, agents are imported as `from Rebalancing.models import ...`, not `from AI_Agents.src.Rebalancing.models import ...`. If you see the qualified form, it's a bug.
+
+---
+
+## 8. Landmines
+
+1. **The `intent_classifier` enum vs. its CLAUDE.md.** The CLAUDE.md says seven intents (correct, current). An older comment somewhere may say six. Trust the enum in [models.py](../src/intent_classifier/models.py).
+
+2. **`Reference_docs/market_commentary_latest.md` is a contract.** Two agents depend on its existence and shape. If you regenerate it during testing, do not commit the result. If you change its structure, search for `_load_market_commentary` first.
+
+3. **`asset_allocation_pydantic` step-4 phases are not numbered 1–7.** They're `phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups` — the gaps are intentional, from an earlier refactor. The names are stable now; don't renumber.
+
+4. **`practical_asset_allocation/pipeline.py` is one file on purpose.** Don't split it "for tidiness" — the design call is to revisit splitting only past ~500 lines. The R157–R222 math is easier to follow contiguously.
+
+5. **`Rebalancing` doesn't have per-stock or per-ELSS rows.** ELSS and non-MF equity are scalars on the request. If you're trying to add a row for either, you're misreading the input contract — re-read [Rebalancing/CLAUDE.md](../src/Rebalancing/CLAUDE.md).
+
+6. **`cashflow_statement/engine/_types.py` is private.** It's not re-exported from `__init__.py`. If you need a type at the boundary, it goes in [models.py](../src/cashflow_statement/models.py).
+
+7. **`financial_primitives/` is one-consumer today.** Don't add abstractions for hypothetical consumers. When a second consumer appears, extend then.
+
+8. **The blessed cross-module imports are by symbol name, not by package.** `practical_asset_allocation` imports `step1_emergency.run`, `phase1_bounds`, `round_to_100`, etc. by name. **Renaming any of those symbols on the upstream side is a cross-module change.** Grep before renaming.
+
+9. **`risk_profiling` returns a `dict`, not a pydantic model.** This is intentional — the app layer indexes into it as JSON. Don't "fix" it into a pydantic output; you'll break the persistence layer.
+
+10. **`market_commentary`'s LLM extracts indicators from scraped text.** When the source site changes its HTML, the scraper fails silently and the extractor gets garbage. If commentary numbers look off, check `data_gaps` on the snapshot first.
+
+---
+
+## 9. Where to look first when extending
+
+| You want to… | Start here |
+|---|---|
+| Understand why an allocation came out a certain way | [asset_allocation_pydantic/pipeline.py](../src/asset_allocation_pydantic/pipeline.py), then walk the seven `StepNOutput` objects in order |
+| Understand why a rebalancing trade was generated | [Rebalancing/steps/step6_presentation.py](../src/Rebalancing/steps/step6_presentation.py) (rationale + reason_code), then trace back through steps 5 → 1 |
+| Change an allocation guardrail | [asset_allocation_pydantic/steps/step6_guardrails.py](../src/asset_allocation_pydantic/steps/step6_guardrails.py) and the lookups in [tables.py](../src/asset_allocation_pydantic/tables.py) |
+| Add or change a tax rule | [Rebalancing/config.py](../src/Rebalancing/config.py) (env-overrideable knobs) + [Rebalancing/utils.py](../src/Rebalancing/utils.py) (tax math) |
+| Change how a customer-facing rebalancing reason is worded | [Rebalancing/rationales.py](../src/Rebalancing/rationales.py) (single source of truth — covers both the dev sweep and prod customer view) |
+| Adjust the risk-score scale | [risk_profiling/scoring.py](../src/risk_profiling/scoring.py). Update `customer_test_data.py` cases too. |
+| Add a new intent | [intent_classifier/models.py](../src/intent_classifier/models.py) (enum) + [intent_classifier/prompts.py](../src/intent_classifier/prompts.py). Then add the routing/handler in the bridge — see the top-level [docs/ARCHITECTURE.md §10](../../docs/ARCHITECTURE.md). |
+| Tune the cashflow agent's behaviour | [cashflow_statement/agent/prompts.py](../src/cashflow_statement/agent/prompts.py) (prose) + [cashflow_statement/agent/tools.py](../src/cashflow_statement/agent/tools.py) (tool surface) |
+| Add a new lever to the cashflow agent | [cashflow_statement/agent/levers.py](../src/cashflow_statement/agent/levers.py) — deterministic Python, then expose it as a tool |
+| Reproduce a customer-reported allocation result | Run [asset_allocation_pydantic/Testing](../src/asset_allocation_pydantic/Testing) with the customer's `AllocationInput`, or use `Master_testing/` for a parameter sweep |
+| Smoke-test the cashflow engine | `python -m cashflow_statement.dev_run` from `src/`, then open [cashflow_statement/viewer.html](../src/cashflow_statement/viewer.html) |
+| See what the chat layer sees | [chat_eval/run_eval.py](../src/chat_eval/run_eval.py) — replays a YAML question set and dumps JSON/HTML reports |
+
+---
+
+If something here doesn't match the code, the code wins — tell me and I'll fix the doc. The first thing to verify when you're confused is: **am I in a deterministic engine or an LLM-driven agent?** If it's the former, read the steps in order. If it's the latter, read `prompts.py` and the structured-output schema. Those two questions answer 80% of "wait, why is it doing this".

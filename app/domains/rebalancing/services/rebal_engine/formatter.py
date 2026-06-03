@@ -241,12 +241,9 @@ def build_fallback_rebal_brief(
                 out.append("- Hold as-is.")
                 out.append("")
 
-    if (totals.total_tax_estimate_inr or 0) > 0 or (
-        totals.total_exit_load_inr or 0
-    ) > 0:
+    if (totals.total_tax_estimate_inr or 0) > 0:
         out.append(
-            f"The trade-offs: about {_fmt_inr(totals.total_tax_estimate_inr)} in taxes and "
-            f"{_fmt_inr(totals.total_exit_load_inr)} in exit loads, with "
+            f"The trade-offs: about {_fmt_inr(totals.total_tax_estimate_inr)} in taxes, with "
             f"{_fmt_inr(totals.total_stcg_realised)} short-term and "
             f"{_fmt_inr(totals.total_ltcg_realised)} long-term gains realised."
         )

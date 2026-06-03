@@ -8,9 +8,9 @@ brain to ship.
 The mental model, made literal:
 
     async def flow_rebalancing(turn, ctx):
-        aa  = await run_asset_allocation(turn, ctx)          # asset_allocation domain
-        reb = await run_rebalancing(turn, ctx, prior=aa)     # rebalancing domain
-        return reb                                           # rebalancing owns the reply
+        paa = await run_practical_asset_allocation(turn, ctx)  # practical_asset_allocation domain
+        reb = await run_rebalancing(turn, ctx, prior=paa)      # rebalancing domain
+        return reb                                             # rebalancing owns the reply
 
 Rules:
   - Each domain exposes ONE callable the flow uses: its
@@ -46,17 +46,19 @@ async def flow_asset_allocation(turn, ctx) -> ModuleOutput:
 
 
 async def flow_rebalancing(turn, ctx) -> ModuleOutput:
-    # Asset allocation first, then rebalance to it. The rebalancing domain reads
-    # the target from ``prior[ASSET_ALLOCATION]`` rather than computing its own.
-    from app.domains.asset_allocation.services.asset_allocation_module_service import (
-        run as run_asset_allocation,
+    # Practical (holdings-aware) asset allocation first, then rebalance to it.
+    # Practical allocation replaces the ideal asset_allocation in this flow; it
+    # takes the asset-allocation slot, so the rebalancing domain still reads the
+    # target from ``prior[ASSET_ALLOCATION]`` rather than computing its own.
+    from app.domains.practical_asset_allocation.services.practical_asset_allocation_module_service import (
+        run as run_practical_asset_allocation,
     )
     from app.domains.rebalancing.services.rebalancing_module_service import (
         run as run_rebalancing,
     )
 
-    aa = await run_asset_allocation(turn, ctx, {})
-    return await run_rebalancing(turn, ctx, {AIModule.ASSET_ALLOCATION.value: aa})
+    paa = await run_practical_asset_allocation(turn, ctx, {})
+    return await run_rebalancing(turn, ctx, {AIModule.ASSET_ALLOCATION.value: paa})
 
 
 async def flow_goal_planning(turn, ctx) -> ModuleOutput:

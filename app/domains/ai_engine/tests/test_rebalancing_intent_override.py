@@ -1,4 +1,4 @@
-"""TEMP(rebalancing-chat): keyword override tests — remove with _temp_chat_deferral.py."""
+"""Tests for the rebalance-phrasing keyword override in the intent classifier."""
 
 from __future__ import annotations
 
