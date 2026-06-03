@@ -216,7 +216,7 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
         "inputs": inputs,
         "calculations": calculations,
         "output": {
-            "effective_risk_score": effective_risk_score if effective_risk_score is not None else 7,
+            "effective_risk_score": effective_risk_score,
             "risk_summary": "",  # populated by the LLM step in chain.py
         },
     }

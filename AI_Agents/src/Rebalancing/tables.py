@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .config import (
+    ARBITRAGE_FUND_CAP_PCT,
     MULTI_FUND_CAP_PCT,
     OTHERS_FUND_CAP_PCT,
     SHORT_DEBT_FUND_CAP_PCT,
@@ -16,9 +17,13 @@ from .config import (
 #     asset classes; per-fund concentration risk is lower than single-class.
 #   - `short_debt` 30%: Excel R247 — short-duration debt fund universe is
 #     small and high-quality; concentration risk is correspondingly lower.
+#   - `arbitrage` / `arbitrage_plus_income` 30%: low-volatility wrappers with
+#     a small high-quality fund universe; same concentration-risk rationale.
 SUBGROUP_FUND_CAP_PCT: dict[str, float] = {
     "multi_asset": MULTI_FUND_CAP_PCT,
     "short_debt": SHORT_DEBT_FUND_CAP_PCT,
+    "arbitrage": ARBITRAGE_FUND_CAP_PCT,
+    "arbitrage_plus_income": ARBITRAGE_FUND_CAP_PCT,
 }
 
 

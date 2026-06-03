@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import Optional
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# This file: app/domains/rebalancing/services/rebal_engine/_disk_cache.py
+# parents[0]=rebal_engine, [1]=services, [2]=rebalancing, [3]=domains,
+# [4]=app, [5]=repo root (where MF_Logics/ lives).
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 _NAV_CSV = _REPO_ROOT / "MF_Logics" / "Mututal_Funds_data_extraction" / "latest_nav_active.csv"
 _META_CSV = _REPO_ROOT / "MF_Logics" / "Mututal_Funds_data_extraction" / "mf_subgroup_mapped.csv"
 

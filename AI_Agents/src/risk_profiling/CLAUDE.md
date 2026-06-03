@@ -5,7 +5,7 @@ Computes a client's risk profile: deterministic Python scoring (risk capacity, O
 ## Files
 
 - `main.py` — exposes `risk_profiling_chain` (LCEL: scoring → LLM summary).
-- `models.py` — `RiskProfileInput`, `RiskProfileOutput`.
+- `models.py` — `RiskProfileInput`.
 - `prompts.py` — `summary_prompt` template.
 - `scoring.py` — pure-Python scoring logic.
 - `dev_run.py` — developer smoke-test runner.
@@ -14,7 +14,7 @@ Computes a client's risk profile: deterministic Python scoring (risk capacity, O
 ## Data contract
 
 - Input: `RiskProfileInput`
-- Output: `RiskProfileOutput`
+- Output: a plain `dict` with keys `step_name`, `inputs`, `calculations`, `output` (the `output` block carries `effective_risk_score` + `risk_summary`). The app layer (`app/services/effective_risk_profile/`) indexes it by key and persists `calculations`/`output` as JSON, so the contract is intentionally an open dict rather than a fixed pydantic model.
 
 ## Depends on
 

@@ -44,6 +44,7 @@ Pure-Python rebalancing engine. Takes a goal-based ideal allocation plus present
 | `REBAL_MULTI_FUND_CAP_PCT` | `20.0` | Per-fund cap for multi-cap sub-categories |
 | `REBAL_OTHERS_FUND_CAP_PCT` | `10.0` | Per-fund cap otherwise |
 | `REBAL_SHORT_DEBT_FUND_CAP_PCT` | `30.0` | Per-fund cap for short_debt subgroup (Excel R247) |
+| `REBAL_ARBITRAGE_FUND_CAP_PCT` | `30.0` | Per-fund cap for arbitrage / arbitrage_plus_income subgroups |
 | `REBAL_MIN_CHANGE_PCT` | `0.10` | `worth_to_change` threshold |
 | `REBAL_EXIT_FLOOR_RATING` | `5` | Force exit when rating below this |
 | `REBAL_LTCG_EXEMPTION_INR` | `125000` | Annual LTCG exemption |

@@ -37,6 +37,9 @@ from app.domains.equities.models import (  # noqa: F401
 from app.domains.asset_allocation.models import (  # noqa: F401
     bucket, run,
 )
+from app.domains.practical_asset_allocation.models import (  # noqa: F401
+    run as practical_run,
+)
 from app.domains.rebalancing.models import (  # noqa: F401
     rebalancing_run, rebalancing_fund_row, rebalancing_subgroup_summary,
     rebalancing_trade, rebalancing_warning,
