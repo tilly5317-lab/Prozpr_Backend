@@ -46,7 +46,8 @@ _LEGACY_OUT_OF_SCOPE_PREFIX = "I'm currently set up to help with asset allocatio
 
 logger = logging.getLogger(__name__)
 
-# TEMP(rebalancing-chat): see rebalancing/_temp_chat_deferral.py — remove with that module.
+# Explicit rebalance phrasing (incl. common typos) → routes to the rebalancing
+# intent via _apply_rebalancing_keyword_override.
 _REBALANCE_UTTERANCE = re.compile(
     r"\b(?:re-?\s*balan\w*|rebalcance|relablace)\b",
     re.IGNORECASE,
@@ -197,13 +198,12 @@ def _apply_rebalancing_keyword_override(
     question: str,
     result: ClassificationResult,
 ) -> ClassificationResult:
-    """TEMP(rebalancing-chat): map rebalance phrasing → ``rebalancing`` intent."""
-    from app.domains.rebalancing.services.rebal_engine._temp_chat_deferral import (
-        TEMP_REBALANCING_INTENT_KEYWORD_OVERRIDE,
-    )
+    """Map explicit rebalance phrasing → ``rebalancing`` intent.
 
-    if not TEMP_REBALANCING_INTENT_KEYWORD_OVERRIDE:
-        return result
+    A safety net for when the LLM labels "rebalance my portfolio" as
+    asset_allocation / portfolio_query: an explicit rebalance utterance should
+    route to the rebalancing engine, not a fresh ideal-allocation design.
+    """
     if result.intent == Intent.REBALANCING:
         return result
     if not _REBALANCE_UTTERANCE.search(question):

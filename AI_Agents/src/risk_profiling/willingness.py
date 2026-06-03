@@ -7,9 +7,16 @@ the final value.
   mn   = min(Q1, Q3, Q4)
   lift = mn + 2  if mn < 5  else 10
   risk_willingness = min(avg, lift, Q2_cap)
+
+Any of the four answers may be ``None`` (unanswered):
+  - Missing Q1/Q3/Q4 are excluded from avg/min/lift.
+  - Missing Q2 drops the cap.
+  - If all of Q1/Q3/Q4 are missing, risk_willingness falls back to the
+    Q2 cap alone (and is ``None`` if Q2 is also missing).
+``missing_questions`` in the result lists which inputs were absent.
 """
 
-from typing import Any, Dict, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 InvestmentPreference = Literal[
     "-2/11", "-6/18", "-13/24", "-20/30", "-27/37",
@@ -43,20 +50,46 @@ Q4_SCORE: Dict[str, float] = {
 
 
 def compute_risk_willingness(
-    investment_preference: InvestmentPreference,
-    investment_experience: InvestmentExperience,
-    investment_focus: InvestmentFocus,
-    drop_reaction: DropReaction,
+    investment_preference: Optional[InvestmentPreference] = None,
+    investment_experience: Optional[InvestmentExperience] = None,
+    investment_focus: Optional[InvestmentFocus] = None,
+    drop_reaction: Optional[DropReaction] = None,
 ) -> Dict[str, Any]:
-    q1 = Q1_SCORE[investment_preference]
-    q2_cap = Q2_CAP[investment_experience]
-    q3 = Q3_SCORE[investment_focus]
-    q4 = Q4_SCORE[drop_reaction]
+    q1 = Q1_SCORE[investment_preference] if investment_preference is not None else None
+    q2_cap = Q2_CAP[investment_experience] if investment_experience is not None else None
+    q3 = Q3_SCORE[investment_focus] if investment_focus is not None else None
+    q4 = Q4_SCORE[drop_reaction] if drop_reaction is not None else None
 
-    avg = round((q1 + q3 + q4) / 3, 2)
-    mn = min(q1, q3, q4)
-    lift = mn + 2.0 if mn < 5 else 10.0
-    risk_willingness = round(min(avg, lift, q2_cap), 2)
+    score_qs = [s for s in (q1, q3, q4) if s is not None]
+
+    avg: Optional[float]
+    mn: Optional[float]
+    lift: Optional[float]
+    risk_willingness: Optional[float]
+
+    if score_qs:
+        avg = round(sum(score_qs) / len(score_qs), 2)
+        mn = min(score_qs)
+        lift = mn + 2.0 if mn < 5 else 10.0
+        constraints = [avg, lift]
+        if q2_cap is not None:
+            constraints.append(q2_cap)
+        risk_willingness = round(min(constraints), 2)
+    else:
+        avg = None
+        mn = None
+        lift = None
+        risk_willingness = q2_cap
+
+    missing: List[str] = []
+    if investment_preference is None:
+        missing.append("investment_preference")
+    if investment_experience is None:
+        missing.append("investment_experience")
+    if investment_focus is None:
+        missing.append("investment_focus")
+    if drop_reaction is None:
+        missing.append("drop_reaction")
 
     return {
         "q1_investment_preference_score": q1,
@@ -67,4 +100,5 @@ def compute_risk_willingness(
         "min_of_q1_q3_q4": mn,
         "lift_from_min": lift,
         "risk_willingness": risk_willingness,
+        "missing_questions": missing,
     }

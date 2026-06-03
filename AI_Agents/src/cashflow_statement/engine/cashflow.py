@@ -12,20 +12,26 @@ from cashflow_statement.engine.dates import fy_for_date, eomonth
 def compute_horizon_years(
     retirement_date: date,
     latest_update_date: date,
+    last_goal_date: date | None = None,
     cap: int = 80,
 ) -> int:
-    """Horizon in FY years — projection ends at the retirement FY.
+    """Horizon in FY years — projection ends at the later of the retirement FY
+    and the last-goal FY.
 
-    Rationale: the customer-facing question this engine answers is "is retirement
-    feasible at the planned age?". That answer is read off corpus-vs-corpus_required
-    at retirement_date. Continuing the projection past retirement only produces
-    stuck-corpus noise (no income, no SIPs, the retirement corpus already paid out
-    as a goal). Goals or one-off events with dates after retirement are dropped
-    from the projection — pipeline.py emits a warning for any such inputs.
+    Rationale: the engine answers "is retirement feasible at the planned age?"
+    (read off corpus-vs-corpus_required at retirement_date) AND funds any goal
+    dated after retirement from the corpus left after the retirement lump-sum
+    payout. The horizon therefore extends to max(retirement_date, last_goal_date).
+    One-off events do not extend it — pipeline.py warns for any scheduled beyond
+    the projection end. When last_goal_date is None or on/before retirement, the
+    horizon collapses to the retirement FY (unchanged behaviour).
     """
     current_fy = fy_for_date(latest_update_date)
-    retirement_fy = fy_for_date(retirement_date)
-    return min(retirement_fy - current_fy, cap)
+    end_date = retirement_date
+    if last_goal_date is not None and last_goal_date > retirement_date:
+        end_date = last_goal_date
+    end_fy = fy_for_date(end_date)
+    return min(end_fy - current_fy, cap)
 
 
 def _fy_label(fy_year: int) -> str:
@@ -100,11 +106,12 @@ def project_cashflow(
             # corpus payout at retirement_date funds post-retirement expenses in our
             # lump-sum model. Aligns with funding.py's M147 retirement check.
             #
-            # household_expense is intentionally NOT zeroed here for post-retirement
-            # rows. This loop generates a full FY of rows (including months after
-            # retirement_date in the retirement FY), but pipeline.py truncates those
-            # rows before funding sees them — so the post-retirement expense values
-            # are dead data, never observed downstream.
+            # household_expense is intentionally NOT zeroed for post-retirement rows.
+            # When the projection extends past retirement (to fund a later goal),
+            # these rows ARE retained, but post-retirement household expense does not
+            # draw down the tracked corpus: monthly_invest_or_withdraw forces invest/
+            # withdraw to 0 once m > retirement_date, so the surplus pool only grows by
+            # ROI and is spent on goal payouts. The expense column is display-only there.
             is_post_retire = retirement_date is not None and me > retirement_date
             monthly_income = 0.0 if is_post_retire else pre_retire_monthly_income
             monthly_tax = 0.0 if is_post_retire else pre_retire_monthly_tax

@@ -6,7 +6,7 @@ Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile,
 
 - **engine/** — 8-stage projection pipeline (profile → retirement → mortgages → properties → goals_table → cashflow → funding → summary). One file per stage, plus `pipeline.py` (orchestration), `_types.py` (internal pydantic types not exposed to callers), `dates.py` (FY helpers + ROUND_THOUSAND), `exceptions.py`. The pipeline is pure-Python; no LLM calls.
 - **agent/** — LangChain/LangGraph agent that drives the engine from natural language. `extractor.py` (Claude Haiku structured-output extractor for goals / properties / cashflow events / mutations), `graph.py` + `nodes.py` (StateGraph wiring), `state.py` (graph state), `tools.py` (engine-invoking tools), `levers.py` (deterministic feasibility levers A/B/C/D/E/F), `prompts.py`.
-- **tests/** — pytest suites: `unit/` (per-stage), `integration/` (end-to-end), `agent/` (extractor + levers), `boundary/` (public-API surface).
+- **Testing/** — pytest suites: `unit/` (per-stage), `integration/` (end-to-end), `agent/` (extractor + levers), `boundary/` (public-API surface).
 - **dev_artifacts/** — runtime outputs from `dev_run.py` (`data.json`, `data.js`). Not committed.
 
 ## Files at this level
