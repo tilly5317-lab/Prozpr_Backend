@@ -24,6 +24,8 @@ post-ELSS/non-MF for practical).
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from .utils import round_to_100
 
 
@@ -60,20 +62,29 @@ def apply_equity_subgroup_slider(
     equity_pool: int,
     equities_amount: int = 0,
     locked_amount: int = 0,
+    share_denominator: Optional[int] = None,
 ) -> tuple[dict[str, int], float, float]:
     """Apply v2 slider to ``subgroup_amounts``: drop subgroups whose share of
-    ``equity_pool`` is below ``min_pct_required``, then redistribute the freed
-    amount proportionally over the survivors.
+    ``share_denominator`` is below ``min_pct_required``, then redistribute the
+    freed amount proportionally over the survivors.
 
     Args:
         subgroup_amounts: ``{equity_subgroup_name: amount}`` before drop.
-        equity_pool: equity pool that actually funds these subgroups
-            (denominator for share %). Ideal: ``multi.equity_for_subgroups``.
+        equity_pool: equity pool that actually funds these subgroups. Used as
+            the redistribution base. Ideal: ``multi.equity_for_subgroups``.
             Practical: ``residual_equity_corpus_final``.
         equities_amount: full long-term equity budget (denominator for the
             locked_share calc). Pass 0 in the ideal engine — locked_share will
             collapse to 0 and the slider locks at SLIDER_BASE_PCT.
         locked_amount: ELSS + non-MF actual (0 in the ideal engine).
+        share_denominator: denominator used to compute the per-subgroup share
+            % (and therefore the ``avg_subgroup_pct`` that feeds
+            ``second_term``). Defaults to ``equity_pool`` — preserves
+            ideal-engine behaviour. The practical engine passes
+            ``residual_equity_corpus_final + multi_asset_amount +
+            non_mf_equity_actual`` so the comparison is against the share of
+            the TOTAL equity pool (Excel R194+R187+R181), not just the
+            MF-only residual.
 
     Returns:
         ``(renormalised_subgroup_amounts, min_pct_required, avg_subgroup_pct)``
@@ -83,9 +94,13 @@ def apply_equity_subgroup_slider(
     if equity_pool <= 0 or not subgroup_amounts:
         return dict(subgroup_amounts), 0.0, 0.0
 
-    # R198: per-subgroup % of the equity pool.
+    share_denom = share_denominator if share_denominator is not None else equity_pool
+    if share_denom <= 0:
+        share_denom = equity_pool  # defensive — never divide by zero
+
+    # R198: per-subgroup % of the equity pool used for the threshold comparison.
     pct_by_subgroup: dict[str, float] = {
-        sg: (amt * 100.0 / equity_pool) for sg, amt in subgroup_amounts.items()
+        sg: (amt * 100.0 / share_denom) for sg, amt in subgroup_amounts.items()
     }
     non_zero_pcts = [p for p in pct_by_subgroup.values() if p > 0]
     avg_pct = sum(non_zero_pcts) / len(non_zero_pcts) if non_zero_pcts else 0.0

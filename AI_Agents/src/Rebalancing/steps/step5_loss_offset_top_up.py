@@ -5,8 +5,10 @@ AM–AP.
 
 Logic
 -----
-1. `available_offset = carryforward_st_loss + carryforward_lt_loss
-                      + realised_losses_pass_1`
+1. `available_offset = carryforward_st_loss + realised_st_loss_pass_1`
+   — SHORT-term losses only. Under Indian capital-gains rules a long-term
+   capital loss may be set off only against LTCG, never against STCG, so LT
+   losses (carryforward or realised this pass) are deliberately excluded here.
 2. `stcg_offset_amount (portfolio) = min(realised_stcg_pass_1, available_offset)`.
 3. `extra_headroom = available_offset - stcg_net_off` — additional STCG
    we can now realise without tax cost.
@@ -40,16 +42,12 @@ def apply(
         (-r.pass1_realised_stcg for r in rows if r.pass1_realised_stcg < 0),
         Decimal(0),
     )
-    realised_lt_loss_p1 = sum(
-        (-r.pass1_realised_ltcg for r in rows if r.pass1_realised_ltcg < 0),
-        Decimal(0),
-    )
-    available_offset = (
-        request.carryforward_st_loss_inr
-        + request.carryforward_lt_loss_inr
-        + realised_st_loss_p1
-        + realised_lt_loss_p1
-    )
+    # STCG may be set off ONLY by short-term capital losses (brought-forward +
+    # realised this pass). Long-term losses are excluded: per Indian IT rules an
+    # LT capital loss can offset only LTCG, never STCG. (The engine does not yet
+    # model LT-loss set-off against LTCG — see carryforward_lt_loss_inr in
+    # models.py — so carryforward_lt_loss_inr is intentionally unused here.)
+    available_offset = request.carryforward_st_loss_inr + realised_st_loss_p1
 
     realised_stcg_p1 = sum(
         (r.pass1_realised_stcg for r in rows if r.pass1_realised_stcg > 0),
@@ -75,8 +73,14 @@ def apply(
     for r in candidates:
         if headroom is None or headroom <= 0:
             break
-        result = _sell_from_row(r, r.pass1_undersell_due_to_stcg_cap, headroom)
-        extra = result["sold_lt"] + result["sold_st_ool"] + result["sold_st_il"]
+        result = _sell_from_row(
+            r,
+            r.pass1_undersell_due_to_stcg_cap,
+            headroom,
+            lt_available=r.lt_value_inr - r.pass1_sell_lt_amount,
+            st_available=r.st_value_inr - r.pass1_sell_st_amount,
+        )
+        extra = result["sold_lt"] + result["sold_st"]
         sold_pass2[r.isin] = extra
         headroom = result["stcg_remaining"]
 
