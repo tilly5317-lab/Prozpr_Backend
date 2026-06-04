@@ -244,5 +244,6 @@ async def test_missing_tax_profile_uses_defaults(
     assert float(request.effective_tax_rate_pct) == 30.0
     assert request.carryforward_st_loss_inr == Decimal(0)
     assert request.carryforward_lt_loss_inr == Decimal(0)
-    assert request.stcg_offset_budget_inr is None
+    # Default brake: no STCG-incurring sells unless customer/agent overrides via chat.
+    assert request.stcg_offset_budget_inr == Decimal(0)
     assert request.rounding_step == 100

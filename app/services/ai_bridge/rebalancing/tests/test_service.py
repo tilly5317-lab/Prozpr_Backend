@@ -363,6 +363,50 @@ def test_fund_actions_includes_one_entry_per_fund():
         assert a["asset_class"] in {"equity", "debt", "others"}
 
 
+def test_fund_actions_carry_both_fund_and_action_reasons():
+    """fund_actions[].reason ← TradeAction.fund_reason ("why this fund"),
+    fund_actions[].action_reason ← TradeAction.reason_text ("why this action").
+    A fund with no matching TradeAction gets empty strings for both."""
+    from decimal import Decimal
+
+    from Rebalancing.models import TradeAction  # type: ignore[import-not-found]
+
+    from app.services.ai_bridge.rebalancing.service import build_rebal_facts_pack
+
+    response = _build_response_with_funds([
+        {"name": "Parag Parikh Flexi Cap", "present": 100_000, "buy": 50_000},
+        {"name": "Held As Is Fund", "present": 200_000},
+    ])
+    # Match the cap-spill buy to its row by ISIN; leave the held-as-is fund
+    # without a TradeAction.
+    buy_row = next(r for r in response.rows if r.pass1_buy_amount > 0)
+    response.trade_list = [
+        TradeAction(
+            isin=buy_row.isin,
+            asset_subgroup=buy_row.asset_subgroup,
+            sub_category=buy_row.sub_category,
+            recommended_fund=buy_row.recommended_fund,
+            action="BUY",
+            amount_inr=Decimal("50000"),
+            reason_code="cap_spill_buy",
+            reason_title="Diversifying via alternate fund",
+            reason_text="ACTION-LEVEL: routed to next-ranked fund.",
+            fund_reason="WHY-THIS-FUND: best known flexicap fund.",
+        )
+    ]
+
+    pack = build_rebal_facts_pack(response)
+    by_name = {fa["fund_name"]: fa for fa in pack["fund_actions"]}
+
+    buy = by_name["Parag Parikh Flexi Cap"]
+    assert buy["reason"] == "WHY-THIS-FUND: best known flexicap fund."
+    assert buy["action_reason"] == "ACTION-LEVEL: routed to next-ranked fund."
+
+    held = by_name["Held As Is Fund"]
+    assert held["reason"] == ""
+    assert held["action_reason"] == ""
+
+
 def test_fund_actions_caps_at_limit_and_signals_overflow():
     from app.services.ai_bridge.rebalancing.service import (
         FUND_ACTIONS_LIMIT,
