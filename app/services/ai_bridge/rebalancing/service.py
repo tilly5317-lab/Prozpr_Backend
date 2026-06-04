@@ -221,7 +221,8 @@ def build_rebal_facts_pack(
             "buy_inr":            <float>, "buy_indian":            <str>,
             "sell_inr":           <float>, "sell_indian":           <str>,
             "planned_final_inr":  <float>, "planned_final_indian":  <str>,
-            "reason":             <str>,                                     # selection_reason for buys, joined rejection reasons for sells; "" otherwise
+            "reason":             <str>,                                     # per-fund "why this fund" (TradeAction.fund_reason): selection text on buy/trim, rejection text on off-list exit; "" otherwise
+            "action_reason":      <str>,                                     # action-level "why this action" (TradeAction.reason_text): cap-spill routing, trim-to-target, exit, etc.; "" otherwise
         }, ...],
         # Number of additional smaller holdings beyond fund_actions cap
         # (only present when truncated).
@@ -274,6 +275,15 @@ def build_rebal_facts_pack(
     # ``asset_subgroup`` (internal engine grouping).
     by_key: dict[tuple[Any, Any], dict[str, Any]] = {}
     fund_rows: list[dict[str, Any]] = []
+    # step6 already computed the customer-facing rationales on each TradeAction
+    # (action-level ``reason_text`` + per-fund ``fund_reason``). Index them by
+    # ISIN so the facts pack consumes step6's output rather than re-deriving —
+    # keeping a single source of truth for rationale text.
+    trade_by_isin = {
+        t.isin: t
+        for t in (getattr(response, "trade_list", []) or [])
+        if getattr(t, "isin", None)
+    }
     for sg in subgroups:
         sg_subgroup = getattr(sg, "asset_subgroup", None)
         for action in getattr(sg, "actions", []) or []:
@@ -304,15 +314,16 @@ def build_rebal_facts_pack(
 
             fund_name = getattr(action, "recommended_fund", None)
             if fund_name:
-                # Per-fund rationale: selection text on a buy, rejection text on
-                # a sell. None when neither (held-as-is row). Lets the LLM cite
-                # "why this fund" on customer follow-up without computing it.
-                if buy > 0:
-                    reason = getattr(action, "selection_reason", None) or ""
-                elif sell > 0:
-                    reason = getattr(action, "rejection_reason", None) or ""
-                else:
-                    reason = ""
+                # Pull both rationales from the matching TradeAction (step6):
+                #   reason        — per-fund "why this fund" (fund_reason):
+                #                   selection text on a buy/trim, rejection text
+                #                   on an off-list exit.
+                #   action_reason — action-level "why this action" (reason_text):
+                #                   e.g. cap-spill routing, trim-to-target, exit.
+                # Empty strings for a held-as-is row (no TradeAction).
+                ta = trade_by_isin.get(getattr(action, "isin", None))
+                reason = (getattr(ta, "fund_reason", None) or "") if ta else ""
+                action_reason = (getattr(ta, "reason_text", None) or "") if ta else ""
                 fund_rows.append({
                     "fund_name": fund_name,
                     "sub_category": sub_cat,
@@ -323,6 +334,7 @@ def build_rebal_facts_pack(
                     "sell_inr": sell,
                     "planned_final_inr": present + buy - sell,
                     "reason": reason,
+                    "action_reason": action_reason,
                 })
 
     buckets: list[dict[str, Any]] = []

@@ -36,7 +36,7 @@ from ..models import (
     SubgroupSummary,
     TradeAction,
 )
-from ..rationales import get_rationale
+from ..rationales import STCG_CAP_SUFFIX_TEMPLATE, get_rationale
 from ..tables import SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
 
@@ -141,12 +141,16 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
     if sold > 0:
         if not r.is_recommended:
             action, reason = "EXIT", "exit_bad_fund"
+            fund_reason = r.rejection_reason
         elif r.fund_rating < EXIT_FLOOR_RATING:
             action, reason = "EXIT", "exit_low_rated"
+            fund_reason = r.rejection_reason
         else:
+            # Trim of a still-recommended fund: show why we rate it, so the
+            # customer understands we're only adjusting weight, not dropping it.
             action, reason = "SELL", "trim_over_target"
+            fund_reason = r.selection_reason
         amt = sold
-        fund_reason = r.rejection_reason
     elif bought > 0:
         action = "BUY"
         reason = "cap_spill_buy" if r.rank > 1 else "add_to_target"
@@ -155,6 +159,15 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
     else:
         return None
     title, text = get_rationale(reason)
+    # When the STCG brake forced a partial sell, append a one-sentence note
+    # so the customer (and the LLM narrating this) understands *why* the
+    # action is smaller than the full demand. Append-only — reason_code is
+    # unchanged so downstream branching on it still works.
+    if sold > 0 and r.pass1_undersell_due_to_stcg_cap > 0:
+        from common import format_inr_indian  # type: ignore[import-not-found]
+        text = text + STCG_CAP_SUFFIX_TEMPLATE.replace(
+            "{amount}", format_inr_indian(int(r.pass1_undersell_due_to_stcg_cap))
+        )
     return TradeAction(
         isin=r.isin,
         asset_subgroup=r.asset_subgroup,

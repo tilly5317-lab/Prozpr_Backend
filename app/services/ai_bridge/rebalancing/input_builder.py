@@ -329,7 +329,7 @@ async def build_rebalancing_input_for_user(
         rounding_step=_ROUNDING_STEP,
         stcg_offset_budget_inr=(
             Decimal(str(stcg_budget_override))
-            if stcg_budget_override is not None else None
+            if stcg_budget_override is not None else Decimal(0)
         ),
         carryforward_st_loss_inr=(
             Decimal(str(carryforward_st_override))
