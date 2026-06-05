@@ -10,6 +10,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -32,43 +33,62 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-_INLINE_ONBOARDING_FIELDS = (
-    "date_of_birth",
-    "annual_income_min",
-    "annual_income_max",
-    "annual_expense_min",
-    "annual_expense_max",
-)
+def _mid(lo: object, hi: object) -> float | None:
+    vals = [float(v) for v in (lo, hi) if v is not None]
+    return sum(vals) / len(vals) if vals else None
 
 
-def _extract_inline_onboarding(payload: SignUpRequest | LoginRequest) -> dict[str, object]:
-    payload_data = payload.model_dump(exclude_unset=True)
-    return {k: payload_data[k] for k in _INLINE_ONBOARDING_FIELDS if k in payload_data}
+def _inline_canonical_finance(payload: SignUpRequest | LoginRequest) -> dict[str, float]:
+    """Map the optional inline income/expense ranges onto the canonical
+    personal_finance_profiles columns (annual_income, monthly_household_expense).
+    The model has no *_min/_max columns, so we collapse ranges to a midpoint."""
+    data = payload.model_dump(exclude_unset=True)
+    out: dict[str, float] = {}
+    income = _mid(data.get("annual_income_min"), data.get("annual_income_max"))
+    if income is not None:
+        out["annual_income"] = income
+    annual_expense = _mid(data.get("annual_expense_min"), data.get("annual_expense_max"))
+    if annual_expense is not None:
+        out["monthly_household_expense"] = annual_expense / 12.0
+    return out
 
 
 async def _save_inline_onboarding_profile(
     db: AsyncSession, user: User, payload: SignUpRequest | LoginRequest
 ) -> None:
-    inline_data = _extract_inline_onboarding(payload)
-    if not inline_data:
-        return
-
-    date_of_birth = inline_data.pop("date_of_birth", None)
+    data = payload.model_dump(exclude_unset=True)
+    date_of_birth = data.get("date_of_birth")
     if date_of_birth is not None:
         user.date_of_birth = date_of_birth
 
-    if not inline_data:
+    finance = _inline_canonical_finance(payload)
+    if not finance:
         return
 
     stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == user.id)
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
-        profile = PersonalFinanceProfile(user_id=user.id, **inline_data)
+        profile = PersonalFinanceProfile(user_id=user.id, **finance)
         db.add(profile)
         return
 
-    for field, value in inline_data.items():
+    for field, value in finance.items():
         setattr(profile, field, value)
+
+
+_EMAIL_TAKEN_DETAIL = (
+    "This email is already registered. Please sign in instead, or use a different email."
+)
+
+
+async def _email_taken(
+    db: AsyncSession, email: str, exclude_user_id: uuid.UUID | None = None
+) -> bool:
+    """True if another user already owns this email (`users.email` is unique)."""
+    stmt = select(User.id).where(User.email == email)
+    if exclude_user_id is not None:
+        stmt = stmt.where(User.id != exclude_user_id)
+    return (await db.execute(stmt)).first() is not None
 
 
 @router.post("/check-mobile", response_model=MobileStatusResponse)
@@ -90,6 +110,21 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.phone == phone))
     existing = result.scalar_one_or_none()
     if existing:
+        # A user actively setting their name / email / PIN must never be
+        # dropped, even if a record for this phone already exists (e.g. one
+        # created earlier via OTP). Persist the supplied identity fields.
+        if payload.first_name is not None:
+            existing.first_name = payload.first_name
+        if payload.last_name is not None:
+            existing.last_name = payload.last_name
+        if payload.email is not None and payload.email != existing.email:
+            if await _email_taken(db, payload.email, exclude_user_id=existing.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+                )
+            existing.email = payload.email
+        if payload.password and not existing.password_hash:
+            existing.password_hash = hash_password(payload.password)
         await _save_inline_onboarding_profile(db, existing, payload)
         await db.commit()
         access_token = create_access_token(existing.id, existing.phone)
@@ -98,6 +133,9 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
             access_token=access_token,
             message="Account already exists. Logged in successfully.",
         )
+
+    if payload.email and await _email_taken(db, payload.email):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
 
     user = User(
         id=uuid.uuid4(),
@@ -111,7 +149,13 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(user)
     await _save_inline_onboarding_profile(db, user, payload)
-    await db.commit()
+    # Safety net for the rare race where the email is claimed between the check
+    # above and this commit — surface a clean 409 instead of a 500.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
     await db.refresh(user)
 
     access_token = create_access_token(user.id, user.phone)
@@ -208,7 +252,14 @@ async def update_me(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    new_email = updates.get("email")
+    if new_email is not None and new_email != user.email and await _email_taken(
+        db, new_email, exclude_user_id=user.id
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
+
+    for field, value in updates.items():
         setattr(user, field, value)
 
     await db.commit()
