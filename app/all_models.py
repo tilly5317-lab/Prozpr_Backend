@@ -22,7 +22,7 @@ from app.domains.goals.models import (  # noqa: F401
     enums, financial_goal, goal_contribution, goal_holding,
 )
 from app.domains.portfolio.models import (  # noqa: F401
-    portfolio, user_portfolio_nav_history,
+    portfolio, user_portfolio_nav_history, portfolio_networth_job,
 )
 from app.domains.mutual_funds.models import (  # noqa: F401
     enums as mf_enums,

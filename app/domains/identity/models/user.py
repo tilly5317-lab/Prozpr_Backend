@@ -82,7 +82,7 @@ class User(Base):
     occupation: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     family_status: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    currency: Mapped[str] = mapped_column(String(3), default="GBP", nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="INR", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

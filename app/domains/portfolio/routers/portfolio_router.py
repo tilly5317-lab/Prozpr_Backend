@@ -6,7 +6,7 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,6 +19,7 @@ from app.domains.mutual_funds.models.mf_allocation_snapshot import PortfolioAllo
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
 from app.domains.ingestion.schemas.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
 from app.domains.portfolio.schemas.portfolio import (
+    NetworthJobStatusResponse,
     PortfolioAllocationBulkUpdate,
     PortfolioAllocationResponse,
     PortfolioDetailResponse,
@@ -34,9 +35,14 @@ from app.domains.ingestion.services.finvu_portfolio_sync import apply_finvu_buck
 from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
 from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
 from app.domains.portfolio.services.nav_history_service import (
-    HORIZON_DAYS,
     get_user_nav_history,
-    recompute_user_nav_history,
+)
+from app.domains.portfolio.services.networth_history_service import (
+    compute_user_networth_history,
+    create_job,
+    get_latest_job,
+    has_running_job,
+    run_networth_backfill,
 )
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
@@ -221,8 +227,13 @@ async def refresh_nav_history(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    """Force a recompute of the user's daily NAV history (MAX window)."""
-    await recompute_user_nav_history(db, current_user.id, days=HORIZON_DAYS["MAX"])
+    """Recompute the user's daily net-worth series from stored NAV (no fetch).
+
+    Fast path that assumes NAV history is already present (it does not reach out
+    to mfapi.in). For the first build — when NAV may be missing back to the first
+    transaction — use ``POST /portfolio/networth-history/build`` instead.
+    """
+    await compute_user_networth_history(db, current_user.id)
     rows = await get_user_nav_history(db, current_user.id, horizon="MAX")
     points = [PortfolioNavHistoryPoint.model_validate(r) for r in rows]
     invested = float(rows[-1].total_invested) if rows else 0.0
@@ -235,6 +246,60 @@ async def refresh_nav_history(
         current_value=current,
         gain_percentage=gain_pct,
     )
+
+
+def _job_status(job, *, has_history: bool) -> NetworthJobStatusResponse:
+    if job is None:
+        return NetworthJobStatusResponse(
+            status="none", progress_pct=0, has_history=has_history
+        )
+    return NetworthJobStatusResponse(
+        status=job.status,
+        phase=job.phase,
+        progress_pct=float(job.progress_pct or 0),
+        message=job.message,
+        history_from=job.history_from,
+        days_total=int(job.days_total) if job.days_total is not None else None,
+        has_history=has_history,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
+
+
+async def _has_networth_history(db: AsyncSession, user_id) -> bool:
+    rows = await get_user_nav_history(db, user_id, horizon="MAX")
+    return len(rows) > 0
+
+
+@router.get("/networth-history/status", response_model=NetworthJobStatusResponse)
+async def networth_history_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Poll the one-time backfill job (status + % completion) for the dashboard CTA."""
+    job = await get_latest_job(db, current_user.id)
+    has_history = await _has_networth_history(db, current_user.id)
+    return _job_status(job, has_history=has_history)
+
+
+@router.post("/networth-history/build", response_model=NetworthJobStatusResponse)
+async def build_networth_history(
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Kick off the one-time net-worth-history backfill (NAV fetch + compute).
+
+    Returns immediately; the client polls ``/networth-history/status`` for the %.
+    Idempotent: if a build is already pending/running, the existing job is returned.
+    """
+    running = await has_running_job(db, current_user.id)
+    if running is not None:
+        return _job_status(running, has_history=await _has_networth_history(db, current_user.id))
+
+    job = await create_job(db, current_user.id)
+    background.add_task(run_networth_backfill, current_user.id, job.id)
+    return _job_status(job, has_history=False)
 
 
 @router.post("/finvu/sync", response_model=FinvuPortfolioSyncResponse, deprecated=True)
