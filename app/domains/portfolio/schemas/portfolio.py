@@ -98,6 +98,24 @@ class PortfolioNavHistoryResponse(BaseModel):
     gain_percentage: float
 
 
+class NetworthJobStatusResponse(BaseModel):
+    """State of the one-time net-worth-history backfill job for the dashboard poller."""
+
+    model_config = {"from_attributes": True}
+
+    # ``status`` is one of: none | pending | running | success | failed.
+    status: str
+    phase: Optional[str] = None
+    progress_pct: float = 0
+    message: Optional[str] = None
+    history_from: Optional[date] = None
+    days_total: Optional[int] = None
+    # True when a real series already exists, so the UI can skip the CTA.
+    has_history: bool = False
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
 class RecommendedPlanSnapshotResponse(BaseModel):
     """Latest persisted ideal allocation snapshot (``portfolio_allocation_snapshots``)."""
 
