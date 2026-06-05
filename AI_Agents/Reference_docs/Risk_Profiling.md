@@ -1,4 +1,4 @@
-# Ask Tilly · Risk Profiling Thesis
+# Ask PI · Risk Profiling Thesis
 
 *Why we score risk the way we do — and what your number actually means*
 *Thesis version 1.0 · Internal & client reference · Last updated: May 2026*
@@ -27,7 +27,7 @@ We are a risk-profiling approach, not a personality test and not a brokerage sui
 
 ## How a risk score is built — at a high level
 
-Every Ask Tilly risk profile moves through four deliberate stages. We can walk through the reasoning behind any of them on demand.
+Every Ask PI risk profile moves through four deliberate stages. We can walk through the reasoning behind any of them on demand.
 
 ### Stage 1 — Capacity from age
 
@@ -67,4 +67,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask Tilly · Risk Profiling Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Risk Profiling Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*

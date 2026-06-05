@@ -56,7 +56,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 async def _startup() -> None:
     logger.info(_BANNER)
-    logger.info("Starting Ask Tilly API v2.0")
+    logger.info("Starting Ask PI API v2.0")
     logger.info(_BANNER)
 
     _log_db_engine_info()
@@ -134,7 +134,7 @@ def _start_schedulers() -> None:
 # ---------------------------------------------------------------------------
 
 async def _shutdown() -> None:
-    logger.info("Shutting down Ask Tilly API...")
+    logger.info("Shutting down Ask PI API...")
     await shutdown_scheduler()
     await dispose_engine()
     logger.info("Shutdown complete")

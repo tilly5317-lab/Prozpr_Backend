@@ -1,4 +1,4 @@
-# Ask Tilly · Portfolio Rebalancing Thesis
+# Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
 *Thesis version 1.0 · Internal & client reference · Last updated: May 2026*
@@ -30,7 +30,7 @@ We are a rebalancing approach, not a market-timing engine. We do not raise cash 
 
 ## How a rebalance is built — at a high level
 
-Every Ask Tilly rebalance is the output of a holdings-aware pre-stage and six deliberate, auditable steps. We can walk through the reasoning behind any of them on demand.
+Every Ask PI rebalance is the output of a holdings-aware pre-stage and six deliberate, auditable steps. We can walk through the reasoning behind any of them on demand.
 
 ### Step 0 — Practical pre-stage: translate ideal into a holdings-aware plan
 
@@ -79,4 +79,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask Tilly · Rebalancing Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Rebalancing Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*

@@ -169,7 +169,7 @@ _CORS_ORIGINS, _CORS_ALLOW_ANY_ORIGIN = _parse_cors_origins_env()
 
 
 class Settings:
-    PROJECT_NAME: str = "Ask Tilly API"
+    PROJECT_NAME: str = "Ask PI API"
     API_V1_PREFIX: str = "/api/v1"
     VERSION: str = "2.0.0"
 
