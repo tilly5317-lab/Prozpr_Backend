@@ -10,10 +10,29 @@ so there is exactly one source of truth for these helpers.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 _ONE_LAKH = 100_000.0
 _ONE_CRORE = 10_000_000.0
+
+
+def read_text_bom_aware(path: str | Path) -> str:
+    """Read a text file regardless of the encoding it was written in.
+
+    Runtime artifacts (e.g. the market-commentary cache) may be produced by
+    different tools/OSes — PowerShell on Windows defaults to UTF-16 LE with a
+    BOM, while committed sources are UTF-8. We sniff the leading BOM (UTF-16
+    LE/BE, UTF-8) and otherwise decode as UTF-8. This avoids UnicodeDecodeError
+    both on byte 0xff (a UTF-16 BOM mis-read as UTF-8) and on the Windows
+    cp1252 locale default that bare ``read_text()`` would fall back to.
+    """
+    raw = Path(path).read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")  # BOM selects endianness
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    return raw.decode("utf-8")
 
 
 # Canonical source for risk-category names. The app layer (app/models/profile/

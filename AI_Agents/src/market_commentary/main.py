@@ -11,6 +11,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from common import read_text_bom_aware
+
 from .document_generator import document_generation_chain
 from .models import MacroSnapshot
 from .prompts import (
@@ -115,7 +117,9 @@ class CacheManager:
 
     @staticmethod
     def save(snapshot: MacroSnapshot, cache_path: str) -> None:
-        with open(cache_path, "w") as f:
+        # encoding="utf-8": pin the encoding so artifacts are never written in
+        # the OS locale (cp1252 on Windows), which readers expecting UTF-8 choke on.
+        with open(cache_path, "w", encoding="utf-8") as f:
             f.write(snapshot.model_dump_json(indent=2))
 
     @staticmethod
@@ -123,7 +127,7 @@ class CacheManager:
         if not os.path.exists(cache_path):
             return None
         try:
-            with open(cache_path, "r") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:  # pin UTF-8 (matches save())
                 data = json.load(f)
             return MacroSnapshot(**data)
         except Exception:
@@ -196,8 +200,8 @@ class MarketCommentaryAgent:
             and os.path.getmtime(md_path) >= os.path.getmtime(self._cache_path)
         ):
             try:
-                with open(md_path, "r") as f:
-                    cached_md = f.read()
+                # BOM-aware: an existing .md may be UTF-16 (PowerShell) or UTF-8.
+                cached_md = read_text_bom_aware(md_path)
                 if cached_md.strip():
                     return cached_md
             except OSError:
@@ -208,7 +212,7 @@ class MarketCommentaryAgent:
         )
         try:
             os.makedirs(self.output_dir, exist_ok=True)
-            with open(md_path, "w") as f:
+            with open(md_path, "w", encoding="utf-8") as f:  # pin UTF-8 (see CacheManager.save)
                 f.write(regenerated_md)
         except OSError:
             pass
@@ -247,7 +251,7 @@ class MarketCommentaryAgent:
     def _write_document(self, document_md: str) -> str:
         """Write the Markdown commentary to the fixed 'latest' path. Returns the path."""
         md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
-        with open(md_path, "w") as f:
+        with open(md_path, "w", encoding="utf-8") as f:  # pin UTF-8 (see CacheManager.save)
             f.write(document_md)
         return md_path
 
