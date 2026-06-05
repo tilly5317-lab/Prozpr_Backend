@@ -6,6 +6,8 @@ from typing import Optional
 from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import StrOutputParser
 
+from common import read_text_bom_aware
+
 from .prompts import QA_PROMPT
 
 _DOCUMENT_FILENAME = "market_commentary_latest.md"
@@ -31,8 +33,8 @@ def load_latest_commentary(output_dir: str) -> str:
             f"No market commentary document found at {path!r}. "
             "Run the daily pipeline first."
         )
-    with open(path) as f:
-        return f.read()
+    # BOM-aware: the .md may be UTF-16 (PowerShell) or UTF-8; never trust the OS locale.
+    return read_text_bom_aware(path)
 
 
 def answer_question(
