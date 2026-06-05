@@ -9,6 +9,9 @@ from app.domains.portfolio.models.portfolio import (  # noqa: F401
 from app.domains.portfolio.models.user_portfolio_nav_history import (  # noqa: F401
     UserPortfolioNavHistory,
 )
+from app.domains.portfolio.models.portfolio_networth_job import (  # noqa: F401
+    PortfolioNetworthJob,
+)
 
 __all__ = [
     "Portfolio",
@@ -16,4 +19,5 @@ __all__ = [
     "PortfolioHistory",
     "PortfolioHolding",
     "UserPortfolioNavHistory",
+    "PortfolioNetworthJob",
 ]

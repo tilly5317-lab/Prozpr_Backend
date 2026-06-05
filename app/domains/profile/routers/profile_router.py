@@ -25,15 +25,20 @@ from app.domains.profile.models import (
     RiskProfile,
     TaxProfile,
     PersonalFinanceProfile,
+    UserCurrentProperty,
 )
 from app.domains.identity.models.user import User
 from app.domains.profile.schemas import (
     AllocationConstraintItem,
+    CurrentPropertiesUpdate,
+    CurrentPropertyResponse,
     FullProfileResponse,
     InvestmentConstraintResponse,
     InvestmentConstraintUpdate,
     InvestmentProfileResponse,
     InvestmentProfileUpdate,
+    PersonalFinanceResponse,
+    PersonalFinanceUpdate,
     PersonalInfoResponse,
     PersonalInfoUpdate,
     EffectiveRiskAssessmentResponse,
@@ -117,7 +122,7 @@ async def get_full_profile(
                     "wealth_sources": (profile.wealth_sources or []) if profile else [],
                     "personal_values": (profile.personal_values or []) if profile else [],
                     "address": user.address if user else None,
-                    "currency": user.currency if user else "GBP",
+                    "currency": user.currency if user else "INR",
                 }
             )
             if user or profile
@@ -151,7 +156,7 @@ async def get_personal_info(
             "wealth_sources": (profile.wealth_sources or []) if profile else [],
             "personal_values": (profile.personal_values or []) if profile else [],
             "address": user.address if user else None,
-            "currency": user.currency if user else "GBP",
+            "currency": user.currency if user else "INR",
         }
     )
 
@@ -193,6 +198,43 @@ async def update_personal_info(
             "currency": user.currency,
         }
     )
+
+
+# Household personal-finance scalars (personal_finance_profiles)
+@router.get("/personal-finance", response_model=PersonalFinanceResponse)
+async def get_personal_finance(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Personal finance profile not found")
+    return PersonalFinanceResponse.model_validate(profile)
+
+
+@router.put("/personal-finance", response_model=PersonalFinanceResponse)
+async def update_personal_finance(
+    payload: PersonalFinanceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        profile = PersonalFinanceProfile(user_id=current_user.id)
+        db.add(profile)
+
+    # exclude_unset → only the fields the client actually sent are written, so a
+    # partial profile-edit never nulls out goals/other scalars it didn't touch.
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(profile, field, value)
+
+    await db.commit()
+    await db.refresh(profile)
+    await maybe_recalculate_effective_risk(db, current_user.id, "personal_finance_update")
+    await db.commit()
+    return PersonalFinanceResponse.model_validate(profile)
 
 
 # Section 2 + 4 + 6 - Investment Profile
@@ -244,6 +286,61 @@ async def get_investment_profile(
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investment profile not found")
     return InvestmentProfileResponse.model_validate(profile)
+
+
+# Owned properties (user_current_properties) — child of investment_profiles
+@router.get("/current-properties", response_model=list[CurrentPropertyResponse])
+async def get_current_properties(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    stmt = select(UserCurrentProperty).where(
+        UserCurrentProperty.user_id == current_user.id
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [CurrentPropertyResponse.model_validate(r) for r in rows]
+
+
+@router.put("/current-properties", response_model=list[CurrentPropertyResponse])
+async def update_current_properties(
+    payload: CurrentPropertiesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    uid = current_user.id
+    # Ensure an investment profile exists so the rows surface via /investment's
+    # current_properties relationship (joined on user_id).
+    inv = (
+        await db.execute(select(InvestmentProfile).where(InvestmentProfile.user_id == uid))
+    ).scalar_one_or_none()
+    if not inv:
+        db.add(InvestmentProfile(user_id=uid))
+
+    # Full replace: drop the user's existing rows, then insert the new set.
+    existing = await db.execute(
+        select(UserCurrentProperty).where(UserCurrentProperty.user_id == uid)
+    )
+    for row in existing.scalars().all():
+        await db.delete(row)
+    await db.flush()
+
+    created: list[UserCurrentProperty] = []
+    for item in payload.properties:
+        row = UserCurrentProperty(
+            user_id=uid,
+            name=item.name,
+            property_value=item.property_value,
+            has_mortgage=item.has_mortgage,
+            mortgage_emi=item.mortgage_emi,
+            mortgage_end_date=item.mortgage_end_date,
+        )
+        db.add(row)
+        created.append(row)
+
+    await db.commit()
+    for row in created:
+        await db.refresh(row)
+    return [CurrentPropertyResponse.model_validate(r) for r in created]
 
 
 # Section 3 - Risk

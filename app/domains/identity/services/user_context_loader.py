@@ -31,8 +31,15 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
             selectinload(User.financial_goals),
             selectinload(User.portfolios).selectinload(Portfolio.allocations),
             selectinload(User.portfolios)
-            .selectinload(Portfolio.holdings) 
+            .selectinload(Portfolio.holdings)
             .selectinload(PortfolioHolding.fund_metadata),
+            # MF transaction ledger (written by CAMS-CAS / AA ingest, see
+            # ingestion.mf_aa_normalizer). Eager-loaded here because the
+            # portfolio_query service walks `user.mf_transactions` synchronously
+            # to compute portfolio XIRR (portfolio_query_service._compute_portfolio_xirr).
+            # Under the async engine a lazy load there raises MissingGreenlet, so
+            # the relationship must arrive with the rest of the AI user graph.
+            selectinload(User.mf_transactions),
             selectinload(User.cashflow_assumptions),
             selectinload(User.cashflow_one_off_events),
         )
