@@ -69,7 +69,7 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
                 active_intent = await _load_active_intent(turn.db, turn.session_id)
                 awaiting_save = await _load_awaiting_save(turn.db, turn.session_id)
         except Exception:
-            # ERROR level + stack trace so silent quality regressions (Tilly
+            # ERROR level + stack trace so silent quality regressions (PI
             # answers everyone like it's their first turn) surface in alerts.
             logger.exception(
                 "build_turn_context failed for session=%s; chat will run with EMPTY context — investigate",

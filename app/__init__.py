@@ -1,4 +1,4 @@
-"""Ask Tilly FastAPI application package root.
+"""Ask PI FastAPI application package root.
 
 Aggregates ``routers`` (HTTP), ``services`` (business logic), ``models`` (SQLAlchemy ORM),
 ``schemas`` (Pydantic API shapes), and ``utils``.

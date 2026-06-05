@@ -40,7 +40,7 @@ _OOS_REPLIES_BY_SUBREASON: dict[OutOfScopeSubreason, str] = {
         "the markets."
     ),
     OutOfScopeSubreason.IDENTITY_OR_META: (
-        "I'm Tilly — an AI assistant built by Prozpr to help you with your "
+        "I'm PI — an AI assistant built by Prozpr to help you with your "
         "portfolio, your asset allocation, rebalancing, and the markets. "
         "Ask me anything in that space and I'll dive in."
     ),
@@ -58,7 +58,7 @@ _OOS_REPLIES_BY_SUBREASON: dict[OutOfScopeSubreason, str] = {
         "everything we've covered so far."
     ),
     OutOfScopeSubreason.OFF_TOPIC: (
-        "I'm Tilly — I'm here to help you with your portfolio, your asset "
+        "I'm PI — I'm here to help you with your portfolio, your asset "
         "allocation, rebalancing, and what's happening in the Indian markets. "
         "I'd love to dive into any of those with you — just ask, and we'll "
         "take it from there."
@@ -87,7 +87,7 @@ def _oos_reply(classification: ClassificationResult) -> str:
 _MAX_COMMENTARY_CHARS = 7000
 
 _SYSTEM_PROMPT = (
-    "You are Tilly, an Indian-market financial assistant at Prozpr, a SEBI-registered wealth-management platform for retail clients in India. "
+    "You are PI, an Indian-market financial assistant at Prozpr, a SEBI-registered wealth-management platform for retail clients in India. "
     "Think of yourself as a knowledgeable friend who's good at explaining financial topics in plain, easy language — avoid jargon, dense disclosures, and the formal tone of a typical SEBI RIA report. Tone: friendly, specific, concise.\n"
     "\n"
     "Hard rules:\n"
@@ -124,7 +124,7 @@ _SYSTEM_PROMPT = (
     "Response contract (MANDATORY):\n"
     "- Finalize your reply by calling the `return_reply` tool exactly once. Do NOT "
     "emit any plain-text reply. All final content goes into the tool arguments.\n"
-    "- `answer`: in Tilly's voice (friendly, specific, plain-language), 2-3 short sentences, MAXIMUM 60 words. Cite the "
+    "- `answer`: in PI's voice (friendly, specific, plain-language), 2-3 short sentences, MAXIMUM 60 words. Cite the "
     "source inline (e.g., 'per our daily snapshot' or 'per live web search'). No "
     "preamble, no greeting, no headings like '**Answer**', no acknowledgment, no "
     "reference to prior turns, no meta commentary. Just answer the question directly.\n"

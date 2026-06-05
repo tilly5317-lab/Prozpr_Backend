@@ -1,6 +1,6 @@
-# Prozpr_Backend/ — Ask Tilly backend
+# Prozpr_Backend/ — Ask PI backend
 
-Ask Tilly is an AI-powered financial advisor. This package is the backend: FastAPI on PostgreSQL (SQLAlchemy async), with AI workloads integrated from a bundled `AI_Agents/` package via `sys.path` injection. For setup and run instructions, see `README.md`. For column-level database schema, see `README_DATABASE_SCHEMA.md`.
+Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI on PostgreSQL (SQLAlchemy async), with AI workloads integrated from a bundled `AI_Agents/` package via `sys.path` injection. For setup and run instructions, see `README.md`. For column-level database schema, see `README_DATABASE_SCHEMA.md`.
 
 ## Child modules
 
