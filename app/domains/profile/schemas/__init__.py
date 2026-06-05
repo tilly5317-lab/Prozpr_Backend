@@ -9,6 +9,7 @@ from app.domains.profile.schemas.effective_risk import (
 )
 from app.domains.profile.schemas.full_profile import FullProfileResponse
 from app.domains.profile.schemas.investment import (
+    CurrentPropertiesUpdate,
     CurrentPropertyItem,
     CurrentPropertyResponse,
     InvestmentProfileResponse,
@@ -38,6 +39,7 @@ from app.domains.profile.schemas.tax import (
 
 __all__ = [
     "AllocationConstraintItem",
+    "CurrentPropertiesUpdate",
     "CurrentPropertyItem",
     "CurrentPropertyResponse",
     "EffectiveRiskAssessmentResponse",
