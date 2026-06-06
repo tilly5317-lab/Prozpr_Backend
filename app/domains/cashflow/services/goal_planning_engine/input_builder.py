@@ -11,6 +11,9 @@ from datetime import date
 from typing import Any, Dict, List
 
 from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.cashflow.services.goal_planning_engine.readiness import (
+    evaluate_cashflow_readiness,
+)
 from app.domains.profile.services.profile_finance import (
     current_properties_for_user,
     effective_tax_rate_for_user,
@@ -125,6 +128,13 @@ def build_goal_planning_input_for_user(
     if getattr(user, "date_of_birth", None) is None:
         raise ValueError("missing_date_of_birth")
 
+    # Gate: the engine must run on the user's real numbers, never zero-filled or
+    # defaulted placeholders. Refuse until every required input is supplied.
+    readiness = evaluate_cashflow_readiness(user)
+    blocking = [k for k in readiness["missing"] if k != "date_of_birth"]
+    if blocking:
+        raise ValueError("missing_required_inputs:" + ",".join(blocking))
+
     pfp = getattr(user, "personal_finance_profile", None)
     inv = getattr(user, "investment_profile", None)
     financial_goals = list(getattr(user, "financial_goals", []) or [])
@@ -132,22 +142,11 @@ def build_goal_planning_input_for_user(
     defaults_applied: List[str] = []
     validation_issues: List[str] = []
 
-    if pfp is None:
-        defaults_applied.append("personal_finance_profile_missing")
-    if inv is None:
-        defaults_applied.append("investment_profile_missing")
-
+    # The readiness gate above guarantees pfp, inv, retirement_age, the finance
+    # scalars and a tax rate are all present — so no missing-profile/default-tax
+    # fallbacks can fire here. Real values only.
     scalars = personal_finance_scalars(user)
-    if pfp is None or getattr(pfp, "effective_tax_rate", None) is None:
-        if getattr(user, "tax_profile", None) is None or getattr(
-            user.tax_profile, "income_tax_rate", None
-        ) is None:
-            defaults_applied.append("tax_profile_missing")
-            validation_issues.append(
-                "Using default tax rate (25%) — complete your tax or personal finance profile."
-            )
-
-    retirement_age = int(getattr(inv, "retirement_age", None) or 60) if inv else 60
+    retirement_age = int(inv.retirement_age)
     target_corpus_today = getattr(inv, "target_corpus", None) if inv else None
     retirement_override = float(target_corpus_today) if target_corpus_today else None
 
@@ -158,8 +157,8 @@ def build_goal_planning_input_for_user(
     if not current_properties:
         defaults_applied.append("current_properties=[]")
 
+    assumed_lifespan_years = int(user.assumed_lifespan_years)
     defaults_applied.extend([
-        f"assumed_lifespan_years={getattr(user, 'assumed_lifespan_years', None) or 85}",
         "goal_properties=[]",
         "one_off_inflows=[]",
         "one_off_outflows=[]",
@@ -176,7 +175,7 @@ def build_goal_planning_input_for_user(
     retirement = RetirementInput(
         date_of_birth=user.date_of_birth,
         retirement_age=retirement_age,
-        assumed_lifespan_years=int(getattr(user, "assumed_lifespan_years", None) or 85),
+        assumed_lifespan_years=assumed_lifespan_years,
         retirement_corpus_pv_today_override=retirement_override,
     )
 

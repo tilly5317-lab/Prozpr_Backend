@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PersonalFinanceFields(BaseModel):
@@ -44,6 +44,16 @@ class PersonalFinanceResponse(PersonalFinanceFields):
     personal_values: list[str] = []
     updated_at: Optional[datetime] = None
 
+    # DB columns are nullable — coerce NULL to [] so `model_validate(orm_row)`
+    # doesn't reject a row that simply hasn't set these list fields yet.
+    @field_validator(
+        "selected_goals", "custom_goals", "wealth_sources", "personal_values",
+        mode="before",
+    )
+    @classmethod
+    def _none_to_empty_list(cls, v: object) -> object:
+        return [] if v is None else v
+
 
 class PersonalInfoUpdate(BaseModel):
     occupation: Optional[str] = None
@@ -67,6 +77,11 @@ class PersonalInfoResponse(BaseModel):
     assumed_lifespan_years: Optional[int] = None
     wealth_sources: list[str] = []
     personal_values: list[str] = []
+
+    @field_validator("wealth_sources", "personal_values", mode="before")
+    @classmethod
+    def _none_to_empty_list(cls, v: object) -> object:
+        return [] if v is None else v
 
 
 class PersonalProfileUpdate(PersonalInfoUpdate, PersonalFinanceUpdate):

@@ -23,6 +23,7 @@ from app.domains.profile.models import (
     PersonalFinanceProfile,
 )
 from app.domains.identity.models.user import User
+from app.domains.profile.services import profile_finance as pf
 from app.domains.advisory.schemas.ips import IPSListResponse, IPSResponse
 
 router = APIRouter(prefix="/ips", tags=["Investment Policy Statement"])
@@ -89,10 +90,11 @@ async def generate_ips(
             "objectives": inv_profile.objectives if inv_profile else None,
             "detailed_goals": inv_profile.detailed_goals if inv_profile else None,
             "portfolio_value": float(inv_profile.portfolio_value) if inv_profile and inv_profile.portfolio_value else None,
-            "monthly_savings": float(inv_profile.monthly_savings) if inv_profile and inv_profile.monthly_savings else None,
             "target_corpus": float(inv_profile.target_corpus) if inv_profile and inv_profile.target_corpus else None,
             "target_timeline": inv_profile.target_timeline if inv_profile else None,
-            "annual_income": float(inv_profile.annual_income) if inv_profile and inv_profile.annual_income else None,
+            # Canonical household-finance scalars live on personal_finance_profiles.
+            "monthly_savings": pf.starting_monthly_investment_pfp(profile),
+            "annual_income": pf.annual_income_pfp(profile) or None,
             "retirement_age": inv_profile.retirement_age if inv_profile else None,
         },
         "risk_tolerance": {
@@ -103,9 +105,12 @@ async def generate_ips(
             "comfort_assets": risk.comfort_assets if risk else None,
         },
         "financial_situation": {
-            "investable_assets": float(inv_profile.investable_assets) if inv_profile and inv_profile.investable_assets else None,
-            "total_liabilities": float(inv_profile.total_liabilities) if inv_profile and inv_profile.total_liabilities else None,
-            "property_value": float(inv_profile.property_value) if inv_profile and inv_profile.property_value else None,
+            # Canonical household-finance scalars live on personal_finance_profiles.
+            "investable_assets": pf.financial_assets_pfp(profile) or None,
+            "total_liabilities": pf.financial_liabilities_excl_mortgage_pfp(profile) or None,
+            # Property value is now per-property (user_current_properties), not a
+            # scalar on investment_profile — not surfaced here.
+            "property_value": None,
             "emergency_fund": float(inv_profile.emergency_fund) if inv_profile and inv_profile.emergency_fund else None,
         },
         "investment_constraints": {
