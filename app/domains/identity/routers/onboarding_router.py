@@ -131,6 +131,13 @@ async def save_onboarding_profile(
     except Exception:
         await db.rollback()
 
+    # Onboarding writes the core cashflow inputs (DOB, income, expense, assets,
+    # tax) — invalidate any cached plan run so it recomputes on fresh values.
+    from app.domains.cashflow.services.cashflow_persist_service import (
+        mark_stale as mark_cashflow_stale,
+    )
+    await mark_cashflow_stale(db, current_user.id)
+
     return _profile_to_response(user, profile)
 
 
