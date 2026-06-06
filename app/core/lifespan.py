@@ -34,6 +34,10 @@ from app.domains.mutual_funds.services.mfapi_scheduler import (
     shutdown_scheduler,
     start_scheduler,
 )
+from app.domains.mutual_funds.services.index_tri_scheduler import (
+    shutdown_tri_scheduler,
+    start_tri_scheduler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,14 +123,26 @@ async def _initialize_database() -> None:
 
 
 def _start_schedulers() -> None:
-    """Start the mfapi.in NAV polling scheduler (gated by ``MFAPI_SCHEDULER_ENABLED``)."""
+    """Start background schedulers, each gated by its own env flag.
+
+    - mfapi.in NAV polling (``MFAPI_SCHEDULER_ENABLED``)
+    - NSE Nifty 50 TRI refresh (``INDEX_TRI_SCHEDULER_ENABLED``)
+    """
     if not get_settings().mfapi_scheduler_enabled():
         logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
-        return
-    try:
-        start_scheduler()
-    except Exception as exc:
-        logger.warning("mfapi scheduler failed to start: %s", exc)
+    else:
+        try:
+            start_scheduler()
+        except Exception as exc:
+            logger.warning("mfapi scheduler failed to start: %s", exc)
+
+    if not get_settings().index_tri_scheduler_enabled():
+        logger.info("index TRI scheduler disabled (INDEX_TRI_SCHEDULER_ENABLED is false)")
+    else:
+        try:
+            start_tri_scheduler()
+        except Exception as exc:
+            logger.warning("index TRI scheduler failed to start: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -136,5 +152,6 @@ def _start_schedulers() -> None:
 async def _shutdown() -> None:
     logger.info("Shutting down Ask PI API...")
     await shutdown_scheduler()
+    await shutdown_tri_scheduler()
     await dispose_engine()
     logger.info("Shutdown complete")

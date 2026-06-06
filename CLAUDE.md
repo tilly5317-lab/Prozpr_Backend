@@ -27,14 +27,19 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 
 - **LLM calls go through LangChain.** All Claude calls must use `langchain-anthropic` (`ChatAnthropic` directly or via LCEL chains). Do not import `anthropic` for `messages.create` — the only permitted raw `anthropic` imports are exception classes (e.g. `from anthropic import AuthenticationError`) for `except` clauses, since those live only in the SDK.
 
+## Testing
+
+- Run via `.venv-mac/bin/python -m pytest` (config in `pyproject.toml`, `asyncio_mode=auto`). Same prefix for `alembic`.
+- sqlite DB tests: `Base.metadata.create_all` FAILS (an unrelated model uses a Postgres `ARRAY`). Create only the table(s) under test: `await conn.run_sync(MyModel.__table__.create)`.
+- New ORM model → register in `app/all_models.py` (for `Base.metadata`) AND the domain `models/__init__.py`.
+
 ## Flows
 
 Cross-cutting flows live with their home folders:
 - Typical authenticated call → `app/CLAUDE.md`.
-- Chat turn (`ChatBrain.run_turn`) → `app/services/chat_core/CLAUDE.md`.
-- Allocation spine → `app/services/ai_bridge/CLAUDE.md`.
-- Finvu sync → `app/services/CLAUDE.md`.
-- SimBanks → `app/services/CLAUDE.md`.
+- Chat turn (`ChatBrain.run_turn`) → `app/domains/ai_engine/CLAUDE.md`.
+- Allocation (produced by the AI bridge in `ai_engine`; persisted/read in `asset_allocation`) → `app/domains/asset_allocation/CLAUDE.md`.
+- CAMS CAS PDF ingest, SimBanks sync, Finvu (legacy) → `app/domains/ingestion/CLAUDE.md`.
 
 ## Don't read
 
