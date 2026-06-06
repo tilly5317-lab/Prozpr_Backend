@@ -2,6 +2,8 @@ import re
 import yaml
 from pathlib import Path
 
+from common import read_text_bom_aware
+
 
 class SkillExecutor:
     """Renders a Markdown skill definition into (system, user) prompts.
@@ -20,7 +22,10 @@ class SkillExecutor:
     """
 
     def __init__(self, skill_path: Path):
-        content = skill_path.read_text()
+        # BOM-aware read: skill .md files contain non-ASCII (₹, em-dashes), so we
+        # must not fall back to the OS locale (cp1252 on Windows) or trip over a
+        # UTF-16 BOM. See common.read_text_bom_aware.
+        content = read_text_bom_aware(skill_path)
         self.meta: dict = {}
         self.system_template: str = ""
         self.user_template: str = ""

@@ -208,10 +208,7 @@ async def get_user_nav_history(
         .order_by(UserPortfolioNavHistory.recorded_date.asc())
     )
     rows = (await db.execute(stmt)).scalars().all()
-    if rows:
-        return list(rows)
-
-    # First fetch for this user — compute the MAX window once and re-query.
-    await recompute_user_nav_history(db, user_id, days=HORIZON_DAYS["MAX"])
-    rows = (await db.execute(stmt)).scalars().all()
+    # No synthetic fallback: the series is now built from real units × NAV by the
+    # net-worth backfill job. When empty, the dashboard shows the "Fetch Net Worth
+    # History" call-to-action instead of a fabricated line.
     return list(rows)

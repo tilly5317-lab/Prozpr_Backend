@@ -172,18 +172,32 @@ def _xirr(flows: Sequence[tuple[date, float]], guess: float = 0.1) -> float | No
 
 
 def _compute_portfolio_xirr(user: Any, total_value: float | None) -> float | None:
-    """Compute XIRR over the user's MF cash flows + the current portfolio value as a synthetic inflow."""
+    """Compute XIRR over the user's MF cash flows + the current portfolio value as a synthetic inflow.
+
+    Direction is driven off ``transaction_type`` (not the amount's sign) using
+    the real ``MfTransactionType`` enum that CAMS/AA ingest writes: money put in
+    (BUY, SWITCH_IN) is an outflow; money taken out (SELL, SWITCH_OUT) is an
+    inflow. ``abs(amount)`` is used for magnitude because ingest may store sells
+    as negative. DIVIDEND_REINVEST is excluded — no external cash moves, so per
+    standard XIRR it must not count as a contribution. Previously this matched
+    non-existent "REDEEM"/"REDEMPTION" types and skipped switches, distorting XIRR.
+    """
     if not total_value or total_value <= 0:
         return None
     txns = list(getattr(user, "mf_transactions", None) or [])
     if not txns:
         return None
+    # Outflow types are money leaving the wallet into funds (negative); inflow
+    # types are money coming back out (positive). Anything else is skipped.
+    OUTFLOW_TYPES = {"BUY", "SWITCH_IN"}
+    INFLOW_TYPES = {"SELL", "SWITCH_OUT"}
     flows: list[tuple[date, float]] = []
     for t in txns:
         amt = _f(t, "amount")
         d = getattr(t, "transaction_date", None)
-        if amt is None or amt <= 0 or d is None:
+        if amt is None or amt == 0 or d is None:
             continue
+        amt = abs(amt)
         # Coerce datetime → date.
         if isinstance(d, datetime):
             d = d.date()
@@ -192,12 +206,12 @@ def _compute_portfolio_xirr(user: Any, total_value: float | None) -> float | Non
         # `.value` when it exists; otherwise stringify and uppercase.
         raw_type = getattr(t, "transaction_type", None)
         ttype = (getattr(raw_type, "value", None) or str(raw_type or "")).upper()
-        if ttype == "BUY":
+        if ttype in OUTFLOW_TYPES:
             flows.append((d, -amt))
-        elif ttype in ("SELL", "REDEEM", "REDEMPTION"):
+        elif ttype in INFLOW_TYPES:
             flows.append((d, amt))
         else:
-            # Unknown type: skip rather than guess sign.
+            # DIVIDEND_REINVEST / unknown: skip rather than guess sign.
             continue
     if not flows:
         return None

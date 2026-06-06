@@ -62,7 +62,7 @@ class PersonalInfoResponse(BaseModel):
     occupation: Optional[str] = None
     family_status: Optional[str] = None
     address: Optional[str] = None
-    currency: str = "GBP"
+    currency: str = "INR"
     date_of_birth: Optional[date] = None
     assumed_lifespan_years: Optional[int] = None
     wealth_sources: list[str] = []
