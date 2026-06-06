@@ -34,6 +34,12 @@ class CurrentPropertyResponse(CurrentPropertyItem):
     id: int
 
 
+class CurrentPropertiesUpdate(BaseModel):
+    """Full-replace write for a user's owned properties."""
+
+    properties: list[CurrentPropertyItem] = Field(default_factory=list)
+
+
 class InvestmentProfileUpdate(BaseModel):
     objectives: Optional[list[str]] = None
     detailed_goals: Optional[list[dict]] = None

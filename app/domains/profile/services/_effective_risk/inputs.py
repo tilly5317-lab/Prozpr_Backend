@@ -34,22 +34,16 @@ def _mid_or_none(lo: Optional[float], hi: Optional[float]) -> Optional[float]:
 
 
 def derive_annual_income(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
-    if inv and inv.annual_income is not None:
-        return float(inv.annual_income)
-    mid = _mid_or_none(
-        profile.annual_income_min if profile else None,
-        profile.annual_income_max if profile else None,
-    )
-    return float(mid) if mid is not None else 0.0
+    # Canonical income lives on personal_finance_profiles.annual_income.
+    if profile and profile.annual_income is not None:
+        return float(profile.annual_income)
+    return 0.0
 
 
 def derive_annual_expense(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
-    mid = _mid_or_none(
-        profile.annual_expense_min if profile else None,
-        profile.annual_expense_max if profile else None,
-    )
-    if mid is not None:
-        return float(mid)
+    # Canonical expense is stored monthly on personal_finance_profiles.
+    if profile and profile.monthly_household_expense is not None:
+        return float(profile.monthly_household_expense) * 12.0
     if inv and inv.regular_outgoings is not None:
         return float(inv.regular_outgoings) * 12.0
     return 0.0

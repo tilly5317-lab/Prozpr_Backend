@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.mutual_funds.models import MfFundMetadata, MfNavHistory, MfTransaction
 from app.domains.mutual_funds.models.enums import MfTransactionType
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
 from app.domains.mutual_funds.schemas.holding_detail import (
     MfHoldingDetailResponse,
     MfHoldingNavPoint,
@@ -220,66 +219,56 @@ async def _user_transactions(
     )
 
 
-async def _user_position(
-    db: AsyncSession, user_id: uuid.UUID, *, scheme_code: str, isin: Optional[str]
+def _position_from_ledger(
+    txns: list[MfTransaction], latest_nav: Optional[float]
 ) -> Optional[MfHoldingPosition]:
-    primary = (
-        await db.execute(
-            select(Portfolio)
-            .where(Portfolio.user_id == user_id, Portfolio.is_primary.is_(True))
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if primary is None:
+    """Build the user's position straight from the CAMS/KFintech ledger.
+
+    Average purchase NAV is the **units-weighted average of the actual NAVs on
+    the user's purchase transactions** (BUY / SWITCH_IN / DIVIDEND_REINVEST) as
+    imported from the statement — never synthesised. Current value is the live
+    unit balance × the latest published NAV.
+    """
+    if not txns:
         return None
 
-    tickers = {t for t in (scheme_code, isin) if t}
-    holdings = list(
-        (
-            await db.execute(
-                select(PortfolioHolding).where(
-                    PortfolioHolding.portfolio_id == primary.id,
-                    PortfolioHolding.ticker_symbol.in_(tickers),
-                )
-            )
-        ).scalars().all()
-    )
-    if not holdings:
-        return None
+    units = 0.0
+    buy_units = 0.0  # units acquired (for the weighted purchase-NAV denominator)
+    buy_cost = 0.0  # Σ(purchase amount) from the statement (the numerator)
+    folios: set[str] = set()
+    for t in txns:
+        u = _f(t.units) or 0.0
+        amt = abs(_f(t.amount) or 0.0)
+        if t.folio_number:
+            folios.add(t.folio_number)
+        if t.transaction_type in _INFLOW_TYPES:  # units in
+            units += u
+            buy_units += u
+            buy_cost += amt
+        else:  # SELL / SWITCH_OUT — units out
+            units -= u
 
-    total_units = 0.0
-    total_value = 0.0
-    total_alloc = 0.0
-    weighted_cost_num = 0.0  # Σ average_cost * units  (for a units-weighted average)
-    weighted_cost_den = 0.0
-    current_price: Optional[float] = None
-    for h in holdings:
-        units = _f(h.quantity) or 0.0
-        total_units += units
-        total_value += _f(h.current_value) or 0.0
-        total_alloc += _f(h.allocation_percentage) or 0.0
-        avg_cost = _f(h.average_cost)
-        if avg_cost is not None and units > 0:
-            weighted_cost_num += avg_cost * units
-            weighted_cost_den += units
-        if current_price is None and h.current_price is not None:
-            current_price = _f(h.current_price)
+    if units <= 1e-6:
+        return None  # fully redeemed — no live position
 
-    average_cost = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
-    invested = (average_cost * total_units) if (average_cost is not None and total_units > 0) else None
-    gain = (total_value - invested) if invested is not None else None
+    average_cost = (buy_cost / buy_units) if buy_units > 0 else None
+    current_price = latest_nav
+    current_value = (units * current_price) if current_price is not None else None
+    # Cost basis of the units still held, at the average purchase NAV.
+    invested = (average_cost * units) if average_cost is not None else None
+    gain = (current_value - invested) if (current_value is not None and invested is not None) else None
     gain_pct = (100.0 * gain / invested) if (gain is not None and invested and invested > 0) else None
 
     return MfHoldingPosition(
-        units=round(total_units, 4) if total_units else None,
+        units=round(units, 4),
         average_cost=round(average_cost, 4) if average_cost is not None else None,
         current_price=round(current_price, 4) if current_price is not None else None,
-        current_value=round(total_value, 2) if total_value else None,
-        allocation_percentage=round(total_alloc, 2) if total_alloc else None,
+        current_value=round(current_value, 2) if current_value is not None else None,
+        allocation_percentage=None,
         invested_amount=round(invested, 2) if invested is not None else None,
         unrealised_gain=round(gain, 2) if gain is not None else None,
         unrealised_gain_pct=round(gain_pct, 2) if gain_pct is not None else None,
-        folios=len(holdings),
+        folios=len(folios) or 1,
     )
 
 
@@ -397,7 +386,7 @@ async def build_holding_detail(
     if not txns:
         notes.append("You have no recorded transactions in this scheme.")
 
-    position = await _user_position(db, user_id, scheme_code=scheme_code, isin=isin)
+    position = _position_from_ledger(txns, _f(latest.nav) if latest else None)
 
     returns_map = _compute_nav_returns_pct(nav_rows)
     _asof = returns_map.get("nav_returns_as_of")

@@ -34,7 +34,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from common import format_inr_indian
+from common import format_inr_indian, read_text_bom_aware
 
 from .llm_client import LLMClient
 from .models import ClientContext, ConversationTurn, PortfolioContext, PortfolioQueryResponse
@@ -55,7 +55,7 @@ def _load_market_commentary() -> str:
             f"Market commentary file missing at {_MARKET_COMMENTARY_PATH}. "
             "Run the market_commentary agent (or trigger a general_market_query) first."
         )
-    text = _MARKET_COMMENTARY_PATH.read_text()
+    text = read_text_bom_aware(_MARKET_COMMENTARY_PATH)
     if not text.strip():
         raise ValueError(f"Market commentary file at {_MARKET_COMMENTARY_PATH} is empty")
     return text.strip()
@@ -131,7 +131,9 @@ class PortfolioQueryOrchestrator:
     def __init__(self, llm_client: LLMClient):
         module_root = Path(__file__).parent
 
-        self._guardrail_rules = (module_root / "guardrails.md").read_text()
+        # BOM-aware read: these .md sources hold non-ASCII and must not depend
+        # on the OS locale (cp1252 on Windows) or a stray UTF-16 BOM.
+        self._guardrail_rules = read_text_bom_aware(module_root / "guardrails.md")
         self.query_skill = SkillExecutor(module_root / "portfolio_query.md")
         self.llm = llm_client
 

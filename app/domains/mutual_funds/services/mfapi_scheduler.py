@@ -202,6 +202,26 @@ def start_scheduler() -> Optional[Any]:
         misfire_grace_time=3600,
     )
 
+    # Append each user's net-worth point for today, after the NAV refresh above.
+    # Imported lazily to avoid a cross-domain import cycle at module load.
+    from app.domains.portfolio.services.networth_history_service import (
+        run_daily_networth_job,
+    )
+
+    sched.add_job(
+        run_daily_networth_job,
+        trigger=CronTrigger(
+            hour=6,
+            minute=0,
+            second=0,
+            timezone=MFAPI_TIMEZONE,
+        ),
+        id="portfolio_networth_daily",
+        name="Daily net-worth point (06:00 IST)",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     sched.start()
     _scheduler = sched
 
