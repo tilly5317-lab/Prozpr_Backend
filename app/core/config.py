@@ -335,6 +335,15 @@ class Settings:
         return True
 
     @staticmethod
+    def index_tri_scheduler_enabled() -> bool:
+        """Daily 20:30 IST NSE Nifty 50 TRI refresh. Default ON; set
+        ``INDEX_TRI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
+        raw = (_getenv("INDEX_TRI_SCHEDULER_ENABLED") or "").strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return True
+
+    @staticmethod
     def skip_startup_db_ddl() -> bool:
         """Skip ``create_all_tables`` and Postgres schema patches on startup (faster against RDS).
 

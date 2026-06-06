@@ -12,6 +12,9 @@ No business logic here — only the infra every domain depends on:
   family-member resolver (reads `X-Family-Member-Id` header),
   `get_ai_user_context` User-with-relations loader for AI handlers.
 - `security.py` — password hashing (`bcrypt`) + JWT encode/decode.
+- `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops
+  background schedulers, each gated by its own env flag
+  (`MFAPI_SCHEDULER_ENABLED`, `INDEX_TRI_SCHEDULER_ENABLED`).
 - Exception handlers currently live inline in `app/main.py`
   (`ValidationError`, DB-auth / host-unreachable / connection-closed,
   fallback 500). The proposal moves them to `app/core/exceptions.py` —
