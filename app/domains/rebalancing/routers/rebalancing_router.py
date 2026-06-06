@@ -16,12 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_effective_user
+from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
+from app.domains.identity.models.user import User
+from app.domains.mutual_funds.models.mf_transaction import MfTransaction
 from app.domains.rebalancing.models.rebalancing_run import RebalancingRun, RebalancingRunStatus
 from app.domains.rebalancing.schemas import (
+    RebalancingReadinessResponse,
     RebalancingRunDetailResponse,
     RebalancingRunListItem,
     RebalancingStatusUpdate,
+)
+from app.domains.rebalancing.services.rebal_engine.readiness import (
+    evaluate_rebalancing_readiness,
 )
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
@@ -39,6 +45,28 @@ async def list_runs(
     )
     rows = (await db.execute(stmt)).scalars().all()
     return [RebalancingRunListItem.model_validate(r) for r in rows]
+
+
+@router.get("/readiness", response_model=RebalancingReadinessResponse)
+async def get_readiness(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+    user: User = Depends(get_ai_user_context),
+):
+    """Report which rebalancing inputs are present vs. still required.
+
+    Defined BEFORE ``/{run_id}`` so the literal path isn't parsed as a UUID.
+    """
+    has_holdings = (
+        await db.execute(
+            select(MfTransaction.id)
+            .where(MfTransaction.user_id == current_user.id)
+            .limit(1)
+        )
+    ).first() is not None
+    return RebalancingReadinessResponse(
+        **evaluate_rebalancing_readiness(user, has_holdings=has_holdings)
+    )
 
 
 @router.get("/{run_id}", response_model=RebalancingRunDetailResponse)
