@@ -1,4 +1,4 @@
-# Ask Tilly · Practical Asset Allocation Thesis
+# Ask PI · Practical Asset Allocation Thesis
 
 *Why we translate the ideal portfolio into the portfolio you can actually own — and what we do about the holdings we cannot trade*
 *Thesis version 1.0 · Internal & client reference · Last updated: May 2026*
@@ -28,7 +28,7 @@ We are a translation layer — not a tax optimiser, not a fund-picker, and not a
 
 ## How a practical allocation is built — at a high level
 
-Every Ask Tilly practical allocation moves through five deliberate stages. We can walk through the reasoning behind any of them on demand.
+Every Ask PI practical allocation moves through five deliberate stages. We can walk through the reasoning behind any of them on demand.
 
 ### Stage 1 — Start from the ideal near- and medium-term plan
 
@@ -67,4 +67,4 @@ This document is a directional reference. It is not a tax-planning tool, not a s
 
 ---
 
-*Ask Tilly · Practical Asset Allocation Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Practical Asset Allocation Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*

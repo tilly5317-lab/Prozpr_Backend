@@ -1,4 +1,4 @@
-# Ask Tilly · Asset Allocation Thesis
+# Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
 *Thesis version 1.3 · Internal & client reference · Last updated: May 2026*
@@ -29,7 +29,7 @@ We are a holistic wealth advisor — not just a goal-based tool, not just a risk
 
 ## How a recommendation is built — at a high level
 
-Every Ask Tilly recommendation is the output of four deliberate, auditable steps. We can walk through the reasoning behind any of them on demand.
+Every Ask PI recommendation is the output of four deliberate, auditable steps. We can walk through the reasoning behind any of them on demand.
 
 ### Step 1 — Score risk capacity and risk willingness
 
@@ -89,4 +89,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask Tilly · Allocation Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Allocation Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly*
