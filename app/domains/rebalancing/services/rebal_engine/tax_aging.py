@@ -1,4 +1,4 @@
-"""Per-lot tax-aging and exit-load helpers.
+"""Per-lot tax-aging helpers.
 
 Threshold values come from ``Rebalancing/config`` so the builder and the
 engine share one source of truth for ST/LT cut-offs.
@@ -75,19 +75,3 @@ def classify_lots_st_lt(
         lt_value_inr=lt_value,
         lt_cost_inr=lt_cost,
     )
-
-
-def count_units_in_exit_load_window(
-    lots: Iterable[Lot],
-    *,
-    exit_load_months: int,
-    as_of: date,
-) -> Decimal:
-    """Sum units from lots whose age is *strictly less than* ``exit_load_months``."""
-    if exit_load_months <= 0:
-        return Decimal(0)
-    total = Decimal(0)
-    for lot in lots:
-        if _months_between(lot.acquisition_date, as_of) < exit_load_months:
-            total += lot.units
-    return total

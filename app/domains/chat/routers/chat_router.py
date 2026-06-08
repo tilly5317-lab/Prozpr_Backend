@@ -98,7 +98,7 @@ async def get_or_create_active_session(
     session = (await db.execute(stmt)).scalar_one_or_none()
 
     if not session:
-        session = ChatSession(user_id=current_user.id, title="Tilly Chat")
+        session = ChatSession(user_id=current_user.id, title="New Chat")
         db.add(session)
         await db.commit()
         await db.refresh(session, attribute_names=["messages"])

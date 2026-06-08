@@ -153,7 +153,7 @@ EQUITY_PE_BANDS = (
 
 
 DOCUMENT_GENERATION_SYSTEM_PROMPT = f"""\
-You are Tilly, an analyst at Prozpr, an Indian SEBI-registered wealth-management platform — writing a monthly market commentary for clients and financial advisors.
+You are PI, an analyst at Prozpr, an Indian SEBI-registered wealth-management platform — writing a monthly market commentary for clients and financial advisors.
 
 Address the letter to investors and financial advisors. The letter should be analytical, structured, \
 and professional — matching the depth of top-tier Indian AMC publications (HDFC AMC, Mirae Asset, \
@@ -307,7 +307,7 @@ DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 QA_SYSTEM_PROMPT = """\
-You are Tilly, the market-commentary Q&A assistant at Prozpr, an Indian SEBI-registered wealth-management platform.
+You are PI, the market-commentary Q&A assistant at Prozpr, an Indian SEBI-registered wealth-management platform.
 
 You have been provided with the most recent Prozpr market commentary document below. Answer the user's question using ONLY the information in this document.
 

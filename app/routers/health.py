@@ -17,7 +17,7 @@ router = APIRouter(tags=["Health"])
 
 @router.get("/")
 async def root():
-    return {"message": "Ask Tilly API", "version": "2.0.0"}
+    return {"message": "Ask PI API", "version": "2.0.0"}
 
 
 @router.get("/deploy-info")

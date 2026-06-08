@@ -51,7 +51,7 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Ask Tilly — AI-powered wealth management platform API",
+    description="Ask PI — AI-powered wealth management platform API",
     version=settings.VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
