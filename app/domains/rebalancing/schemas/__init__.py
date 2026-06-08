@@ -137,3 +137,19 @@ class RebalancingRunDetailResponse(BaseModel):
 
 class RebalancingStatusUpdate(BaseModel):
     status: str
+
+
+# Readiness gate schemas live in their own module; re-export for convenience so
+# routers can import everything from ``app.domains.rebalancing.schemas``.
+from app.domains.rebalancing.schemas.readiness import (  # noqa: E402
+    RebalancingReadinessField,
+    RebalancingReadinessResponse,
+)
+
+__all__ = [
+    "RebalancingRunListItem",
+    "RebalancingRunDetailResponse",
+    "RebalancingStatusUpdate",
+    "RebalancingReadinessField",
+    "RebalancingReadinessResponse",
+]
