@@ -41,8 +41,6 @@ class CsvFundMetadata:
     asset_class: Optional[str]
     asset_subgroup: Optional[str]
     sub_category: Optional[str]
-    exit_load_percent: Optional[Decimal] = None
-    exit_load_months: Optional[int] = None
 
 
 @functools.lru_cache(maxsize=1)

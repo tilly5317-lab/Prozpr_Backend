@@ -145,6 +145,8 @@ async def format_answer(
     )
     try:
         text = await _invoke_llm(prompt["system"], prompt["user"])
+    except FormatterFailure:
+        raise
     except Exception as exc:
         raise FormatterFailure(f"formatter_llm_call_failed: {type(exc).__name__}") from exc
 
@@ -165,7 +167,7 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
     llm = ChatAnthropic(
         model="claude-haiku-4-5-20251001",
         api_key=api_key,
-        max_tokens=600,
+        max_tokens=2000,
     )
     messages = [
         SystemMessage(content=[
@@ -174,6 +176,10 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
         HumanMessage(content=user_text),
     ]
     raw = await asyncio.to_thread(llm.invoke, messages)
+    stop_reason = getattr(raw, "response_metadata", {}).get("stop_reason")
+    if stop_reason == "max_tokens":
+        # Mid-response truncation looks worse than the deterministic fallback brief.
+        raise FormatterFailure("formatter_truncated_at_max_tokens")
     return getattr(raw, "content", "") or ""
 
 
