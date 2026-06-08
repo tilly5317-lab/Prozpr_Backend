@@ -51,6 +51,7 @@ from app.domains.profile.schemas import (
     TaxProfileUpdate,
 )
 from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk, upsert_effective_risk_assessment
+from app.domains.cashflow.services.cashflow_persist_service import mark_stale as mark_cashflow_stale
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -179,15 +180,22 @@ async def update_personal_info(
         db.add(profile)
 
     payload_data = payload.model_dump(exclude_unset=True)
-    for field in ("occupation", "family_status", "address", "currency"):
-        value = payload_data.pop(field, None)
-        if value is not None:
-            setattr(user, field, value)
+    # date_of_birth + assumed_lifespan_years live on `users`, not the finance
+    # profile — route them to the user row so the cashflow engine can read them.
+    for field in ("occupation", "family_status", "address", "currency",
+                  "date_of_birth", "assumed_lifespan_years"):
+        if field in payload_data:
+            value = payload_data.pop(field)
+            if value is not None:
+                setattr(user, field, value)
     for field, value in payload_data.items():
         setattr(profile, field, value)
 
     await db.commit()
     await db.refresh(profile)
+    # DOB / assumed-lifespan feed the cashflow projection — invalidate the cached
+    # plan run so the next fetch recomputes on the updated values.
+    await mark_cashflow_stale(db, current_user.id)
     return PersonalInfoResponse.model_validate(
         {
             "occupation": user.occupation,
@@ -196,6 +204,8 @@ async def update_personal_info(
             "personal_values": profile.personal_values or [],
             "address": user.address,
             "currency": user.currency,
+            "date_of_birth": user.date_of_birth,
+            "assumed_lifespan_years": user.assumed_lifespan_years,
         }
     )
 
@@ -234,6 +244,9 @@ async def update_personal_finance(
     await db.refresh(profile)
     await maybe_recalculate_effective_risk(db, current_user.id, "personal_finance_update")
     await db.commit()
+    # Income / expense / assets / liabilities / tax / SIP are the core cashflow
+    # inputs — invalidate the cached plan run so it recomputes on fresh values.
+    await mark_cashflow_stale(db, current_user.id)
     return PersonalFinanceResponse.model_validate(profile)
 
 
@@ -269,6 +282,9 @@ async def update_investment_profile(
     profile = (await db.execute(stmt)).scalar_one()
     await maybe_recalculate_effective_risk(db, current_user.id, "investment_profile_update")
     await db.commit()
+    # retirement_age / target_corpus feed the cashflow projection — invalidate
+    # the cached plan run so the next fetch recomputes.
+    await mark_cashflow_stale(db, current_user.id)
     return InvestmentProfileResponse.model_validate(profile)
 
 
@@ -527,6 +543,9 @@ async def update_tax_profile(
 
     await db.commit()
     await db.refresh(profile)
+    # income_tax_rate is a cashflow input (effective tax fallback) — invalidate
+    # the cached plan run so it recomputes.
+    await mark_cashflow_stale(db, current_user.id)
     return TaxProfileResponse.model_validate(profile)
 
 

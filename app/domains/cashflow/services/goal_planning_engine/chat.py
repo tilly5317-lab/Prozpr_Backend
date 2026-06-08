@@ -159,6 +159,20 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
                     "Please update your profile and we'll get this done."
                 ),
             )
+        if str(e).startswith("missing_required_inputs:"):
+            from app.domains.cashflow.services.goal_planning_engine.readiness import (
+                REQUIRED_CASHFLOW_FIELDS,
+            )
+            labels = {f.key: f.label for f in REQUIRED_CASHFLOW_FIELDS}
+            keys = [k for k in str(e).split(":", 1)[1].split(",") if k]
+            needed = ", ".join(labels.get(k, k) for k in keys)
+            return ChatHandlerResult(
+                text=(
+                    "Before I can project your goals on real numbers, I need a few "
+                    f"more details: {needed}. Open Goal Planning to add them and "
+                    "I'll run the projection right away."
+                ),
+            )
         raise
 
     text = await format_with_telemetry(
