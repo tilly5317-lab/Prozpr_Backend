@@ -51,12 +51,11 @@ _REJECTION_COLUMNS = (
 )
 
 
-# Used when a held fund is not in the ranking CSV at all (neither recommended
-# nor evaluated-and-rejected). The data team's pipeline didn't even consider
-# it — so we give the customer a generic but truthful reason.
-NOT_EVALUATED_REASON = (
-    "This fund didn't make it through our filtering criteria — we recommend exiting it."
-)
+# Sentinel rank marking explicitly-bad funds the team wants force-exited
+# regardless of tax cost. Distinct from blank-rank rows (evaluated-and-skipped,
+# which become NEUTRAL — held but not traded) and from real ranks ≥ 1
+# (recommended picks).
+FORCE_EXIT_RANK = 9999
 
 
 @dataclass(frozen=True)
@@ -72,7 +71,7 @@ class FundRankRow:
 @cache
 def get_fund_ranking() -> dict[str, list[FundRankRow]]:
     """Return ``{asset_subgroup: [FundRankRow, ...]}`` for recommended funds
-    (rank ≥ 1), sorted by rank.
+    (rank ≥ 1 and rank != FORCE_EXIT_RANK), sorted by rank.
 
     Cached for the lifetime of the process. To force a reload (e.g. after
     swapping the CSV in tests), call ``get_fund_ranking.cache_clear()``.
@@ -92,10 +91,13 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
             rank_raw = (row.get("rank") or "").strip()
             if not rank_raw:
                 continue
+            rank_int = int(rank_raw)
+            if rank_int == FORCE_EXIT_RANK:
+                continue
             by_sg[row["asset_subgroup"]].append(FundRankRow(
                 asset_subgroup=row["asset_subgroup"],
                 sub_category=row["sub_category"],
-                rank=int(rank_raw),
+                rank=rank_int,
                 isin=row["isin"],
                 fund_name=row["recommended_fund"],
                 selection_reason=(row.get("selection_reason") or "").strip(),
@@ -103,6 +105,25 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
     for subgroup in by_sg:
         by_sg[subgroup].sort(key=lambda r: r.rank)
     return dict(by_sg)
+
+
+@cache
+def get_force_exit_isins() -> set[str]:
+    """Return the set of ISINs flagged as force-exit in the ranking CSV
+    (rank == ``FORCE_EXIT_RANK``). Held funds matching these will be
+    liquidated by the engine regardless of tax cost.
+    """
+    if not _CSV_PATH.is_file():
+        return set()
+    out: set[str] = set()
+    with open(_CSV_PATH, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            rank_raw = (row.get("rank") or "").strip()
+            if not rank_raw:
+                continue
+            if int(rank_raw) == FORCE_EXIT_RANK:
+                out.add(row["isin"])
+    return out
 
 
 @cache

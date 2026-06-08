@@ -28,6 +28,10 @@ from app.domains.mutual_funds.models import (
     MfOptionType,
     MfPlanType,
 )
+from app.domains.mutual_funds.services.scheme_classification import (
+    classify_holding,
+    resolve_asset_bucket,
+)
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
 from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
 from app.domains.ingestion.schemas.simbanks import SimBankDiscoveredAccount
@@ -120,17 +124,31 @@ def _parse_plan_type(scheme_plan: Optional[str], scheme_code: str) -> MfPlanType
     return MfPlanType.DIRECT if "DIRECT" in scheme_code.upper() else MfPlanType.REGULAR
 
 
-def _classify_mf_bucket(scheme_type: Optional[str], scheme_category: Optional[str]) -> str:
-    """Classify MF holdings into one of: Debt, Equity, Other.
+def _classify_mf_bucket(
+    scheme_type: Optional[str],
+    scheme_category: Optional[str],
+    scheme_name: Optional[str] = None,
+) -> str:
+    """Classify a SimBanks MF holding into the canonical 3-bucket asset_class.
 
-    We use both scheme type and category labels from simulator payload.
+    Delegates to the canonical classifier in
+    ``app/domains/mutual_funds/services/scheme_classification.py``. SimBanks
+    XML attribs ``schemeTypes`` and ``schemeCategory`` are SEBI-ish labels;
+    pass each through ``classify_holding`` and fall back to the name-based
+    ``resolve_asset_bucket`` only when neither maps to a canonical bucket.
+
+    Output vocabulary: ``"Equity"`` / ``"Debt"`` / ``"Others"``.
     """
-    raw = f"{scheme_type or ''} {scheme_category or ''}".upper()
-    if any(k in raw for k in ("DEBT", "LIQUID", "MONEY MARKET", "GILT", "DURATION", "BOND")):
-        return "Debt"
-    if any(k in raw for k in ("EQUITY", "LARGE_CAP", "MID_CAP", "SMALL_CAP", "INDEX", "ELSS", "SECTORAL")):
-        return "Equity"
-    return "Other"
+    # Prefer scheme_type (typically the more specific SEBI sub-category label).
+    ac, _ = classify_holding(scheme_type, scheme_name)
+    if ac is not None:
+        return ac
+    # Try the coarser scheme_category next.
+    ac, _ = classify_holding(scheme_category, scheme_name)
+    if ac is not None:
+        return ac
+    # Last resort: name + type heuristic.
+    return resolve_asset_bucket(scheme_type or scheme_category, scheme_name)
 
 
 def _find_first_attrib(root: ET.Element, tag_endswith: str) -> dict[str, str]:
@@ -758,13 +776,12 @@ async def sync_simbanks_accounts(
     total_value = 0.0
     total_invested = 0.0
 
-    # Canonical portfolio buckets requested by product:
-    # Cash, Debt, Equity, Other
+    # Canonical 3-bucket MF vocab + "Cash" for actual bank cash balances.
     bucket_amounts: dict[str, float] = {
         "Cash": 0.0,
         "Debt": 0.0,
         "Equity": 0.0,
-        "Other": 0.0,
+        "Others": 0.0,
     }
 
     holdings_to_create: list[PortfolioHolding] = []
@@ -837,7 +854,7 @@ async def sync_simbanks_accounts(
             mf_bucket_total = 0.0
             for h in holdings:
                 current_val = h.closing_units * h.nav
-                bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category)
+                bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category, h.instrument_name)
                 bucket_amounts[bucket] += current_val
                 mf_bucket_total += current_val
                 holdings_to_create.append(
@@ -866,10 +883,12 @@ async def sync_simbanks_accounts(
                 remainder = mf_current_value - mf_bucket_total
                 if holdings:
                     inferred_bucket = _classify_mf_bucket(
-                        holdings[0].scheme_type, holdings[0].scheme_category
+                        holdings[0].scheme_type,
+                        holdings[0].scheme_category,
+                        holdings[0].instrument_name,
                     )
                 else:
-                    inferred_bucket = "Other"
+                    inferred_bucket = "Others"
                 bucket_amounts[inferred_bucket] += remainder
 
             # Upsert MF metadata + transactions
@@ -969,7 +988,7 @@ async def sync_simbanks_accounts(
                 current_val = h.units * h.last_traded_price
                 eq_holdings_total += current_val
                 if h.is_mutual_fund:
-                    mf_bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category)
+                    mf_bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category, h.issuer_name)
                     bucket_amounts[mf_bucket] += current_val
                     holdings_to_create.append(
                         PortfolioHolding(
@@ -1014,7 +1033,9 @@ async def sync_simbanks_accounts(
                 remainder = eq_current_value - eq_holdings_total
                 if all_holdings_are_mf and eq_holdings:
                     inferred_bucket = _classify_mf_bucket(
-                        eq_holdings[0].scheme_type, eq_holdings[0].scheme_category
+                        eq_holdings[0].scheme_type,
+                        eq_holdings[0].scheme_category,
+                        eq_holdings[0].issuer_name,
                     )
                     bucket_amounts[inferred_bucket] += remainder
                 else:
@@ -1075,7 +1096,7 @@ async def sync_simbanks_accounts(
 
     # Allocation rows: only canonical category buckets
     if total_value > 0:
-        for bucket in ("Cash", "Debt", "Equity", "Other"):
+        for bucket in ("Cash", "Debt", "Equity", "Others"):
             amount = bucket_amounts[bucket]
             if amount <= 0:
                 continue
