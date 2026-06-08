@@ -69,6 +69,12 @@ class PortfolioHoldingResponse(BaseModel):
     return_1y: Optional[float] = None
     return_3y: Optional[float] = None
     return_5y: Optional[float] = None
+    # Internal 4-bucket asset class (Equity / Debt / Cash / Other) computed from
+    # fund_metadata + scheme name via resolve_asset_bucket. Matches the vocabulary
+    # of PortfolioAllocation.asset_class so donut and holdings list agree.
+    asset_class: Optional[str] = None
+    # SEBI sub-category from MfFundMetadata (e.g. "Large Cap Fund", "Liquid Fund").
+    sub_category: Optional[str] = None
 
 
 class PortfolioHistoryResponse(BaseModel):

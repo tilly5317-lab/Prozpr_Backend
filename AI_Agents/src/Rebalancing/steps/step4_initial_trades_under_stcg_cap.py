@@ -5,14 +5,16 @@ and AD–AL (LT/ST split, carryforward, w/o-ST counterfactual).
 
 Algorithm
 ---------
-1. Classify rows into buy candidates, forced sells (BAD or low-rated),
+1. Classify rows into buy candidates, forced sells (force-exit or low-rated),
    and optional sells (over-allocated recommended funds).
 2. Sort sells tax-cheap first within each bucket. Forced sells run
-   regardless of buy demand; optional sells fill any gap up to the
-   total buy demand (closed-system constraint, Decision 9).
-3. Within each fund, walk LT → ST out-of-load → ST in-load. Cap ST
-   gains by the remaining STCG offset budget; record the unsold ST
-   value and its STCG cost on `pass1_undersell_due_to_stcg_cap*`.
+   regardless of buy demand and may realise STCG up to the offset budget;
+   optional sells are LT-only (STCG is never realised on a recommended-fund
+   trim under the rule "STCG only on force-exit"). Optional sells fill any
+   gap up to the total buy demand (closed-system constraint, Decision 9).
+3. Forced sells walk LT → ST under the remaining STCG budget. Optional
+   sells walk LT only; demand beyond LT is recorded as `pass1_undersell_*`
+   (deliberate — not a budget block, just the LT-only rule).
 4. Distribute buys; if total sells < total buy demand, scale buys
    proportionally and record `pass1_underbuy_amount`.
 5. Re-run forced+optional with budget=∞ to capture
@@ -182,7 +184,13 @@ def _execute_sells(
     remaining_buy_demand: Decimal,
     stcg_remaining: Optional[Decimal],
 ) -> tuple[Decimal, Optional[Decimal]]:
-    """Returns (remaining_buy_demand_after, stcg_remaining_after)."""
+    """Returns (remaining_buy_demand_after, stcg_remaining_after).
+
+    Optional (non-forced) sells are LT-only: `st_available=0` forces
+    `_sell_from_row` to skip the ST branch, so a recommended-fund trim
+    never realises STCG.
+    """
+    st_available = None if is_forced else Decimal(0)
     for r in candidates:
         if is_forced:
             demand = r.present_allocation_inr
@@ -194,7 +202,7 @@ def _execute_sells(
         if demand <= 0:
             continue
 
-        result = _sell_from_row(r, demand, stcg_remaining)
+        result = _sell_from_row(r, demand, stcg_remaining, st_available=st_available)
         stcg_remaining = result["stcg_remaining"]
 
         sold_lt = result["sold_lt"]
@@ -241,7 +249,10 @@ def _counterfactual_sold_per_row(
         demand = min(excess, r.present_allocation_inr, remaining_buy)
         if demand <= 0:
             continue
-        result = _sell_from_row(r, demand, None)
+        # Optional sells are LT-only — keep the counterfactual consistent
+        # with the actual pass so `pass1_sell_amount_no_stcg_cap` reflects
+        # the new STCG rule, not the legacy LT+ST behaviour.
+        result = _sell_from_row(r, demand, None, st_available=Decimal(0))
         sold = result["sold_lt"] + result["sold_st"]
         sold_per_row[r.isin] = sold_per_row.get(r.isin, Decimal(0)) + sold
         remaining_buy -= sold

@@ -23,6 +23,13 @@ ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", 
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
 EXIT_FLOOR_RATING: int = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
 
+# Sentinel rank on `FundRowInput` marking explicitly-bad funds the upstream
+# input builder wants force-exited. Rows with `rank == FORCE_EXIT_RANK`
+# trigger `exit_flag = True` in step2 and full liquidation in step4
+# regardless of tax cost. Same constant duplicated in the app-side
+# `fund_rank.FORCE_EXIT_RANK` (CSV loader); keep both in sync.
+FORCE_EXIT_RANK: int = 9999
+
 
 # ── Bucket C — tax limits ─────────────────────────────────────────────────────
 

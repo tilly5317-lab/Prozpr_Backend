@@ -112,3 +112,4 @@ MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt
 AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
 /app/domains/mutual_funds/tests
 /app/domains/portfolio/tests
+/notebooks
