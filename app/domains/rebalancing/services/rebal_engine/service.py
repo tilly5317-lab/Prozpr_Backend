@@ -598,6 +598,10 @@ async def compute_rebalancing_result(
     # Goal-tied bucket block — derived once from the AA output that drove this
     # rebalance, persisted alongside the response so follow-up turns
     # (narrate / educate) see the same goal context.
+    #
+    # Trade-level `{goal}` placeholder substitution happens inside the
+    # engine (see `Rebalancing.rationales.substitute_goal_placeholders`),
+    # so `response.trade_list` already carries customer-facing final text.
     try:
         goal_buckets = build_goal_buckets_block(cached_output)
     except Exception as exc:

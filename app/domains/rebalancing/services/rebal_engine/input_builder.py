@@ -22,8 +22,9 @@ from app.domains.rebalancing.services.rebal_engine.overrides import effective_pa
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 from app.domains.rebalancing.services.rebal_engine.fund_rank import (
-    NOT_EVALUATED_REASON,
+    FORCE_EXIT_RANK,
     FundRankRow,
+    get_force_exit_isins,
     get_fund_ranking,
     get_rejection_reasons,
 )
@@ -34,7 +35,6 @@ from app.domains.rebalancing.services.rebal_engine.holdings_ledger import (
 from app.domains.rebalancing.services.rebal_engine.tax_aging import (
     LotSplit,
     classify_lots_st_lt,
-    count_units_in_exit_load_window,
 )
 
 ensure_ai_agents_path()
@@ -125,8 +125,6 @@ def _build_row(
     target_amount_pre_cap: Decimal,
     current_nav: Decimal,
     asset_class: str,
-    exit_load_pct: float,
-    exit_load_months: int,
     is_recommended: bool,
     fund_rating: int,
     asof: date,
@@ -134,6 +132,7 @@ def _build_row(
     bad_sub_category: Optional[str] = None,
     bad_fund_name: Optional[str] = None,
     bad_isin: Optional[str] = None,
+    bad_rank: int = 0,
     selection_reason: Optional[str] = None,
     rejection_reason: Optional[str] = None,
 ) -> FundRowInput:
@@ -148,7 +147,7 @@ def _build_row(
         sub_category = bad_sub_category or "unknown"
         fund_name = bad_fund_name or "unknown"
         isin = bad_isin or ""
-        rank = 0
+        rank = bad_rank
 
     if held_entry is not None:
         split: LotSplit = classify_lots_st_lt(
@@ -157,16 +156,10 @@ def _build_row(
             current_nav=current_nav,
             as_of=asof,
         )
-        units_in_load = count_units_in_exit_load_window(
-            held_entry.lots,
-            exit_load_months=exit_load_months,
-            as_of=asof,
-        )
         present = split.st_value_inr + split.lt_value_inr
         invested = split.st_cost_inr + split.lt_cost_inr
     else:
         split = LotSplit(Decimal(0), Decimal(0), Decimal(0), Decimal(0))
-        units_in_load = Decimal(0)
         present = Decimal(0)
         invested = Decimal(0)
 
@@ -183,9 +176,6 @@ def _build_row(
         st_cost_inr=split.st_cost_inr,
         lt_value_inr=split.lt_value_inr,
         lt_cost_inr=split.lt_cost_inr,
-        exit_load_pct=exit_load_pct,
-        exit_load_months=exit_load_months,
-        units_within_exit_load_period=units_in_load,
         current_nav=current_nav,
         fund_rating=fund_rating,
         is_recommended=is_recommended,
@@ -212,8 +202,9 @@ async def build_rebalancing_input_for_user(
     for r in allocation_output.aggregated_subgroups:
         target_by_subgroup[r.subgroup] = Decimal(str(r.total))
 
-    # 3. Fund-rank table + per-ISIN rejection reasons for off-list held funds.
+    # 3. Fund-rank table + force-exit ISIN set + per-ISIN rejection reasons.
     ranking = get_fund_ranking()
+    force_exit_isins = get_force_exit_isins()
     rejection_reasons = get_rejection_reasons()
     recommended_isins: set[str] = {
         rr.isin for rows in ranking.values() for rr in rows
@@ -224,6 +215,13 @@ async def build_rebalancing_input_for_user(
     all_isins = recommended_isins | held_isins
     nav_by_isin = await _latest_nav_by_isin(db, all_isins)
     meta_by_isin = await _metadata_by_isin(db, all_isins)
+
+    # NOTE: the NEUTRAL ST offset against subgroup rank-1 targets lives
+    # downstream in `Rebalancing.pipeline._assign_targets_to_rank1`. The
+    # pipeline lifts the practical-allocation per-subgroup totals onto
+    # rank-1 rows (overwriting whatever the input builder set), so any
+    # offset applied here would be discarded. Keeping the rule in one
+    # place (the pipeline) avoids the two builders drifting.
 
     rows: list[FundRowInput] = []
     seen_isins: set[str] = set()
@@ -245,8 +243,6 @@ async def build_rebalancing_input_for_user(
 
             meta = meta_by_isin.get(rr.isin)
             asset_class = _rating_field(meta, "asset_class") or "equity"
-            exit_load_pct = float(_rating_field(meta, "exit_load_percent") or 0.0)
-            exit_load_months = int(_rating_field(meta, "exit_load_months") or 0)
 
             rows.append(_build_row(
                 rank_row=rr,
@@ -254,8 +250,6 @@ async def build_rebalancing_input_for_user(
                 target_amount_pre_cap=rank1_target if rr.rank == 1 else Decimal(0),
                 current_nav=current_nav,
                 asset_class=asset_class,
-                exit_load_pct=exit_load_pct,
-                exit_load_months=exit_load_months,
                 is_recommended=True,
                 fund_rating=_DEFAULT_FUND_RATING,
                 asof=asof,
@@ -281,8 +275,6 @@ async def build_rebalancing_input_for_user(
             if current_nav is None:
                 current_nav = held.lots[-1].acquisition_nav
             asset_class = _rating_field(meta, "asset_class") or "equity"
-            exit_load_pct = float(_rating_field(meta, "exit_load_percent") or 0.0)
-            exit_load_months = int(_rating_field(meta, "exit_load_months") or 0)
             rr = FundRankRow(
                 asset_subgroup=subgroup,
                 sub_category=(meta.sub_category or "unknown") if meta else "unknown",
@@ -296,8 +288,6 @@ async def build_rebalancing_input_for_user(
                 target_amount_pre_cap=rank1_target,
                 current_nav=current_nav,
                 asset_class=asset_class,
-                exit_load_pct=exit_load_pct,
-                exit_load_months=exit_load_months,
                 is_recommended=True,
                 fund_rating=_DEFAULT_FUND_RATING,
                 asof=asof,
@@ -306,32 +296,81 @@ async def build_rebalancing_input_for_user(
             subgroups_applied_rank1.add(subgroup)
             break
 
-    # 6. BAD-fund rows.
-    bad_count = 0
+    # 6. Off-list held funds: force-exit (rank=9999) or NEUTRAL (rank=0).
+    #
+    # Force-exit: ISIN appears in the ranking CSV with rank=9999. Target = 0
+    # so step2 flags exit and step4 fully liquidates regardless of tax.
+    # Rejection text from the CSV's *_reason columns is surfaced on the
+    # customer-facing TradeAction.
+    #
+    # NEUTRAL: ISIN is held but not in the ranking CSV at all (or in the CSV
+    # with a blank rank). Target = present so diff = 0 and step2 doesn't
+    # trade it. Its value has already offset the subgroup's rank-1 target
+    # in section 4b so we don't double-allocate.
+    force_exit_count = 0
+    neutral_count = 0
     for isin, entry in held_by_isin.items():
         if isin in seen_isins:
             continue
         meta = meta_by_isin.get(isin)
         current_nav = nav_by_isin.get(isin) or entry.lots[-1].acquisition_nav
         asset_class = _rating_field(meta, "asset_class") or "equity"
-        rows.append(_build_row(
-            rank_row=None,
-            held_entry=entry,
-            target_amount_pre_cap=Decimal(0),
-            current_nav=current_nav,
-            asset_class=asset_class,
-            exit_load_pct=float(_rating_field(meta, "exit_load_percent") or 0.0),
-            exit_load_months=int(_rating_field(meta, "exit_load_months") or 0),
-            is_recommended=False,
-            fund_rating=_DEFAULT_FUND_RATING,
-            asof=asof,
-            bad_subgroup=(_rating_field(meta, "asset_subgroup") or "unknown"),
-            bad_sub_category=(meta.sub_category if meta else "unknown"),
-            bad_fund_name=(meta.scheme_name if meta else entry.scheme_code),
-            bad_isin=isin,
-            rejection_reason=rejection_reasons.get(isin) or NOT_EVALUATED_REASON,
-        ))
-        bad_count += 1
+        bad_subgroup = _rating_field(meta, "asset_subgroup") or "unknown"
+        bad_sub_category = (meta.sub_category if meta else "unknown") or "unknown"
+        bad_fund_name = (meta.scheme_name if meta else entry.scheme_code) or entry.scheme_code
+
+        if isin in force_exit_isins:
+            rows.append(_build_row(
+                rank_row=None,
+                held_entry=entry,
+                target_amount_pre_cap=Decimal(0),
+                current_nav=current_nav,
+                asset_class=asset_class,
+                is_recommended=False,
+                fund_rating=_DEFAULT_FUND_RATING,
+                asof=asof,
+                bad_subgroup=bad_subgroup,
+                bad_sub_category=bad_sub_category,
+                bad_fund_name=bad_fund_name,
+                bad_isin=isin,
+                bad_rank=FORCE_EXIT_RANK,
+                rejection_reason=rejection_reasons.get(isin),
+            ))
+            force_exit_count += 1
+        else:
+            # NEUTRAL: target = ST value (the locked minimum). diff =
+            # st - present = -lt, exposing the LT portion as a sellable
+            # excess. Step4's optional pool (with `st_available=0`) will
+            # tap it only when there's recommended-fund buy demand.
+            #
+            # We pull the CSV's rejection text when the ISIN appears in
+            # the evaluated-and-skipped set so the customer-facing trade
+            # carries a fund-specific "why we'd prefer to migrate" note.
+            # Genuinely-unknown ISINs (not in the CSV at all) get None
+            # — the action-level rationale stands alone.
+            split = classify_lots_st_lt(
+                entry.lots,
+                asset_class=asset_class,
+                current_nav=current_nav,
+                as_of=asof,
+            )
+            rows.append(_build_row(
+                rank_row=None,
+                held_entry=entry,
+                target_amount_pre_cap=split.st_value_inr,
+                current_nav=current_nav,
+                asset_class=asset_class,
+                is_recommended=False,
+                fund_rating=_DEFAULT_FUND_RATING,
+                asof=asof,
+                bad_subgroup=bad_subgroup,
+                bad_sub_category=bad_sub_category,
+                bad_fund_name=bad_fund_name,
+                bad_isin=isin,
+                bad_rank=0,
+                rejection_reason=rejection_reasons.get(isin),
+            ))
+            neutral_count += 1
 
     # 7. Total corpus = sum of held market values. Snap down to a multiple of
     #    100 so the practical pipeline's multiple-of-100 invariant holds.
@@ -392,7 +431,8 @@ async def build_rebalancing_input_for_user(
     debug = {
         "total_corpus": str(total_corpus),
         "lots_per_isin": {e.isin: len(e.lots) for e in ledger},
-        "bad_fund_count": bad_count,
+        "force_exit_count": force_exit_count,
+        "neutral_count": neutral_count,
         "row_count": len(rows),
     }
     return request, debug

@@ -296,12 +296,15 @@ def build_aa_facts_pack(
     its own lakh/crore conversion.
 
     Naming convention:
-    - ``recommended_mix_*`` — what the AA engine recommends deploying. Built
+    - ``plan_target_*`` — what the AA engine recommends deploying. Built
       from ``asset_class_breakdown.recommended`` (the engine's post-adjustment
-      allocation plan).
-    - ``current_mix_*`` — the customer's TRUE current holdings, computed
-      from ``PortfolioAllocation`` rows by ``compute_current_asset_class_mix``.
-      Optional; absent when no portfolio data exists.
+      allocation plan). The field name is deliberately distinct from the
+      customer's actual holdings so any LLM sentence using it (e.g. "your
+      plan target is 62% equity") cannot be mistaken for current holdings.
+    - ``your_actual_holdings_today_*`` — the customer's TRUE current
+      holdings, computed from ``PortfolioAllocation`` rows by
+      ``compute_current_asset_class_mix``. Optional; absent when no
+      portfolio data exists.
     """
     cs = output.client_summary
     acb = output.asset_class_breakdown
@@ -356,17 +359,17 @@ def build_aa_facts_pack(
         "emergency_fund_months": cs.emergency_fund_months,
         "monthly_household_expense_inr": cs.monthly_household_expense,
         "monthly_household_expense_indian": format_inr_indian(cs.monthly_household_expense),
-        "recommended_mix_pct": {
+        "plan_target_pct": {
             "equity": round(recommended.equity_total_pct),
             "debt": round(recommended.debt_total_pct),
             "others": round(recommended.others_total_pct),
         },
-        "recommended_mix_inr": {
+        "plan_target_inr": {
             "equity": recommended.equity_total,
             "debt": recommended.debt_total,
             "others": recommended.others_total,
         },
-        "recommended_mix_indian": {
+        "plan_target_indian": {
             "equity": format_inr_indian(recommended.equity_total),
             "debt": format_inr_indian(recommended.debt_total),
             "others": format_inr_indian(recommended.others_total),
@@ -376,9 +379,9 @@ def build_aa_facts_pack(
         "future_investments": future,
     }
     if current_mix is not None:
-        facts["current_mix_pct"] = current_mix["pct"]
-        facts["current_mix_inr"] = current_mix["inr"]
-        facts["current_mix_indian"] = current_mix["indian"]
+        facts["your_actual_holdings_today_pct"] = current_mix["pct"]
+        facts["your_actual_holdings_today_inr"] = current_mix["inr"]
+        facts["your_actual_holdings_today_indian"] = current_mix["indian"]
     return facts
 
 

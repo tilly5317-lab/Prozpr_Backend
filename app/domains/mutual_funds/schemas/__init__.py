@@ -32,6 +32,7 @@ from app.domains.mutual_funds.schemas.holding_detail import (
 )
 from app.domains.mutual_funds.schemas.latest_snapshot import UserMfLatestSnapshotResponse
 from app.domains.mutual_funds.schemas.nav_history import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
+from app.domains.mutual_funds.schemas.index_tri import IndexTriHistoryCreate, IndexTriHistoryResponse
 from app.domains.mutual_funds.schemas.portfolio_snapshot import (
     PortfolioAllocationSnapshotCreate,
     PortfolioAllocationSnapshotResponse,
@@ -70,6 +71,8 @@ __all__ = [
     "MfHoldingTransactionItem",
     "UserMfLatestSnapshotResponse",
     "MfNavChartPoint",
+    "IndexTriHistoryCreate",
+    "IndexTriHistoryResponse",
     "MfNavDerivedReturns",
     "MfNavHistoryCreate",
     "MfNavHistoryResponse",

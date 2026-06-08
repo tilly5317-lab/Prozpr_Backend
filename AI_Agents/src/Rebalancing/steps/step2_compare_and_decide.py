@@ -3,18 +3,21 @@
 Spreadsheet refs: cols L (`present_allocation`), M (`diff`), N (`Exit?`),
 O (`fund_ratings`), P (`worth_to_change`).
 
-The input rows already have `present_allocation_inr` and other holding
-fields populated by the upstream input builder. BAD rows (rank=0,
-is_recommended=False) flow through with `final_target_amount=0`, so
-their `diff` is just `-present`, `exit_flag` is True, and they're flagged
-worth-to-change for full liquidation.
+Off-list holdings come in two flavours from the input builder:
+* Force-exit rows (`rank == FORCE_EXIT_RANK`, `target_amount_pre_cap = 0`)
+  flow through with `diff = -present`, `exit_flag = True`, and are flagged
+  worth-to-change for full liquidation by step4 (LT + ST).
+* NEUTRAL rows (`rank = 0`, `target_amount_pre_cap = st_value_inr`) have
+  `diff = -lt_value`, `exit_flag = False`. step4's optional pool taps
+  their LT bucket only when buy demand calls for it; the ST portion
+  stays put (the "STCG only on force-exit" rule).
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from ..config import EXIT_FLOOR_RATING, REBALANCE_MIN_CHANGE_PCT
+from ..config import EXIT_FLOOR_RATING, FORCE_EXIT_RANK, REBALANCE_MIN_CHANGE_PCT
 from ..models import (
     FundRowAfterStep1,
     FundRowAfterStep2,
@@ -40,7 +43,7 @@ def apply(
         # SubgroupSummary in step6. Step2 therefore has a single uniform
         # diff/exit/worth-to-change path.
         diff = r.final_target_amount - r.present_allocation_inr
-        exit_flag = (r.fund_rating < EXIT_FLOOR_RATING) or (not r.is_recommended)
+        exit_flag = (r.fund_rating < EXIT_FLOOR_RATING) or (r.rank == FORCE_EXIT_RANK)
 
         scale = max(r.final_target_amount, r.present_allocation_inr)
         threshold = scale * threshold_factor
@@ -55,13 +58,13 @@ def apply(
             )
         )
 
-        if not r.is_recommended and r.present_allocation_inr > 0:
+        if r.rank == FORCE_EXIT_RANK and r.present_allocation_inr > 0:
             warnings.append(
                 RebalancingWarning(
                     code=WarningCode.BAD_FUND_DETECTED,
                     message=(
-                        f"Held fund {r.isin} ({r.recommended_fund}) is not "
-                        f"in the recommended set."
+                        f"Held fund {r.isin} ({r.recommended_fund}) is on the "
+                        f"force-exit list."
                     ),
                     affected_isins=[r.isin],
                 )

@@ -6,7 +6,10 @@
       "Bash(python -c ' *)",
       "Bash(python -c \"import app.models as m; print\\('reimport OK', m.AssetAllocationRun\\)\")",
       "Bash(python -m ruff check app/models/goals/asset_allocation_run.py app/models/goals/asset_allocation_bucket.py app/models/goals/__init__.py app/models/__init__.py app/models/user.py app/models/rebalancing/rebalancing_run.py app/models/rebalancing/__init__.py app/models/goals/financial_goal.py app/schemas/asset_allocation.py app/schemas/goal.py)",
-      "Bash(python -c \"import app.models; from sqlalchemy.orm import configure_mappers; configure_mappers\\(\\); print\\('models+mappers OK'\\)\")"
+      "Bash(python -c \"import app.models; from sqlalchemy.orm import configure_mappers; configure_mappers\\(\\); print\\('models+mappers OK'\\)\")",
+      "Bash(awk -F: '{print $1}')",
+      "Bash(python -m py_compile app/__init__.py app/main.py app/routers/health.py app/core/config.py app/core/lifespan.py app/domains/chat/routers/chat_router.py app/domains/ai_engine/answer_formatter/formatter.py app/domains/ai_engine/common.py app/domains/ai_engine/turn_context.py app/domains/general_chat/services/general_chat_engine.py AI_Agents/src/intent_classifier/prompts.py AI_Agents/src/market_commentary/prompts.py AI_Agents/src/risk_profiling/prompts.py)",
+      "Bash(python3 -m py_compile app/__init__.py app/main.py app/routers/health.py app/core/config.py app/core/lifespan.py app/domains/chat/routers/chat_router.py app/domains/ai_engine/answer_formatter/formatter.py app/domains/ai_engine/common.py app/domains/ai_engine/turn_context.py app/domains/general_chat/services/general_chat_engine.py AI_Agents/src/intent_classifier/prompts.py AI_Agents/src/market_commentary/prompts.py AI_Agents/src/risk_profiling/prompts.py)"
     ]
   }
 }

@@ -103,6 +103,44 @@ def test_format_answer_raises_formatter_failure_on_llm_exception():
             ))
 
 
+def test_format_answer_propagates_truncation_failure_unwrapped():
+    """FormatterFailure from _invoke_llm (e.g. max_tokens truncation) must pass
+    through verbatim — not get re-wrapped as `formatter_llm_call_failed`."""
+    with patch(
+        "app.domains.ai_engine.answer_formatter.formatter._invoke_llm",
+        new=AsyncMock(side_effect=FormatterFailure("formatter_truncated_at_max_tokens")),
+    ):
+        with pytest.raises(FormatterFailure, match="formatter_truncated_at_max_tokens"):
+            asyncio.run(format_answer(
+                question="?", action_mode="narrate", module_name="x",
+                facts_pack={}, body_prompt="b", history=[], profile={},
+            ))
+
+
+def test_invoke_llm_raises_formatter_failure_when_response_truncated():
+    """When Haiku stops because it hit max_tokens, the formatter must raise
+    FormatterFailure so the bridge falls back to the deterministic brief
+    instead of returning a half-rendered markdown table."""
+    from app.domains.ai_engine.answer_formatter import formatter as fmt
+
+    class _FakeMessage:
+        content = "Here are your trades:\n| Fund | Buy | Sell |\n| A | 10 | 0 |\n| B "
+        response_metadata = {"stop_reason": "max_tokens"}
+
+    class _FakeLLM:
+        def __init__(self, **_kw):
+            pass
+
+        def invoke(self, _msgs):
+            return _FakeMessage()
+
+    with patch("langchain_anthropic.ChatAnthropic", _FakeLLM), \
+         patch("app.core.config.get_settings") as gs:
+        gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
+        with pytest.raises(FormatterFailure, match="truncated"):
+            asyncio.run(fmt._invoke_llm("sys", "user"))
+
+
 # ---------------------------------------------------------------------------
 # format_with_telemetry tests
 # ---------------------------------------------------------------------------

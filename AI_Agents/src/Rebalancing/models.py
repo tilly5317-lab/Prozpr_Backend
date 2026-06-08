@@ -31,8 +31,19 @@ class FundRowInput(BaseModel):
     """Engine input row.
 
     One row per `(asset_subgroup, sub_category, recommended_fund, rank)` slot
-    in the rank table. Held-but-not-recommended ("BAD") funds use `rank = 0`,
-    `is_recommended = False`, `target_amount_pre_cap = 0`.
+    in the rank table. Off-list held funds come in two flavours:
+
+    * Force-exit: `rank = FORCE_EXIT_RANK` (9999), `is_recommended = False`,
+      `target_amount_pre_cap = 0`. step2 sets `exit_flag = True`; step4
+      fully liquidates regardless of tax.
+    * NEUTRAL: `rank = 0`, `is_recommended = False`,
+      `target_amount_pre_cap = st_value_inr` (the locked ST minimum).
+      step2 sees `diff = -lt_value` (the migratable LT portion), step4's
+      optional pool sells from it LT-only — never realising STCG — and
+      only when there's recommended-fund buy demand. The ST portion
+      stays as-is. The input builder offsets the matching subgroup's
+      rank-1 target by `sum(neutral_st_values)` so the engine doesn't
+      double-allocate against the stuck ST.
     """
 
     # Identity

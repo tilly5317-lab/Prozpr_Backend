@@ -139,19 +139,32 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
     sold = r.pass1_sell_amount + r.pass2_sell_amount
     bought = r.pass1_buy_amount
     if sold > 0:
-        if not r.is_recommended:
-            action, reason = "EXIT", "exit_bad_fund"
-        elif r.fund_rating < EXIT_FLOOR_RATING:
-            action, reason = "EXIT", "exit_low_rated"
+        if r.exit_flag:
+            action = "EXIT"
+            reason = (
+                "exit_low_rated" if r.fund_rating < EXIT_FLOOR_RATING
+                else "exit_bad_fund"
+            )
+        elif r.rank == 0:
+            # NEUTRAL row — LT-only migration into the recommended pick.
+            action, reason = "SELL", "migrate_neutral_to_recommended"
         else:
             action, reason = "SELL", "trim_over_target"
         amt = sold
-        fund_reason = r.rejection_reason
+        # CSV is the source of truth for fund-level rationale on every
+        # trade. For force-exit / NEUTRAL migrations, the CSV carries
+        # `rejection_reason` (negative framing). For recommended-fund
+        # trims and low-rated exits of recommended funds, only
+        # `selection_reason` exists — and that's fine because the action
+        # text for those codes already establishes "fund is good, this
+        # is an allocation move", so the positive CSV text reinforces
+        # rather than contradicts.
+        fund_reason = r.rejection_reason or r.selection_reason
     elif bought > 0:
         action = "BUY"
         reason = "cap_spill_buy" if r.rank > 1 else "add_to_target"
         amt = bought
-        fund_reason = r.selection_reason
+        fund_reason = r.selection_reason or r.rejection_reason
     else:
         return None
     title, text = get_rationale(reason)
@@ -245,8 +258,7 @@ def apply(
     funds_to_sell = sum(
         1 for r in rows
         if (r.pass1_sell_amount + r.pass2_sell_amount) > 0
-        and r.is_recommended
-        and r.fund_rating >= EXIT_FLOOR_RATING
+        and not r.exit_flag
     )
     funds_to_exit = sum(1 for r in rows if r.exit_flag and r.present_allocation_inr > 0)
     funds_held = sum(
