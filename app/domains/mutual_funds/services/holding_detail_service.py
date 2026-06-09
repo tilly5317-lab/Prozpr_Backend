@@ -37,6 +37,7 @@ from app.domains.mutual_funds.services.nav_history_service import (
     get_latest_nav_with_source_fallback,
 )
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_pending_imports
+from app.domains.mutual_funds.services.scheme_classification import fill_classification
 
 logger = logging.getLogger(__name__)
 
@@ -392,12 +393,23 @@ async def build_holding_detail(
     _asof = returns_map.get("nav_returns_as_of")
     nav_returns_as_of = _asof if isinstance(_asof, date) else None
 
+    # Fill the fund's canonical class from scheme_classification when it isn't
+    # otherwise present, so the client gets Equity/Debt/Others instead of blank.
+    _scheme_name = meta.scheme_name if meta else (txns[0].fund_name if txns else None)
+    _sub_category = meta.sub_category if meta else (txns[0].sub_category if txns else None)
+    _category = meta.category if meta else (txns[0].category if txns else None)
+    asset_class, asset_subgroup = fill_classification(
+        _sub_category, _scheme_name, scheme_type=_category
+    )
+
     return MfHoldingDetailResponse(
         scheme_code=scheme_code,
         scheme_name=(meta.scheme_name if meta else (txns[0].fund_name if txns else None)),
         amc_name=(meta.amc_name if meta else None),
         category=(meta.category if meta else (txns[0].category if txns else None)),
         sub_category=(meta.sub_category if meta else (txns[0].sub_category if txns else None)),
+        asset_class=asset_class,
+        asset_subgroup=asset_subgroup,
         isin=isin or (txns[0].isin if txns else None),
         plan_type=(meta.plan_type.value if meta and meta.plan_type else None),
         option_type=(meta.option_type.value if meta and meta.option_type else None),

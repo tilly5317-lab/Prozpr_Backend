@@ -529,3 +529,41 @@ def resolve_asset_bucket(
         ASSET_CLASS_OTHERS,
     )
     return ASSET_CLASS_OTHERS
+
+
+# ---------------------------------------------------------------------------
+# Response-builder convenience: trust existing values, fill the rest
+# ---------------------------------------------------------------------------
+
+
+def fill_classification(
+    sub_category: Optional[str],
+    scheme_name: Optional[str],
+    *,
+    asset_class: Optional[str] = None,
+    asset_subgroup: Optional[str] = None,
+    scheme_type: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(asset_class, asset_subgroup)``, trusting any values already
+    supplied and deriving the rest from this canonical module.
+
+    API response builders use this to honor the rule: keep the classification
+    the data already carries (e.g. a curated ``MfFundRating`` value); when it's
+    absent, compute it here rather than leaving the field blank for the client.
+
+    Resolution for a missing ``asset_class`` / ``asset_subgroup``:
+      1. ``classify_holding(sub_category, scheme_name)`` — SEBI sub_category
+         lookup plus the ``arbitrage_plus_income`` name override (yields both).
+      2. ``resolve_asset_bucket(scheme_type or sub_category, scheme_name)`` —
+         name-based last resort (asset_class only; subgroup stays ``None``).
+    """
+    ac, asg = asset_class, asset_subgroup
+    if ac is None or asg is None:
+        guess_ac, guess_asg = classify_holding(sub_category, scheme_name)
+        if ac is None:
+            ac = guess_ac
+        if asg is None:
+            asg = guess_asg
+    if ac is None:
+        ac = resolve_asset_bucket(scheme_type or sub_category, scheme_name)
+    return ac, asg
