@@ -68,6 +68,8 @@ class MfHoldingDetailResponse(BaseModel):
     amc_name: Optional[str] = None
     category: Optional[str] = None
     sub_category: Optional[str] = None
+    asset_class: Optional[str] = None
+    asset_subgroup: Optional[str] = None
     isin: Optional[str] = None
     plan_type: Optional[str] = None
     option_type: Optional[str] = None

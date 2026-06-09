@@ -19,6 +19,7 @@ from app.domains.mutual_funds.schemas.fund_metadata import (
     MfNavDerivedReturns,
 )
 from app.domains.mutual_funds.services.nav_history_service import get_latest_nav_with_source_fallback
+from app.domains.mutual_funds.services.scheme_classification import fill_classification
 
 CHART_LOOKBACK_DAYS = 800
 CHART_MAX_POINTS = 120
@@ -166,6 +167,15 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
         )
     ).scalar_one_or_none()
 
+    # Trust the curated rating's classification when present; otherwise derive it
+    # from the canonical classifier so the client never receives a blank.
+    asset_class, asset_subgroup = fill_classification(
+        meta.sub_category,
+        meta.scheme_name,
+        asset_class=rating.asset_class if rating else None,
+        asset_subgroup=rating.asset_subgroup if rating else None,
+    )
+
     scheme = meta.scheme_code
     latest = await _latest_nav(db, scheme)
     first = await _first_nav(db, scheme)
@@ -203,8 +213,8 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
             option_type=meta.option_type,
             is_active=meta.is_active,
             risk_rating_sebi=rating.risk_rating_sebi if rating else None,
-            asset_class=rating.asset_class if rating else None,
-            asset_subgroup=rating.asset_subgroup if rating else None,
+            asset_class=asset_class,
+            asset_subgroup=asset_subgroup,
             direct_plan_fees=_f(rating.direct_plan_fees) if rating else None,
             regular_plan_fees=_f(rating.regular_plan_fees) if rating else None,
             exit_load_percent=_f(rating.exit_load_percent) if rating else None,
@@ -281,8 +291,8 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
         option_type=meta.option_type,
         is_active=meta.is_active,
         risk_rating_sebi=rating.risk_rating_sebi if rating else None,
-        asset_class=rating.asset_class if rating else None,
-        asset_subgroup=rating.asset_subgroup if rating else None,
+        asset_class=asset_class,
+        asset_subgroup=asset_subgroup,
         direct_plan_fees=_f(rating.direct_plan_fees) if rating else None,
         regular_plan_fees=_f(rating.regular_plan_fees) if rating else None,
         exit_load_percent=_f(rating.exit_load_percent) if rating else None,
