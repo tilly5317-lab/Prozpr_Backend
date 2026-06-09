@@ -33,7 +33,10 @@ from app.domains.portfolio.schemas.portfolio import (
 )
 from app.domains.ingestion.services.finvu_portfolio_sync import apply_finvu_bucket_snapshot
 from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+    revalue_primary_portfolio_at_latest_nav,
+)
 from app.domains.portfolio.services.nav_history_service import (
     get_user_nav_history,
 )
@@ -95,6 +98,14 @@ async def get_portfolio(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
+    # Re-mark the portfolio to today's NAV so the headline net worth is current
+    # (units × latest NAV) rather than the frozen CAMS statement-date valuation.
+    # Best-effort: if NAV is unavailable the holdings keep their stored value.
+    try:
+        await revalue_primary_portfolio_at_latest_nav(db, current_user.id)
+    except Exception:  # noqa: BLE001 — never let re-valuation block the read
+        await db.rollback()
+
     stmt = (
         select(Portfolio)
         .options(
