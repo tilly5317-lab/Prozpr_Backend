@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models import MfNavHistory
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHolding
+from app.domains.portfolio.models.portfolio import Portfolio
 
 logger = logging.getLogger(__name__)
 
