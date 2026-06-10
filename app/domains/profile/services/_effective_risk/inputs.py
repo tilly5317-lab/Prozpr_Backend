@@ -11,6 +11,7 @@ from typing import Optional
 
 from app.domains.profile.models import InvestmentProfile, PersonalFinanceProfile, RiskProfile
 from app.domains.identity.models.user import User
+from app.domains.profile.services import profile_finance as pf
 from app.domains.profile.services._effective_risk.calculation import (
     EffectiveRiskComputationInput,
     risk_willingness_from_risk_level,
@@ -33,30 +34,25 @@ def _mid_or_none(lo: Optional[float], hi: Optional[float]) -> Optional[float]:
     return None
 
 
+# These delegate to profile_finance — the single canonical source — so income /
+# expense / assets / liabilities resolve identically here, in the cashflow
+# engine, and in asset allocation. (inv kept in the signature for back-compat.)
 def derive_annual_income(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
-    # Canonical income lives on personal_finance_profiles.annual_income.
-    if profile and profile.annual_income is not None:
-        return float(profile.annual_income)
-    return 0.0
+    return pf.annual_income_pfp(profile)
 
 
 def derive_annual_expense(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
-    # Canonical expense is stored monthly on personal_finance_profiles.
-    if profile and profile.monthly_household_expense is not None:
-        return float(profile.monthly_household_expense) * 12.0
-    if inv and inv.regular_outgoings is not None:
-        return float(inv.regular_outgoings) * 12.0
-    return 0.0
+    return pf.annual_household_expense_pfp(profile)
 
 
-def derive_liabilities_excluding_mortgage(inv: Optional[InvestmentProfile]) -> float:
-    if not inv:
-        return 0.0
-    tl = float(inv.total_liabilities or 0)
-    ma = float(inv.mortgage_amount or 0)
-    if ma > 0 and tl >= ma:
-        return max(0.0, tl - ma)
-    return max(0.0, tl)
+def derive_financial_assets(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
+    return pf.financial_assets_pfp(profile)
+
+
+def derive_liabilities_excluding_mortgage(
+    profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]
+) -> float:
+    return pf.financial_liabilities_excl_mortgage_pfp(profile)
 
 
 def derive_risk_willingness(risk: Optional[RiskProfile]) -> float:
@@ -95,10 +91,13 @@ def build_computation_input(
 
     annual_income = derive_annual_income(profile, inv)
     annual_expense = derive_annual_expense(profile, inv)
-    financial_assets = float(inv.investable_assets) if inv and inv.investable_assets is not None else 0.0
-    liabilities_ex = derive_liabilities_excluding_mortgage(inv)
-    annual_mortgage_payment = float(inv.annual_mortgage_payment) if inv and inv.annual_mortgage_payment is not None else 0.0
-    properties_owned = int(inv.properties_owned) if inv and inv.properties_owned is not None else 0
+    financial_assets = derive_financial_assets(profile, inv)
+    liabilities_ex = derive_liabilities_excluding_mortgage(profile, inv)
+    # These columns were removed from InvestmentProfile (mortgage/property detail
+    # now lives on user_current_properties, not eager-loaded here) — read
+    # defensively so a missing attribute can never crash the recalc.
+    annual_mortgage_payment = float(getattr(inv, "annual_mortgage_payment", None) or 0.0) if inv else 0.0
+    properties_owned = int(getattr(inv, "properties_owned", None) or 0) if inv else 0
 
     inp = EffectiveRiskComputationInput(
         age=age,

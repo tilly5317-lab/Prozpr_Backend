@@ -31,8 +31,19 @@ class FundRowInput(BaseModel):
     """Engine input row.
 
     One row per `(asset_subgroup, sub_category, recommended_fund, rank)` slot
-    in the rank table. Held-but-not-recommended ("BAD") funds use `rank = 0`,
-    `is_recommended = False`, `target_amount_pre_cap = 0`.
+    in the rank table. Off-list held funds come in two flavours:
+
+    * Force-exit: `rank = FORCE_EXIT_RANK` (9999), `is_recommended = False`,
+      `target_amount_pre_cap = 0`. step2 sets `exit_flag = True`; step4
+      fully liquidates regardless of tax.
+    * NEUTRAL: `rank = 0`, `is_recommended = False`,
+      `target_amount_pre_cap = st_value_inr` (the locked ST minimum).
+      step2 sees `diff = -lt_value` (the migratable LT portion), step4's
+      optional pool sells from it LT-only — never realising STCG — and
+      only when there's recommended-fund buy demand. The ST portion
+      stays as-is. The input builder offsets the matching subgroup's
+      rank-1 target by `sum(neutral_st_values)` so the engine doesn't
+      double-allocate against the stuck ST.
     """
 
     # Identity
@@ -133,14 +144,18 @@ class RebalancingComputeRequest(BaseModel):
     # again as the pass-2 offset).
     #
     #   * stcg_offset_budget_inr — pass-1 cap (step4) on how much STCG may be
-    #     realised without tax cost; None = no STCG cap applied.
+    #     realised in this run. Default Decimal(0) = strict brake (no STCG-
+    #     incurring sells in pass-1 unless a positive override is set).
+    #     None is reserved for INTERNAL counterfactual use (`_sell_from_row`
+    #     with stcg_remaining=None disables the cap entirely); production
+    #     callers should never pass None.
     #   * carryforward_st_loss_inr — brought-forward SHORT-term capital loss;
     #     offsets realised STCG in the step5 pass-2 top-up.
     #   * carryforward_lt_loss_inr — brought-forward LONG-term capital loss. Per
     #     Indian IT rules LT losses offset only LTCG, never STCG, so this is NOT
     #     used in the STCG offset. LTCG-loss set-off is not yet modeled (LTCG tax
     #     uses the annual exemption only), so this field is currently reserved.
-    stcg_offset_budget_inr: Optional[Decimal] = None
+    stcg_offset_budget_inr: Optional[Decimal] = Decimal(0)
     carryforward_st_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
     carryforward_lt_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
 
@@ -220,10 +235,10 @@ class TradeAction(BaseModel):
     reason_code: str                 # machine — stable, analytics
     reason_title: str                # customer card header
     reason_text: str                 # customer card body, one sentence
-    # Per-fund rationale from the ranking CSV. BUY → selection_reason of the
-    # picked fund; SELL/EXIT of a BAD fund → joined rejection reasons.
-    # None when no fund-specific reason applies (e.g., a trim of a recommended
-    # fund — reason_text already covers the "why").
+    # Per-fund rationale from the ranking CSV. BUY or SELL-trim of a
+    # recommended fund → selection_reason; EXIT of a BAD/off-list fund →
+    # joined rejection reasons. None only when no fund-specific reason exists
+    # (e.g. SELL_DIRECT_STOCKS, which isn't a ranked MF).
     fund_reason: Optional[str] = None
 
 

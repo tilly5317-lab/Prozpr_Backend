@@ -46,8 +46,10 @@ async def compute_goal_planning_snapshot(
 ) -> GoalPlanningServiceOutcome:
     """Run the cashflow engine for the given user and produce a facts_pack.
 
-    Raises ValueError("missing_date_of_birth") or ValueError("missing_financial_profile")
-    when the user profile is incomplete.
+    Raises ValueError("missing_date_of_birth") or
+    ValueError("missing_required_inputs:<comma-separated keys>") when the user
+    profile is incomplete — the engine never substitutes default/placeholder
+    values for missing inputs.
     """
     ensure_ai_agents_path()
 

@@ -169,7 +169,7 @@ _CORS_ORIGINS, _CORS_ALLOW_ANY_ORIGIN = _parse_cors_origins_env()
 
 
 class Settings:
-    PROJECT_NAME: str = "Ask Tilly API"
+    PROJECT_NAME: str = "Ask PI API"
     API_V1_PREFIX: str = "/api/v1"
     VERSION: str = "2.0.0"
 
@@ -330,6 +330,15 @@ class Settings:
         """Daily 00:00 IST mfapi.in MF master + NAV refresh. Default ON; set
         ``MFAPI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
         raw = (_getenv("MFAPI_SCHEDULER_ENABLED") or "").strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return True
+
+    @staticmethod
+    def index_tri_scheduler_enabled() -> bool:
+        """Daily 20:30 IST NSE Nifty 50 TRI refresh. Default ON; set
+        ``INDEX_TRI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
+        raw = (_getenv("INDEX_TRI_SCHEDULER_ENABLED") or "").strip().lower()
         if raw in {"0", "false", "no", "off"}:
             return False
         return True

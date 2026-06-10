@@ -33,6 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models import MfAaImport, MfAaImportStatus, MfAaSummary, MfAaTransaction
+from app.domains.mutual_funds.services.scheme_classification import (
+    classify_holding,
+    resolve_asset_bucket,
+)
 from app.domains.portfolio.models.portfolio import PortfolioAllocation, PortfolioHolding
 from app.domains.identity.models.user import User
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
@@ -214,104 +218,29 @@ def _split_name(name: Optional[str]) -> tuple[Optional[str], Optional[str], Opti
 #
 # casparser only tags a scheme as ``EQUITY`` / ``DEBT`` (or ``N/A`` / ``UNKNOWN``)
 # and it does so purely from a bundled MFCentral ISIN list. Newer schemes, ETFs,
-# index/international funds and NFOs that aren't in that list come back as ``N/A`` —
-# and the *old* roll-up dumped every ``N/A`` scheme into "Other", which is why an
-# all-equity statement showed up on the frontend as e.g. Equity 95% / Other 5%.
-#
-# We now resolve the asset class in two passes:
-#   1. trust casparser's ``type`` when it actually classified the scheme;
-#   2. otherwise infer it from the *scheme name* (the name almost always says what
-#      kind of fund it is — "Flexi Cap", "Nifty 50 Index", "Liquid", "Gilt", …).
-# Only when both fail do we fall back to "Other".
+# index/international funds and NFOs that aren't in that list come back as ``N/A``.
+# Resolution flows through the canonical classifier in
+# ``app/domains/mutual_funds/services/scheme_classification.py``:
+#   1. ``classify_holding(None, scheme_name)`` — fires the name-based
+#      ``arbitrage_plus_income`` override when applicable.
+#   2. ``resolve_asset_bucket(scheme_type, scheme_name)`` — trusts casparser's
+#      ``type`` when it actually classified the scheme; otherwise name-based.
+# Output vocabulary: ``Equity`` / ``Debt`` / ``Others`` (3 canonical buckets).
 
-_CASH_NAME_HINTS: tuple[str, ...] = (
-    "liquid", "overnight", "money market", "cash management",
-)
-_DEBT_NAME_HINTS: tuple[str, ...] = (
-    "debt", "bond", "gilt", "g-sec", "gsec", "g sec", "income fund",
-    "corporate bond", "credit risk", "banking & psu", "banking and psu",
-    "psu debt", "psu bond", "dynamic bond", "floater", "floating rate",
-    "short term", "short duration", "low duration", "ultra short",
-    "medium term", "medium duration", "long duration", "constant maturity",
-    "fixed maturity", "fmp", "interval fund", "10 year", "duration fund",
-)
-_HYBRID_NAME_HINTS: tuple[str, ...] = (
-    "hybrid", "balanced", "asset allocation", "multi asset", "multi-asset",
-    "equity savings", "arbitrage", "dynamic asset", "conservative", "aggressive",
-    "regular savings", "equity & debt", "equity and debt", "balanced advantage",
-    "income & growth", "capital protection",
-)
-_COMMODITY_NAME_HINTS: tuple[str, ...] = (
-    "gold", "silver", "commodity", "commodities",
-)
-_EQUITY_NAME_HINTS: tuple[str, ...] = (
-    "equity", "elss", "tax saver", "taxsaver", "tax plan", "bluechip",
-    "blue chip", "flexi cap", "flexicap", "multi cap", "multicap", "large cap",
-    "largecap", "large & mid", "large and mid", "mid cap", "midcap",
-    "small cap", "smallcap", "micro cap", "microcap", "focused", "value fund",
-    "contra", "dividend yield", "opportunit", "special situation", "nifty",
-    "sensex", "nasdaq", "s&p", "msci", "index fund", "etf", "top 100",
-    "top 200", "top 250", "top 500", "consumption", "infrastructure", "infra ",
-    "banking & financial", "banking and financial", "financial services",
-    "pharma", "healthcare", "technology", "digital", "fmcg", "mnc",
-    "psu equity", "manufacturing", "transportation", "logistics",
-    "business cycle", "quant fund", "momentum", "esg", "quality fund",
-    "alpha", "growth fund", "emerging", "long term equity", "capital builder",
-    "wealth builder", "bharat", "india fund", "core equity", "prime equity",
-    "active fund", "champions", "leaders", "frontline", "discovery",
-    "exploration", "innovation", "world fund", "global ", "international",
-    "us equity", "china", "japan", "europe", "energy opportunit",
+# casparser ``type`` values that mean "I couldn't classify it" — used below to
+# decide whether to persist the upstream type verbatim or replace it with the
+# resolved bucket. Local to this file (no classification concern).
+_CASPARSER_UNKNOWN_TYPES: frozenset[str] = frozenset(
+    {"", "N/A", "NA", "UNKNOWN", "OTHER", "NONE"}
 )
 
-# casparser ``type`` values that mean "I couldn't classify it" — trigger the name fallback.
-_UNKNOWN_TYPE_TOKENS: frozenset[str] = frozenset({"", "N/A", "NA", "UNKNOWN", "OTHER", "NONE"})
 
-
-def _bucket_from_name(scheme_name: Optional[str]) -> Optional[str]:
-    """Best-effort asset-class guess from a scheme's *name*. ``None`` if undecidable."""
-    name = (scheme_name or "").lower()
-    if not name:
-        return None
-    # Order matters — more specific vocabulary first. "...Equity & Debt Fund" is a
-    # hybrid (not equity); "Gold Savings Fund" is a commodity FoF (not cash); etc.
-    if any(h in name for h in _COMMODITY_NAME_HINTS):
-        return "Other"  # gold/silver/commodity FoFs roll up under "Other" (4-bucket model)
-    if any(h in name for h in _HYBRID_NAME_HINTS):
-        return "Other"  # hybrids / arbitrage / multi-asset → "Other"
-    if any(h in name for h in _DEBT_NAME_HINTS):
-        return "Debt"
-    if any(h in name for h in _CASH_NAME_HINTS):
-        return "Cash"
-    if any(h in name for h in _EQUITY_NAME_HINTS):
-        return "Equity"
-    return None
-
-
-def _resolve_asset_bucket(scheme_type: Optional[str], scheme_name: Optional[str]) -> str:
-    """Map a CAS scheme onto the Cash / Debt / Equity / Other buckets.
-
-    Trust casparser's ``type`` when it actually classified the scheme; otherwise
-    fall back to a name-based guess; only then settle for "Other".
-    """
-    t = (scheme_type or "").strip().upper()
-    if t not in _UNKNOWN_TYPE_TOKENS:
-        if t in {"CASH", "DEBT", "EQUITY"}:  # already a bucket name we use verbatim
-            return t.capitalize()
-        if "EQUITY" in t:
-            return "Equity"
-        if any(k in t for k in ("LIQUID", "MONEY", "OVERNIGHT", "CASH", "TREASURY")):
-            return "Cash"
-        if any(k in t for k in ("DEBT", "BOND", "GILT", "INCOME", "DURATION", "GSEC", "G-SEC")):
-            return "Debt"
-        # HYBRID / BALANCED / FOF / SOLUTION / COMMODITY / GOLD / … → Other
-        if any(k in t for k in ("HYBRID", "BALANCED", "ARBITRAGE", "FOF", "SOLUTION", "GOLD", "COMMODITY", "MULTI ASSET")):
-            return "Other"
-    # casparser didn't (or only weakly) classify it — go by the scheme name.
-    guessed = _bucket_from_name(scheme_name)
-    if guessed is not None:
-        return guessed
-    logger.info("CAS ingest: could not classify scheme %r (type=%r) → bucketed as Other", scheme_name, scheme_type)
-    return "Other"
+def _resolve_cas_bucket(scheme_type: Optional[str], scheme_name: Optional[str]) -> str:
+    """Resolve a CAS scheme into the canonical 3-bucket asset_class."""
+    ac, _ = classify_holding(None, scheme_name)
+    if ac is not None:
+        return ac
+    return resolve_asset_bucket(scheme_type, scheme_name)
 
 
 _BAD_PASSWORD_MESSAGE = (
@@ -646,7 +575,7 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
     folios = parsed.get("folios") or []
     scheme_count = 0
     txn_count = 0
-    bucket_value: dict[str, float] = {"Cash": 0.0, "Debt": 0.0, "Equity": 0.0, "Other": 0.0}
+    bucket_value: dict[str, float] = {"Equity": 0.0, "Debt": 0.0, "Others": 0.0}
     cost_total = 0.0
 
     for folio in folios:
@@ -664,13 +593,13 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
             if scheme_cost > 0:
                 cost_total += scheme_cost
 
-            bucket = _resolve_asset_bucket(stype, scheme_name)
+            bucket = _resolve_cas_bucket(stype, scheme_name)
             if market_value > 0:
                 bucket_value[bucket] += market_value
             # Persist the resolved class when casparser couldn't classify it, so
             # `mf_fund_metadata.category` (derived from this) isn't left as "N/A".
             resolved_asset_type = (
-                stype if stype and stype.strip().upper() not in _UNKNOWN_TYPE_TOKENS else bucket.upper()
+                stype if stype and stype.strip().upper() not in _CASPARSER_UNKNOWN_TYPES else bucket.upper()
             )
 
             txns = scheme.get("transactions") or []

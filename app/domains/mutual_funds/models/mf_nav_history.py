@@ -32,7 +32,7 @@ class MfNavHistory(Base):
         nullable=False,
         index=True,
     )
-    isin: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    isin: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     scheme_name: Mapped[str] = mapped_column(String(200), nullable=False)
     mf_type: Mapped[str] = mapped_column(String(200), nullable=False)
     nav: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)

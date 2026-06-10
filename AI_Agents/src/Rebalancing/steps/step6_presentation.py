@@ -36,7 +36,7 @@ from ..models import (
     SubgroupSummary,
     TradeAction,
 )
-from ..rationales import get_rationale
+from ..rationales import STCG_CAP_SUFFIX_TEMPLATE, get_rationale
 from ..tables import SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
 
@@ -139,22 +139,47 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
     sold = r.pass1_sell_amount + r.pass2_sell_amount
     bought = r.pass1_buy_amount
     if sold > 0:
-        if not r.is_recommended:
-            action, reason = "EXIT", "exit_bad_fund"
-        elif r.fund_rating < EXIT_FLOOR_RATING:
-            action, reason = "EXIT", "exit_low_rated"
+        if r.exit_flag:
+            action = "EXIT"
+            reason = (
+                "exit_low_rated" if r.fund_rating < EXIT_FLOOR_RATING
+                else "exit_bad_fund"
+            )
+        elif r.rank == 0:
+            # NEUTRAL row — LT-only migration into the recommended pick.
+            action, reason = "SELL", "migrate_neutral_to_recommended"
         else:
+            # Trim of a still-recommended fund: show why we rate it, so the
+            # customer understands we're only adjusting weight, not dropping it.
             action, reason = "SELL", "trim_over_target"
+            fund_reason = r.selection_reason
         amt = sold
-        fund_reason = r.rejection_reason
+        # CSV is the source of truth for fund-level rationale on every
+        # trade. For force-exit / NEUTRAL migrations, the CSV carries
+        # `rejection_reason` (negative framing). For recommended-fund
+        # trims and low-rated exits of recommended funds, only
+        # `selection_reason` exists — and that's fine because the action
+        # text for those codes already establishes "fund is good, this
+        # is an allocation move", so the positive CSV text reinforces
+        # rather than contradicts.
+        fund_reason = r.rejection_reason or r.selection_reason
     elif bought > 0:
         action = "BUY"
         reason = "cap_spill_buy" if r.rank > 1 else "add_to_target"
         amt = bought
-        fund_reason = r.selection_reason
+        fund_reason = r.selection_reason or r.rejection_reason
     else:
         return None
     title, text = get_rationale(reason)
+    # When the STCG brake forced a partial sell, append a one-sentence note
+    # so the customer (and the LLM narrating this) understands *why* the
+    # action is smaller than the full demand. Append-only — reason_code is
+    # unchanged so downstream branching on it still works.
+    if sold > 0 and r.pass1_undersell_due_to_stcg_cap > 0:
+        from common import format_inr_indian  # type: ignore[import-not-found]
+        text = text + STCG_CAP_SUFFIX_TEMPLATE.replace(
+            "{amount}", format_inr_indian(int(r.pass1_undersell_due_to_stcg_cap))
+        )
     return TradeAction(
         isin=r.isin,
         asset_subgroup=r.asset_subgroup,
@@ -245,8 +270,7 @@ def apply(
     funds_to_sell = sum(
         1 for r in rows
         if (r.pass1_sell_amount + r.pass2_sell_amount) > 0
-        and r.is_recommended
-        and r.fund_rating >= EXIT_FLOOR_RATING
+        and not r.exit_flag
     )
     funds_to_exit = sum(1 for r in rows if r.exit_flag and r.present_allocation_inr > 0)
     funds_held = sum(

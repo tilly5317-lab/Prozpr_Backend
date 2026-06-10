@@ -27,6 +27,7 @@ from app.domains.portfolio.models import (  # noqa: F401
 from app.domains.mutual_funds.models import (  # noqa: F401
     enums as mf_enums,
     fund, mf_aa_import, mf_fund_metadata, mf_fund_rating, mf_nav_history,
+    index_tri_history,
     mf_sip_mandate, mf_transaction, mf_allocation_snapshot,
     user_investment_list, user_mf_latest_snapshot,
 )

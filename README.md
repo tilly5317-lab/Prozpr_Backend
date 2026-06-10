@@ -1,4 +1,4 @@
-# Ask Tilly — Backend
+# Ask PI — Backend
 
 FastAPI API on PostgreSQL (SQLAlchemy async). AI behaviour is delegated to the bundled
 `AI_Agents` package via `sys.path` injection; integration lives in `app/services/ai_bridge/`.

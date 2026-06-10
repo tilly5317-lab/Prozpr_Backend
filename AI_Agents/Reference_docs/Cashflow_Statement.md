@@ -1,4 +1,4 @@
-# Ask Tilly · Cashflow & Goal-Planning Thesis
+# Ask PI · Cashflow & Goal-Planning Thesis
 
 *Why we project the way we do — and what the corpus picture is really telling you*
 *Thesis version 1.0 · Internal & client reference · Last updated: May 2026*
@@ -29,7 +29,7 @@ We are a goal-planning approach — not a tax calculator, not a portfolio-constr
 
 ## How a projection is built — at a high level
 
-Every Ask Tilly plan moves through eight deliberate, auditable stages. We can walk through the reasoning behind any of them on demand.
+Every Ask PI plan moves through eight deliberate, auditable stages. We can walk through the reasoning behind any of them on demand.
 
 ### Stage 1 — Profile
 
@@ -81,4 +81,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask Tilly · Cashflow & Goal-Planning Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Cashflow & Goal-Planning Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*

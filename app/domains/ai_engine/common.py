@@ -68,7 +68,7 @@ def build_history_block(history: list[dict[str, str]] | None) -> str:
         return ""
     lines = ["--- Recent Conversation History ---"]
     for msg in history[-6:]:
-        label = "Customer" if msg["role"] == "user" else "Tilly"
+        label = "Customer" if msg["role"] == "user" else "PI"
         lines.append(f"{label}: {msg['content']}")
     lines.append("---")
     return "\n".join(lines)

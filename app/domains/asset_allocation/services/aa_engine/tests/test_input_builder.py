@@ -20,12 +20,16 @@ class ChatOverrideTests(unittest.TestCase):
         user = MagicMock()
         user.date_of_birth = date(1986, 1, 1)
         user.first_name = "Tilly"
-        user.investment_profile = MagicMock(
+        # Canonical household-finance scalars live on personal_finance_profiles.
+        user.personal_finance_profile = MagicMock(
             annual_income=1_000_000.0,
-            net_financial_assets=8_000_000.0,
-            regular_outgoings=50_000.0,
-            investable_assets=8_000_000.0,  # For _pick_total_corpus
-            portfolio_value=0.0,  # For _pick_total_corpus
+            monthly_household_expense=50_000.0,
+            financial_assets=8_000_000.0,  # For pick_total_corpus
+            financial_liabilities_excl_mortgage=0.0,
+            starting_monthly_investment=None,
+        )
+        user.investment_profile = MagicMock(
+            portfolio_value=0.0,  # For pick_total_corpus
             primary_income_from_portfolio=False,
             intergenerational_transfer=False,
             emergency_fund=200_000.0,
