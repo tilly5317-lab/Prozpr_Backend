@@ -15,7 +15,7 @@ from app.domains.mutual_funds.schemas import MfFundMetadataCreate, MfFundMetadat
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
 
 # Only expose schemes in list/search when NAV feed has at least one row in this window.
-_RECENT_NAV_LOOKBACK_DAYS = 30
+_RECENT_NAV_LOOKBACK_DAYS = 15
 
 
 def _has_recent_nav():
