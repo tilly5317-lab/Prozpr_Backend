@@ -59,8 +59,15 @@ def apply(
         extra_headroom = Decimal(0)
 
     # Pass-2: convert ST-bound undersells into actual sells using extra headroom.
+    # Only forced-exit rows are eligible — optional (recommended-trim) rows
+    # are LT-only under the new "STCG only on force-exit" rule, so their
+    # `pass1_undersell_*` reflects a deliberate skip of the ST bucket, not
+    # an STCG-cap block that loss-offset headroom can unlock.
     sold_pass2: dict[str, Decimal] = {r.isin: Decimal(0) for r in rows}
-    candidates = [r for r in rows if r.pass1_undersell_due_to_stcg_cap > 0]
+    candidates = [
+        r for r in rows
+        if r.exit_flag and r.pass1_undersell_due_to_stcg_cap > 0
+    ]
     candidates.sort(
         key=lambda r: (
             float(r.pass1_blocked_stcg_value)

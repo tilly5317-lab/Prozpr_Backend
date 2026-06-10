@@ -5,8 +5,8 @@ Each entry has a short `title` (card header) and a one-sentence `text`
 production customer-view adapter — when `app/services/rebalancing/`
 is built, that module imports this map (or moves it under `app/`).
 
-Tone: matter-of-fact, no jargon, ties each action back to the
-customer's plan/goals, no blame.
+Tone: matter-of-fact, no jargon, no fund-to-goal tying (a single
+recommended fund typically serves multiple buckets), no blame.
 """
 
 from __future__ import annotations
@@ -16,33 +16,40 @@ RATIONALES: dict[str, dict[str, str]] = {
     "add_to_target": {
         "title": "Top up to target",
         "text": (
-            "This fund is currently below its planned share of your portfolio. "
-            "Adding to it keeps your investments aligned with the allocation "
-            "we've recommended for your goals."
+            "This fund is currently below its planned share. Adding to it keeps "
+            "your investments aligned with our recommendation."
         ),
     },
     "cap_spill_buy": {
         "title": "Diversifying via alternate fund",
         "text": (
             "Your top-ranked fund in this category has reached its per-fund "
-            "concentration limit. We're routing the additional amount to the "
-            "next-ranked fund in the same category to maintain diversification."
+            "concentration limit. We're routing the additional amount to our "
+            "next top-ranked fund in the same category to maintain diversification."
         ),
     },
     "trim_over_target": {
         "title": "Trim back to target",
         "text": (
-            "This fund is currently above its planned share of your portfolio. "
-            "Trimming brings the allocation back in line with the recommended "
-            "plan for your goals."
+            "This is a fund we recommend — it's just above its planned share. "
+            "Only the long-held portion is being trimmed to bring the allocation "
+            "back to the recommended level and keep the tax cost minimal."
+        ),
+    },
+    "migrate_neutral_to_recommended": {
+        "title": "Migrate to recommended fund",
+        "text": (
+            "This fund isn't in your recommended set, but the long-held portion "
+            "can be moved tax-efficiently. We're shifting that portion into your "
+            "recommended pick. The recently-bought portion stays put to avoid "
+            "short-term capital gains tax."
         ),
     },
     "exit_bad_fund": {
-        "title": "Exit — not in recommended list",
+        "title": "Exit — flagged for removal",
         "text": (
-            "This fund is not part of our current recommended portfolio. "
-            "Exiting frees the capital to be redeployed into funds aligned "
-            "with your plan."
+            "Our analysts have specifically flagged this fund for exit. The full "
+            "holding is being redeemed and redeployed into your recommended set."
         ),
     },
     "exit_low_rated": {
@@ -64,6 +71,18 @@ RATIONALES: dict[str, dict[str, str]] = {
         ),
     },
 }
+
+
+# Suffix appended to `reason_text` when a sell was partially blocked by the
+# STCG offset budget (the default brake in place since 2026-06-03). Lets the
+# customer see *why* an exit/trim is partial and what to expect next.
+# `{amount}` is substituted by step6_presentation with the rupee value of
+# the held-back short-term portion.
+STCG_CAP_SUFFIX_TEMPLATE: str = (
+    " We've held back {amount} of the short-term portion this round to "
+    "avoid short-term capital-gains tax (STCG); this portion will be sold "
+    "once it ages past the short-term threshold."
+)
 
 
 def get_rationale(reason_code: str) -> tuple[str, str]:

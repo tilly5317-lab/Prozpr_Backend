@@ -18,6 +18,10 @@ from app.domains.mutual_funds.models.enums import PortfolioSnapshotKind
 from app.domains.mutual_funds.models.mf_allocation_snapshot import PortfolioAllocationSnapshot
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
 from app.domains.ingestion.schemas.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
+from app.domains.mutual_funds.services.scheme_classification import (
+    classify_holding,
+    resolve_asset_bucket,
+)
 from app.domains.portfolio.schemas.portfolio import (
     NetworthJobStatusResponse,
     PortfolioAllocationBulkUpdate,
@@ -93,6 +97,36 @@ async def get_recommended_plan(
     )
 
 
+def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingResponse:
+    """Serialize a holding with the canonical 3-bucket asset_class + SEBI sub_category.
+
+    asset_class uses the same vocabulary as PortfolioAllocation
+    (``Equity`` / ``Debt`` / ``Others``) — the donut, holdings list, and target
+    view all agree. Bucket is recomputed at response time via the canonical
+    classifier; per-holding bucket isn't persisted.
+
+    Resolution order:
+      1. ``classify_holding(sub_category, name)`` — SEBI sub_category lookup
+         plus the ``arbitrage_plus_income`` name override.
+      2. Direct equity shortcut — non-MF holdings with ``instrument_type``
+         in {"equity", "stock", "share"} are equities by definition.
+      3. Fall back to ``resolve_asset_bucket(sub_category | category, name)`` —
+         name-based last-resort for funds whose metadata is absent.
+    """
+    md = holding.fund_metadata
+    sebi_sub = md.sub_category if md else None
+    sebi_cat = md.category if md else None
+    asset_class, _ = classify_holding(sebi_sub, holding.instrument_name)
+    if asset_class is None:
+        itype = (holding.instrument_type or "").strip().lower()
+        if itype in ("equity", "stock", "share"):
+            asset_class = "Equity"
+        else:
+            asset_class = resolve_asset_bucket(sebi_sub or sebi_cat, holding.instrument_name)
+    base = PortfolioHoldingResponse.model_validate(holding)
+    return base.model_copy(update={"asset_class": asset_class, "sub_category": sebi_sub})
+
+
 @router.get("/", response_model=PortfolioDetailResponse)
 async def get_portfolio(
     db: AsyncSession = Depends(get_db),
@@ -110,7 +144,7 @@ async def get_portfolio(
         select(Portfolio)
         .options(
             selectinload(Portfolio.allocations),
-            selectinload(Portfolio.holdings),
+            selectinload(Portfolio.holdings).selectinload(PortfolioHolding.fund_metadata),
         )
         .where(Portfolio.user_id == current_user.id, Portfolio.is_primary == True)
     )
@@ -128,7 +162,7 @@ async def get_portfolio(
     return PortfolioDetailResponse(
         **PortfolioResponse.model_validate(portfolio).model_dump(),
         allocations=[PortfolioAllocationResponse.model_validate(a) for a in portfolio.allocations],
-        holdings=[PortfolioHoldingResponse.model_validate(h) for h in portfolio.holdings],
+        holdings=[_build_holding_response(h) for h in portfolio.holdings],
     )
 
 
@@ -186,9 +220,11 @@ async def get_holdings(
 ):
     portfolio = await get_or_create_primary_portfolio(db, current_user.id)
     result = await db.execute(
-        select(PortfolioHolding).where(PortfolioHolding.portfolio_id == portfolio.id)
+        select(PortfolioHolding)
+        .options(selectinload(PortfolioHolding.fund_metadata))
+        .where(PortfolioHolding.portfolio_id == portfolio.id)
     )
-    return [PortfolioHoldingResponse.model_validate(h) for h in result.scalars().all()]
+    return [_build_holding_response(h) for h in result.scalars().all()]
 
 
 @router.get("/history", response_model=list[PortfolioHistoryResponse])

@@ -17,6 +17,7 @@ from decimal import Decimal
 
 # Per-fund cap lookup moved to tables.cap_pct_for; config constants are still
 # read inside that helper.
+from ..config import FORCE_EXIT_RANK
 from ..models import (
     FundRowAfterStep1,
     FundRowInput,
@@ -49,8 +50,14 @@ def apply(
     unrebalanced_total = Decimal(0)
 
     for sg, group in by_sg.items():
-        ranked = sorted([r for r in group if r.rank >= 1], key=lambda r: r.rank)
-        bad = [r for r in group if r.rank == 0]
+        ranked = sorted(
+            [r for r in group if 1 <= r.rank < FORCE_EXIT_RANK],
+            key=lambda r: r.rank,
+        )
+        # Off-list held funds: rank=0 → NEUTRAL (frozen at present);
+        # rank=FORCE_EXIT_RANK → force-exit (final target=0).
+        neutral = [r for r in group if r.rank == 0]
+        force_exit = [r for r in group if r.rank == FORCE_EXIT_RANK]
 
         spill_in = [Decimal(0)] * len(ranked)
 
@@ -94,7 +101,24 @@ def apply(
                 )
             )
 
-        for r in bad:
+        # NEUTRAL rows preserve `target_amount_pre_cap` (= present holding,
+        # set by the input builder) so step2 produces `diff = 0` and the
+        # holding is left untouched.
+        for r in neutral:
+            out.append(
+                FundRowAfterStep1(
+                    **r.model_dump(),
+                    max_pct=cap_pct_for(r.asset_subgroup),
+                    target_pre_cap_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
+                    target_own_capped_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
+                    final_target_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
+                    final_target_amount=r.target_amount_pre_cap,
+                )
+            )
+
+        # Force-exit rows always emit final_target = 0; step2 sees diff =
+        # -present and exit_flag = True, step4 fully liquidates them.
+        for r in force_exit:
             out.append(
                 FundRowAfterStep1(
                     **r.model_dump(),

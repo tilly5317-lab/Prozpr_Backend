@@ -23,9 +23,13 @@ from app.domains.cashflow.schemas.outputs import (
     MonthlyCashflowRowSchema,
     PlanSummarySchema,
 )
+from app.domains.cashflow.schemas.readiness import CashflowReadinessResponse
 from app.domains.cashflow.services.cashflow_persist_service import (
     get_latest_plan_run,
     persist_plan_run,
+)
+from app.domains.cashflow.services.goal_planning_engine.readiness import (
+    evaluate_cashflow_readiness,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +81,26 @@ def _serialize_plan_run(run) -> CashflowPlanRunDetailResponse:
     )
 
 
+def _raise_for_input_error(err: ValueError) -> None:
+    """Translate input-builder gate errors into a 422 the frontend can act on."""
+    msg = str(err)
+    if msg == "missing_date_of_birth":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Date of birth is required for the cashflow projection. Please complete your profile.",
+        )
+    if msg.startswith("missing_required_inputs:"):
+        keys = [k for k in msg.split(":", 1)[1].split(",") if k]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Complete the required cashflow inputs to run goal planning.",
+                "missing": keys,
+            },
+        )
+    raise err
+
+
 async def _compute_and_persist(db: AsyncSession, user: User) -> CashflowPlanRunDetailResponse:
     """Run the cashflow engine and persist the result."""
     from app.domains.cashflow.services.cashflow_compute_service import run_cashflow_projection_for_user
@@ -105,14 +129,18 @@ async def get_latest_cashflow(
         try:
             return await _compute_and_persist(db, user)
         except ValueError as e:
-            if str(e) == "missing_date_of_birth":
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Date of birth is required for cashflow projection. Please complete your profile.",
-                )
-            raise
+            _raise_for_input_error(e)
 
     return _serialize_plan_run(existing)
+
+
+@router.get("/readiness", response_model=CashflowReadinessResponse)
+async def get_cashflow_readiness(
+    current_user: CurrentUser = Depends(get_effective_user),
+    user: User = Depends(get_ai_user_context),
+):
+    """Report which cashflow inputs are present vs. still required from the user."""
+    return CashflowReadinessResponse(**evaluate_cashflow_readiness(user))
 
 
 @router.post("/compute", response_model=CashflowPlanRunDetailResponse)
@@ -125,9 +153,4 @@ async def compute_cashflow(
     try:
         return await _compute_and_persist(db, user)
     except ValueError as e:
-        if str(e) == "missing_date_of_birth":
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Date of birth is required for cashflow projection. Please complete your profile.",
-            )
-        raise
+        _raise_for_input_error(e)

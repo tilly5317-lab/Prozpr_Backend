@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.asset_allocation.services.aa_engine.overrides import effective_param
+from app.domains.profile.services import profile_finance as pf
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
@@ -62,8 +63,9 @@ def _months_between(start: date, end: date) -> int:
     return max(1, months)
 
 
-def pick_total_corpus(inv: Any, portfolios: List[Any]) -> float:
-    investable = _f(inv, "investable_assets")
+def pick_total_corpus(pfp: Any, inv: Any, portfolios: List[Any]) -> float:
+    # Canonical investable assets live on personal_finance_profiles.
+    investable = pf.financial_assets_pfp(pfp)
     portfolio_value = _f(inv, "portfolio_value")
     primary_value = 0.0
     if portfolios:
@@ -123,6 +125,7 @@ def build_goal_allocation_input_for_user(
 
     era = getattr(user, "effective_risk_assessment", None)
     inv = getattr(user, "investment_profile", None)
+    pfp = getattr(user, "personal_finance_profile", None)
     rp = getattr(user, "risk_profile", None)
     tp = getattr(user, "tax_profile", None)
     financial_goals = list(getattr(user, "financial_goals", []) or [])
@@ -173,9 +176,10 @@ def build_goal_allocation_input_for_user(
         age = _DEFAULT_AGE_WHEN_DOB_MISSING
     else:
         age = _age_from_dob(dob)
-    annual_income = _f(inv, "annual_income")
-    monthly_household_expense = _f(inv, "regular_outgoings")
-    total_corpus = pick_total_corpus(inv, portfolios)
+    # Canonical household-finance scalars live on personal_finance_profiles.
+    annual_income = pf.annual_income_pfp(pfp)
+    monthly_household_expense = pf.monthly_household_expense_pfp(pfp)
+    total_corpus = pick_total_corpus(pfp, inv, portfolios)
 
     if tp is not None and getattr(tp, "income_tax_rate", None) is not None:
         effective_tax_rate = float(tp.income_tax_rate)

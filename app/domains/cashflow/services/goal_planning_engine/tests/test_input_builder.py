@@ -135,7 +135,8 @@ def test_skips_retirement_inactive_and_past_goals():
     assert debug["active_goal_count"] == 1
 
 
-def test_missing_tax_profile_emits_validation_issue_and_default():
+def test_missing_tax_rate_blocks_engine():
+    """No tax rate anywhere → the engine refuses rather than defaulting to 25%."""
     pfp = SimpleNamespace(
         annual_income=1_000_000,
         monthly_household_expense=30_000,
@@ -144,10 +145,28 @@ def test_missing_tax_profile_emits_validation_issue_and_default():
         effective_tax_rate=None,
     )
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), tax=None)
-    inp, debug = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
-    assert inp.profile.effective_tax_rate == 0.25
-    assert any("tax rate" in v for v in debug["validation_issues"])
-    assert "tax_profile_missing" in debug["defaults_applied"]
+    with pytest.raises(ValueError, match="missing_required_inputs:.*effective_tax_rate"):
+        build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+
+
+def test_missing_finance_profile_blocks_engine():
+    """No personal finance profile → engine refuses, never zero-fills income/assets."""
+    user = _user(pfp=None, inv=SimpleNamespace(retirement_age=60))
+    with pytest.raises(ValueError, match="missing_required_inputs"):
+        build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+
+
+def test_missing_retirement_age_blocks_engine():
+    pfp = SimpleNamespace(
+        annual_income=1_000_000,
+        monthly_household_expense=30_000,
+        financial_assets=0,
+        financial_liabilities_excl_mortgage=0,
+        effective_tax_rate=0.25,
+    )
+    user = _user(pfp=pfp, inv=None)
+    with pytest.raises(ValueError, match="missing_required_inputs:.*retirement_age"):
+        build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
 
 
 def test_home_purchase_emits_property_validation_issue():

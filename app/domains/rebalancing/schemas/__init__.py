@@ -132,39 +132,24 @@ class RebalancingRunDetailResponse(BaseModel):
     warnings: List[RebalancingWarningSchema] = []
 
 
-# ── Readiness gate ──────────────────────────────────────────────────────
-
-
-class RebalancingReadinessField(BaseModel):
-    """One input the rebalancing engine needs, mirroring the cashflow gate."""
-
-    key: str
-    label: str
-    group: str
-    kind: str  # "date" | "money" | "int" | "percent"
-    unit: Optional[str] = None
-    help: Optional[str] = None
-    optional: bool = False
-    present: bool = False
-    value: Optional[object] = None
-
-
-class RebalancingReadinessResponse(BaseModel):
-    """Whether the user has everything the rebalancing engine requires.
-
-    ``ready`` is true only when every required field is present *and* the user
-    has mutual-fund holdings. ``has_holdings`` is surfaced separately so the UI
-    can show a "connect your portfolio" CTA rather than a form field.
-    """
-
-    ready: bool
-    missing: List[str]
-    fields: List[RebalancingReadinessField]
-    has_holdings: bool
-
-
 # ── Request schemas ─────────────────────────────────────────────────────
 
 
 class RebalancingStatusUpdate(BaseModel):
     status: str
+
+
+# Readiness gate schemas live in their own module; re-export for convenience so
+# routers can import everything from ``app.domains.rebalancing.schemas``.
+from app.domains.rebalancing.schemas.readiness import (  # noqa: E402
+    RebalancingReadinessField,
+    RebalancingReadinessResponse,
+)
+
+__all__ = [
+    "RebalancingRunListItem",
+    "RebalancingRunDetailResponse",
+    "RebalancingStatusUpdate",
+    "RebalancingReadinessField",
+    "RebalancingReadinessResponse",
+]

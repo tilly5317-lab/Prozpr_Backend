@@ -88,6 +88,16 @@ def compute_funding(
 
     base_year = ctx.current_fy_year
 
+    # The current FY is a partial stub whenever today is past its April-1 start.
+    # For that stub the plan's starting corpus is anchored at today's portfolio
+    # plus the investments committed over the FY's remaining months — with no
+    # speculative return earned during the stub. Returns begin compounding from
+    # the first full FY. When today IS the FY start (a genuinely full first year)
+    # nothing is zeroed, so a full year of growth is not lost.
+    partial_current_fy = (
+        ctx.latest_update_date > date(ctx.current_fy_year - 1, 4, 1)
+    )
+
     for cf in monthly_cashflow:
         m = cf.month_end_date
         ym = (m.year, m.month)
@@ -114,7 +124,11 @@ def compute_funding(
             roi_annual = ctx.mid_term_roi
         else:
             roi_annual = ctx.long_term_roi
-        roi = max(corpus_opening * ((1 + roi_annual) ** (1/12) - 1), 0)
+        if partial_current_fy and fy_for_date(m) == ctx.current_fy_year:
+            # Stub period: establish the starting corpus, don't grow it.
+            roi = 0.0
+        else:
+            roi = max(corpus_opening * ((1 + roi_annual) ** (1/12) - 1), 0)
 
         # One-off inflow this month (sourced from cf row — populated by project_cashflow).
         oin = cf.one_off_inflow
