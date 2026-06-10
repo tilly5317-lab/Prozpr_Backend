@@ -26,6 +26,11 @@ from app.domains.mutual_funds.schemas.mfapi import (
     MfapiRefreshRequest,
 )
 from app.domains.ingestion.services.cams_cas_ingest import CamsPdfParseError, ingest_cams_pdf
+from app.domains.portfolio.services.networth_history_service import (
+    create_job,
+    has_running_job,
+    run_networth_backfill,
+)
 from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
 from app.domains.mutual_funds.services.mfapi_ingest_service import (
     IngestMode,
@@ -49,6 +54,7 @@ _MAX_CAS_PDF_BYTES = 20 * 1024 * 1024
 
 @router.post("/cams-pdf", response_model=CamsPdfImportResponse)
 async def ingest_cams_statement_pdf(
+    background: BackgroundTasks,
     file: UploadFile = File(..., description="CAMS / KFintech Consolidated Account Statement PDF"),
     password: str = Form(
         ...,
@@ -107,6 +113,18 @@ async def ingest_cams_statement_pdf(
 
     await maybe_recalculate_effective_risk(db, current_user.id, "cams_pdf_ingest")
     await db.commit()
+
+    # Auto-build the real net-worth history (NAV fetch + daily series) so the
+    # dashboard chart populates without the user tapping "Fetch Net Worth History".
+    # Idempotent: skipped if a build is already pending/running. Best-effort —
+    # never fail the upload because the background kickoff couldn't be queued.
+    if result.status != "FAILED" and result.mf_transactions_inserted > 0:
+        try:
+            if await has_running_job(db, current_user.id) is None:
+                job = await create_job(db, current_user.id)
+                background.add_task(run_networth_backfill, current_user.id, job.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not auto-start net-worth backfill after CAS upload")
 
     if result.status == "FAILED":
         message = (

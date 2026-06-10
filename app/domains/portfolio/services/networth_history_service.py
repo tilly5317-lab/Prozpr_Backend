@@ -38,6 +38,7 @@ from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.nav_history_service import ensure_nav_history_for_chart
 from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
 from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
+from app.domains.portfolio.services.portfolio_service import revalue_primary_portfolio_at_latest_nav
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,12 @@ async def compute_user_networth_history(
                     units += t_units
                     invested += t_amt
                 elif t.transaction_type in _UNITS_OUT_TYPES:
+                    # Reduce the cost basis by the *cost* of the units sold (average-cost
+                    # method), not by the redemption proceeds — otherwise a profitable
+                    # sale would wrongly drag invested below zero and corrupt gain%.
+                    if units > 1e-9:
+                        invested *= max(0.0, units - t_units) / units
                     units -= t_units
-                    invested -= t_amt
                 txn_i += 1
 
             # Carry the latest published NAV at/behind this day forward.
@@ -371,23 +376,29 @@ async def _latest_nav_on_or_before(
     ).scalar()
 
 
-async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
-    """Upsert just today's net-worth point for one user (cheap daily path).
+async def compute_today_networth(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Optional[tuple[float, float, float]]:
+    """Today's ``(total_value, total_invested, gain_pct)`` from the ledger × latest NAV.
 
-    Uses the latest stored NAV per scheme (the 00:05 IST job has already refreshed
-    it by the time this runs), so it does not reach out to mfapi.in.
+    Single source of truth for "today's net worth": held units per scheme valued at
+    the most recent stored NAV (carried forward, no external fetch). Cost basis uses
+    the average-cost method so a profitable redemption can't push invested negative.
+    Returns ``None`` when the user has no transactions.
     """
     txns = list(
         (
             await db.execute(
-                select(MfTransaction).where(MfTransaction.user_id == user_id)
+                select(MfTransaction)
+                .where(MfTransaction.user_id == user_id)
+                .order_by(MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc())
             )
         ).scalars().all()
     )
     if not txns:
-        return False
+        return None
 
-    # Running unit balance and net cost basis per scheme across the whole ledger.
+    # Running unit balance and remaining cost basis per scheme, in chronological order.
     units_by: dict[str, float] = {}
     invested_by: dict[str, float] = {}
     for t in txns:
@@ -398,18 +409,21 @@ async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
             units_by[sc] = units_by.get(sc, 0.0) + u
             invested_by[sc] = invested_by.get(sc, 0.0) + amt
         elif t.transaction_type in _UNITS_OUT_TYPES:
-            units_by[sc] = units_by.get(sc, 0.0) - u
-            invested_by[sc] = invested_by.get(sc, 0.0) - amt
+            held = units_by.get(sc, 0.0)
+            if held > 1e-9:
+                # Drop cost basis in proportion to units sold (average-cost method).
+                invested_by[sc] = invested_by.get(sc, 0.0) * max(0.0, held - u) / held
+            units_by[sc] = held - u
 
     today = date.today()
     total_value = 0.0
     total_invested = 0.0
     for scheme_code, units in units_by.items():
         invested = invested_by.get(scheme_code, 0.0)
-        if invested > 0:
-            total_invested += invested
         if units <= 1e-9:
             continue
+        if invested > 0:
+            total_invested += invested
         nav = await _latest_nav_on_or_before(db, scheme_code, today)
         if nav is not None:
             total_value += units * float(nav)
@@ -421,7 +435,21 @@ async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
         if total_invested > 0
         else 0.0
     )
+    return total_value, total_invested, gain_pct
 
+
+async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Upsert just today's net-worth point for one user (cheap daily path).
+
+    Uses the latest stored NAV per scheme (the 00:05 IST job has already refreshed
+    it by the time this runs), so it does not reach out to mfapi.in.
+    """
+    computed = await compute_today_networth(db, user_id)
+    if computed is None:
+        return False
+    total_value, total_invested, gain_pct = computed
+
+    today = date.today()
     row = {
         "id": uuid.uuid4(),
         "user_id": user_id,
@@ -475,6 +503,9 @@ async def run_daily_networth_job() -> None:
                     try:
                         if await append_today_networth(db, user_id):
                             done += 1
+                        # Keep the portfolio headline (total_value / gain) in step with
+                        # today's NAV, so chat / family views don't show a stale figure.
+                        await revalue_primary_portfolio_at_latest_nav(db, user_id)
                     except Exception:  # noqa: BLE001 — never let one user block the rest
                         logger.exception("networth daily job: failed for user %s", user_id)
                 logger.info(
