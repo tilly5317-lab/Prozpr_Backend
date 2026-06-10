@@ -16,11 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
+from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
 from app.domains.rebalancing.models.rebalancing_run import RebalancingRun, RebalancingRunStatus
 from app.domains.rebalancing.schemas import (
+    RebalancingReadinessField,
     RebalancingReadinessResponse,
     RebalancingRunDetailResponse,
     RebalancingRunListItem,
@@ -51,21 +52,50 @@ async def list_runs(
 async def get_readiness(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
-    user: User = Depends(get_ai_user_context),
 ):
-    """Report which rebalancing inputs are present vs. still required.
+    """Inputs the rebalancing engine requires before it can run.
 
-    Defined BEFORE ``/{run_id}`` so the literal path isn't parsed as a UUID.
+    Mirrors the cashflow readiness gate. The engine hard-blocks on two things
+    (see ``compute_rebalancing_result``): the user's **date of birth** (anchors
+    tax aging + risk) and the presence of **mutual-fund holdings**. The UI uses
+    this to show an unlock form / connect-portfolio CTA instead of firing the
+    compute call and getting a blocking message back.
+
+    NOTE: declared *before* ``/{run_id}`` so the literal path isn't parsed as a
+    run UUID (which previously made this 422).
     """
+    user = (
+        await db.execute(select(User).where(User.id == current_user.id))
+    ).scalar_one_or_none()
+    dob = getattr(user, "date_of_birth", None)
+    dob_present = dob is not None
+
     has_holdings = (
         await db.execute(
-            select(MfTransaction.id)
-            .where(MfTransaction.user_id == current_user.id)
-            .limit(1)
+            select(MfTransaction.id).where(MfTransaction.user_id == current_user.id).limit(1)
         )
     ).first() is not None
+
+    fields = [
+        RebalancingReadinessField(
+            key="date_of_birth",
+            label="Date of birth",
+            group="About you",
+            kind="date",
+            help="Anchors your tax aging (LTCG/STCG) and risk profile.",
+            optional=False,
+            present=dob_present,
+            value=dob.isoformat() if dob_present else None,
+        )
+    ]
+    missing = [f.key for f in fields if not f.optional and not f.present]
+    ready = not missing and has_holdings
+
     return RebalancingReadinessResponse(
-        **evaluate_rebalancing_readiness(user, has_holdings=has_holdings)
+        ready=ready,
+        missing=missing,
+        fields=fields,
+        has_holdings=has_holdings,
     )
 
 
