@@ -27,9 +27,6 @@ from app.domains.rebalancing.schemas import (
     RebalancingRunListItem,
     RebalancingStatusUpdate,
 )
-from app.domains.rebalancing.services.rebal_engine.readiness import (
-    evaluate_rebalancing_readiness,
-)
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
 
