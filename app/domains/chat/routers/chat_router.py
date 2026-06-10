@@ -23,10 +23,12 @@ from app.domains.chat.schemas.chat import (
     ChatSessionCreate,
     ChatSessionDetailResponse,
     ChatSessionResponse,
+    ChatSessionUpdate,
     UploadStatementResponse,
 )
 from app.domains.ai_engine import ChatBrain, ChatTurnInput
 from app.domains.chat.services.chat_context import load_conversation_history
+from app.domains.chat.services.chat_title_service import generate_chat_title
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -201,6 +203,16 @@ async def send_message(
     )
     db.add(assistant_msg)
 
+    # First-turn auto-title: name the session by what was discussed. Only on the
+    # very first message (empty history) and while the title is still a default,
+    # so it stays stable for the rest of the conversation. Best-effort — the
+    # generator never raises (deterministic fallback), and on a session detached
+    # by a brain rollback this simply won't persist, which is fine.
+    if not conversation_history and (session.title or "") in (
+        "", "New Chat", "New conversation", "Pi Chat",
+    ):
+        session.title = await generate_chat_title(payload.content, brain_result.intent)
+
     await db.commit()
     await db.refresh(user_msg)
     await db.refresh(assistant_msg)
@@ -217,6 +229,22 @@ async def send_message(
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
     )
+
+
+@router.patch("/sessions/{session_id}", response_model=ChatSessionResponse)
+async def update_session(
+    session_id: uuid.UUID,
+    payload: ChatSessionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Rename a chat session. Once renamed, first-turn auto-titling won't run
+    (the title is no longer a default), so a manual name is never overwritten."""
+    session = await _get_user_session(session_id, db, current_user.id)
+    session.title = payload.title.strip()
+    await db.commit()
+    await db.refresh(session)
+    return ChatSessionResponse.model_validate(session)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

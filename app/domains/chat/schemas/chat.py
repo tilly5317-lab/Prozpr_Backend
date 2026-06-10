@@ -17,6 +17,12 @@ class ChatSessionCreate(BaseModel):
     title: Optional[str] = None
 
 
+class ChatSessionUpdate(BaseModel):
+    """Patch a session's user-editable fields (currently just the title)."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+
+
 class ChatSessionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
