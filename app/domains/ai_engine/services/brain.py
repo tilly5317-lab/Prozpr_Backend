@@ -142,6 +142,18 @@ class ChatBrain:
                     selected.__name__, _FLOW_TIMEOUT_S, sid,
                 )
                 flow.append(f"{selected.__name__} timed out — returning fallback")
+                # The cancelled flow may have been mid-statement on the shared
+                # session, leaving its transaction invalidated (pending rollback).
+                # Roll back — exactly as the general except-handler below does —
+                # so _finalize's telemetry write and the router's final commit
+                # don't fail with PendingRollbackError.
+                if db is not None:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        logger.exception(
+                            "ChatBrain failed to rollback after flow timeout session=%s", sid,
+                        )
                 return await self._finalize(
                     text=_INTENT_TIMEOUT_MESSAGE, intent=intent,
                     flow=flow, t0=t_all, db=db, uid=uid, sid=sid,
