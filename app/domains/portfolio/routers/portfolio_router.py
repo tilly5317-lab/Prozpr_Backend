@@ -6,6 +6,8 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +22,6 @@ from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocatio
 from app.domains.ingestion.schemas.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
 from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
-    resolve_asset_bucket,
 )
 from app.domains.portfolio.schemas.portfolio import (
     NetworthJobStatusResponse,
@@ -97,34 +98,85 @@ async def get_recommended_plan(
     )
 
 
-def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingResponse:
-    """Serialize a holding with the canonical 3-bucket asset_class + SEBI sub_category.
+def _holding_asset_class(holding: PortfolioHolding) -> str:
+    """Canonical 3-bucket asset_class (``Equity`` / ``Debt`` / ``Others``) for one holding.
 
-    asset_class uses the same vocabulary as PortfolioAllocation
-    (``Equity`` / ``Debt`` / ``Others``) — the donut, holdings list, and target
-    view all agree. Bucket is recomputed at response time via the canonical
-    classifier; per-holding bucket isn't persisted.
+    THE single classification path for a holding — used both for the holdings
+    list (``_build_holding_response``) and the current-allocation donut
+    (``_derive_allocations``) so the two can never disagree.
 
     Resolution order:
       1. ``classify_holding(sub_category, name)`` — SEBI sub_category lookup
          plus the ``arbitrage_plus_income`` name override.
       2. Direct equity shortcut — non-MF holdings with ``instrument_type``
          in {"equity", "stock", "share"} are equities by definition.
-      3. Fall back to ``resolve_asset_bucket(sub_category | category, name)`` —
-         name-based last-resort for funds whose metadata is absent.
+      3. Catch-all → ``Others``. Anything we can't confidently place (no SEBI
+         sub_category, or an unrecognized one) goes to the Others bucket rather
+         than being name-guessed into a wrong Equity/Debt.
     """
     md = holding.fund_metadata
     sebi_sub = md.sub_category if md else None
-    sebi_cat = md.category if md else None
     asset_class, _ = classify_holding(sebi_sub, holding.instrument_name)
     if asset_class is None:
         itype = (holding.instrument_type or "").strip().lower()
-        if itype in ("equity", "stock", "share"):
-            asset_class = "Equity"
-        else:
-            asset_class = resolve_asset_bucket(sebi_sub or sebi_cat, holding.instrument_name)
+        asset_class = "Equity" if itype in ("equity", "stock", "share") else "Others"
+    return asset_class
+
+
+def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingResponse:
+    """Serialize a holding with the canonical asset_class + SEBI sub_category."""
+    md = holding.fund_metadata
+    sebi_sub = md.sub_category if md else None
+    asset_class = _holding_asset_class(holding)
     base = PortfolioHoldingResponse.model_validate(holding)
     return base.model_copy(update={"asset_class": asset_class, "sub_category": sebi_sub})
+
+
+# Canonical legend order for the current-allocation donut.
+_ALLOC_ORDER: dict[str, int] = {"Equity": 0, "Debt": 1, "Others": 2, "Cash": 3}
+
+
+def _derive_allocations(
+    portfolio_id: uuid.UUID,
+    holdings: list[PortfolioHolding],
+    persisted: list[PortfolioAllocation],
+) -> list[PortfolioAllocationResponse]:
+    """Derive the current-allocation breakdown LIVE from holdings.
+
+    The donut and the holdings list must agree, so both come from one place:
+    each holding's canonical ``_holding_asset_class`` summed at today's
+    ``current_value``. This replaces the stale, ingest-time
+    ``portfolio_allocations`` rows whose mix was frozen at statement date and
+    classified by scheme name only (no SEBI sub_category yet).
+
+    Non-holding assets — i.e. a SimBanks bank ``Cash`` balance — have no holding
+    to sum, so any persisted ``Cash`` row is carried forward as-is.
+    """
+    amounts: dict[str, float] = {}
+    for h in holdings:
+        ac = _holding_asset_class(h)
+        amounts[ac] = amounts.get(ac, 0.0) + float(h.current_value or 0)
+    # Carry forward bank cash — the only persisted bucket with no holding behind it.
+    for a in persisted:
+        if (a.asset_class or "").strip().lower() == "cash":
+            amounts["Cash"] = amounts.get("Cash", 0.0) + float(a.amount or 0)
+
+    total = sum(amounts.values())
+    if total <= 0:
+        return []
+    rows = [
+        PortfolioAllocationResponse(
+            id=uuid.uuid5(uuid.NAMESPACE_OID, f"alloc:{portfolio_id}:{ac}"),
+            asset_class=ac,
+            allocation_percentage=round(100.0 * amt / total, 2),
+            amount=round(amt, 2),
+            performance_percentage=None,
+        )
+        for ac, amt in amounts.items()
+        if amt > 0
+    ]
+    rows.sort(key=lambda r: _ALLOC_ORDER.get(r.asset_class, 99))
+    return rows
 
 
 @router.get("/", response_model=PortfolioDetailResponse)
@@ -161,7 +213,9 @@ async def get_portfolio(
 
     return PortfolioDetailResponse(
         **PortfolioResponse.model_validate(portfolio).model_dump(),
-        allocations=[PortfolioAllocationResponse.model_validate(a) for a in portfolio.allocations],
+        allocations=_derive_allocations(
+            portfolio.id, list(portfolio.holdings), list(portfolio.allocations)
+        ),
         holdings=[_build_holding_response(h) for h in portfolio.holdings],
     )
 
