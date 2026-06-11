@@ -67,11 +67,13 @@ async def build_holdings_ledger(
         if txn.transaction_type == MfTransactionType.BUY:
             by_scheme[txn.scheme_code].append(Lot(
                 acquisition_date=txn.transaction_date,
-                units=Decimal(str(txn.units)),
+                units=abs(Decimal(str(txn.units))),
                 acquisition_nav=Decimal(str(txn.nav)),
             ))
         elif txn.transaction_type == MfTransactionType.SELL:
-            remaining = Decimal(str(txn.units))
+            # CAS stores redemption units as negative; use the magnitude or the
+            # ``while remaining > 0`` FIFO loop never runs and sold lots stay on the books.
+            remaining = abs(Decimal(str(txn.units)))
             lots = by_scheme[txn.scheme_code]
             while remaining > 0 and lots:
                 head = lots[0]

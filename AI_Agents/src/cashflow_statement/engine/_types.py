@@ -23,7 +23,9 @@ class RunContext(BaseModel):
     current_fy_year: int
     near_term_end: date
     medium_term_end: date
-    horizon_cap_years: int = 80
+    # Max FY-years the projection spans from today. Sized so a goal dragged to
+    # the timeline's far end (currentYear + 100) still produces corpus bars.
+    horizon_cap_years: int = 100
 
     # Resolved retirement (populated by .with_retirement())
     retirement_date_considered: date | None = None

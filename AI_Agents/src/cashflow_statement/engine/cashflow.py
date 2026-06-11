@@ -13,7 +13,7 @@ def compute_horizon_years(
     retirement_date: date,
     latest_update_date: date,
     last_goal_date: date | None = None,
-    cap: int = 80,
+    cap: int = 100,
 ) -> int:
     """Horizon in FY years — projection ends at the later of the retirement FY
     and the last-goal FY.
