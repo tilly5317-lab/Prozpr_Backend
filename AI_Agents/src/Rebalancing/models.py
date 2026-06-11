@@ -144,14 +144,18 @@ class RebalancingComputeRequest(BaseModel):
     # again as the pass-2 offset).
     #
     #   * stcg_offset_budget_inr — pass-1 cap (step4) on how much STCG may be
-    #     realised without tax cost; None = no STCG cap applied.
+    #     realised in this run. Default Decimal(0) = strict brake (no STCG-
+    #     incurring sells in pass-1 unless a positive override is set).
+    #     None is reserved for INTERNAL counterfactual use (`_sell_from_row`
+    #     with stcg_remaining=None disables the cap entirely); production
+    #     callers should never pass None.
     #   * carryforward_st_loss_inr — brought-forward SHORT-term capital loss;
     #     offsets realised STCG in the step5 pass-2 top-up.
     #   * carryforward_lt_loss_inr — brought-forward LONG-term capital loss. Per
     #     Indian IT rules LT losses offset only LTCG, never STCG, so this is NOT
     #     used in the STCG offset. LTCG-loss set-off is not yet modeled (LTCG tax
     #     uses the annual exemption only), so this field is currently reserved.
-    stcg_offset_budget_inr: Optional[Decimal] = None
+    stcg_offset_budget_inr: Optional[Decimal] = Decimal(0)
     carryforward_st_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
     carryforward_lt_loss_inr: Decimal = Field(default=Decimal(0), ge=0)
 
@@ -231,10 +235,10 @@ class TradeAction(BaseModel):
     reason_code: str                 # machine — stable, analytics
     reason_title: str                # customer card header
     reason_text: str                 # customer card body, one sentence
-    # Per-fund rationale from the ranking CSV. BUY → selection_reason of the
-    # picked fund; SELL/EXIT of a BAD fund → joined rejection reasons.
-    # None when no fund-specific reason applies (e.g., a trim of a recommended
-    # fund — reason_text already covers the "why").
+    # Per-fund rationale from the ranking CSV. BUY or SELL-trim of a
+    # recommended fund → selection_reason; EXIT of a BAD/off-list fund →
+    # joined rejection reasons. None only when no fund-specific reason exists
+    # (e.g. SELL_DIRECT_STOCKS, which isn't a ranked MF).
     fund_reason: Optional[str] = None
 
 

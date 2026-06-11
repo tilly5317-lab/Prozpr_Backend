@@ -193,6 +193,13 @@ async def apply_postgres_schema_patches() -> None:
                 "ON mf_fund_metadata (isin) WHERE isin IS NOT NULL"
             )
         )
+        # Perf: the rebalancing input builder looks NAV + metadata up by
+        # ``mf_nav_history.isin`` (WHERE isin IN (...)). That column was
+        # unindexed, forcing a sequential scan over the full daily-NAV history
+        # on every rebalance. Index it so the lookup is an index scan.
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_mf_nav_history_isin ON mf_nav_history (isin)")
+        )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]

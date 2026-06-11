@@ -73,6 +73,18 @@ RATIONALES: dict[str, dict[str, str]] = {
 }
 
 
+# Suffix appended to `reason_text` when a sell was partially blocked by the
+# STCG offset budget (the default brake in place since 2026-06-03). Lets the
+# customer see *why* an exit/trim is partial and what to expect next.
+# `{amount}` is substituted by step6_presentation with the rupee value of
+# the held-back short-term portion.
+STCG_CAP_SUFFIX_TEMPLATE: str = (
+    " We've held back {amount} of the short-term portion this round to "
+    "avoid short-term capital-gains tax (STCG); this portion will be sold "
+    "once it ages past the short-term threshold."
+)
+
+
 def get_rationale(reason_code: str) -> tuple[str, str]:
     """Return `(title, text)` for a reason_code. Falls back to a humanized
     code + empty text when the code isn't in the map (defensive — should
