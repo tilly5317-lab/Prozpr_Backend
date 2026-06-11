@@ -142,18 +142,24 @@ async def revalue_primary_portfolio_at_latest_nav(
     # Keep the statement cost basis when holdings carry no per-unit cost.
     total_invested = round(invested, 2) if invested > 0 else float(portfolio.total_invested or 0)
 
-    # Authoritative headline = today's net worth from the transaction *ledger* valued
-    # at the latest NAV (the same source the dashboard chart uses, with scheme codes
-    # that reliably match mf_nav_history). The per-holding reprice above can miss funds
-    # whose ticker doesn't resolve to a NAV row; the ledger total doesn't. Use it
-    # whenever it is available (>0) and fall back to the holdings sum otherwise.
-    from app.domains.portfolio.services.networth_history_service import compute_today_networth
+    # Authoritative headline = the holdings roll-up above: each CAS scheme's *closing
+    # balance* re-marked to today's NAV. The CAS closing balance is the broker's own net
+    # of every transaction (including any before the statement window), so it's the
+    # robust "effective units held today" figure and is exactly what the holdings list
+    # shows. The transaction *ledger* (compute_today_networth) is the same number once the
+    # unit signs are handled correctly (it replays mf_transactions); we use it only as a
+    # fallback when there are no priced holdings (e.g. transactions imported without a CAS
+    # holdings snapshot), never to override a non-zero holdings total.
+    if total_value <= 0:
+        from app.domains.portfolio.services.networth_history_service import (
+            compute_today_networth,
+        )
 
-    ledger = await compute_today_networth(db, user_id)
-    if ledger is not None and ledger[0] > 0:
-        total_value, ledger_invested, _ = ledger
-        if ledger_invested > 0:
-            total_invested = ledger_invested
+        ledger = await compute_today_networth(db, user_id)
+        if ledger is not None and ledger[0] > 0:
+            total_value, ledger_invested, _ = ledger
+            if ledger_invested > 0:
+                total_invested = ledger_invested
 
     for h in holdings:
         h.allocation_percentage = (
