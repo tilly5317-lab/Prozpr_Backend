@@ -60,6 +60,14 @@ async def ingest_cams_statement_pdf(
         ...,
         description="Password set when generating the CAS (commonly your PAN in capitals).",
     ),
+    replace_existing: bool = Form(
+        False,
+        description=(
+            "When true, wipe all CAMS-derived data (transactions, MF holdings, allocations, "
+            "net-worth history) for the user before ingesting, so this statement fully "
+            "replaces the old one. Default false appends/merges incrementally."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
@@ -102,6 +110,7 @@ async def ingest_cams_statement_pdf(
             file_bytes=data,
             password=password,
             source_filename=filename or None,
+            replace_existing=replace_existing,
         )
     except CamsPdfParseError as exc:
         raise HTTPException(
