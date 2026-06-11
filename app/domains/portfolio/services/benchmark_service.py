@@ -120,10 +120,12 @@ def build_comparison_series(
     one = timedelta(days=1)
     while d <= as_of:
         for t in by_date.get(d, []):
+            # CAS stores redemption units as a *negative* number — use the magnitude and
+            # let the type decide direction so a SELL can't add units back.
             if t.txn_type in ADD_UNIT_TYPES:
-                units_per_scheme[t.scheme_code] += t.units
+                units_per_scheme[t.scheme_code] += abs(t.units)
             elif t.txn_type in REMOVE_UNIT_TYPES:
-                units_per_scheme[t.scheme_code] -= t.units
+                units_per_scheme[t.scheme_code] -= abs(t.units)
 
             tri_d = tri_lookup(d)
             if t.txn_type in EXTERNAL_IN_TYPES:

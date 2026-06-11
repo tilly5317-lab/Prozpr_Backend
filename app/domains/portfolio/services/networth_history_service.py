@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable, Optional
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -139,7 +139,10 @@ async def compute_user_networth_history(
             # Apply every transaction dated on this day.
             while txn_i < n_txn and items[txn_i].transaction_date == day:
                 t = items[txn_i]
-                t_units = _f(t.units)
+                # CAS stores redemption units as a *negative* number. Take the magnitude
+                # and let the transaction type decide the sign below — otherwise a SELL's
+                # ``units -= (-x)`` would add the units back and inflate the balance.
+                t_units = abs(_f(t.units))
                 t_amt = abs(_f(t.amount))
                 if t.transaction_type in _UNITS_IN_TYPES:
                     units += t_units
@@ -366,10 +369,19 @@ NETWORTH_LOCK_KEY = 7421101
 async def _latest_nav_on_or_before(
     db: AsyncSession, scheme_code: str, on_day: date
 ) -> Optional[float]:
+    # ``scheme_code`` may actually be an ISIN (CAS ingest stores whichever it could
+    # resolve). mf_nav_history is keyed by AMFI scheme code but also carries the ISIN, so
+    # match on either — otherwise ISIN-keyed holdings (e.g. INF666M01LC7) never price.
     return (
         await db.execute(
             select(MfNavHistory.nav)
-            .where(MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date <= on_day)
+            .where(
+                or_(
+                    MfNavHistory.scheme_code == scheme_code,
+                    func.upper(MfNavHistory.isin) == scheme_code.upper(),
+                ),
+                MfNavHistory.nav_date <= on_day,
+            )
             .order_by(MfNavHistory.nav_date.desc())
             .limit(1)
         )
@@ -402,7 +414,10 @@ async def compute_today_networth(
     units_by: dict[str, float] = {}
     invested_by: dict[str, float] = {}
     for t in txns:
-        u = _f(t.units) or 0.0
+        # CAS stores redemption units as a *negative* number. Use the magnitude and let
+        # the transaction type drive the sign — ``held - (-x)`` would otherwise add the
+        # redeemed units back and over-count the balance (the 1.33cr-vs-1.07cr bug).
+        u = abs(_f(t.units) or 0.0)
         amt = abs(_f(t.amount) or 0.0)
         sc = t.scheme_code
         if t.transaction_type in _UNITS_IN_TYPES:
