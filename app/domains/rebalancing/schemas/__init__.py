@@ -6,7 +6,11 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
+
+from app.domains.mutual_funds.services.scheme_classification import (
+    asset_class_for_subgroup,
+)
 
 
 # ── Nested child schemas ────────────────────────────────────────────────
@@ -46,6 +50,12 @@ class RebalancingSubgroupSummarySchema(BaseModel):
     ranks_with_holding: int
     ranks_with_action: int
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def asset_class(self) -> str:
+        """Canonical asset_class (Equity / Debt / Others) derived from asset_subgroup."""
+        return asset_class_for_subgroup(self.asset_subgroup)
+
 
 class RebalancingTradeSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -63,6 +73,12 @@ class RebalancingTradeSchema(BaseModel):
     execution_status: str
     executed_at: Optional[datetime] = None
     broker_ref: Optional[str] = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def asset_class(self) -> str:
+        """Canonical asset_class (Equity / Debt / Others) derived from asset_subgroup."""
+        return asset_class_for_subgroup(self.asset_subgroup)
 
 
 class RebalancingWarningSchema(BaseModel):
