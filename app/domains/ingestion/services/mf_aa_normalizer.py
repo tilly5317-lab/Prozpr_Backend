@@ -26,6 +26,10 @@ from app.domains.mutual_funds.models import (
     MfTransactionSource,
     MfTransactionType,
 )
+from app.domains.mutual_funds.services.scheme_resolver import (
+    build_isin_to_amfi_map,
+    canonical_scheme_code,
+)
 
 
 @dataclass(frozen=True)
@@ -129,11 +133,36 @@ def _to_scheme_code(txn_or_summary: object) -> Optional[str]:
     return None
 
 
-async def _upsert_metadata(db: AsyncSession, aa_import: MfAaImport) -> None:
+def _canonical_code(txn_or_summary: object, isin_to_amfi: dict[str, str]) -> Optional[str]:
+    """``_to_scheme_code`` resolved to the canonical AMFI code when the ISIN is known.
+
+    Falls back to the raw amfi-or-isin value (truncated) when unresolvable, so nothing
+    is dropped — see :mod:`app.domains.mutual_funds.services.scheme_resolver`.
+    """
+    raw = _to_scheme_code(txn_or_summary)
+    isin = _clean(getattr(txn_or_summary, "isin", None))
+    resolved = canonical_scheme_code(amfi=raw, isin=isin, isin_to_amfi=isin_to_amfi)
+    return resolved[:20] if resolved else None
+
+
+def _import_isin_to_amfi_keys(aa_import: MfAaImport) -> set[str]:
+    """Every ISIN-ish identifier in an import that might resolve to an AMFI code."""
+    keys: set[str] = set()
+    for row in [*aa_import.summaries, *aa_import.transactions]:
+        for attr in ("isin", "scheme"):
+            val = _clean(getattr(row, attr, None))
+            if val and not val.isdigit():
+                keys.add(val.upper())
+    return keys
+
+
+async def _upsert_metadata(
+    db: AsyncSession, aa_import: MfAaImport, isin_to_amfi: dict[str, str]
+) -> None:
     scheme_codes = {
-        _to_scheme_code(row)
+        _canonical_code(row, isin_to_amfi)
         for row in [*aa_import.summaries, *aa_import.transactions]
-        if _to_scheme_code(row)
+        if _canonical_code(row, isin_to_amfi)
     }
     if not scheme_codes:
         return
@@ -144,7 +173,7 @@ async def _upsert_metadata(db: AsyncSession, aa_import: MfAaImport) -> None:
     by_code = {row.scheme_code: row for row in existing}
 
     for summary in aa_import.summaries:
-        code = _to_scheme_code(summary)
+        code = _canonical_code(summary, isin_to_amfi)
         if not code:
             continue
         category = (summary.asset_type or "OTHER").strip()[:50]
@@ -192,13 +221,17 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
     await db.flush()
 
     try:
-        await _upsert_metadata(db, aa_import)
+        # Resolve ISIN-keyed identifiers to canonical AMFI codes up front, so transactions,
+        # metadata, and (downstream) NAV pricing all share one identifier space.
+        isin_to_amfi = await build_isin_to_amfi_map(db, _import_isin_to_amfi_keys(aa_import))
+
+        await _upsert_metadata(db, aa_import, isin_to_amfi)
         await db.flush()
         metadata_rows = (
             await db.execute(
                 select(MfFundMetadata).where(
                     MfFundMetadata.scheme_code.in_(
-                        {_to_scheme_code(t) for t in aa_import.transactions if _to_scheme_code(t)}
+                        {_canonical_code(t, isin_to_amfi) for t in aa_import.transactions if _canonical_code(t, isin_to_amfi)}
                     )
                 )
             )
@@ -207,7 +240,7 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
 
         pending_rows: list[tuple[MfTransaction, str]] = []
         for row in aa_import.transactions:
-            scheme_code = _to_scheme_code(row)
+            scheme_code = _canonical_code(row, isin_to_amfi)
             if not scheme_code:
                 continue
 

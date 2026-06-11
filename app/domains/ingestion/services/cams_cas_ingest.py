@@ -32,12 +32,25 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.domains.mutual_funds.models import MfAaImport, MfAaImportStatus, MfAaSummary, MfAaTransaction
+from app.domains.mutual_funds.models import (
+    MfAaImport,
+    MfAaImportStatus,
+    MfAaSummary,
+    MfAaTransaction,
+    MfTransaction,
+)
+from app.domains.mutual_funds.models.user_mf_latest_snapshot import UserMfLatestSnapshot
 from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
     resolve_asset_bucket,
 )
-from app.domains.portfolio.models.portfolio import PortfolioAllocation, PortfolioHolding
+from app.domains.mutual_funds.services.scheme_resolver import (
+    build_isin_to_amfi_map,
+    canonical_scheme_code,
+)
+from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHolding
+from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
+from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
 from app.domains.identity.models.user import User
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
 from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
@@ -700,6 +713,18 @@ async def _sync_mf_portfolio_holdings_from_cas(
         await db.flush()
         return 0
 
+    # Resolve ISIN-keyed schemes to canonical AMFI codes so a holding's ticker_symbol
+    # matches mf_nav_history / mfapi.in and can be priced & refreshed. Built once for the
+    # whole statement from every (amfi, isin) pair we can see.
+    candidate_isins: set[str] = set()
+    for folio in parsed.get("folios") or []:
+        for scheme in folio.get("schemes") or []:
+            amfi, isin = _resolve_scheme_identifiers(scheme, _clean(scheme.get("scheme")))
+            for val in (amfi, isin):
+                if val and not val.isdigit():
+                    candidate_isins.add(val.upper())
+    isin_to_amfi = await build_isin_to_amfi_map(db, candidate_isins)
+
     written = 0
     for folio in parsed.get("folios") or []:
         folio_no = _clean(folio.get("folio"), limit=40)
@@ -714,7 +739,7 @@ async def _sync_mf_portfolio_holdings_from_cas(
             nav = _num(valuation.get("nav"))
             units = _num(scheme.get("close") or scheme.get("close_calculated"))
             amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
-            ticker_raw = amfi or isin
+            ticker_raw = canonical_scheme_code(amfi=amfi, isin=isin, isin_to_amfi=isin_to_amfi)
             ticker = ticker_raw[:20] if ticker_raw else None
 
             avg_cost: Optional[float] = None
@@ -816,6 +841,44 @@ async def _backfill_user_profile(
 # --------------------------------------------------------------------------- entry point
 
 
+async def reset_user_cams_data(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Wipe everything derived from a prior CAMS import so a fresh upload is the sole truth.
+
+    Clears, for ``user_id``: the normalized transaction ledger (``mf_transactions``), the
+    raw AA-import audit rows (``mf_aa_imports`` → cascades to summaries + staging
+    transactions), the mutual-fund holdings and bucket allocations on every portfolio they
+    own, the daily net-worth series (``user_portfolio_nav_history``), the derived per-fund
+    snapshots, and any stale net-worth backfill jobs (so a fresh one recomputes cleanly).
+
+    Equity / other holdings from non-CAMS sources are left untouched. Does NOT commit — the
+    caller (``ingest_cams_pdf``) owns the surrounding transaction so the wipe + re-ingest
+    land atomically.
+    """
+    portfolio_ids = list(
+        (await db.execute(select(Portfolio.id).where(Portfolio.user_id == user_id))).scalars().all()
+    )
+
+    # Transactions first (they reference imports via SET-NULL FK; delete before imports).
+    await db.execute(delete(MfTransaction).where(MfTransaction.user_id == user_id))
+    await db.execute(delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id))
+    await db.execute(delete(UserPortfolioNavHistory).where(UserPortfolioNavHistory.user_id == user_id))
+    await db.execute(delete(PortfolioNetworthJob).where(PortfolioNetworthJob.user_id == user_id))
+    if portfolio_ids:
+        await db.execute(
+            delete(PortfolioHolding).where(
+                PortfolioHolding.portfolio_id.in_(portfolio_ids),
+                PortfolioHolding.instrument_type == "mutual_fund",
+            )
+        )
+        await db.execute(
+            delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id.in_(portfolio_ids))
+        )
+    # Imports last — DB-level ON DELETE CASCADE clears mf_aa_summaries / mf_aa_transactions.
+    await db.execute(delete(MfAaImport).where(MfAaImport.user_id == user_id))
+    await db.flush()
+    logger.info("reset CAMS-derived data for user %s before fresh ingest", user_id)
+
+
 async def ingest_cams_pdf(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -823,9 +886,19 @@ async def ingest_cams_pdf(
     file_bytes: bytes,
     password: str,
     source_filename: Optional[str] = None,
+    replace_existing: bool = False,
 ) -> CamsIngestResult:
-    """Parse a CAMS/KFintech CAS PDF and persist it. Caller is responsible for the final commit."""
+    """Parse a CAMS/KFintech CAS PDF and persist it. Caller is responsible for the final commit.
+
+    When ``replace_existing`` is set, every CAMS-derived record for the user is wiped first
+    (see :func:`reset_user_cams_data`) so the new statement fully replaces the old one and
+    all downstream figures are recomputed from scratch — instead of the default incremental
+    merge that only appends new (de-duplicated) transactions.
+    """
     parsed = await asyncio.to_thread(_parse_cas_pdf, file_bytes, password)
+
+    if replace_existing:
+        await reset_user_cams_data(db, user_id)
 
     aa_import = _build_import_row(user_id, parsed, source_filename)
     db.add(aa_import)

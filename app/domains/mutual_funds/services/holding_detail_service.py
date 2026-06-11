@@ -238,7 +238,9 @@ def _position_from_ledger(
     buy_cost = 0.0  # Σ(purchase amount) from the statement (the numerator)
     folios: set[str] = set()
     for t in txns:
-        u = _f(t.units) or 0.0
+        # CAS stores redemption units as a *negative* number — use the magnitude and let
+        # the type decide direction, else ``units -= (-x)`` adds redeemed units back.
+        u = abs(_f(t.units) or 0.0)
         amt = abs(_f(t.amount) or 0.0)
         if t.folio_number:
             folios.add(t.folio_number)

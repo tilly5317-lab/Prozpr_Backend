@@ -146,7 +146,10 @@ async def rebuild_user_latest_snapshot(
         invested = 0.0
         cashflows: list[tuple[date, float]] = []
         for txn in items:
-            t_units = _f(txn.units)
+            # CAS stores redemption units as a *negative* number — use the magnitude so
+            # the money-inflow (SELL) branch's ``units -= t_units`` actually removes units
+            # instead of adding the negative back.
+            t_units = abs(_f(txn.units))
             t_amt = abs(_f(txn.amount))
             if txn.transaction_type in _OUTFLOW_TYPES:
                 units += t_units

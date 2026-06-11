@@ -20,7 +20,14 @@ from app.domains.mutual_funds.schemas import MfNavHistoryCreate, MfNavHistoryUpd
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
 
 logger = logging.getLogger(__name__)
-_LATEST_NAV_STALE_AFTER_DAYS = 1
+
+# A stored NAV at most this many days old is "good enough" to value a holding without
+# reaching out to mfapi.in. The nightly scheduler normally keeps NAVs current; this
+# read-time fallback only fires when that hasn't run (e.g. offline / dev box). Widened
+# to 30 days so a fund that has at least one NAV in the last month is never blocked on a
+# network round-trip — and we don't spam ConnectTimeout tracebacks per held fund when
+# mfapi.in is unreachable. Funds with no NAV in the last 30 days still trigger a refresh.
+_LATEST_NAV_STALE_AFTER_DAYS = 30
 
 
 async def list_nav_rows(
@@ -258,8 +265,11 @@ async def get_latest_nav_with_source_fallback(
 
     try:
         fetched = await _fetch_nav_from_source_for_scheme(db, code, nav_date=None)
-    except Exception:
-        logger.exception("source NAV fallback failed for scheme_code=%s", code)
+    except Exception as exc:  # noqa: BLE001 — never fail a read on a NAV refresh
+        # mfapi.in being slow/unreachable is expected (offline, rate-limited). We have a
+        # stored NAV to fall back on, so log it concisely instead of dumping a full
+        # network traceback for every held fund.
+        logger.warning("mfapi.in NAV refresh skipped for scheme_code=%s: %s", code, exc)
         fetched = None
 
     if fetched is None:
