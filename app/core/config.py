@@ -352,6 +352,36 @@ class Settings:
         raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
+    # ── SMTP (Zoho) — issue-report support mail ────────────────────────────
+    @staticmethod
+    def get_smtp_host() -> str:
+        return (_getenv("SMTP_HOST") or "smtp.zoho.com").strip()
+
+    @staticmethod
+    def get_smtp_port() -> int:
+        raw = (_getenv("SMTP_PORT") or "465").strip()
+        try:
+            return int(raw)
+        except ValueError:
+            return 465
+
+    @staticmethod
+    def get_smtp_user() -> str:
+        """Authenticated Zoho mailbox; Zoho requires From == this address."""
+        return (_getenv("SMTP_USER") or "support@prozpr.com").strip()
+
+    @staticmethod
+    def get_smtp_password() -> str | None:
+        """Zoho app-specific password. When unset, issue emails are skipped
+        (the report still lands in DB + Excel)."""
+        v = (_getenv("SMTP_PASSWORD") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_support_email_to() -> str:
+        """Inbox that receives issue-report notifications."""
+        return (_getenv("SUPPORT_EMAIL_TO") or "support@prozpr.com").strip()
+
     @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
