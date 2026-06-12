@@ -43,3 +43,6 @@ numpy-financial>=1.0.0
 rapidfuzz>=3.0
 langgraph>=0.2
 
+# Issue-report support mail (IST timestamps need IANA zones on Windows)
+tzdata>=2024.1
+
