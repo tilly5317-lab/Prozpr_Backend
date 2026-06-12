@@ -51,7 +51,6 @@ from app.domains.cashflow.models import (  # noqa: F401
 )
 from app.domains.advisory.models import ips, meeting_note  # noqa: F401
 from app.domains.notifications.models import notification  # noqa: F401
-from app.domains.support.models import issue_report  # noqa: F401
 from app.domains.chat.models import (  # noqa: F401
     chat, chat_session_state, chat_ai_module_run,
 )
