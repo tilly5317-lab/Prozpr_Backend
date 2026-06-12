@@ -200,12 +200,6 @@ async def apply_postgres_schema_patches() -> None:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_mf_nav_history_isin ON mf_nav_history (isin)")
         )
-        # ORM/column drift: IssueReport.source_detail added after the table first shipped.
-        await conn.execute(
-            text(
-                "ALTER TABLE issue_reports ADD COLUMN IF NOT EXISTS source_detail VARCHAR(100)"
-            )
-        )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]
