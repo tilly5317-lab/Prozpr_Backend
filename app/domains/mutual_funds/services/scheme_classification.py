@@ -159,11 +159,21 @@ SUBCAT_TO_MAPPING: dict[str, tuple[str, str]] = {
 #   * ``debt_subgroup``         — engine's generic debt sleeve
 #   * ``gold``                  — engine's gold label (vs the classifier's
 #                                 ``gold_commodities``)
+#
+# Three more come from the rebalancing fund-ranking CSV (its vocabulary, not
+# the SEBI classifier's). Without them, funds in these subgroups silently fell
+# through asset_class_for_subgroup's default into ``Others``:
+#   * ``other_debt``     — CSV's generic debt bucket
+#   * ``sector_debt``    — CSV's sectoral debt bucket
+#   * ``other_equities`` — CSV's residual equity bucket
 _ENGINE_ONLY_SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
     "multi_asset":           ASSET_CLASS_EQUITY,
     "arbitrage_plus_income": ASSET_CLASS_DEBT,
     "debt_subgroup":         ASSET_CLASS_DEBT,
     "gold":                  ASSET_CLASS_OTHERS,
+    "other_debt":            ASSET_CLASS_DEBT,
+    "sector_debt":           ASSET_CLASS_DEBT,
+    "other_equities":        ASSET_CLASS_EQUITY,
 }
 
 
