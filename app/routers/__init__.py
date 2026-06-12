@@ -23,6 +23,7 @@ from app.domains.mutual_funds.routers import router as mf_data_router
 from app.domains.ingestion.routers.mf_ingest_router import router as mf_ingest_router
 from app.domains.cashflow.routers.cashflow_router import router as cashflow_router
 from app.domains.ai_engine.routers import router as ai_modules_router
+from app.domains.support.routers.support_router import router as support_router
 
 all_routers = [
     health_router,
@@ -44,4 +45,5 @@ all_routers = [
     mf_ingest_router,
     cashflow_router,
     ai_modules_router,
+    support_router,
 ]
