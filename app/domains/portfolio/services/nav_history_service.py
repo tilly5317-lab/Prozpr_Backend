@@ -34,6 +34,7 @@ from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfoli
 
 HORIZON_DAYS: dict[str, int] = {
     "1M": 30,
+    "3M": 90,
     "1Y": 365,
     "3Y": 365 * 3,
     "MAX": 365 * 5,
