@@ -49,9 +49,14 @@ class ClientProfile(BaseModel):
 
 
 class RetirementInput(BaseModel):
+    # No defaults for retirement_age / assumed_lifespan_years: the engine must
+    # never silently assume when the household will retire or how long the plan
+    # should run. Callers supply both (the product path enforces it via the
+    # cashflow readiness gate). The projection horizon then extends to
+    # max(retirement_date, last_goal_date) — see engine/cashflow.compute_horizon_years.
     date_of_birth: date
-    retirement_age: int = 60
-    assumed_lifespan_years: int = 85
+    retirement_age: int
+    assumed_lifespan_years: int
     retirement_date_override: date | None = None
     retirement_corpus_pv_today_override: float | None = Field(
         default=None,
@@ -184,10 +189,20 @@ class GoalPlanningInput(BaseModel):
     one_off_inflows: list[OneOffEvent] = []
     one_off_outflows: list[OneOffEvent] = []
     detail_level: Literal["default", "full"] = "default"
+    # When True (default): the engine injects retirement as a built-in goal from
+    # RetirementInput (corpus drawdown at retirement_date) and stops salary income
+    # at retirement_age — the original behaviour, used by the agent / dev tooling.
+    # When False: retirement is NOT modelled by default — no injected retirement
+    # goal, income is never stopped, and the projection horizon ends at the last
+    # user goal. Retirement is then considered ONLY when the user adds it as an
+    # explicit goal (which flows through as a normal custom goal). The product
+    # goal-planning path sets this False (see app input_builder).
+    model_retirement: bool = True
 
     @model_validator(mode="after")
     def _validate_unique_names(self) -> "GoalPlanningInput":
-        names: list[str] = ["retirement"]
+        # "retirement" is reserved only when the engine injects it as a goal.
+        names: list[str] = ["retirement"] if self.model_retirement else []
         names.extend(p.name for p in self.current_properties)
         names.extend(p.name for p in self.goal_properties)
         names.extend(g.name for g in self.custom_goals)
