@@ -299,7 +299,7 @@ async def get_history(
 
 @router.get("/nav-history", response_model=PortfolioNavHistoryResponse)
 async def get_nav_history(
-    horizon: str = Query(default="1Y", pattern="^(?i)(1M|1Y|3Y|MAX)$"),
+    horizon: str = Query(default="1Y", pattern="^(?i)(1M|3M|1Y|3Y|MAX)$"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
