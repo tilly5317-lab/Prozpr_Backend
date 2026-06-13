@@ -24,7 +24,7 @@ alembic upgrade head
 python scripts/reset_and_seed_dummy_data.py
 
 # 5. Run
-uvicorn main:app --reload
+uvicorn main:app --reload --reload-dir app --reload-dir AI_Agents/src
 ```
 
 Interactive API docs at `http://localhost:8000/docs` or `/redoc` when the server is running.

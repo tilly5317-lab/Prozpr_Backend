@@ -11,10 +11,11 @@ from typing import Optional
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.mutual_funds.models import MfFundMetadata, MfFundRating, MfNavHistory, MfTransaction, UserMfLatestSnapshot
+from app.domains.mutual_funds.models import MfFundMetadata, MfNavHistory, MfTransaction, UserMfLatestSnapshot
 from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.investor_detail_service import _cagr_pct
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
+from app.domains.mutual_funds.services.scheme_classification import classify_holding
 
 _OUTFLOW_TYPES = {
     MfTransactionType.BUY,
@@ -166,9 +167,10 @@ async def rebuild_user_latest_snapshot(
         meta = (
             await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == scheme_code))
         ).scalar_one_or_none()
-        rating = (
-            await db.execute(select(MfFundRating).where(MfFundRating.scheme_code == scheme_code))
-        ).scalar_one_or_none()
+        # Subgroup is classified live from the SEBI sub_category (centralised in
+        # scheme_classification). The old MfFundRating.asset_subgroup column was
+        # never populated, so reading it left every fund's sub_group empty.
+        _, live_subgroup = classify_holding(meta.sub_category, meta.scheme_name) if meta else (None, None)
         # Start from today and walk back to the latest active NAV date.
         nav = await _nav_by_walking_back(db, scheme_code, date.today())
         if nav is None:
@@ -211,7 +213,7 @@ async def rebuild_user_latest_snapshot(
             amc_name=meta.amc_name if meta else None,
             category=(meta.category if meta else None) or (items[-1].category if items else None),
             sub_category=(meta.sub_category if meta else None) or (items[-1].sub_category if items else None),
-            sub_group=(rating.asset_subgroup if rating else None) or (items[-1].sub_group if items else None),
+            sub_group=live_subgroup or (items[-1].sub_group if items else None),
             invested_amount=round(invested, 2),
             current_units=round(units, 4),
             avg_nav=round(invested / units, 4) if units > 0 else None,

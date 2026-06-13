@@ -20,6 +20,7 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=is_dev,
+        reload_dirs=["app", "AI_Agents/src"] if is_dev else None,
         log_level="info",
         limit_max_requests=None if is_dev else 1000,
     )
