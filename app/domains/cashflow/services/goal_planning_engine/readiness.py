@@ -105,9 +105,15 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         optional=True,
     ),
     FieldSpec(
+        "current_portfolio_corpus", "Current portfolio corpus", "Assets & liabilities", "money", "₹",
+        _pfp_get("current_portfolio_corpus"),
+        help="Your current mutual-fund portfolio value — prefilled from your CAMS statement / portfolio page. Added to your cash & assets as the starting corpus. When a portfolio is linked, your live portfolio value is used automatically.",
+        optional=True,
+    ),
+    FieldSpec(
         "financial_assets", "Cash & financial assets", "Assets & liabilities", "money", "₹",
         _pfp_get("financial_assets"),
-        help="Investable savings — cash, deposits, funds, stocks. Excludes property.",
+        help="Cash and liquid savings only — bank balances, deposits, liquid funds. Exclude your mutual-fund portfolio corpus (entered above), direct stocks, and physical assets like house, land or gold.",
     ),
     FieldSpec(
         "financial_liabilities_excl_mortgage", "Liabilities (excl. mortgage)", "Assets & liabilities", "money", "₹",

@@ -115,6 +115,7 @@ async def create_goal(
         priority=GoalPriority(payload.priority),
         status=GoalStatus.ACTIVE,
         notes=notes,
+        monthly_contribution=payload.monthly_contribution,
     )
     db.add(goal)
     await db.commit()
@@ -184,7 +185,7 @@ async def update_goal(
     if "icon" in data:
         data.pop("icon", None)
     if "monthly_contribution" in data:
-        data.pop("monthly_contribution", None)
+        goal.monthly_contribution = data.pop("monthly_contribution")
     if "suggested_contribution" in data:
         data.pop("suggested_contribution", None)
 

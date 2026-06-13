@@ -45,6 +45,10 @@ def starting_monthly_investment_pfp(pfp: Any) -> Optional[float]:
     return float(sip) if sip is not None else None
 
 
+def current_portfolio_corpus_pfp(pfp: Any) -> float:
+    return max(_f(getattr(pfp, "current_portfolio_corpus", None)), 0.0)
+
+
 def effective_tax_rate_for_user(user: Any) -> float:
     pfp = getattr(user, "personal_finance_profile", None)
     if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
@@ -61,6 +65,9 @@ def personal_finance_scalars(user: Any) -> dict[str, float | None]:
     return {
         "annual_income": annual_income_pfp(pfp),
         "effective_tax_rate": effective_tax_rate_for_user(user),
+        # Cash & liquid assets only. The current portfolio value is folded into the
+        # cashflow starting corpus separately (see input_builder) so the live
+        # portfolio stays the single source of truth for that figure.
         "financial_assets": financial_assets_pfp(pfp),
         "financial_liabilities_excl_mortgage": financial_liabilities_excl_mortgage_pfp(pfp),
         "monthly_household_expense": monthly_household_expense_pfp(pfp),

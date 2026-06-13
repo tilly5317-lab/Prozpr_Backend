@@ -27,33 +27,21 @@ from common import (  # noqa: E402  re-exports
 )
 
 
-# Engine asset_subgroup → high-level asset class for customer-facing summaries.
-# Keep narrow: only equity / debt / others. Used by facts-pack builders to
-# aggregate sub_category-level buckets up to an asset-class mix without
-# forcing the LLM to classify SEBI sub_categories itself.
-_SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
-    "low_beta_equities":      "equity",
-    "medium_beta_equities":   "equity",
-    "high_beta_equities":     "equity",
-    "value_equities":         "equity",
-    "tax_efficient_equities": "equity",
-    "us_equities":            "equity",
-    "sector_equities":        "equity",
-    "multi_asset":            "equity",
-    "short_debt":             "debt",
-    "debt_subgroup":          "debt",
-    "arbitrage":              "debt",
-    "arbitrage_plus_income":  "debt",
-    "gold":                   "others",
-    "gold_commodities":       "others",
-}
-
-
 def asset_class_for_subgroup(subgroup: str | None) -> str:
-    """Map engine asset_subgroup → high-level asset class (equity / debt / others)."""
-    if subgroup is None:
-        return "others"
-    return _SUBGROUP_TO_ASSET_CLASS.get(subgroup, "others")
+    """Map engine asset_subgroup → high-level asset class (equity / debt / others).
+
+    Delegates to the canonical subgroup→class map in
+    ``mutual_funds/services/scheme_classification.py`` (the single source) and
+    lowercases the result to preserve this function's long-standing lowercase
+    contract for chat facts-pack builders and the rebalancing chat summary.
+    Previously this kept its own narrow copy that mislabeled debt-duration
+    subgroups (near_debt, medium_debt, …) and china_equities as "others".
+    """
+    from app.domains.mutual_funds.services.scheme_classification import (
+        asset_class_for_subgroup as _canonical,
+    )
+
+    return _canonical(subgroup).lower()
 
 
 def ensure_ai_agents_path() -> None:
