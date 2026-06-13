@@ -92,6 +92,9 @@ class FinancialGoal(Base):
     goal_priority: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     investment_goal: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
 
+    # Per-goal monthly SIP the user plans to contribute toward this goal.
+    monthly_contribution: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
