@@ -1,6 +1,7 @@
 """Pydantic schema — `issue_report.py`.
 
-Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
+Request/response or DTO shapes for API validation and OpenAPI documentation. The support
+domain has NO database model by design — reports are appended to an Excel log and emailed.
 """
 
 
@@ -13,8 +14,6 @@ from pydantic import BaseModel
 
 
 class IssueReportResponse(BaseModel):
-    model_config = {"from_attributes": True}
-
     id: uuid.UUID
     source: str
     source_detail: str | None = None

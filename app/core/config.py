@@ -352,7 +352,7 @@ class Settings:
         raw = (_getenv("SKIP_STARTUP_DB_DDL") or "").strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
-    # ── SMTP (Zoho) — issue-report support mail ────────────────────────────
+    # ── Issue reports (support domain): Zoho SMTP + Excel register ─────────
     @staticmethod
     def get_smtp_host() -> str:
         return (_getenv("SMTP_HOST") or "smtp.zoho.com").strip()
@@ -373,7 +373,7 @@ class Settings:
     @staticmethod
     def get_smtp_password() -> str | None:
         """Zoho app-specific password. When unset, issue emails are skipped
-        (the report still lands in DB + Excel)."""
+        (the report still lands in the Excel log)."""
         v = (_getenv("SMTP_PASSWORD") or "").strip()
         return v or None
 
@@ -381,6 +381,21 @@ class Settings:
     def get_support_email_to() -> str:
         """Inbox that receives issue-report notifications."""
         return (_getenv("SUPPORT_EMAIL_TO") or "support@prozpr.com").strip()
+
+    @staticmethod
+    def get_issue_sheet_webhook_url() -> str | None:
+        """Google Apps Script web-app URL that appends a row to the shared
+        Google Sheet issue register — the sole register, so this must be set
+        for issue reporting to work (an unset value makes report-issue 503)."""
+        v = (_getenv("ISSUE_SHEET_WEBHOOK_URL") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_issue_sheet_token() -> str | None:
+        """Shared secret the Apps Script checks so strangers cannot post junk
+        rows if the webhook URL ever leaks."""
+        v = (_getenv("ISSUE_SHEET_TOKEN") or "").strip()
+        return v or None
 
     @staticmethod
     def get_openai_api_key() -> str | None:
