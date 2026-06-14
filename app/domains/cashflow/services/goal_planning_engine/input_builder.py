@@ -21,6 +21,7 @@ from app.domains.profile.services.profile_finance import (
     current_portfolio_corpus_pfp,
     current_properties_for_user,
     effective_tax_rate_for_user,
+    other_investments_total_for_user,
     personal_finance_scalars,
 )
 
@@ -148,7 +149,9 @@ def build_goal_planning_input_for_user(
     if not current_properties:
         defaults_applied.append("current_properties=[]")
 
-    assumed_lifespan_years = int(user.assumed_lifespan_years)
+    # Lifespan is no longer collected from the user — everyone is planned to
+    # age 100. Honour an explicitly-set value if one exists, else assume 100.
+    assumed_lifespan_years = int(getattr(user, "assumed_lifespan_years", None) or 100)
     defaults_applied.extend([
         "goal_properties=[]",
         "one_off_inflows=[]",
@@ -166,10 +169,17 @@ def build_goal_planning_input_for_user(
         f"portfolio_corpus={'live' if live_corpus > 0 else 'manual'}:{portfolio_corpus:.0f}"
     )
 
+    # "Cash & assets" = liquid financial_assets + other holdings (gold, FDs,
+    # unlisted shares…). Same total the goal-planner readiness shows, so the
+    # projection and the displayed input stay in sync.
+    other_assets_total = other_investments_total_for_user(user)
+    if other_assets_total > 0:
+        defaults_applied.append(f"other_assets={other_assets_total:.0f}")
+
     profile = ClientProfile(
         annual_income=scalars["annual_income"],
         effective_tax_rate=effective_tax_rate_for_user(user),
-        financial_assets=scalars["financial_assets"] + portfolio_corpus,
+        financial_assets=scalars["financial_assets"] + other_assets_total + portfolio_corpus,
         financial_liabilities_excl_mortgage=scalars["financial_liabilities_excl_mortgage"],
         monthly_household_expense=scalars["monthly_household_expense"],
         starting_monthly_investment=scalars["starting_monthly_investment"],
