@@ -16,6 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from app.domains.profile.services.profile_finance import (
+    other_investments_total_for_user,
+)
+
 
 @dataclass(frozen=True)
 class FieldSpec:
@@ -66,6 +70,19 @@ def effective_tax_rate_value(user: Any) -> Optional[float]:
     return None
 
 
+def cash_and_assets_value(user: Any) -> Optional[float]:
+    """Total cash & assets = liquid ``financial_assets`` + the user's other
+    investments (gold, FDs, unlisted shares…). Single figure shown on the
+    goal-planner inputs, kept in sync with the financial profile. Returns None
+    only when the user has supplied neither."""
+    pfp = _pfp(user)
+    cash = getattr(pfp, "financial_assets", None) if pfp is not None else None
+    other = other_investments_total_for_user(user)
+    if cash is None and other == 0:
+        return None
+    return float(cash or 0.0) + other
+
+
 # Order here drives the order the fields appear in the unlock form.
 REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     FieldSpec(
@@ -73,11 +90,8 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         lambda u: getattr(u, "date_of_birth", None),
         help="Used to compute your current age and project the plan over your lifetime.",
     ),
-    FieldSpec(
-        "assumed_lifespan_years", "Assumed lifespan", "About you", "int", "years",
-        lambda u: getattr(u, "assumed_lifespan_years", None),
-        help="How long the plan should fund your retirement.",
-    ),
+    # Assumed lifespan is no longer asked of the user — the engine plans every
+    # user to age 100 (see input_builder), so it is intentionally NOT a field here.
     FieldSpec(
         "retirement_age", "Planned retirement age", "Retirement", "int", "years",
         _retirement_age,
@@ -99,21 +113,15 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         help="Blended post-deduction tax rate applied to income and returns.",
     ),
     FieldSpec(
-        "starting_monthly_investment", "Current monthly investment (SIP)", "Income & expenses", "money", "₹ / month",
-        _pfp_get("starting_monthly_investment"),
-        help="What you already invest each month. Enter 0 if none.",
-        optional=True,
-    ),
-    FieldSpec(
         "current_portfolio_corpus", "Current portfolio corpus", "Assets & liabilities", "money", "₹",
         _pfp_get("current_portfolio_corpus"),
         help="Your current mutual-fund portfolio value — prefilled from your CAMS statement / portfolio page. Added to your cash & assets as the starting corpus. When a portfolio is linked, your live portfolio value is used automatically.",
         optional=True,
     ),
     FieldSpec(
-        "financial_assets", "Cash & financial assets", "Assets & liabilities", "money", "₹",
-        _pfp_get("financial_assets"),
-        help="Cash and liquid savings only — bank balances, deposits, liquid funds. Exclude your mutual-fund portfolio corpus (entered above), direct stocks, and physical assets like house, land or gold.",
+        "financial_assets", "Cash & assets", "Assets & liabilities", "money", "₹",
+        cash_and_assets_value,
+        help="Your total cash, liquid savings and other assets (gold, FDs, unlisted shares, etc.), synced from your financial profile. Excludes your mutual-fund portfolio corpus (above). Edit it in your full profile.",
     ),
     FieldSpec(
         "financial_liabilities_excl_mortgage", "Liabilities (excl. mortgage)", "Assets & liabilities", "money", "₹",
