@@ -49,6 +49,27 @@ def current_portfolio_corpus_pfp(pfp: Any) -> float:
     return max(_f(getattr(pfp, "current_portfolio_corpus", None)), 0.0)
 
 
+def other_investments_total_for_user(user: Any) -> float:
+    """Sum of the user's ACTIVE non-financial holdings (``other_investments`` —
+    gold, FDs, unlisted shares, etc.). These form part of the user's total
+    "cash & assets" alongside the liquid ``financial_assets`` figure, so the
+    cashflow engine and the readiness display add them together.
+
+    Requires ``user.other_investments`` to be loaded (see user_context_loader).
+    """
+    rows = getattr(user, "other_investments", None) or []
+    total = 0.0
+    for row in rows:
+        status = getattr(row, "status", None)
+        status_val = getattr(status, "value", status)
+        # Count active (or status-less, e.g. freshly built) rows only — mirrors
+        # the net-worth view, which filters status = 'ACTIVE'.
+        if status_val is not None and str(status_val).upper() != "ACTIVE":
+            continue
+        total += _f(getattr(row, "present_value", None))
+    return total
+
+
 def effective_tax_rate_for_user(user: Any) -> float:
     pfp = getattr(user, "personal_finance_profile", None)
     if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
