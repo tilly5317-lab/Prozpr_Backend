@@ -224,6 +224,14 @@ async def apply_postgres_schema_patches() -> None:
                 "ADD COLUMN IF NOT EXISTS current_portfolio_corpus NUMERIC(18,2)"
             )
         )
+        # ORM/column drift: UserCurrentProperty.mortgage_balance (outstanding loan
+        # amount collected in onboarding; added after the table first shipped).
+        await conn.execute(
+            text(
+                "ALTER TABLE user_current_properties "
+                "ADD COLUMN IF NOT EXISTS mortgage_balance NUMERIC(18,2)"
+            )
+        )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]

@@ -110,7 +110,8 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     FieldSpec(
         "effective_tax_rate", "Effective tax rate", "Income & expenses", "percent", "%",
         effective_tax_rate_value,
-        help="Blended post-deduction tax rate applied to income and returns.",
+        help="Blended post-deduction tax rate applied to income and returns. Optional — a standard rate is assumed if left blank.",
+        optional=True,
     ),
     FieldSpec(
         "current_portfolio_corpus", "Current portfolio corpus", "Assets & liabilities", "money", "₹",
@@ -121,12 +122,14 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     FieldSpec(
         "financial_assets", "Cash & assets", "Assets & liabilities", "money", "₹",
         cash_and_assets_value,
-        help="Your total cash, liquid savings and other assets (gold, FDs, unlisted shares, etc.), synced from your financial profile. Excludes your mutual-fund portfolio corpus (above). Edit it in your full profile.",
+        help="Your total cash, liquid savings and other assets (gold, FDs, unlisted shares, etc.), synced from your financial profile. Excludes your mutual-fund portfolio corpus (above). Optional — treated as ₹0 if left blank.",
+        optional=True,
     ),
     FieldSpec(
         "financial_liabilities_excl_mortgage", "Liabilities (excl. mortgage)", "Assets & liabilities", "money", "₹",
         _pfp_get("financial_liabilities_excl_mortgage"),
-        help="Outstanding debts other than your home loan.",
+        help="Outstanding debts other than your home loan. Optional — treated as ₹0 if left blank.",
+        optional=True,
     ),
 ]
 
