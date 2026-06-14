@@ -17,6 +17,7 @@ class CurrentPropertyItem(BaseModel):
     has_mortgage: bool
     mortgage_emi: float | None = Field(default=None, ge=0)
     mortgage_end_date: date | None = None
+    mortgage_balance: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _mortgage_fields(self) -> "CurrentPropertyItem":

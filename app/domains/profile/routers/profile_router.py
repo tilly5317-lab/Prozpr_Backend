@@ -349,6 +349,7 @@ async def update_current_properties(
             has_mortgage=item.has_mortgage,
             mortgage_emi=item.mortgage_emi,
             mortgage_end_date=item.mortgage_end_date,
+            mortgage_balance=item.mortgage_balance,
         )
         db.add(row)
         created.append(row)
