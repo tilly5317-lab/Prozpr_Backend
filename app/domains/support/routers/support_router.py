@@ -1,8 +1,9 @@
 """FastAPI router — `support_router.py`.
 
 Declares HTTP routes, dependencies (auth, user context), and maps request/response
-schemas. The support domain stores reports in an Excel workbook (no DB table) and
-emails them to the support inbox — see ``issue_report_service``.
+schemas. The support domain records reports in a shared Google Sheet (no DB
+table, no local fallback) and emails them to the support inbox — see
+``issue_report_service``.
 """
 
 
@@ -116,26 +117,21 @@ async def report_issue(
         except OSError:
             logger.exception("Could not save issue screenshot; continuing without it.")
 
-    # Register the row: Google Sheet first (if configured), local xlsx as
-    # fallback. Only fail the request when neither register accepted it.
+    # Register the row in the Google Sheet — the sole issue register. There is
+    # no local fallback, so any failure must surface as a 503 (ask the user to
+    # retry) rather than silently dropping the report.
     row_args = (created_at, user_name, user_email, source_label, description, screenshot_name)
-    recorded = False
     try:
-        recorded = await asyncio.to_thread(svc.append_to_google_sheet, *row_args)
+        await asyncio.to_thread(svc.append_to_google_sheet, *row_args)
     except Exception:
-        logger.exception("Google Sheet register failed; falling back to local xlsx.")
-    if not recorded:
-        try:
-            await asyncio.to_thread(svc.append_to_excel, *row_args)
-        except Exception:
-            logger.exception("Could not append issue report to any register.")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "Could not record the issue right now (issue log unavailable). "
-                    "Please try again in a moment."
-                ),
-            )
+        logger.exception("Could not record issue report to the Google Sheet register.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Could not record the issue right now (issue register unavailable). "
+                "Please try again in a moment."
+            ),
+        )
 
     # Fire-and-forget: the user gets 201 even if Zoho is down.
     background_tasks.add_task(

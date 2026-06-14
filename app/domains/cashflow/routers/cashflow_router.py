@@ -81,6 +81,25 @@ def _serialize_plan_run(run) -> CashflowPlanRunDetailResponse:
     )
 
 
+def _current_engine_version() -> str | None:
+    """Current cashflow engine version, or None if it can't be resolved.
+
+    Used to auto-invalidate plan runs computed by an older engine — so an engine
+    upgrade (e.g. dropping the auto-injected retirement goal) takes effect on the
+    next read without anyone having to mark every run stale by hand.
+    """
+    try:
+        from app.domains.ai_engine.common import ensure_ai_agents_path
+
+        ensure_ai_agents_path()
+        from cashflow_statement.engine import ENGINE_VERSION
+
+        return ENGINE_VERSION
+    except Exception:  # pragma: no cover - defensive; never block a read on this
+        logger.warning("could not resolve cashflow ENGINE_VERSION", exc_info=True)
+        return None
+
+
 def _raise_for_input_error(err: ValueError) -> None:
     """Translate input-builder gate errors into a 422 the frontend can act on."""
     msg = str(err)
@@ -104,9 +123,19 @@ def _raise_for_input_error(err: ValueError) -> None:
 async def _compute_and_persist(db: AsyncSession, user: User) -> CashflowPlanRunDetailResponse:
     """Run the cashflow engine and persist the result."""
     from app.domains.cashflow.services.cashflow_compute_service import run_cashflow_projection_for_user
+    from app.domains.portfolio.services.portfolio_service import get_primary_portfolio
+
+    # The current portfolio value feeds the engine's starting corpus (single
+    # source of truth — the portfolio/CAMS data), summed with cash & assets.
+    portfolio = await get_primary_portfolio(db, user.id)
+    portfolio_value = (
+        float(portfolio.total_value)
+        if portfolio is not None and portfolio.total_value is not None
+        else None
+    )
 
     snapshot = await run_cashflow_projection_for_user(
-        user, anchor_date=date.today(), detail_level="full"
+        user, anchor_date=date.today(), detail_level="full", portfolio_value=portfolio_value
     )
     await persist_plan_run(db, user.id, snapshot)
 
@@ -122,10 +151,18 @@ async def get_latest_cashflow(
     current_user: CurrentUser = Depends(get_effective_user),
     user: User = Depends(get_ai_user_context),
 ):
-    """Return the latest cashflow plan run. Auto-computes if stale or missing."""
+    """Return the latest cashflow plan run. Auto-computes if stale, missing, or
+    produced by an older engine version (so engine upgrades take effect on read)."""
     existing = await get_latest_plan_run(db, current_user.id)
 
-    if existing is None or existing.is_stale or existing.assumption_id is None:
+    current_version = _current_engine_version()
+    version_stale = (
+        existing is not None
+        and current_version is not None
+        and existing.engine_version != current_version
+    )
+
+    if existing is None or existing.is_stale or existing.assumption_id is None or version_stale:
         try:
             return await _compute_and_persist(db, user)
         except ValueError as e:
