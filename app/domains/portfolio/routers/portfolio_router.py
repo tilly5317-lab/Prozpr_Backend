@@ -34,6 +34,7 @@ from app.domains.portfolio.schemas.portfolio import (
     PortfolioResponse,
     RecommendedPlanResponse,
     RecommendedPlanSnapshotResponse,
+    TwrSeriesResponse,
 )
 from app.domains.ingestion.services.finvu_portfolio_sync import apply_finvu_bucket_snapshot
 from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
@@ -51,6 +52,7 @@ from app.domains.portfolio.services.networth_history_service import (
     has_running_job,
     run_networth_backfill,
 )
+from app.domains.portfolio.services.twr_service import compute_twr_series
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
@@ -267,6 +269,19 @@ async def get_nav_history(
         current_value=current,
         gain_percentage=gain_pct,
     )
+
+
+@router.get("/twr", response_model=TwrSeriesResponse)
+async def get_twr(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Real time-weighted return series — portfolio vs Nifty 50, mutual funds only.
+
+    Returns the full daily growth-of-1 series since inception; the frontend
+    rebases per selected range. ``has_data`` is false when there are < 2 days.
+    """
+    return await compute_twr_series(db, current_user.id)
 
 
 @router.post("/nav-history/refresh", response_model=PortfolioNavHistoryResponse)
