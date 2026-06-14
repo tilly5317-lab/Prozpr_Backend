@@ -1,6 +1,9 @@
 """FastAPI router — `support_router.py`.
 
-Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to the support services and returns appropriate status codes and Pydantic models.
+Declares HTTP routes, dependencies (auth, user context), and maps request/response
+schemas. The support domain records reports in a shared Google Sheet (no DB
+table, no local fallback) and emails them to the support inbox — see
+``issue_report_service``.
 """
 
 
@@ -8,6 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -19,11 +25,8 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
-from app.domains.support.models.issue_report import IssueReport
 from app.domains.support.schemas.issue_report import IssueReportResponse
 from app.domains.support.services import issue_report_service as svc
 
@@ -51,7 +54,6 @@ async def report_issue(
     source_detail: str | None = Form(None),
     description: str = Form(...),
     screenshot: UploadFile | None = File(None),
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     source = source.strip()
@@ -99,46 +101,55 @@ async def report_issue(
                 detail="Screenshot is too large (max 5 MB).",
             )
 
-    report = IssueReport(
-        user_id=current_user.id,
-        user_name=_display_name(current_user),
-        user_email=current_user.email,
-        source=source,
-        source_detail=source_detail,
-        description=description,
-    )
-    db.add(report)
-    await db.flush()  # assigns report.id for the screenshot filename
+    report_id = uuid.uuid4()
+    created_at = datetime.now(timezone.utc)
+    user_name = _display_name(current_user)
+    user_email = current_user.email or ""
+    source_label = f"{source} — {source_detail}" if source_detail else source
 
+    screenshot_name: str | None = None
     if screenshot_bytes and screenshot_type:
         try:
-            report.screenshot_path = await asyncio.to_thread(
-                svc.save_screenshot, screenshot_bytes, screenshot_type, str(report.id)
+            saved = await asyncio.to_thread(
+                svc.save_screenshot, screenshot_bytes, screenshot_type, str(report_id)
             )
+            screenshot_name = Path(saved).name
         except OSError:
             logger.exception("Could not save issue screenshot; continuing without it.")
 
-    await db.commit()
-    await db.refresh(report)
+    # Register the row in the Google Sheet — the sole issue register. There is
+    # no local fallback, so any failure must surface as a 503 (ask the user to
+    # retry) rather than silently dropping the report.
+    row_args = (created_at, user_name, user_email, source_label, description, screenshot_name)
+    try:
+        await asyncio.to_thread(svc.append_to_google_sheet, *row_args)
+    except Exception:
+        logger.exception("Could not record issue report to the Google Sheet register.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Could not record the issue right now (issue register unavailable). "
+                "Please try again in a moment."
+            ),
+        )
 
     # Fire-and-forget: the user gets 201 even if Zoho is down.
     background_tasks.add_task(
         svc.send_issue_email,
-        report.created_at,
-        report.user_name or "",
-        report.user_email or "",
-        report.source,
-        report.source_detail,
-        report.description,
+        created_at,
+        user_name,
+        user_email,
+        source_label,
+        description,
         screenshot_bytes,
         screenshot_type,
     )
 
     return IssueReportResponse(
-        id=report.id,
-        source=report.source,
-        source_detail=report.source_detail,
-        description=report.description,
-        has_screenshot=report.screenshot_path is not None,
-        created_at=report.created_at,
+        id=report_id,
+        source=source,
+        source_detail=source_detail,
+        description=description,
+        has_screenshot=screenshot_name is not None,
+        created_at=created_at,
     )
