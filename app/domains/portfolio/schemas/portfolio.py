@@ -141,3 +141,18 @@ class RecommendedPlanResponse(BaseModel):
 
     snapshot: Optional[RecommendedPlanSnapshotResponse] = None
     latest_asset_allocation_run_id: Optional[uuid.UUID] = None
+
+
+class TwrPoint(BaseModel):
+    """One day of the TWR series. Both indices are growth-of-1 (1.0 at inception)."""
+
+    date: date
+    portfolio_index: float
+    nifty_index: Optional[float] = None  # Nifty 50 TRI normalized to inception; null if no baseline
+
+
+class TwrSeriesResponse(BaseModel):
+    """Full daily TWR series since inception. Frontend rebases per range."""
+
+    has_data: bool  # True only when there are >= 2 valued days (renderable)
+    points: list[TwrPoint]

@@ -1,7 +1,7 @@
 # Ask PI — Backend
 
 FastAPI API on PostgreSQL (SQLAlchemy async). AI behaviour is delegated to the bundled
-`AI_Agents` package via `sys.path` injection; integration lives in `app/services/ai_bridge/`.
+`AI_Agents` package via `sys.path` injection; integration lives in `app/domains/ai_engine/` and the per-domain `services/`.
 Main app code is under `app/` (routers, services, models, schemas).
 
 ## Quick start
