@@ -156,24 +156,51 @@ async def get_onboarding_profile(
     return _profile_to_response(user, profile)
 
 
+@router.get("/other-assets", response_model=list[OtherAssetResponse])
+async def get_other_assets(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Read back the user's saved non-financial holdings so the onboarding form
+    can prefill them when the user returns to edit."""
+    stmt = (
+        select(OtherInvestment)
+        .where(
+            OtherInvestment.user_id == current_user.id,
+            OtherInvestment.status == OtherInvestmentStatus.ACTIVE,
+        )
+        .order_by(OtherInvestment.created_at)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_other_investment_to_legacy_response(r) for r in rows]
+
+
 @router.post("/other-assets", response_model=list[OtherAssetResponse])
 async def save_other_assets(
     payload: OtherAssetBulkCreate,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
+    """Full-replace write of the user's "other assets" list."""
     await db.execute(
         delete(OtherInvestment).where(OtherInvestment.user_id == current_user.id)
     )
+    # `other_investments` has investment_type AND as_of_date as NOT NULL. The
+    # onboarding UI only collects a single free-text description (sent as
+    # asset_name) plus a value, so derive a non-null type from the description
+    # and stamp today's date — otherwise the INSERT fails the NOT NULL checks.
+    today = datetime.now(timezone.utc).date()
     rows = [
         OtherInvestment(
             user_id=current_user.id,
-            investment_name=asset.asset_name,
-            investment_type=asset.asset_type,
+            investment_name=asset.asset_name.strip()[:200],
+            investment_type=((asset.asset_type or asset.asset_name).strip()[:50] or "OTHER"),
             present_value=asset.current_value or 0,
+            as_of_date=today,
             status=OtherInvestmentStatus.ACTIVE,
         )
         for asset in payload.assets
+        if asset.asset_name and asset.asset_name.strip()
     ]
     db.add_all(rows)
     await db.commit()
