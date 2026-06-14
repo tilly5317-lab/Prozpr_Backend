@@ -74,9 +74,12 @@ MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024  # 5 MB
 # Transient webhook failures (network blips, Apps Script cold starts) are retried;
 # a script-level rejection (bad token / ok != true) or a 4xx is not — those are
 # deterministic and retrying only delays a report we already know failed.
-_WEBHOOK_TIMEOUT_SECONDS = 20
-_WEBHOOK_MAX_ATTEMPTS = 3
-_WEBHOOK_RETRY_BACKOFF_SECONDS = 1.5
+# Budget is kept tight on purpose: this call blocks the user's submit, so the
+# worst case (2 x 8s + one 0.5s backoff ~= 16.5s) must stay under the frontend's
+# request timeout instead of holding the spinner for ~a minute.
+_WEBHOOK_TIMEOUT_SECONDS = 8
+_WEBHOOK_MAX_ATTEMPTS = 2
+_WEBHOOK_RETRY_BACKOFF_SECONDS = 0.5
 
 
 def append_to_google_sheet(
