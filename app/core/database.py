@@ -48,6 +48,13 @@ _TRANSIENT_CONNECT_MARKERS = (
     "timeout expired",
     "the remote computer refused the network connection",
     "server closed the connection",
+    # Windows WSAEACCES (10013): the OS sporadically denies the outbound socket
+    # — typically when the random local source port collides with a reserved
+    # range (Hyper-V/WSL/Docker) or a security product briefly intercepts. The
+    # next attempt grabs a different port and succeeds, so treat it as transient.
+    "forbidden by its access permissions",
+    "an attempt was made to access a socket",
+    "10013",
 )
 
 
@@ -199,6 +206,23 @@ async def apply_postgres_schema_patches() -> None:
         # on every rebalance. Index it so the lookup is an index scan.
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_mf_nav_history_isin ON mf_nav_history (isin)")
+        )
+        # ORM/column drift: IssueReport.source_detail added after the table first shipped.
+        await conn.execute(
+            text(
+                "ALTER TABLE issue_reports ADD COLUMN IF NOT EXISTS source_detail VARCHAR(100)"
+            )
+        )
+        # ORM/column drift (alembic b7d4e2f1a9c3): per-goal monthly SIP and the
+        # current MF portfolio corpus that feeds the cashflow starting corpus.
+        await conn.execute(
+            text("ALTER TABLE goals ADD COLUMN IF NOT EXISTS monthly_contribution NUMERIC(18,2)")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE personal_finance_profiles "
+                "ADD COLUMN IF NOT EXISTS current_portfolio_corpus NUMERIC(18,2)"
+            )
         )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {

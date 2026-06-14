@@ -228,7 +228,7 @@ def goal_to_response(
         target_date=_goal_target_date(goal),
         invested_amount=invested_amount,
         current_value=current_value,
-        monthly_contribution=None,
+        monthly_contribution=_first_float(goal, "monthly_contribution"),
         suggested_contribution=None,
         priority=_enum_value(getattr(goal, "priority", None), "HIGH"),
         status=_enum_value(getattr(goal, "status", None), "ACTIVE"),

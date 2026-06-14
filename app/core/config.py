@@ -383,16 +383,10 @@ class Settings:
         return (_getenv("SUPPORT_EMAIL_TO") or "support@prozpr.com").strip()
 
     @staticmethod
-    def get_issue_reports_xlsx() -> str | None:
-        """Path of the local fallback workbook; default lives in
-        ``Prozpr_Backend/issue_reports/issue_reports.xlsx``."""
-        v = (_getenv("ISSUE_REPORTS_XLSX") or "").strip()
-        return v or None
-
-    @staticmethod
     def get_issue_sheet_webhook_url() -> str | None:
         """Google Apps Script web-app URL that appends a row to the shared
-        Google Sheet issue register. When unset, reports go to the local xlsx."""
+        Google Sheet issue register — the sole register, so this must be set
+        for issue reporting to work (an unset value makes report-issue 503)."""
         v = (_getenv("ISSUE_SHEET_WEBHOOK_URL") or "").strip()
         return v or None
 

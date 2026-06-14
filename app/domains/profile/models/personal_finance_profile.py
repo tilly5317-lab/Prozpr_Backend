@@ -50,6 +50,11 @@ class PersonalFinanceProfile(Base):
     starting_monthly_investment: Mapped[Optional[float]] = mapped_column(
         Numeric(15, 2), nullable=True
     )
+    # Current mutual-fund portfolio value (prefilled from CAMS / portfolio page).
+    # Summed with ``financial_assets`` to form the cashflow engine's starting corpus.
+    current_portfolio_corpus: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

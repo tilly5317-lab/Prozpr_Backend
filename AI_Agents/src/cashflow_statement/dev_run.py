@@ -55,7 +55,7 @@ def profile_hni_multigoal() -> GoalPlanningInput:
             financial_assets=30_000_000, financial_liabilities_excl_mortgage=1_000_000,
             monthly_household_expense=150_000, starting_monthly_investment=100_000,
         ),
-        retirement=RetirementInput(date_of_birth=date(1985, 6, 15), retirement_age=60),
+        retirement=RetirementInput(date_of_birth=date(1985, 6, 15), retirement_age=60, assumed_lifespan_years=85),
         current_properties=[
             CurrentProperty(name="primary_residence", has_mortgage=True,
                             mortgage_emi=85_000, mortgage_end_date=date(2032, 6, 30)),
@@ -88,7 +88,7 @@ def profile_young_saver() -> GoalPlanningInput:
             financial_assets=500_000, financial_liabilities_excl_mortgage=0,
             monthly_household_expense=40_000, starting_monthly_investment=25_000,
         ),
-        retirement=RetirementInput(date_of_birth=date(1998, 3, 10), retirement_age=60),
+        retirement=RetirementInput(date_of_birth=date(1998, 3, 10), retirement_age=60, assumed_lifespan_years=85),
         current_properties=[],
         goal_properties=[],
         custom_goals=[
@@ -109,7 +109,7 @@ def profile_mid_career_family() -> GoalPlanningInput:
             financial_assets=8_000_000, financial_liabilities_excl_mortgage=300_000,
             monthly_household_expense=90_000, starting_monthly_investment=60_000,
         ),
-        retirement=RetirementInput(date_of_birth=date(1988, 1, 20), retirement_age=60),
+        retirement=RetirementInput(date_of_birth=date(1988, 1, 20), retirement_age=60, assumed_lifespan_years=85),
         current_properties=[
             CurrentProperty(name="primary_residence", has_mortgage=True,
                             mortgage_emi=55_000, mortgage_end_date=date(2036, 1, 31)),
@@ -140,7 +140,7 @@ def profile_pre_retiree() -> GoalPlanningInput:
             financial_assets=40_000_000, financial_liabilities_excl_mortgage=0,
             monthly_household_expense=200_000, starting_monthly_investment=150_000,
         ),
-        retirement=RetirementInput(date_of_birth=date(1971, 9, 5), retirement_age=62),
+        retirement=RetirementInput(date_of_birth=date(1971, 9, 5), retirement_age=62, assumed_lifespan_years=85),
         current_properties=[],
         goal_properties=[],
         custom_goals=[
@@ -161,7 +161,7 @@ def profile_stretched_aspirer() -> GoalPlanningInput:
             financial_assets=1_500_000, financial_liabilities_excl_mortgage=200_000,
             monthly_household_expense=60_000, starting_monthly_investment=20_000,
         ),
-        retirement=RetirementInput(date_of_birth=date(1994, 7, 22), retirement_age=60),
+        retirement=RetirementInput(date_of_birth=date(1994, 7, 22), retirement_age=60, assumed_lifespan_years=85),
         current_properties=[],
         goal_properties=[
             GoalProperty(name="first_home", target_pv=15_000_000, goal_date=date(2030, 4, 1),

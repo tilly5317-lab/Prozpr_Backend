@@ -19,6 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.identity.models.user import User
 from app.domains.ai_engine.common import ensure_ai_agents_path, format_inr_indian
+from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
+    log_output,
+    log_skipped,
+    log_trigger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +62,33 @@ async def compute_goal_planning_snapshot(
         build_goal_planning_input_for_user,
     )
 
+    log_trigger(path="chat", user_id=user.id, session_id=chat_session_id)
+
     if db is None:
         raise ValueError("Database session required for goal planning")
 
+    # Current portfolio value feeds the engine's starting corpus (single source of
+    # truth — the portfolio/CAMS data), summed with cash & assets.
+    portfolio_value = None
+    try:
+        from app.domains.portfolio.services.portfolio_service import get_primary_portfolio
+
+        portfolio = await get_primary_portfolio(db, user.id)
+        if portfolio is not None and portfolio.total_value is not None:
+            portfolio_value = float(portfolio.total_value)
+    except Exception:
+        logger.warning("portfolio value lookup failed; using cash & assets only", exc_info=True)
+
     # Builder is sync and returns the fully-constructed GoalPlanningInput plus
     # a debug dict. Don't await it and don't try to re-construct from kwargs.
-    gp_input, _debug = build_goal_planning_input_for_user(user, anchor_date)
+    # (The builder logs the resolved inputs; we log the trigger/output here.)
+    try:
+        gp_input, _debug = build_goal_planning_input_for_user(
+            user, anchor_date, portfolio_value=portfolio_value
+        )
+    except ValueError as e:
+        log_skipped(path="chat", user_id=user.id, error=str(e), session_id=chat_session_id)
+        raise
 
     from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
@@ -77,6 +103,14 @@ async def compute_goal_planning_snapshot(
         logger.warning("summarize_plan failed; proceeding without narrative", exc_info=True)
 
     plan_run_id = await _persist_plan_run(db, user.id, chat_session_id, output)
+
+    log_output(
+        path="chat",
+        user_id=user.id,
+        output=output,
+        plan_run_id=plan_run_id,
+        session_id=chat_session_id,
+    )
 
     facts_pack = _build_facts_pack(output, summary, user)
     fallback_text = _build_fallback_text(output, summary)

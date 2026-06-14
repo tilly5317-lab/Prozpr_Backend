@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
+from app.domains.mutual_funds.services.scheme_classification import classify_holding
 from app.domains.profile.models.tax_profile import TaxProfile
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
@@ -63,6 +64,22 @@ def _rating_field(meta: MfFundMetadata | None, attr: str, default=None):
     if rating is None:
         return default
     return getattr(rating, attr, default)
+
+
+def _held_subgroup(meta: MfFundMetadata | None) -> str:
+    """Live ``asset_subgroup`` for a held off-list fund, from its SEBI sub_category.
+
+    Replaces the old read of ``MfFundRating.asset_subgroup`` — a column nothing
+    populates, so every held fund came back ``"unknown"`` and collapsed to
+    ``Others`` on the current-allocation view. Classification is centralised in
+    ``scheme_classification``, so a held fund now buckets the same way the
+    portfolio donut buckets it. These funds stay NEUTRAL — this only relabels
+    the subgroup, it does not change their target.
+    """
+    if meta is None:
+        return "unknown"
+    _, subgroup = classify_holding(meta.sub_category, meta.scheme_name)
+    return subgroup or "unknown"
 
 
 async def _latest_nav_by_isin(
@@ -315,7 +332,7 @@ async def build_rebalancing_input_for_user(
         meta = meta_by_isin.get(isin)
         current_nav = nav_by_isin.get(isin) or entry.lots[-1].acquisition_nav
         asset_class = _rating_field(meta, "asset_class") or "equity"
-        bad_subgroup = _rating_field(meta, "asset_subgroup") or "unknown"
+        bad_subgroup = _held_subgroup(meta)
         bad_sub_category = (meta.sub_category if meta else "unknown") or "unknown"
         bad_fund_name = (meta.scheme_name if meta else entry.scheme_code) or entry.scheme_code
 
