@@ -4,21 +4,31 @@ import os
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.output_parsers import StrOutputParser
 
 from common import read_text_bom_aware
+from reasoned_reply import reasoned_reply_tool, extract_reasoned_reply
 
 from .prompts import QA_PROMPT
 
 _DOCUMENT_FILENAME = "market_commentary_latest.md"
 
 _QA_MODEL = "claude-sonnet-4-6"
-_QA_MAX_TOKENS = 1024
+_QA_MAX_TOKENS = 1500          # was 1024 — room for the discarded reasoning field
 
 _qa_llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS)
 
-# Part 2 Q&A chain: {"document_content": str, "user_question": str} → str
-qa_chain = QA_PROMPT | _qa_llm | StrOutputParser()
+# Force the model to think privately, then return a clean answer. The reasoning field is
+# declared first (so it conditions the answer) and discarded by extract_reasoned_reply.
+_QA_TOOL = reasoned_reply_tool(
+    name="return_qa_answer",
+    answer_description=(
+        "The clean, customer-facing answer grounded ONLY in the market-commentary "
+        "document. 2-5 short sentences. No preamble, no working-out."
+    ),
+)
+_qa_llm_bound = _qa_llm.bind_tools(
+    [_QA_TOOL], tool_choice={"type": "tool", "name": "return_qa_answer"}
+)
 
 
 def load_latest_commentary(output_dir: str) -> str:
@@ -59,7 +69,11 @@ def answer_question(
     if document_content is None:
         document_content = load_latest_commentary(output_dir)
 
-    return qa_chain.invoke({
-        "document_content": document_content,
-        "user_question": user_question,
-    })
+    messages = QA_PROMPT.format_messages(
+        document_content=document_content, user_question=user_question,
+    )
+    answer = extract_reasoned_reply(_qa_llm_bound.invoke(messages))
+    if answer:
+        return answer
+    # Rare malformed tool call — return a safe, on-voice fallback rather than crash.
+    return "I couldn't find that in the latest market commentary — could you rephrase?"

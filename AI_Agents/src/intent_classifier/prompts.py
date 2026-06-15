@@ -279,8 +279,10 @@ These cases are easy to misclassify. Apply these rules explicitly:
 
 """
 
+_PI_PREFIX = "I'm PI — at Prozpr"  # single source for the canned-decline identity
+
 OUT_OF_SCOPE_MESSAGE = (
-    "I'm PI — at Prozpr, I'm here to help you with your portfolio, your "
+    f"{_PI_PREFIX}, I'm here to help you with your portfolio, your "
     "asset allocation, rebalancing, and what's happening in the markets. "
     "That's where I can add the most value today, and we're actively expanding "
     "what I can do for you. In the meantime, I'd be happy to help — ask me "
@@ -289,7 +291,7 @@ OUT_OF_SCOPE_MESSAGE = (
 )
 
 STOCK_ADVICE_MESSAGE = (
-    "I'm PI — at Prozpr, we typically don't advise on individual stocks unless "
+    f"{_PI_PREFIX}, we typically don't advise on individual stocks unless "
     "someone has the expertise to actively manage them. Instead, we focus on helping "
     "you build a well-diversified portfolio through carefully selected funds, designed "
     "to outperform across market cycles and support your long-term financial goals. "

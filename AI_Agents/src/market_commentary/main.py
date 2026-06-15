@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from common import read_text_bom_aware
 
-from .document_generator import document_generation_chain
+from .document_generator import generate_document
 from .models import MacroSnapshot
 from .prompts import (
     EXTRACT_MACRO_DATA_TOOL,
@@ -207,9 +207,7 @@ class MarketCommentaryAgent:
             except OSError:
                 pass  # fall through to regeneration
 
-        regenerated_md = document_generation_chain.invoke(
-            {"snapshot": snapshot, "date": date or datetime.utcnow()}
-        )
+        regenerated_md = generate_document(snapshot, date or datetime.utcnow())
         try:
             os.makedirs(self.output_dir, exist_ok=True)
             with open(md_path, "w", encoding="utf-8") as f:  # pin UTF-8 (see CacheManager.save)
@@ -242,7 +240,7 @@ class MarketCommentaryAgent:
         # Step 5: generate and write the 2-page Markdown commentary
         if self._generate_document:
             now = datetime.utcnow()
-            document_md = document_generation_chain.invoke({"snapshot": snapshot, "date": now})
+            document_md = generate_document(snapshot, now)
             snapshot.document_md = document_md
             self._write_document(document_md)
 

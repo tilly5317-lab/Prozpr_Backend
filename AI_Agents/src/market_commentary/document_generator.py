@@ -4,16 +4,15 @@ from datetime import datetime
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
 
 from common import format_inr_indian
+from reasoned_reply import reasoned_reply_tool, extract_reasoned_reply
 
 from .models import MacroSnapshot
 from .prompts import DOCUMENT_GENERATION_PROMPT
 
 _DOCUMENT_MODEL = "claude-haiku-4-5-20251001"
-_MAX_TOKENS = 3072  # 2 pages of Markdown; tuned below 4096 for cost/latency
+_MAX_TOKENS = 3800  # 2-page doc + a short discarded outline; tuned below 4096
 
 
 def _fmt(value: Optional[float], precision: int = 2) -> str:
@@ -74,21 +73,38 @@ def _build_prompt_vars(inputs: dict) -> dict:
 
 _llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
 
-document_generation_chain = (
-    RunnableLambda(_build_prompt_vars)
-    | DOCUMENT_GENERATION_PROMPT
-    | _llm
-    | StrOutputParser()
+# Force a private planning pass (outline, discarded) before the document body so the
+# commentary starts cleanly at the letterhead with no preamble.
+_DOC_TOOL = reasoned_reply_tool(
+    name="return_commentary_document",
+    answer_field="document",
+    answer_description=(
+        "The complete 2-page Markdown commentary, following the required structure, "
+        "letterhead, and disclaimer exactly. Begin at the letterhead — no preamble."
+    ),
+    thinking_field="outline",
+    thinking_description=(
+        "Private planning scratchpad (discarded, max a few lines): jot the section order "
+        "and which macro figures land in each section before writing. Never shown."
+    ),
+)
+_llm_bound = _llm.bind_tools(
+    [_DOC_TOOL], tool_choice={"type": "tool", "name": "return_commentary_document"}
 )
 
 
 def generate_document(snapshot: MacroSnapshot, date: Optional[datetime] = None) -> str:
     """Generate a 2-page Markdown market commentary from a MacroSnapshot."""
-    return document_generation_chain.invoke({"snapshot": snapshot, "date": date})
+    prompt_vars = _build_prompt_vars({"snapshot": snapshot, "date": date})
+    messages = DOCUMENT_GENERATION_PROMPT.format_messages(**prompt_vars)
+    document = extract_reasoned_reply(_llm_bound.invoke(messages), answer_field="document")
+    if not document:
+        raise RuntimeError("Document generation returned no `document` field.")
+    return document
 
 
 class DocumentGenerator:
-    """Thin wrapper around document_generation_chain for backward compatibility."""
+    """Thin wrapper around generate_document for backward compatibility."""
 
     def generate(self, snapshot: MacroSnapshot, date: Optional[datetime] = None) -> str:
         return generate_document(snapshot, date)
