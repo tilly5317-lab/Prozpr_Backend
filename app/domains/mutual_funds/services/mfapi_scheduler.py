@@ -1,14 +1,17 @@
-"""Daily scheduler for mfapi.in NAV refresh while backend is running.
+"""Scheduler for mfapi.in NAV refresh while backend is running.
 
-Two scheduled jobs:
+Scheduled jobs:
 
-1. **Daily NAV refresh** (00:05 IST) — for every scheme in ``mf_fund_metadata``,
-   calls mfapi.in only when the stored latest NAV is older than yesterday.
-   Processes stale schemes in small phases (bounded memory), inserts only NAV
-   points newer than the per-scheme high-water mark, then rebuilds
-   ``user_mf_latest_snapshot``.
+1. **NAV refresh + snapshot** (00:05 / 13:05 / 22:05 IST) — for every scheme in
+   ``mf_fund_metadata``, calls mfapi.in only when the stored latest NAV is older
+   than the run's target date (see ``_min_nav_date_for_daily_refresh``: yesterday
+   for the early runs, today for the late-evening run so same-day / late-publishing
+   "bottleneck" funds get pulled). Processes stale schemes in small phases (bounded
+   memory), inserts only NAV points newer than the per-scheme high-water mark, then
+   rebuilds ``user_mf_latest_snapshot``. Runs three times a day, each shortly before
+   a portfolio-value refresh, so the net-worth job revalues against fresh NAV.
 2. No periodic autofill — on-demand refresh when viewing a fund page handles
-   one-off gaps; the daily job covers the full universe.
+   one-off gaps; this job covers the full universe.
 
 Execution is serialized across uvicorn workers via Postgres advisory locks.
 
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -38,7 +41,8 @@ logger = logging.getLogger(__name__)
 
 MFAPI_LOCK_KEY = 7421100
 MFAPI_TIMEZONE = "Asia/Kolkata"
-MFAPI_DAILY_HOUR = 0
+# Three runs a day, each just before a portfolio-value refresh (06:00 / 14:00 / 23:00).
+MFAPI_DAILY_HOURS = "0,13,22"
 MFAPI_DAILY_MINUTE = 5
 
 # Schemes per ingest call — keeps peak RAM proportional to one phase, not ~8k schemes.
@@ -49,8 +53,25 @@ _scheduler: Optional[Any] = None
 
 
 def _min_nav_date_for_daily_refresh() -> date:
-    """Schemes with latest NAV before this date need a mfapi.in pull."""
-    return date.today() - timedelta(days=1)
+    """Date a scheme's latest NAV must reach to be treated as current for this run.
+
+    Schemes whose latest stored NAV is *before* this date get a mfapi.in pull. AMC
+    NAVs for a trading day publish that evening (~21:00–23:00 IST), so:
+
+    - **Late-evening run (>= 21:00 IST)** targets *today* — it pulls same-day and
+      late-publishing ("bottleneck") funds so the 23:00 portfolio-value job revalues
+      against today's NAV.
+    - **Earlier runs** target *yesterday* — today's NAV doesn't exist yet, so aiming
+      for today would pointlessly re-fetch the whole universe; yesterday keeps the
+      morning/midday passes light (only true stragglers are stale).
+
+    IST is a fixed UTC+5:30 (no DST), so we derive it without a tz database.
+    """
+    now_ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    today_ist = now_ist.date()
+    if now_ist.hour >= 21:
+        return today_ist
+    return today_ist - timedelta(days=1)
 
 
 async def _rebuild_latest_snapshots(db) -> tuple[int, int]:
@@ -191,19 +212,22 @@ def start_scheduler() -> Optional[Any]:
     sched.add_job(
         run_daily_mfapi_job,
         trigger=CronTrigger(
-            hour=MFAPI_DAILY_HOUR,
+            hour=MFAPI_DAILY_HOURS,
             minute=MFAPI_DAILY_MINUTE,
             second=0,
             timezone=MFAPI_TIMEZONE,
         ),
         id="mfapi_daily_refresh",
-        name="Daily NAV refresh + snapshot (00:05 IST)",
+        name="NAV refresh + snapshot (00:05 / 13:05 / 22:05 IST)",
         replace_existing=True,
         misfire_grace_time=3600,
     )
 
-    # Append each user's net-worth point for today, after the NAV refresh above.
-    # Imported lazily to avoid a cross-domain import cycle at module load.
+    # Refresh held-fund NAV and bring every user's net-worth series through today.
+    # Runs three times a day so late-publishing ("bottleneck") funds get picked up and
+    # the dashboard value/chart stay current (each run is after the morning NAV refresh
+    # or catches intraday/evening NAV publishes). Imported lazily to avoid a
+    # cross-domain import cycle at module load.
     from app.domains.portfolio.services.networth_history_service import (
         run_daily_networth_job,
     )
@@ -211,13 +235,13 @@ def start_scheduler() -> Optional[Any]:
     sched.add_job(
         run_daily_networth_job,
         trigger=CronTrigger(
-            hour=6,
+            hour="6,14,23",
             minute=0,
             second=0,
             timezone=MFAPI_TIMEZONE,
         ),
         id="portfolio_networth_daily",
-        name="Daily net-worth point (06:00 IST)",
+        name="Portfolio value refresh (06:00 / 14:00 / 23:00 IST)",
         replace_existing=True,
         misfire_grace_time=3600,
     )

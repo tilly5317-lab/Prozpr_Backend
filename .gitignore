@@ -116,3 +116,4 @@ AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
 
 # User-filed issue reports (Excel register + screenshots) — runtime artifacts
 issue_reports/
+/app/domains/portfolio/services/tests
