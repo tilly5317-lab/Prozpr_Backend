@@ -388,21 +388,25 @@ async def _latest_nav_on_or_before(
     ).scalar()
 
 
-async def compute_today_networth(
-    db: AsyncSession, user_id: uuid.UUID
+async def compute_networth_as_of(
+    db: AsyncSession, user_id: uuid.UUID, as_of: date
 ) -> Optional[tuple[float, float, float]]:
-    """Today's ``(total_value, total_invested, gain_pct)`` from the ledger × latest NAV.
+    """``(total_value, total_invested, gain_pct)`` valued *as of* ``as_of`` from the ledger.
 
-    Single source of truth for "today's net worth": held units per scheme valued at
-    the most recent stored NAV (carried forward, no external fetch). Cost basis uses
-    the average-cost method so a profitable redemption can't push invested negative.
-    Returns ``None`` when the user has no transactions.
+    Replays every transaction dated on/before ``as_of`` to get held units per scheme,
+    then values each at the most recent stored NAV on/before ``as_of`` — carried forward
+    across non-trading days, so the value is well-defined on weekends/holidays too. Cost
+    basis uses the average-cost method so a profitable redemption can't push invested
+    negative. Returns ``None`` when the user has no transactions on/before ``as_of``.
     """
     txns = list(
         (
             await db.execute(
                 select(MfTransaction)
-                .where(MfTransaction.user_id == user_id)
+                .where(
+                    MfTransaction.user_id == user_id,
+                    MfTransaction.transaction_date <= as_of,
+                )
                 .order_by(MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc())
             )
         ).scalars().all()
@@ -430,7 +434,6 @@ async def compute_today_networth(
                 invested_by[sc] = invested_by.get(sc, 0.0) * max(0.0, held - u) / held
             units_by[sc] = held - u
 
-    today = date.today()
     total_value = 0.0
     total_invested = 0.0
     for scheme_code, units in units_by.items():
@@ -439,7 +442,7 @@ async def compute_today_networth(
             continue
         if invested > 0:
             total_invested += invested
-        nav = await _latest_nav_on_or_before(db, scheme_code, today)
+        nav = await _latest_nav_on_or_before(db, scheme_code, as_of)
         if nav is not None:
             total_value += units * float(nav)
 
@@ -451,6 +454,18 @@ async def compute_today_networth(
         else 0.0
     )
     return total_value, total_invested, gain_pct
+
+
+async def compute_today_networth(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Optional[tuple[float, float, float]]:
+    """Today's ``(total_value, total_invested, gain_pct)`` — see ``compute_networth_as_of``.
+
+    Single source of truth for "today's net worth" from the transaction ledger: held
+    units per scheme valued at the most recent stored NAV (carried forward, no external
+    fetch). Returns ``None`` when the user has no transactions.
+    """
+    return await compute_networth_as_of(db, user_id, date.today())
 
 
 async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
@@ -489,11 +504,197 @@ async def append_today_networth(db: AsyncSession, user_id: uuid.UUID) -> bool:
     return True
 
 
-async def run_daily_networth_job() -> None:
-    """Append today's net-worth point for every user with MF transactions.
+# How long an outage we'll patch by forward-carrying the latest value before falling
+# back to a full per-day recompute. A weekend + a holiday is at most ~4 days; the job
+# runs several times a day, so in practice the trailing gap is 0–1 day.
+_MAX_FORWARD_FILL_DAYS = 7
 
-    Registered at 06:00 IST (after the 00:05 NAV refresh). Serialized across
-    uvicorn workers via a Postgres advisory lock.
+
+async def _last_recorded_date(db: AsyncSession, user_id: uuid.UUID) -> Optional[date]:
+    return (
+        await db.execute(
+            select(func.max(UserPortfolioNavHistory.recorded_date)).where(
+                UserPortfolioNavHistory.user_id == user_id
+            )
+        )
+    ).scalar()
+
+
+async def _upsert_nav_points(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    points: list[tuple[date, tuple[float, float, float]]],
+) -> None:
+    """Idempotently upsert one row per (user, day). ``points`` = [(day, (value, invested, gain))]."""
+    if not points:
+        return
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "user_id": user_id,
+            "recorded_date": day,
+            "total_value": round(value, 2),
+            "total_invested": round(invested, 2),
+            "gain_percentage": round(gain, 4),
+        }
+        for day, (value, invested, gain) in points
+    ]
+    dialect = db.bind.dialect.name if db.bind is not None else "postgresql"
+    insert = pg_insert if dialect == "postgresql" else sqlite_insert
+    stmt = insert(UserPortfolioNavHistory).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["user_id", "recorded_date"],
+        set_={
+            "total_value": stmt.excluded.total_value,
+            "total_invested": stmt.excluded.total_invested,
+            "gain_percentage": stmt.excluded.gain_percentage,
+        },
+    )
+    await db.execute(stmt)
+    await db.commit()
+
+
+async def _authoritative_today_value(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Optional[tuple[float, float, float]]:
+    """Today's value exactly as the dashboard headline shows it.
+
+    The headline is the holdings roll-up re-marked to today's NAV
+    (``revalue_primary_portfolio_at_latest_nav``) — the single authoritative figure.
+    We fall back to the transaction ledger only when there are no priced holdings
+    (e.g. transactions imported without a CAS holdings snapshot). Sourcing the chart's
+    latest point from this same value is what keeps chart-latest == portfolio value.
+    """
+    try:
+        portfolio = await revalue_primary_portfolio_at_latest_nav(db, user_id)
+    except Exception:  # noqa: BLE001 — never fail the series on a NAV lookup
+        await db.rollback()
+        portfolio = None
+    if portfolio is not None:
+        total_value = _f(portfolio.total_value)
+        if total_value > 0:
+            total_invested = _f(portfolio.total_invested)
+            gain_pct = (
+                round((total_value - total_invested) / total_invested * 100, 4)
+                if total_invested > 0
+                else 0.0
+            )
+            return total_value, total_invested, gain_pct
+    return await compute_today_networth(db, user_id)
+
+
+async def ensure_history_current_through_today(
+    db: AsyncSession, user_id: uuid.UUID, *, allow_full_rebuild: bool = True
+) -> bool:
+    """Guarantee the user's net-worth series runs through *today*, holiday or not.
+
+    Two invariants this enforces on every call:
+
+    1. **Yesterday is always present** — non-trading days never publish a NAV, so the
+       daily job may not have a fresh point for them. We back-fill every missing
+       trailing day by valuing it at that day's carried-forward NAV, so the chart
+       always has a point for yesterday (and every day up to today) regardless of
+       weekends/holidays.
+    2. **Chart-latest == dashboard headline** — today's point is (re)written from the
+       authoritative holdings roll-up, so the chart's last value can never drift away
+       from the portfolio value shown elsewhere.
+
+    Returns ``True`` if any row was written. No-ops (``False``) when the user has no
+    series yet — the first build is owned by the backfill CTA, not this top-up.
+    """
+    today = date.today()
+    last = await _last_recorded_date(db, user_id)
+    if last is None:
+        return False
+
+    authoritative = await _authoritative_today_value(db, user_id)
+    if authoritative is None or authoritative[0] <= 0:
+        return False
+
+    points: list[tuple[date, tuple[float, float, float]]] = []
+    if last < today:
+        gap_days = (today - last).days
+        if gap_days > _MAX_FORWARD_FILL_DAYS and allow_full_rebuild:
+            # A real outage (job down for days): recompute every day correctly in one
+            # pass rather than forward-carrying a single value across a long window.
+            await compute_user_networth_history(db, user_id)
+            await _upsert_nav_points(db, user_id, [(today, authoritative)])
+            return True
+        # Earliest day we'll fill. On the read path we keep it cheap by only restoring
+        # the recent trailing window; the scheduled job repairs any older hole.
+        first_fill = (
+            last + timedelta(days=1)
+            if gap_days <= _MAX_FORWARD_FILL_DAYS
+            else today - timedelta(days=_MAX_FORWARD_FILL_DAYS)
+        )
+        day = first_fill
+        while day < today:
+            valued = await compute_networth_as_of(db, user_id, day)
+            if valued is not None:
+                points.append((day, valued))
+            day += timedelta(days=1)
+
+    # Always (re)write today from the authoritative headline so chart-latest matches it.
+    points.append((today, authoritative))
+    await _upsert_nav_points(db, user_id, points)
+    return True
+
+
+async def _refresh_held_fund_navs(db: AsyncSession) -> None:
+    """Pull the latest NAV from mfapi.in for every *held* scheme still missing today's NAV.
+
+    Run several times a day, this is what lets late-publishing ("bottleneck") funds
+    surface their newest NAV without re-fetching the whole ~8k-scheme universe each
+    time — we only touch the funds users actually hold that don't yet have today's NAV.
+    Best-effort: a fetch failure must never block the net-worth refresh below.
+    """
+    try:
+        from app.domains.mutual_funds.services.mfapi_ingest_service import (
+            IngestMode,
+            ingest_mfapi,
+            list_scheme_codes_needing_nav_refresh,
+        )
+
+        held_rows = (
+            await db.execute(select(MfTransaction.scheme_code).distinct())
+        ).scalars().all()
+        held = {str(c).strip() for c in held_rows if c and str(c).strip()}
+        if not held:
+            return
+        # ``min_nav_date=today`` flags schemes whose latest NAV is older than today —
+        # i.e. those that have not yet published today's NAV (the bottleneck funds).
+        stale_codes, _ = await list_scheme_codes_needing_nav_refresh(
+            db, min_nav_date=date.today()
+        )
+        to_refresh = [c for c in stale_codes if c in held]
+        if not to_refresh:
+            logger.info(
+                "networth daily job: all %d held funds already have today's NAV", len(held)
+            )
+            return
+        logger.info(
+            "networth daily job: refreshing NAV for %d/%d held funds missing today's NAV",
+            len(to_refresh),
+            len(held),
+        )
+        await ingest_mfapi(
+            db, mode=IngestMode.INCREMENTAL, scheme_codes=to_refresh, concurrency=8
+        )
+    except Exception:  # noqa: BLE001 — NAV refresh is best-effort
+        logger.exception("networth daily job: held-fund NAV refresh failed (continuing)")
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def run_daily_networth_job() -> None:
+    """Refresh held-fund NAV, then bring every user's net-worth series through today.
+
+    Registered to run several times a day (after each NAV pull). Serialized across
+    uvicorn workers via a Postgres advisory lock. For each user this both back-fills
+    any missing trailing day (so the chart always shows yesterday, holiday or not) and
+    reconciles today's point to the dashboard headline (so the two never disagree).
     """
     logger.info("networth daily job: starting")
     factory = _get_session_factory()
@@ -508,6 +709,9 @@ async def run_daily_networth_job() -> None:
                 logger.info("networth daily job: lock held by another worker; skipping")
                 return
             try:
+                # Catch late-publishing ("bottleneck") funds before we revalue anyone.
+                await _refresh_held_fund_navs(db)
+
                 user_ids = list(
                     (
                         await db.execute(select(MfTransaction.user_id).distinct())
@@ -516,15 +720,18 @@ async def run_daily_networth_job() -> None:
                 done = 0
                 for user_id in user_ids:
                     try:
-                        if await append_today_networth(db, user_id):
+                        if await ensure_history_current_through_today(
+                            db, user_id, allow_full_rebuild=True
+                        ):
                             done += 1
-                        # Keep the portfolio headline (total_value / gain) in step with
-                        # today's NAV, so chat / family views don't show a stale figure.
-                        await revalue_primary_portfolio_at_latest_nav(db, user_id)
                     except Exception:  # noqa: BLE001 — never let one user block the rest
                         logger.exception("networth daily job: failed for user %s", user_id)
+                        try:
+                            await db.rollback()
+                        except Exception:  # noqa: BLE001
+                            pass
                 logger.info(
-                    "networth daily job: appended today's point for %d/%d users",
+                    "networth daily job: refreshed net-worth series for %d/%d users",
                     done,
                     len(user_ids),
                 )

@@ -1,13 +1,19 @@
 # app/domains/mutual_funds/ — MF metadata, NAV, transactions, SIPs, snapshots, watchlists, AA imports, mfapi.in fetcher + scheduler
 
-Mf metadata, nav, transactions, sips, snapshots, watchlists, aa imports, mfapi.in fetcher + scheduler.
-
 ## Layers
 
-- **models/** — mf_fund_metadata, mf_fund_rating, mf_nav_history, mf_sip_mandate, mf_transaction, mf_aa_import/summary/transaction, mf_allocation_snapshot, user_mf_latest_snapshot, user_investment_list, fund (legacy reference), index_tri_history (NSE index TRI, e.g. NIFTY 50)
-- **schemas/** — per-resource pydantic + mfapi DTOs + aa_import payloads
-- **routers/** — /mf router with one sub-router per resource (fund_metadata, fund_rating, nav_history, transactions, sip_mandates, holding_detail, latest_snapshot, portfolio_snapshots, user_investment_lists, aa_imports)
-- **services/** — per-resource services + mfapi_fetcher / mfapi_ingest_service / mfapi_scheduler / aa_access_service / aa_import_service / paging helpers + xirr_service (portfolio/scheme XIRR; reuse, don't rebuild) + niftyindices_fetcher / index_tri_service / index_tri_scheduler (Nifty 50 TRI scrape + daily 20:30 IST refresh)
+- **models/** — fund metadata/rating, NAV history, SIP mandates, transactions, AA imports, allocation + latest snapshots, investment lists, legacy `fund`, and `index_tri_history` (NSE index TRI, e.g. NIFTY 50).
+- **schemas/** — per-resource pydantic plus the mfapi DTOs and AA-import payloads.
+- **routers/** — the `/mf` router, one sub-router per resource (fund metadata/rating, NAV, transactions, SIP mandates, holding detail, snapshots, investment lists, AA imports).
+- **services/** — per-resource CRUD plus the fetch/ingest/scheduler stacks and the cross-cutting helpers called out below (classifier, resolver, XIRR, holding-detail read path). Reuse `xirr_service` — don't rebuild XIRR.
+
+## Gotchas & invariants
+
+- `scheme_classification.py` is the single canonical fund classifier for the whole app; the rebalancing CSV `mf_subgroup_mapped.csv` is a FROZEN snapshot of it, so this module is the live source. Name-match ORDER matters — specific vocabulary before generic (`services/scheme_classification.py`, `_infer_*` near line 474).
+- `scheme_resolver.build_isin_to_amfi_map` MUST run at ingest (ISIN/RTA code → numeric AMFI code) or a holding can never be priced or refreshed — both `mf_nav_history` and mfapi.in are keyed by AMFI code (`services/scheme_resolver.py`; callers `ingestion/.../cams_cas_ingest.py`, `mf_aa_normalizer.py`).
+- Two schedulers are env-gated and serialized across uvicorn workers by Postgres advisory locks: daily NAV/master (`MFAPI_SCHEDULER_ENABLED`, 00:00 IST) and Nifty TRI (`INDEX_TRI_SCHEDULER_ENABLED`, 20:30 IST). The daily portfolio net-worth backfill (`portfolio_networth_daily`) is registered inside the mfapi job. (`services/mfapi_scheduler.py`, `services/index_tri_scheduler.py`, `app/core/config.py`).
+- NAV and TRI bulk inserts are idempotent via `ON CONFLICT ... DO NOTHING`, so re-runs never duplicate (`services/nav_history_service.py:228`, `services/index_tri_service.py:56`).
+- The holding-detail read path self-heals: a plain GET runs `normalize_pending_imports` so received-but-unnormalized CAS imports surface without hitting the ingest route (`services/holding_detail_service.py:370`).
 
 ## Don't read
 

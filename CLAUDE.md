@@ -7,6 +7,8 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 - **app/** — FastAPI application (routers, services, models, schemas).
 - **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, cashflow_statement, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library; integrated via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
 - **alembic/** — Database migrations.
+- **migrations/** — Hand-written raw SQL migration scripts (under `sql/`) for asset-allocation schema changes; applied manually, distinct from the Alembic-managed `alembic/` migrations.
+- **notebooks/** — DEV-ONLY exploration Jupyter notebooks (e.g. a portfolio-vs-Nifty-50 benchmark prototype). Not imported by runtime.
 - **wealth_core/** — LEGACY; pre-app/ orchestration modules.
 - **MF_Logics/** — LEGACY; historical MF data extraction and mapping work.
 - **scripts/** — DEV-ONLY helper scripts.
@@ -48,6 +50,11 @@ Cross-cutting flows live with their home folders:
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
 - `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding, `charts.md`, `flowchart_chat_flow.html`). Not product code.
 
-## Refresh
+## Context-layer convention
 
-If any CLAUDE.md in this tree looks stale after a structural change, run `/refresh-context` from that folder. (Leaf CLAUDE.mds intentionally omit a per-file refresh note — this is the canonical one.)
+Every folder's `CLAUDE.md` follows convention v2 — full rules and the reconcile procedure live in `.claude/commands/refresh-context.md`; run `/refresh-context` from a folder to check it. In brief:
+
+- **Section order:** `# path/ — purpose` → optional `## Entry / contract` → typed structure (`## Child modules` | `## Layers` | `## Files`) → optional `## Gotchas & invariants` → optional `## Testing` → `## Don't read`.
+- **Type** is the structure marker; `## Imported by active code?` marks a **Stub** (legacy / not-imported only). Each Gotchas bullet carries a `file:line`/symbol anchor + the *why*.
+- **Keep** stable contracts, cross-module invariants, numeric conventions, env flags; **drop** test rosters, symbol lists, "N files" counts, internal helper names.
+- **Size by words, not lines:** Stub ≤120 · Leaf ≤250 (≤400 flow-bearing) · Map ≤400 · hub ≤600; one idea per bullet.
