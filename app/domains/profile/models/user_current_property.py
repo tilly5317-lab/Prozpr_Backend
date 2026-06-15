@@ -45,6 +45,9 @@ class UserCurrentProperty(Base):
     has_mortgage: Mapped[bool] = mapped_column(Boolean, nullable=False)
     mortgage_emi: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     mortgage_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Outstanding loan balance — informational; collected in onboarding so the
+    # property's equity (value − balance) is preserved across edits.
+    mortgage_balance: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
 
     investment_profile: Mapped["InvestmentProfile"] = relationship(
         "InvestmentProfile",

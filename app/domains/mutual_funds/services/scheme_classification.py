@@ -133,12 +133,69 @@ SUBCAT_TO_MAPPING: dict[str, tuple[str, str]] = {
     "Gold Linked (Index/ETF)":                         ("Others", "gold_commodities"),
     "Silver Linked (Index/ETF)":                       ("Others", "silver_commodities"),
     "Others (Index/ETF)":                              ("Others", "others"),
+    # Debt-index trackers (gilt / SDL / IBX / G-Sec / target-maturity). Duration
+    # isn't reliably parseable from the name, so use the generic debt subgroup.
+    "Debt Index Linked (Index/ETF)":                   ("Debt", "debt_subgroup"),
 
     # FoF
     "US Linked (FoF)":                                 ("Equity", "us_equities"),
     "China Linked (FoF)":                              ("Equity", "china_equities"),
     "Others (FoF)":                                    ("Others", "others_fofs"),
 }
+
+
+# ---------------------------------------------------------------------------
+# asset_subgroup → asset_class
+# ---------------------------------------------------------------------------
+#
+# Derived from SUBCAT_TO_MAPPING — every subgroup there already implies exactly
+# one asset_class, so this map can never drift from the sub_category table.
+#
+# A few subgroups are produced by the *allocation engine* (not the SEBI
+# classifier) and so don't appear in SUBCAT_TO_MAPPING. They're added
+# explicitly here:
+#   * ``multi_asset``           — engine's multi-asset equity sleeve
+#   * ``arbitrage_plus_income`` — engine's income-leaning debt sleeve
+#   * ``debt_subgroup``         — engine's generic debt sleeve
+#   * ``gold``                  — engine's gold label (vs the classifier's
+#                                 ``gold_commodities``)
+#
+# Three more come from the rebalancing fund-ranking CSV (its vocabulary, not
+# the SEBI classifier's). Without them, funds in these subgroups silently fell
+# through asset_class_for_subgroup's default into ``Others``:
+#   * ``other_debt``     — CSV's generic debt bucket
+#   * ``sector_debt``    — CSV's sectoral debt bucket
+#   * ``other_equities`` — CSV's residual equity bucket
+_ENGINE_ONLY_SUBGROUP_TO_ASSET_CLASS: dict[str, str] = {
+    "multi_asset":           ASSET_CLASS_EQUITY,
+    "arbitrage_plus_income": ASSET_CLASS_DEBT,
+    "debt_subgroup":         ASSET_CLASS_DEBT,
+    "gold":                  ASSET_CLASS_OTHERS,
+    "other_debt":            ASSET_CLASS_DEBT,
+    "sector_debt":           ASSET_CLASS_DEBT,
+    "other_equities":        ASSET_CLASS_EQUITY,
+}
+
+
+def _build_subgroup_to_asset_class() -> dict[str, str]:
+    out: dict[str, str] = {sg: ac for ac, sg in SUBCAT_TO_MAPPING.values()}
+    out.update(_ENGINE_ONLY_SUBGROUP_TO_ASSET_CLASS)
+    return out
+
+
+SUBGROUP_TO_ASSET_CLASS: dict[str, str] = _build_subgroup_to_asset_class()
+
+
+def asset_class_for_subgroup(subgroup: Optional[str]) -> str:
+    """Map an ``asset_subgroup`` → canonical asset_class (``Equity`` / ``Debt`` / ``Others``).
+
+    Unknown / empty → ``Others``. This is the single source for the
+    subgroup→class direction; the rebalancing response and the chat
+    asset-class summary both read from here.
+    """
+    if not subgroup:
+        return ASSET_CLASS_OTHERS
+    return SUBGROUP_TO_ASSET_CLASS.get(subgroup.strip(), ASSET_CLASS_OTHERS)
 
 
 # ---------------------------------------------------------------------------
@@ -279,14 +336,16 @@ def _match_any(patterns: tuple[str, ...], text: str) -> bool:
 def _classify_index_or_etf(scheme_name: Optional[str]) -> str:
     """Map an Index Fund / ETF scheme name → canonical sub_category.
 
-    Returns ``""`` for debt-index ETFs (legacy intentionally leaves them
-    unclassified — they need their own mapping table we haven't built yet).
+    Debt-index trackers (gilt / SDL / IBX / G-Sec / target-maturity / Bharat
+    Bond, etc.) → ``"Debt Index Linked (Index/ETF)"`` so they bucket as Debt.
+    Their names often contain "Nifty"/"BSE"/index words that would otherwise
+    trip the equity heuristics, so debt detection must run first.
     """
     name = (scheme_name or "").lower()
     if not name:
         return ""
     if _match_any(_DEBT_INDEX_PATTERNS, name):
-        return ""
+        return "Debt Index Linked (Index/ETF)"
     if re.search(r"\bgold\b", name):
         return "Gold Linked (Index/ETF)"
     if re.search(r"\bsilver\b", name):

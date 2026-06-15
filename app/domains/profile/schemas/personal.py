@@ -23,6 +23,7 @@ class PersonalFinanceFields(BaseModel):
     financial_liabilities_excl_mortgage: Optional[float] = Field(default=None, ge=0)
     monthly_household_expense: Optional[float] = Field(default=None, ge=0)
     starting_monthly_investment: Optional[float] = Field(default=None, ge=0)
+    current_portfolio_corpus: Optional[float] = Field(default=None, ge=0)
 
 
 class PersonalFinanceUpdate(PersonalFinanceFields):

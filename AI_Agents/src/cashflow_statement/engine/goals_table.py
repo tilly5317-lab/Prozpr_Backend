@@ -35,29 +35,34 @@ def build_goals_table(
     ctx: RunContext,
     assumptions: Assumptions,
     warnings: list[str],
+    include_retirement: bool = True,
 ) -> list[GoalInternal]:
     rows: list[GoalInternal] = []
 
     # 1. Retirement (special-case: skip inflation lookup; corpus_required_fv = corpus_required_used)
     # Goal_value_pv is the back-discounted PV (today's ₹), not the FV.
-    retirement_date = retirement_snap.retirement_date
-    rows.append(GoalInternal(
-        name="retirement",
-        goal_type=GoalType.retirement,
-        goal_date=retirement_date,
-        goal_date_fy=fy_end_after(retirement_date),
-        goal_value_pv=retirement_snap.corpus_required_pv_today,
-        # Retirement has no mortgage — goal_value_fv equals corpus_required_fv.
-        goal_value_fv=retirement_snap.corpus_required_used,
-        corpus_required_fv=retirement_snap.corpus_required_used,
-        inflation_rate=ctx.inflation_household_expense,
-        expected_roi=expected_roi_for_goal(retirement_date, ctx),
-        investment_required_pv=_fund_today_pv(
-            retirement_snap.corpus_required_used,
-            expected_roi_for_goal(retirement_date, ctx),
-            ctx, retirement_date,
-        ),
-    ))
+    # Only injected when the engine models retirement as a built-in goal. When
+    # disabled, retirement is considered only if the user added it as a custom
+    # goal (which arrives via `custom_goals` below).
+    if include_retirement:
+        retirement_date = retirement_snap.retirement_date
+        rows.append(GoalInternal(
+            name="retirement",
+            goal_type=GoalType.retirement,
+            goal_date=retirement_date,
+            goal_date_fy=fy_end_after(retirement_date),
+            goal_value_pv=retirement_snap.corpus_required_pv_today,
+            # Retirement has no mortgage — goal_value_fv equals corpus_required_fv.
+            goal_value_fv=retirement_snap.corpus_required_used,
+            corpus_required_fv=retirement_snap.corpus_required_used,
+            inflation_rate=ctx.inflation_household_expense,
+            expected_roi=expected_roi_for_goal(retirement_date, ctx),
+            investment_required_pv=_fund_today_pv(
+                retirement_snap.corpus_required_used,
+                expected_roi_for_goal(retirement_date, ctx),
+                ctx, retirement_date,
+            ),
+        ))
 
     # 2. Goal properties — corpus_required_fv flows in as corpus_required_fv.
     # Report the actual inflation that was applied (user override or

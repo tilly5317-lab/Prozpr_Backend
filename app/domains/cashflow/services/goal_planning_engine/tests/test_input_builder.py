@@ -110,7 +110,9 @@ def test_maps_current_properties_from_investment_profile():
     assert "current_properties=[]" not in debug["defaults_applied"]
 
 
-def test_skips_retirement_inactive_and_past_goals():
+def test_skips_inactive_and_past_goals():
+    """Inactive (ACHIEVED) and past-dated goals are skipped. A RETIREMENT-typed
+    goal is NOT skipped any more — it flows through as a custom goal."""
     today = date(2026, 5, 15)
     goals = [
         _goal(name="my_retirement", goal_type="RETIREMENT",
@@ -131,8 +133,8 @@ def test_skips_retirement_inactive_and_past_goals():
     )
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=goals)
     inp, debug = build_goal_planning_input_for_user(user, anchor_date=today)
-    assert [g.name for g in inp.custom_goals] == ["live_goal"]
-    assert debug["active_goal_count"] == 1
+    assert sorted(g.name for g in inp.custom_goals) == ["live_goal", "my_retirement"]
+    assert debug["active_goal_count"] == 2
 
 
 def test_missing_tax_rate_blocks_engine():
@@ -185,8 +187,10 @@ def test_home_purchase_emits_property_validation_issue():
     assert any("HOME_PURCHASE" in v for v in debug["validation_issues"])
 
 
-def test_skips_retirement_by_name_not_only_goal_type():
-    """A goal named 'Retirement' must not duplicate engine RetirementInput."""
+def test_user_retirement_goal_flows_through_as_custom_goal():
+    """Retirement is no longer injected from the profile — a user goal named
+    'Retirement' now flows through as a normal custom goal (model_retirement=False),
+    so the projection considers retirement only when the user adds it."""
     today = date(2026, 5, 15)
     goals = [
         _goal(name="Retirement", goal_type="OTHER",
@@ -203,8 +207,10 @@ def test_skips_retirement_by_name_not_only_goal_type():
     )
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=goals)
     inp, debug = build_goal_planning_input_for_user(user, anchor_date=today)
-    assert [g.name for g in inp.custom_goals] == ["travel"]
-    assert any("skipped" in v and "retirement" in v.lower() for v in debug["validation_issues"])
+    # Both goals pass through; nothing is skipped as "retirement".
+    assert sorted(g.name for g in inp.custom_goals) == ["Retirement", "travel"]
+    assert inp.model_retirement is False
+    assert not any("skipped" in v and "retirement" in v.lower() for v in debug["validation_issues"])
 
 
 def test_output_is_engine_consumable():

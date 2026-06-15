@@ -10,10 +10,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.mutual_funds.models import MfFundMetadata, MfFundRating, MfSipMandate, MfTransaction
+from app.domains.mutual_funds.models import MfFundMetadata, MfSipMandate, MfTransaction
 from app.domains.mutual_funds.schemas import MfTransactionCreate, MfTransactionUpdate
 from app.domains.mutual_funds.services.latest_snapshot_service import rebuild_user_latest_snapshot
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
+from app.domains.mutual_funds.services.scheme_classification import classify_holding
 
 
 async def _ensure_sip_owned(
@@ -34,16 +35,14 @@ async def _enrich_from_fund_tables(db: AsyncSession, row: MfTransaction) -> None
     meta = (
         await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == row.scheme_code))
     ).scalar_one_or_none()
-    rating = (
-        await db.execute(select(MfFundRating).where(MfFundRating.scheme_code == row.scheme_code))
-    ).scalar_one_or_none()
     if meta:
         row.isin = meta.isin
         row.fund_name = meta.scheme_name
         row.category = meta.category
         row.sub_category = meta.sub_category
-    if rating:
-        row.sub_group = rating.asset_subgroup
+        # Subgroup classified live (centralised in scheme_classification); the
+        # MfFundRating.asset_subgroup column it used to read was never populated.
+        _, row.sub_group = classify_holding(meta.sub_category, meta.scheme_name)
 
 
 async def list_transactions(

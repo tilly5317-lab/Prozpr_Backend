@@ -42,6 +42,11 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
             selectinload(User.mf_transactions),
             selectinload(User.cashflow_assumptions),
             selectinload(User.cashflow_one_off_events),
+            # Non-financial holdings (gold, FDs, unlisted shares…). Eager-loaded
+            # so the cashflow readiness + input builder can sum them into the
+            # user's "cash & assets" synchronously without a lazy load (which
+            # raises MissingGreenlet under the async engine).
+            selectinload(User.other_investments),
         )
         .where(User.id == user_id)
     )
