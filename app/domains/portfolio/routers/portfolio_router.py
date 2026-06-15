@@ -49,6 +49,7 @@ from app.domains.portfolio.services.nav_history_service import (
 from app.domains.portfolio.services.networth_history_service import (
     compute_user_networth_history,
     create_job,
+    ensure_history_current_through_today,
     get_latest_job,
     has_running_job,
     run_networth_backfill,
@@ -310,6 +311,16 @@ async def get_nav_history(
     Computed from the user's holdings (units × backcast NAV) and cached in
     ``user_portfolio_nav_history``. Re-runs are idempotent.
     """
+    # Self-heal the trailing edge on every load so the chart always reaches yesterday/
+    # today (holiday or not) and its latest value matches the dashboard headline — even
+    # between scheduled refreshes. Best-effort: never let a top-up block the read.
+    try:
+        await ensure_history_current_through_today(
+            db, current_user.id, allow_full_rebuild=False
+        )
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     horizon_norm = horizon.upper()
     rows = await get_user_nav_history(db, current_user.id, horizon=horizon_norm)
     points = [PortfolioNavHistoryPoint.model_validate(r) for r in rows]
@@ -350,6 +361,14 @@ async def refresh_nav_history(
     transaction — use ``POST /portfolio/networth-history/build`` instead.
     """
     await compute_user_networth_history(db, current_user.id)
+    # Reconcile today's point to the dashboard headline so the chart's latest value
+    # matches the portfolio value shown elsewhere.
+    try:
+        await ensure_history_current_through_today(
+            db, current_user.id, allow_full_rebuild=False
+        )
+    except Exception:  # noqa: BLE001
+        await db.rollback()
     rows = await get_user_nav_history(db, current_user.id, horizon="MAX")
     points = [PortfolioNavHistoryPoint.model_validate(r) for r in rows]
     invested = float(rows[-1].total_invested) if rows else 0.0
