@@ -87,18 +87,20 @@ class FirstTurnTests(unittest.TestCase):
     def test_first_turn_runs_engine_and_returns_ids(self):
         outcome = _engine_outcome_with_ids()
 
-        # The first-turn chat reply path now goes through:
-        #     build_fallback_brief → compose_allocation_chat_reply (Haiku)
-        # Patch both so the test owns the produced text deterministically.
+        # The first-turn chat reply path now routes through the shared
+        # answer_formatter (build_fallback_brief is only the last-resort fallback).
         with patch.object(mod, "compute_allocation_result",
                           new=AsyncMock(return_value=outcome)), \
-             patch.object(mod, "build_fallback_brief", return_value="brief text"), \
-             patch.object(mod, "compose_allocation_chat_reply",
-                          new=AsyncMock(return_value=None)):
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch.object(mod, "compute_current_asset_class_mix", return_value={}), \
+             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="formatted reply")), \
+             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("plan my retirement")))
 
         self.assertIsInstance(result, ChatHandlerResult)
-        self.assertEqual(result.text, "brief text")
+        self.assertEqual(result.text, "formatted reply")
         self.assertEqual(result.snapshot_id, outcome.allocation_snapshot_id)
         self.assertEqual(result.rebalancing_recommendation_id,
                          outcome.rebalancing_recommendation_id)
@@ -176,9 +178,12 @@ class CounterfactualExploreTests(unittest.TestCase):
                           new=AsyncMock(return_value=action)), \
              patch.object(mod, "compute_allocation_result", side_effect=fake_compute), \
              patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
-             patch.object(mod, "build_fallback_brief", return_value="hypothetical text"), \
-             patch.object(mod, "compose_allocation_chat_reply",
-                          new=AsyncMock(return_value=None)):
+             patch.object(mod, "build_aa_facts_pack", return_value={}), \
+             patch.object(mod, "compute_current_asset_class_mix", return_value={}), \
+             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                   new=AsyncMock(return_value="hypothetical text")), \
+             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                   new=AsyncMock(return_value=None)):
             result = asyncio.run(mod.handle(_ctx("what if risk were 7?", last_alloc=_agent_run())))
 
         # The counterfactual path appends the save-offer suffix to the brief.
@@ -397,12 +402,9 @@ class RehydrateFallbackTests(unittest.TestCase):
 
 
 # The FormatterTelemetry tests that lived here previously asserted on columns
-# the answer_formatter wrote when ``_format_or_fallback`` ran on the first
-# turn. After the refactor the first-turn path goes through
-# ``compose_allocation_chat_reply`` instead — those columns are now only
-# written on the narrate / educate paths (which still use the answer formatter
-# and are covered by their own tests below). The deleted assertions tested a
-# contract the architecture no longer offers.
+# the answer_formatter wrote. The first-turn / recompute / counterfactual paths
+# now route back through the answer formatter (``_format_or_fallback``), same as
+# narrate / educate — covered by their own tests below.
 
 
 if __name__ == "__main__":

@@ -19,7 +19,6 @@ from app.domains.asset_allocation.services.aa_engine.service import (
     AllocationRunOutcome,
     build_aa_facts_pack,
     build_fallback_brief,
-    compose_allocation_chat_reply,
     compute_allocation_result,
     generate_asset_allocation_response,
 )
@@ -29,7 +28,6 @@ __all__ = [
     "build_aa_facts_pack",
     "build_asset_allocation_input_for_user",
     "build_fallback_brief",
-    "compose_allocation_chat_reply",
     "compute_allocation_result",
     "generate_asset_allocation_response",
     "normalize_asset_allocation_engine_result",

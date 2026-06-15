@@ -37,7 +37,6 @@ from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
     build_fallback_brief,
-    compose_allocation_chat_reply,
     compute_allocation_result,
 )
 from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
@@ -444,36 +443,29 @@ async def _reply_with_allocation_tables(
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
 
-    Pipeline:
-        1. ``build_fallback_brief`` — deterministic plain-text summary of the
-           engine output (authoritative for numbers).
-        2. ``compose_allocation_chat_reply`` — Haiku takes the brief + the
-           customer's question and produces a tailored answer that answers
-           THE question, not just dumps the brief.
-        3. Fall back to the deterministic brief if Haiku errors / opts out.
+    Routes through the shared answer_formatter (PI voice, Indian money notation,
+    named risk band, reasoning kept out of the reply) — exactly like the
+    narrate/educate follow-ups — with the deterministic ``build_fallback_brief``
+    as the last-resort fallback when the formatter LLM is unavailable. This keeps
+    every allocation reply (first turn, recompute, counterfactual) free of raw
+    rupee figures and raw risk scores.
 
     The previous behaviour of returning the full DB-parity tables markdown
-    moved to the per-row DB writes — chat surfaces a customer-facing answer
-    only.
+    moved to the per-row DB writes — chat surfaces a customer-facing answer only.
     """
     try:
-        brief = build_fallback_brief(output, spine_mode)
+        text = await _format_or_fallback(
+            ctx=ctx, output=output, action_mode=action_mode, spine_mode=spine_mode,
+        )
     except Exception:
-        # Partial engine output (e.g. missing asset_class_breakdown on a stub
-        # run) — surface a minimal acknowledgement rather than crash.
-        logger.exception("build_fallback_brief failed; emitting minimal reply")
-        brief = (
+        # Partial engine output (e.g. missing asset_class_breakdown on a stub run)
+        # can break facts-pack/brief construction — surface a minimal
+        # acknowledgement rather than crash the turn.
+        logger.exception("allocation reply formatting failed; emitting minimal reply")
+        text = (
             "I worked out an allocation for you. Open the allocation tab to "
             "see the per-bucket details."
         )
-    try:
-        tailored = await compose_allocation_chat_reply(
-            ctx.user_question, brief, spine_mode,
-        )
-    except Exception:
-        logger.exception("compose_allocation_chat_reply failed; using brief")
-        tailored = None
-    text = tailored or brief
     if hypothetical:
         text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
     return text

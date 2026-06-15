@@ -21,40 +21,26 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field, ValidationError
 
 from common import format_inr_indian
+from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
 from cashflow_statement.models import GoalBullet, GoalPlanningOutput, Lever, PlanSummary
 
 
 SUMMARIZER_MODEL = "claude-haiku-4-5-20251001"
 
 
-SYSTEM_PROMPT = """\
-You are a financial planning analyst summarizing an engine-computed goal plan
-for an Indian retail investor. The engine has already done all the math; your
-job is narrative, not calculation.
-
-Rules — non-negotiable:
-1. NEVER do rupee arithmetic. Every rupee value in the facts JSON is already
-   formatted in Indian notation (e.g. "₹1.25 crore", "₹45 lakh"). Copy those
-   strings VERBATIM into your output. Do not convert, round, or restate them
-   in different units.
-2. NEVER invent numbers. If a fact is not in the input, do not mention it.
-3. Be concrete and neutral. No marketing language ("amazing", "great"). No
-   second-person scolding. State what the plan shows.
-4. Be brief. `top_line` is 1-2 sentences. Each note is 1 sentence. Each
-   `GoalBullet.note` is 1 sentence.
-5. Pick `verdict` per goal:
-   - "funded" if `is_funded=true`
-   - "unfunded" if `is_funded=false` and `funded_amount` is zero or near-zero
-     relative to `corpus_required_fv`
-   - "partially_funded" otherwise
-6. For `GoalBullet.headline_amount`: use the goal's `corpus_required_fv_indian`
-   when funded; use `shortfall_fv_indian` when not funded.
-7. `risks` is a bulleted list of short phrases (not full paragraphs). 2-5
-   items, fewer if the plan is healthy. Do NOT propose action items — those
-   come from the deterministic lever engine, not from you.
-8. Indian audience — refer to amounts as lakh/crore as already formatted, not
-   million/billion.
-"""
+_SUMMARY_BODY = (
+    "You are summarizing an engine-computed goal plan for an Indian retail investor. The engine did "
+    "all the math; your job is narrative, not calculation.\n"
+    "- Be concrete and honest about what the plan shows — no hype ('amazing'/'great'), no scolding.\n"
+    "- `top_line` is 1-2 sentences; each note and each GoalBullet.note is 1 sentence.\n"
+    "- Pick `verdict` per goal: 'funded' if is_funded; 'unfunded' if not funded and funded_amount is "
+    "~zero relative to corpus_required_fv; else 'partially_funded'.\n"
+    "- GoalBullet.headline_amount: use corpus_required_fv_indian when funded, shortfall_fv_indian "
+    "when not funded.\n"
+    "- `risks`: 2-5 short phrases (fewer if the plan is healthy). Do NOT propose action items — those "
+    "come from the deterministic lever engine, not from you."
+)
+SYSTEM_PROMPT = build_system_prompt(_SUMMARY_BODY, format_profile="plain", question_aware=False)
 
 
 class _LLMNarrative(BaseModel):

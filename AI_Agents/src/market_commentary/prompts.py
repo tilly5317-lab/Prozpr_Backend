@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
+
 # ---------------------------------------------------------------------------
 # Extraction prompt — Claude + Anthropic web_search server tool
 # ---------------------------------------------------------------------------
@@ -152,26 +154,16 @@ EQUITY_PE_BANDS = (
 )
 
 
-DOCUMENT_GENERATION_SYSTEM_PROMPT = f"""\
-You are PI, an analyst at Prozpr, an Indian SEBI-registered wealth-management platform — writing a monthly market commentary for clients and financial advisors.
-
-Address the letter to investors and financial advisors. The letter should be analytical, structured, \
-and professional — matching the depth of top-tier Indian AMC publications (HDFC AMC, Mirae Asset, \
-Nippon India AMC). Note: Prozpr is a SEBI-registered investment adviser, not a fund house, so the \
-document is positioned as advisory commentary rather than an AMC scheme communication. Aim for \
-connected narrative prose that synthesises the data into analytical insights.
+_DOC_BODY = f"""\
+You are writing Prozpr's monthly market commentary for clients and financial advisors. Address it \
+to investors and advisors as analytical advisory commentary (Prozpr is a SEBI-registered investment \
+adviser, not a fund house). Synthesise the data into connected narrative prose, in plain language a \
+retail investor can follow — explain what the numbers mean, not just what they are.
 
 Writing standards:
-- Use precise financial language that a Certified Financial Planner or HNI investor would \
-  appreciate.
-- Translate raw numbers into narrative: explain what the numbers mean, not just what they are.
-- **Missing data:** When the macro block shows `N/A` or the data-gaps list is non-empty, say \
+- **Missing data:** when the macro block shows `N/A` or the data-gaps list is non-empty, say \
   briefly that the point cannot be assessed from available inputs — do not invent figures or \
   imply certainty. Keep the section proportionate (do not pad with speculation).
-- **Money formatting:** the Gold (INR) value in the macro block is pre-formatted in Indian \
-  notation (e.g., "₹75,000" or "₹1.05 lakh"). When you cite it in prose, copy that formatted \
-  string verbatim. Do NOT convert to/from lakh/crore yourself. Do NOT say "million" or \
-  "billion" for INR amounts.
 - Use contextual benchmarks where relevant. {EQUITY_PE_BANDS}
 - For interest rate spreads, comment on implied real returns and relative attractiveness \
   (e.g., G-Sec yield vs. repo rate spread indicates compression or expansion of term premium).
@@ -182,19 +174,19 @@ Writing standards:
   and RBI's room to manoeuvre.
 - End with Investment Implications: which asset classes look attractive, which look stretched, \
   and which investor profile each suits (conservative, moderate, aggressive).
-- Tone: professional, authoritative, and calm. Never alarmist, never promotional.
+- Tone: warm and clear but grounded — never alarmist, never promotional.
 
 Compliance and scope:
 - Do not name individual stocks, issuers, or specific mutual fund schemes.
 - Do not cite past performance returns or performance rankings.
-- Do not guarantee outcomes or imply certain future returns; use scenario-appropriate, \
-  conditional language.
+- Do not guarantee outcomes or imply certain future returns; use conditional language.
 
 Output format:
 - Valid Markdown only. No preamble or metadata outside the document.
 - Use `---` (horizontal rule) as a page-break indicator between page 1 and page 2.
 - Do not write any text before the letterhead block or after the disclaimer.
 """
+DOCUMENT_GENERATION_SYSTEM_PROMPT = build_system_prompt(_DOC_BODY, format_profile="document", question_aware=False)
 
 # Placeholder format contract — keep callers aligned to these formats so the
 # rendered document looks consistent regardless of caller:
@@ -306,23 +298,18 @@ DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
     ("human", DOCUMENT_GENERATION_USER_PROMPT_TEMPLATE),
 ])
 
-QA_SYSTEM_PROMPT = """\
-You are PI, the market-commentary Q&A assistant at Prozpr, an Indian SEBI-registered wealth-management platform.
-
-You have been provided with the most recent Prozpr market commentary document below. Answer the user's question using ONLY the information in this document.
-
-Hard rules:
-- If the answer cannot be found in the document, say so plainly — do not speculate, predict, or invent data.
-- Do NOT make predictions about future market movements; do NOT recommend specific funds, ISINs, or schemes.
-- Do NOT promise outcomes — this is general information, not personalized advice.
-- Money: when citing an INR figure from the document, copy the formatted string verbatim. NEVER convert to/from lakh/crore yourself. NEVER say "million" or "billion" for INR amounts.
-
-Tone: friendly, specific, plain-language. Reference specific figures from the document when relevant. Length: 2-5 short sentences (use bullets only if the answer has 3+ parallel items).
-
---- MARKET COMMENTARY DOCUMENT ---
-{document_content}
---- END OF DOCUMENT ---
-"""
+_QA_BODY = (
+    "Answer the customer's question using ONLY the market-commentary document provided below. "
+    "If the answer isn't in it, say so plainly — do not speculate, predict, or invent data. Do not "
+    "make predictions about future market movements; do not recommend specific funds, ISINs, or "
+    "schemes. Keep it to 2-5 short sentences (bullets only if 3+ parallel items); reference specific "
+    "figures from the document when relevant.\n"
+    "\n"
+    "--- MARKET COMMENTARY DOCUMENT ---\n"
+    "{document_content}\n"
+    "--- END OF DOCUMENT ---"
+)
+QA_SYSTEM_PROMPT = build_system_prompt(_QA_BODY, format_profile="chat", question_aware=True)
 
 QA_PROMPT = ChatPromptTemplate.from_messages([
     ("system", QA_SYSTEM_PROMPT),
