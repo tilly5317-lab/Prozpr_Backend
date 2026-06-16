@@ -36,5 +36,7 @@ class CashflowPlanningInput(BaseModel):
         normalized = [n.casefold() for n in names]
         dupes = {n for n in normalized if normalized.count(n) > 1}
         if dupes:
-            raise ValueError(f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}")
+            raise ValueError(
+                f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}"
+            )
         return self

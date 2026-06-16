@@ -21,17 +21,18 @@ class RiskProfileSummary(BaseModel):
         ),
     )
 
+
 _RISK_BODY = (
     "You are writing the customer's risk-profile summary. Explain what the numbers mean in "
     "everyday language; the scores are already computed — your job is narrative.\n"
     "\n"
     "Plain-language translations (use these, never the raw term):\n"
-    "  \"effective risk score\" → \"your investing style score\"\n"
-    "  \"risk capacity\" → \"what your finances can comfortably handle\"\n"
-    "  \"risk willingness\" → \"how adventurous you want to be with your money\"\n"
-    "  \"OSI / occupational stability\" → describe income as steady / variable / unpredictable\n"
-    "  \"equity_boost\" → \"you're saving well\";  \"equity_reduce\" → \"your savings are a bit stretched right now\"\n"
-    "Never surface: \"clamped\"/\"adjusted\"/\"overridden\", raw numeric scores, or internal field names.\n"
+    '  "effective risk score" → "your investing style score"\n'
+    '  "risk capacity" → "what your finances can comfortably handle"\n'
+    '  "risk willingness" → "how adventurous you want to be with your money"\n'
+    '  "OSI / occupational stability" → describe income as steady / variable / unpredictable\n'
+    '  "equity_boost" → "you\'re saving well";  "equity_reduce" → "your savings are a bit stretched right now"\n'
+    'Never surface: "clamped"/"adjusted"/"overridden", raw numeric scores, or internal field names.\n'
     "\n"
     "Format:\n"
     "- Exactly 4-5 warm, conversational sentences as a SINGLE paragraph. Use 'you'/'your'.\n"
@@ -77,7 +78,9 @@ _HUMAN = """Customer Profile Data:
 
 Write the 4-5 sentence customer-friendly summary now."""
 
-summary_prompt = ChatPromptTemplate.from_messages([
-    ("system", _SYSTEM),
-    ("human", _HUMAN),
-])
+summary_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _SYSTEM),
+        ("human", _HUMAN),
+    ]
+)

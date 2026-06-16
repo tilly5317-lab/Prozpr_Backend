@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import enum
@@ -45,7 +44,9 @@ class ChatSession(Base):
 
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[ChatSessionStatus] = mapped_column(
-        SAEnum(ChatSessionStatus, name="chat_session_status_enum", create_constraint=True),
+        SAEnum(
+            ChatSessionStatus, name="chat_session_status_enum", create_constraint=True
+        ),
         default=ChatSessionStatus.active,
     )
 
@@ -58,9 +59,13 @@ class ChatSession(Base):
 
     user: Mapped["User"] = relationship(back_populates="chat_sessions")
     messages: Mapped[List["ChatMessage"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at"
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
     )
-    ai_module_runs: Mapped[List["ChatAiModuleRun"]] = relationship(back_populates="session")
+    ai_module_runs: Mapped[List["ChatAiModuleRun"]] = relationship(
+        back_populates="session"
+    )
     cashflow_plan_runs: Mapped[List["CashflowPlanRun"]] = relationship(
         back_populates="chat_session"
     )

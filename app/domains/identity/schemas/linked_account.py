@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -14,7 +13,9 @@ from pydantic import BaseModel, Field
 
 
 class LinkAccountRequest(BaseModel):
-    account_type: str = Field(..., pattern="^(mutual_fund|bank_account|stock_demat|other)$")
+    account_type: str = Field(
+        ..., pattern="^(mutual_fund|bank_account|stock_demat|other)$"
+    )
     provider_name: Optional[str] = None
 
 

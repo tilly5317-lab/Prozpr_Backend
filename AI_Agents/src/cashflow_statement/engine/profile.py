@@ -1,11 +1,15 @@
 """Stage 1: build initial RunContext from profile + assumptions."""
+
 from __future__ import annotations
 from datetime import date
 
 from cashflow_statement.models import Assumptions, ClientProfile
 from cashflow_statement.engine._types import RunContext
 from cashflow_statement.engine.dates import (
-    fy_for_date, fy_end_after, near_term_cutoff, medium_term_cutoff,
+    fy_for_date,
+    fy_end_after,
+    near_term_cutoff,
+    medium_term_cutoff,
 )
 
 
@@ -14,7 +18,9 @@ def _current_date() -> date:
     return date.today()
 
 
-def build_initial_context(profile: ClientProfile, assumptions: Assumptions) -> RunContext:
+def build_initial_context(
+    profile: ClientProfile, assumptions: Assumptions
+) -> RunContext:
     """Stage 1 of pipeline: resolve profile + assumptions into a RunContext."""
     latest_update_date = _current_date()
 
@@ -23,8 +29,12 @@ def build_initial_context(profile: ClientProfile, assumptions: Assumptions) -> R
 
     current_fy_year = fy_for_date(latest_update_date)
     current_fy_end = fy_end_after(latest_update_date)
-    near_term_end = near_term_cutoff(latest_update_date, assumptions.near_term_horizon_years)
-    medium_term_end = medium_term_cutoff(near_term_end, assumptions.medium_term_horizon_years)
+    near_term_end = near_term_cutoff(
+        latest_update_date, assumptions.near_term_horizon_years
+    )
+    medium_term_end = medium_term_cutoff(
+        near_term_end, assumptions.medium_term_horizon_years
+    )
 
     return RunContext(
         corpus=corpus,

@@ -4,6 +4,7 @@ Entry point:
     python main.py
     this is just a test
 """
+
 from app.main import app
 
 __all__ = ["app"]

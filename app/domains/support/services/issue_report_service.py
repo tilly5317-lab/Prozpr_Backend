@@ -43,7 +43,9 @@ try:
     from zoneinfo import ZoneInfo
 
     IST = ZoneInfo("Asia/Kolkata")
-except Exception:  # Windows without the `tzdata` package — fixed offset is exact for IST.
+except (
+    Exception
+):  # Windows without the `tzdata` package — fixed offset is exact for IST.
     IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
 # Prozpr_Backend/issue_reports/ — alongside app/, not inside it. Only screenshots
@@ -52,7 +54,15 @@ _REPORTS_DIR = Path(__file__).resolve().parents[4] / "issue_reports"
 SCREENSHOTS_DIR = _REPORTS_DIR / "screenshots"
 
 # Column order one row maps to — kept in sync with the Apps Script's HEADERS.
-SHEET_HEADERS = ["Date", "User Name", "Email", "Source", "Issue", "Screenshot", "Remarks"]
+SHEET_HEADERS = [
+    "Date",
+    "User Name",
+    "Email",
+    "Source",
+    "Issue",
+    "Screenshot",
+    "Remarks",
+]
 
 ALLOWED_SOURCES = {
     "Chat Response",
@@ -119,7 +129,10 @@ def append_to_google_sheet(
         try:
             # Apps Script answers with a 302 to script.googleusercontent.com — follow it.
             resp = httpx.post(
-                url, json=payload, timeout=_WEBHOOK_TIMEOUT_SECONDS, follow_redirects=True
+                url,
+                json=payload,
+                timeout=_WEBHOOK_TIMEOUT_SECONDS,
+                follow_redirects=True,
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -129,7 +142,9 @@ def append_to_google_sheet(
                 last_exc = exc
                 logger.warning(
                     "Google Sheet webhook attempt %d/%d failed (HTTP %s); retrying.",
-                    attempt, _WEBHOOK_MAX_ATTEMPTS, status,
+                    attempt,
+                    _WEBHOOK_MAX_ATTEMPTS,
+                    status,
                 )
                 time.sleep(_WEBHOOK_RETRY_BACKOFF_SECONDS * attempt)
                 continue
@@ -142,7 +157,9 @@ def append_to_google_sheet(
             if attempt < _WEBHOOK_MAX_ATTEMPTS:
                 logger.warning(
                     "Google Sheet webhook attempt %d/%d failed (%s); retrying.",
-                    attempt, _WEBHOOK_MAX_ATTEMPTS, exc,
+                    attempt,
+                    _WEBHOOK_MAX_ATTEMPTS,
+                    exc,
                 )
                 time.sleep(_WEBHOOK_RETRY_BACKOFF_SECONDS * attempt)
                 continue
@@ -205,7 +222,9 @@ def send_issue_email(
     when = created_at.astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
 
     msg = EmailMessage()
-    msg["Subject"] = f"[Prozpr Issue] {source_label} — {user_name or user_email or 'Unknown user'}"
+    msg["Subject"] = (
+        f"[Prozpr Issue] {source_label} — {user_name or user_email or 'Unknown user'}"
+    )
     msg["From"] = sender
     msg["To"] = recipient
     msg.set_content(
@@ -232,7 +251,9 @@ def send_issue_email(
     port = settings.get_smtp_port()
     try:
         if port == 465:
-            with smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=30) as smtp:
+            with smtplib.SMTP_SSL(
+                host, port, context=ssl.create_default_context(), timeout=30
+            ) as smtp:
                 smtp.login(sender, password)
                 smtp.send_message(msg)
         else:
@@ -240,6 +261,10 @@ def send_issue_email(
                 smtp.starttls(context=ssl.create_default_context())
                 smtp.login(sender, password)
                 smtp.send_message(msg)
-        logger.info("Issue report email sent to %s (source=%s)", recipient, source_label)
+        logger.info(
+            "Issue report email sent to %s (source=%s)", recipient, source_label
+        )
     except Exception:
-        logger.exception("Failed to send issue report email (report is in the Google Sheet).")
+        logger.exception(
+            "Failed to send issue report email (report is in the Google Sheet)."
+        )

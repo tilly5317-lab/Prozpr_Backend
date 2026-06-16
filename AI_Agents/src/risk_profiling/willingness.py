@@ -19,33 +19,59 @@ Any of the four answers may be ``None`` (unanswered):
 from typing import Any, Dict, List, Literal, Optional
 
 InvestmentPreference = Literal[
-    "-2/11", "-6/18", "-13/24", "-20/30", "-27/37",
+    "-2/11",
+    "-6/18",
+    "-13/24",
+    "-20/30",
+    "-27/37",
 ]
 InvestmentExperience = Literal[
-    "novice", "basic_understanding", "understand", "experienced",
+    "novice",
+    "basic_understanding",
+    "understand",
+    "experienced",
 ]
 InvestmentFocus = Literal[
-    "guaranteed", "stable_reliable", "some_variability",
-    "moderate_variability", "high_returns",
+    "guaranteed",
+    "stable_reliable",
+    "some_variability",
+    "moderate_variability",
+    "high_returns",
 ]
 DropReaction = Literal[
-    "capital_preservation", "transfer_to_safe", "worried",
-    "accept_volatility", "buy_dips",
+    "capital_preservation",
+    "transfer_to_safe",
+    "worried",
+    "accept_volatility",
+    "buy_dips",
 ]
 
 Q1_SCORE: Dict[str, float] = {
-    "-2/11": 2.0, "-6/18": 4.0, "-13/24": 6.0, "-20/30": 8.0, "-27/37": 10.0,
+    "-2/11": 2.0,
+    "-6/18": 4.0,
+    "-13/24": 6.0,
+    "-20/30": 8.0,
+    "-27/37": 10.0,
 }
 Q2_CAP: Dict[str, float] = {
-    "novice": 7.0, "basic_understanding": 8.0, "understand": 9.0, "experienced": 10.0,
+    "novice": 7.0,
+    "basic_understanding": 8.0,
+    "understand": 9.0,
+    "experienced": 10.0,
 }
 Q3_SCORE: Dict[str, float] = {
-    "guaranteed": 2.0, "stable_reliable": 4.0, "some_variability": 6.0,
-    "moderate_variability": 8.0, "high_returns": 10.0,
+    "guaranteed": 2.0,
+    "stable_reliable": 4.0,
+    "some_variability": 6.0,
+    "moderate_variability": 8.0,
+    "high_returns": 10.0,
 }
 Q4_SCORE: Dict[str, float] = {
-    "capital_preservation": 2.0, "transfer_to_safe": 4.0, "worried": 6.0,
-    "accept_volatility": 8.0, "buy_dips": 10.0,
+    "capital_preservation": 2.0,
+    "transfer_to_safe": 4.0,
+    "worried": 6.0,
+    "accept_volatility": 8.0,
+    "buy_dips": 10.0,
 }
 
 
@@ -56,7 +82,9 @@ def compute_risk_willingness(
     drop_reaction: Optional[DropReaction] = None,
 ) -> Dict[str, Any]:
     q1 = Q1_SCORE[investment_preference] if investment_preference is not None else None
-    q2_cap = Q2_CAP[investment_experience] if investment_experience is not None else None
+    q2_cap = (
+        Q2_CAP[investment_experience] if investment_experience is not None else None
+    )
     q3 = Q3_SCORE[investment_focus] if investment_focus is not None else None
     q4 = Q4_SCORE[drop_reaction] if drop_reaction is not None else None
 

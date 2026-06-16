@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -54,11 +53,15 @@ class MfTransaction(Base):
         index=True,
     )
     sip_mandate_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mf_sip_mandates.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("mf_sip_mandates.id", ondelete="SET NULL"),
+        nullable=True,
     )
     folio_number: Mapped[str] = mapped_column(String(30), nullable=False)
     transaction_type: Mapped[MfTransactionType] = mapped_column(
-        SAEnum(MfTransactionType, name="mf_transaction_type_enum", create_constraint=True),
+        SAEnum(
+            MfTransactionType, name="mf_transaction_type_enum", create_constraint=True
+        ),
         nullable=False,
     )
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
@@ -67,18 +70,27 @@ class MfTransaction(Base):
     amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
     isin: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, index=True)
     fund_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    category: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, index=True
+    )
     sub_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sub_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     stamp_duty: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     source_system: Mapped[MfTransactionSource] = mapped_column(
-        SAEnum(MfTransactionSource, name="mf_transaction_source_enum", create_constraint=True),
+        SAEnum(
+            MfTransactionSource,
+            name="mf_transaction_source_enum",
+            create_constraint=True,
+        ),
         nullable=False,
         default=MfTransactionSource.MANUAL,
         index=True,
     )
     source_import_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mf_aa_imports.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("mf_aa_imports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     source_txn_fingerprint: Mapped[Optional[str]] = mapped_column(
         String(128), nullable=True, index=True
@@ -88,4 +100,6 @@ class MfTransaction(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="mf_transactions")
-    sip_mandate: Mapped[Optional["MfSipMandate"]] = relationship(back_populates="transactions")
+    sip_mandate: Mapped[Optional["MfSipMandate"]] = relationship(
+        back_populates="transactions"
+    )

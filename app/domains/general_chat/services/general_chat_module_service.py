@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 def _enrich_with_first_name(
-    client_ctx: dict[str, Any] | None, user_ctx: Any,
+    client_ctx: dict[str, Any] | None,
+    user_ctx: Any,
 ) -> dict[str, Any] | None:
     """Inject ``first_name`` from the User ORM into a shallow copy of ``client_ctx``.
 
@@ -53,11 +54,15 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     # (the brain always runs that module first) and the macro doc the
     # market_commentary module produced before us (if it was in the sequence).
     ic = prior.get(AIModule.INTENT_CLASSIFIER.value)
-    intent: IntentDecision | None = ic.payload if (ic and isinstance(ic.payload, IntentDecision)) else None
+    intent: IntentDecision | None = (
+        ic.payload if (ic and isinstance(ic.payload, IntentDecision)) else None
+    )
     classification = intent.raw if intent and intent.raw is not None else None
 
     mc = prior.get(AIModule.MARKET_COMMENTARY.value)
-    market_doc: str | None = mc.payload if (mc and isinstance(mc.payload, str)) else None
+    market_doc: str | None = (
+        mc.payload if (mc and isinstance(mc.payload, str)) else None
+    )
 
     client_ctx = _enrich_with_first_name(turn.client_context, turn.user_ctx)
     try:

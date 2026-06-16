@@ -46,12 +46,15 @@ async def test_rebalancing_chat_dispatch_returns_sectioned_markdown(
         "the trigger."
     )
 
-    with patch(
-        "app.domains.ai_engine.answer_formatter.formatter.format_answer",
-        new=AsyncMock(return_value=_formatter_reply),
-    ), patch(
-        "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-        new=AsyncMock(return_value=None),
+    with (
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+            new=AsyncMock(return_value=_formatter_reply),
+        ),
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         result = await dispatch_chat("rebalancing", ctx)
 

@@ -19,7 +19,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("funds", sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True))
+    op.add_column(
+        "funds", sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True)
+    )
     op.create_index(op.f("ix_funds_user_id"), "funds", ["user_id"], unique=False)
     op.create_foreign_key(
         "fk_funds_user_id_users",
@@ -35,4 +37,3 @@ def downgrade() -> None:
     op.drop_constraint("fk_funds_user_id_users", "funds", type_="foreignkey")
     op.drop_index(op.f("ix_funds_user_id"), table_name="funds")
     op.drop_column("funds", "user_id")
-

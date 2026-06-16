@@ -12,7 +12,9 @@ from __future__ import annotations
 import re
 
 from app.domains.asset_allocation.services.aa_engine.chat import _DETECT_SYSTEM
-from app.domains.asset_allocation.services.aa_engine.overrides import _ALLOWED_OVERRIDE_KEYS
+from app.domains.asset_allocation.services.aa_engine.overrides import (
+    _ALLOWED_OVERRIDE_KEYS,
+)
 
 
 def test_override_keys_in_prompt_match_code() -> None:

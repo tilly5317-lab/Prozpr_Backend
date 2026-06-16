@@ -35,7 +35,11 @@ class FieldSpec:
 # Order here drives the order the fields appear in the unlock form.
 REQUIRED_REBALANCING_FIELDS: List[FieldSpec] = [
     FieldSpec(
-        "date_of_birth", "Date of birth", "About you", "date", None,
+        "date_of_birth",
+        "Date of birth",
+        "About you",
+        "date",
+        None,
         lambda u: getattr(u, "date_of_birth", None),
         help="Anchors tax aging (STCG vs LTCG) and your risk profile when planning trades.",
     ),
@@ -73,17 +77,19 @@ def evaluate_rebalancing_readiness(user: Any, *, has_holdings: bool) -> Dict[str
         present = raw is not None
         if not present and not spec.optional:
             missing.append(spec.key)
-        fields.append({
-            "key": spec.key,
-            "label": spec.label,
-            "group": spec.group,
-            "kind": spec.kind,
-            "unit": spec.unit,
-            "help": spec.help,
-            "optional": spec.optional,
-            "present": present,
-            "value": _serialize_value(spec, raw),
-        })
+        fields.append(
+            {
+                "key": spec.key,
+                "label": spec.label,
+                "group": spec.group,
+                "kind": spec.kind,
+                "unit": spec.unit,
+                "help": spec.help,
+                "optional": spec.optional,
+                "present": present,
+                "value": _serialize_value(spec, raw),
+            }
+        )
     if not has_holdings:
         missing.append(HOLDINGS_KEY)
     return {

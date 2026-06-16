@@ -8,7 +8,6 @@ returns are deliberately absent — they are computed from
 ``mf_nav_history`` on demand.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -39,7 +38,9 @@ class MfFundRating(Base):
     """Internal rating + dynamic facts for a scheme (1:1 with mf_fund_metadata)."""
 
     __tablename__ = "mf_fund_ratings"
-    __table_args__ = (UniqueConstraint("scheme_code", name="uq_mf_fund_ratings_scheme_code"),)
+    __table_args__ = (
+        UniqueConstraint("scheme_code", name="uq_mf_fund_ratings_scheme_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -54,31 +55,69 @@ class MfFundRating(Base):
 
     risk_rating_sebi: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     asset_class_sebi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    asset_class: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    asset_class: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, index=True
+    )
     asset_subgroup: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    portfolio_managers_current: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    portfolio_managers_history: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    portfolio_manager_change_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    portfolio_managers_current: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    portfolio_managers_history: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    portfolio_manager_change_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
 
-    rating_external_agency_1: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    rating_external_agency_2: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    our_rating_parameter_1: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_parameter_2: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_parameter_3: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    our_rating_history_parameter_1: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    our_rating_history_parameter_2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    our_rating_history_parameter_3: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rating_external_agency_1: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
+    rating_external_agency_2: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
+    our_rating_parameter_1: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    our_rating_parameter_2: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    our_rating_parameter_3: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    our_rating_history_parameter_1: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    our_rating_history_parameter_2: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    our_rating_history_parameter_3: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
 
-    direct_plan_fees: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    regular_plan_fees: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    entry_load_percent: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
-    exit_load_percent: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True)
+    direct_plan_fees: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
+    regular_plan_fees: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
+    entry_load_percent: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
+    exit_load_percent: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
     exit_load_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    large_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    mid_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
-    small_cap_equity_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    large_cap_equity_pct: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 2), nullable=True
+    )
+    mid_cap_equity_pct: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 2), nullable=True
+    )
+    small_cap_equity_pct: Mapped[Optional[float]] = mapped_column(
+        Numeric(6, 2), nullable=True
+    )
     debt_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
     others_pct: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
 
@@ -86,7 +125,10 @@ class MfFundRating(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     fund_meta: Mapped["MfFundMetadata"] = relationship(back_populates="rating")

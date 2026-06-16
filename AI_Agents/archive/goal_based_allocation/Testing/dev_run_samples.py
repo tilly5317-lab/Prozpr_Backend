@@ -34,172 +34,236 @@ from src.goal_based_allocation.models import AllocationInput, Goal
 _TESTING_DIR = Path(__file__).resolve().parent
 
 PROFILES: list[tuple[str, AllocationInput]] = [
-
-    ("Rajesh Sharma", AllocationInput(
-        # ── From risk_profiling ──────────────────────────────────────────────
-        effective_risk_score=7.1906,
-        age=45,
-        annual_income=1_200_000,
-        osi=1.0,
-        savings_rate_adjustment="equity_boost",
-        gap_exceeds_3=False,
-        risk_willingness=6.0,
-        risk_capacity_score=8.3812,
-        net_financial_assets=3_350_000,
-        occupation_type="public_sector",
-        # ── Gathered by this module ──────────────────────────────────────────
-        total_corpus=3_350_000,
-        monthly_household_expense=60_000,
-        tax_regime="old",
-        section_80c_utilized=100_000,
-        effective_tax_rate=20.0,
-        emergency_fund_needed=True,
-        primary_income_from_portfolio=False,
-        goals=[
-            Goal(goal_name="Child Education", time_to_goal_months=12,
-                 amount_needed=300_000, goal_priority="non_negotiable",
-                 investment_goal="education"),
-            Goal(goal_name="Home Purchase", time_to_goal_months=60,
-                 amount_needed=2_500_000, goal_priority="non_negotiable",
-                 investment_goal="home_purchase"),
-            Goal(goal_name="Retirement", time_to_goal_months=180,
-                 amount_needed=20_000_000, goal_priority="non_negotiable",
-                 investment_goal="retirement"),
-        ],
-    )),
-
-    ("Priya Menon", AllocationInput(
-        # ── From risk_profiling ──────────────────────────────────────────────
-        effective_risk_score=8.2826,
-        age=31,
-        annual_income=1_800_000,
-        osi=0.8,
-        savings_rate_adjustment="equity_boost",
-        gap_exceeds_3=False,
-        risk_willingness=8.0,
-        risk_capacity_score=8.5652,
-        net_financial_assets=1_320_000,
-        occupation_type="private_sector",
-        # ── Gathered by this module ──────────────────────────────────────────
-        total_corpus=1_320_000,
-        monthly_household_expense=75_000,
-        tax_regime="new",
-        section_80c_utilized=0.0,
-        effective_tax_rate=30.0,
-        emergency_fund_needed=True,
-        primary_income_from_portfolio=False,
-        goals=[
-            Goal(goal_name="International Travel", time_to_goal_months=18,
-                 amount_needed=300_000, goal_priority="negotiable",
-                 investment_goal="other"),
-            Goal(goal_name="Retirement", time_to_goal_months=348,
-                 amount_needed=30_000_000, goal_priority="non_negotiable",
-                 investment_goal="retirement"),
-        ],
-    )),
-
-    ("Amit Rathore", AllocationInput(
-        # ── From risk_profiling ──────────────────────────────────────────────
-        effective_risk_score=7.8218,
-        age=39,
-        annual_income=2_200_000,
-        osi=0.8,
-        savings_rate_adjustment="equity_boost",
-        gap_exceeds_3=False,
-        risk_willingness=7.0,
-        risk_capacity_score=8.6436,
-        net_financial_assets=3_700_000,
-        occupation_type="private_sector",
-        # ── Gathered by this module ──────────────────────────────────────────
-        total_corpus=3_700_000,
-        monthly_household_expense=110_000,
-        tax_regime="new",
-        section_80c_utilized=0.0,
-        effective_tax_rate=30.0,
-        emergency_fund_needed=True,
-        primary_income_from_portfolio=False,
-        goals=[
-            Goal(goal_name="Home Renovation", time_to_goal_months=18,
-                 amount_needed=500_000, goal_priority="negotiable",
-                 investment_goal="other"),
-            Goal(goal_name="Child Higher Education", time_to_goal_months=60,
-                 amount_needed=2_000_000, goal_priority="non_negotiable",
-                 investment_goal="education"),
-            Goal(goal_name="Retirement", time_to_goal_months=252,
-                 amount_needed=25_000_000, goal_priority="non_negotiable",
-                 investment_goal="retirement"),
-        ],
-    )),
-
-    ("Deepa Patel", AllocationInput(
-        # ── From risk_profiling ──────────────────────────────────────────────
-        effective_risk_score=8.1319,
-        age=43,
-        annual_income=2_800_000,
-        osi=0.6,
-        savings_rate_adjustment="equity_boost",
-        gap_exceeds_3=False,
-        risk_willingness=7.5,
-        risk_capacity_score=8.7637,
-        net_financial_assets=6_000_000,
-        occupation_type="family_business",
-        # ── Gathered by this module ──────────────────────────────────────────
-        total_corpus=6_000_000,
-        monthly_household_expense=116_700,
-        tax_regime="old",
-        section_80c_utilized=150_000,
-        effective_tax_rate=35.0,
-        emergency_fund_needed=True,
-        primary_income_from_portfolio=False,
-        goals=[
-            Goal(goal_name="Business Expansion", time_to_goal_months=24,
-                 amount_needed=800_000, goal_priority="non_negotiable",
-                 investment_goal="other"),
-            Goal(goal_name="Child Education", time_to_goal_months=84,
-                 amount_needed=3_000_000, goal_priority="non_negotiable",
-                 investment_goal="education"),
-            Goal(goal_name="Retirement", time_to_goal_months=204,
-                 amount_needed=35_000_000, goal_priority="non_negotiable",
-                 investment_goal="retirement"),
-        ],
-    )),
-
-    ("Vikram Joshi", AllocationInput(
-        # ── From risk_profiling ──────────────────────────────────────────────
-        effective_risk_score=6.6096,
-        age=50,
-        annual_income=1_500_000,
-        osi=0.4,
-        savings_rate_adjustment="equity_boost",
-        gap_exceeds_3=False,
-        risk_willingness=5.5,
-        risk_capacity_score=7.7192,
-        net_financial_assets=2_600_000,
-        occupation_type="commission_based",
-        # ── Gathered by this module ──────────────────────────────────────────
-        total_corpus=2_600_000,
-        monthly_household_expense=60_000,
-        tax_regime="old",
-        section_80c_utilized=100_000,
-        effective_tax_rate=20.0,
-        emergency_fund_needed=True,
-        primary_income_from_portfolio=False,
-        goals=[
-            Goal(goal_name="Insurance Premium", time_to_goal_months=6,
-                 amount_needed=200_000, goal_priority="non_negotiable",
-                 investment_goal="other"),
-            Goal(goal_name="Retirement", time_to_goal_months=120,
-                 amount_needed=15_000_000, goal_priority="non_negotiable",
-                 investment_goal="retirement"),
-        ],
-    )),
+    (
+        "Rajesh Sharma",
+        AllocationInput(
+            # ── From risk_profiling ──────────────────────────────────────────────
+            effective_risk_score=7.1906,
+            age=45,
+            annual_income=1_200_000,
+            osi=1.0,
+            savings_rate_adjustment="equity_boost",
+            gap_exceeds_3=False,
+            risk_willingness=6.0,
+            risk_capacity_score=8.3812,
+            net_financial_assets=3_350_000,
+            occupation_type="public_sector",
+            # ── Gathered by this module ──────────────────────────────────────────
+            total_corpus=3_350_000,
+            monthly_household_expense=60_000,
+            tax_regime="old",
+            section_80c_utilized=100_000,
+            effective_tax_rate=20.0,
+            emergency_fund_needed=True,
+            primary_income_from_portfolio=False,
+            goals=[
+                Goal(
+                    goal_name="Child Education",
+                    time_to_goal_months=12,
+                    amount_needed=300_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="education",
+                ),
+                Goal(
+                    goal_name="Home Purchase",
+                    time_to_goal_months=60,
+                    amount_needed=2_500_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="home_purchase",
+                ),
+                Goal(
+                    goal_name="Retirement",
+                    time_to_goal_months=180,
+                    amount_needed=20_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="retirement",
+                ),
+            ],
+        ),
+    ),
+    (
+        "Priya Menon",
+        AllocationInput(
+            # ── From risk_profiling ──────────────────────────────────────────────
+            effective_risk_score=8.2826,
+            age=31,
+            annual_income=1_800_000,
+            osi=0.8,
+            savings_rate_adjustment="equity_boost",
+            gap_exceeds_3=False,
+            risk_willingness=8.0,
+            risk_capacity_score=8.5652,
+            net_financial_assets=1_320_000,
+            occupation_type="private_sector",
+            # ── Gathered by this module ──────────────────────────────────────────
+            total_corpus=1_320_000,
+            monthly_household_expense=75_000,
+            tax_regime="new",
+            section_80c_utilized=0.0,
+            effective_tax_rate=30.0,
+            emergency_fund_needed=True,
+            primary_income_from_portfolio=False,
+            goals=[
+                Goal(
+                    goal_name="International Travel",
+                    time_to_goal_months=18,
+                    amount_needed=300_000,
+                    goal_priority="negotiable",
+                    investment_goal="other",
+                ),
+                Goal(
+                    goal_name="Retirement",
+                    time_to_goal_months=348,
+                    amount_needed=30_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="retirement",
+                ),
+            ],
+        ),
+    ),
+    (
+        "Amit Rathore",
+        AllocationInput(
+            # ── From risk_profiling ──────────────────────────────────────────────
+            effective_risk_score=7.8218,
+            age=39,
+            annual_income=2_200_000,
+            osi=0.8,
+            savings_rate_adjustment="equity_boost",
+            gap_exceeds_3=False,
+            risk_willingness=7.0,
+            risk_capacity_score=8.6436,
+            net_financial_assets=3_700_000,
+            occupation_type="private_sector",
+            # ── Gathered by this module ──────────────────────────────────────────
+            total_corpus=3_700_000,
+            monthly_household_expense=110_000,
+            tax_regime="new",
+            section_80c_utilized=0.0,
+            effective_tax_rate=30.0,
+            emergency_fund_needed=True,
+            primary_income_from_portfolio=False,
+            goals=[
+                Goal(
+                    goal_name="Home Renovation",
+                    time_to_goal_months=18,
+                    amount_needed=500_000,
+                    goal_priority="negotiable",
+                    investment_goal="other",
+                ),
+                Goal(
+                    goal_name="Child Higher Education",
+                    time_to_goal_months=60,
+                    amount_needed=2_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="education",
+                ),
+                Goal(
+                    goal_name="Retirement",
+                    time_to_goal_months=252,
+                    amount_needed=25_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="retirement",
+                ),
+            ],
+        ),
+    ),
+    (
+        "Deepa Patel",
+        AllocationInput(
+            # ── From risk_profiling ──────────────────────────────────────────────
+            effective_risk_score=8.1319,
+            age=43,
+            annual_income=2_800_000,
+            osi=0.6,
+            savings_rate_adjustment="equity_boost",
+            gap_exceeds_3=False,
+            risk_willingness=7.5,
+            risk_capacity_score=8.7637,
+            net_financial_assets=6_000_000,
+            occupation_type="family_business",
+            # ── Gathered by this module ──────────────────────────────────────────
+            total_corpus=6_000_000,
+            monthly_household_expense=116_700,
+            tax_regime="old",
+            section_80c_utilized=150_000,
+            effective_tax_rate=35.0,
+            emergency_fund_needed=True,
+            primary_income_from_portfolio=False,
+            goals=[
+                Goal(
+                    goal_name="Business Expansion",
+                    time_to_goal_months=24,
+                    amount_needed=800_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="other",
+                ),
+                Goal(
+                    goal_name="Child Education",
+                    time_to_goal_months=84,
+                    amount_needed=3_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="education",
+                ),
+                Goal(
+                    goal_name="Retirement",
+                    time_to_goal_months=204,
+                    amount_needed=35_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="retirement",
+                ),
+            ],
+        ),
+    ),
+    (
+        "Vikram Joshi",
+        AllocationInput(
+            # ── From risk_profiling ──────────────────────────────────────────────
+            effective_risk_score=6.6096,
+            age=50,
+            annual_income=1_500_000,
+            osi=0.4,
+            savings_rate_adjustment="equity_boost",
+            gap_exceeds_3=False,
+            risk_willingness=5.5,
+            risk_capacity_score=7.7192,
+            net_financial_assets=2_600_000,
+            occupation_type="commission_based",
+            # ── Gathered by this module ──────────────────────────────────────────
+            total_corpus=2_600_000,
+            monthly_household_expense=60_000,
+            tax_regime="old",
+            section_80c_utilized=100_000,
+            effective_tax_rate=20.0,
+            emergency_fund_needed=True,
+            primary_income_from_portfolio=False,
+            goals=[
+                Goal(
+                    goal_name="Insurance Premium",
+                    time_to_goal_months=6,
+                    amount_needed=200_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="other",
+                ),
+                Goal(
+                    goal_name="Retirement",
+                    time_to_goal_months=120,
+                    amount_needed=15_000_000,
+                    goal_priority="non_negotiable",
+                    investment_goal="retirement",
+                ),
+            ],
+        ),
+    ),
 ]
 
 
 def run_customer(name: str, client: AllocationInput) -> dict:
     print(f"\n{'=' * 60}")
     print(f"  Customer: {name}")
-    print(f"  Risk Score: {client.effective_risk_score}  |  Age: {client.age}  |  Corpus: ₹{client.total_corpus:,.0f}")
+    print(
+        f"  Risk Score: {client.effective_risk_score}  |  Age: {client.age}  |  Corpus: ₹{client.total_corpus:,.0f}"
+    )
     print(f"  Tax Rate: {client.effective_tax_rate}%  |  Goals: {len(client.goals)}")
     print(f"{'=' * 60}")
 
@@ -210,7 +274,9 @@ def run_customer(name: str, client: AllocationInput) -> dict:
     s7 = result.get("step7_presentation", {})
     grand_total = s7.get("grand_total", 0)
     if abs(grand_total - client.total_corpus) > 100:
-        warnings.append(f"grand_total {grand_total} != total_corpus {client.total_corpus}")
+        warnings.append(
+            f"grand_total {grand_total} != total_corpus {client.total_corpus}"
+        )
 
     shortfalls = s7.get("shortfall_summary", [])
     if shortfalls:
@@ -227,7 +293,9 @@ def run_customer(name: str, client: AllocationInput) -> dict:
 
     print("\n  Bucket allocations:")
     for bucket in s7.get("bucket_allocations", []):
-        print(f"    {bucket['bucket']:<15} allocated: ₹{bucket['allocated_amount']:>12,.0f}")
+        print(
+            f"    {bucket['bucket']:<15} allocated: ₹{bucket['allocated_amount']:>12,.0f}"
+        )
         for sg, amt in bucket.get("subgroup_amounts", {}).items():
             if amt > 0:
                 print(f"      {sg:<30} ₹{amt:>12,.0f}")
@@ -274,6 +342,7 @@ def prod_run():
 
 if __name__ == "__main__":
     import sys
+
     if "--prod" in sys.argv:
         prod_run()
     else:

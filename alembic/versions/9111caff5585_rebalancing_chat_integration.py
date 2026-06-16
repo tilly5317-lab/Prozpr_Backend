@@ -23,7 +23,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # 1. recommendation_type enum + column on rebalancing_recommendations.
     rec_type = sa.Enum(
-        "allocation", "rebalancing_trades",
+        "allocation",
+        "rebalancing_trades",
         name="recommendation_type_enum",
         create_constraint=True,
     )
@@ -50,9 +51,7 @@ def upgrade() -> None:
     # 2. self-FK source_allocation_id on rebalancing_recommendations.
     op.add_column(
         "rebalancing_recommendations",
-        sa.Column(
-            "source_allocation_id", postgresql.UUID(as_uuid=True), nullable=True
-        ),
+        sa.Column("source_allocation_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
     op.create_foreign_key(
         "fk_rebrec_source_allocation",

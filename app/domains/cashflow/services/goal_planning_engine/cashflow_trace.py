@@ -66,7 +66,9 @@ def log_trigger(
 ) -> None:
     """A cashflow run was triggered (entry point reached, before building input)."""
     extra = f" reason={reason}" if reason else ""
-    _emit("trigger", f"path={path} user={_uid(user_id)} session={_sid(session_id)}{extra}")
+    _emit(
+        "trigger", f"path={path} user={_uid(user_id)} session={_sid(session_id)}{extra}"
+    )
 
 
 def log_inputs(
@@ -184,7 +186,7 @@ def log_output(
         f"engine_version={output.engine_version}",
     )
 
-    for w in (output.warnings or []):
+    for w in output.warnings or []:
         _emit("output.warning", f"user={_uid(user_id)} {w}")
 
 

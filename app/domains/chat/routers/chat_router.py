@@ -12,7 +12,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
-from app.domains.chat.models.chat import ChatMessage, ChatMessageRole, ChatSession, ChatSessionStatus
+from app.domains.chat.models.chat import (
+    ChatMessage,
+    ChatMessageRole,
+    ChatSession,
+    ChatSessionStatus,
+)
 from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
 from app.domains.identity.models.user import User
 from app.domains.chat.schemas.chat import (
@@ -43,6 +48,7 @@ _UPLOAD_CHUNK_BYTES = 64 * 1024
 # Helper: look up a session owned by the current user.
 # ---------------------------------------------------------------------------
 
+
 async def _get_user_session(
     session_id: uuid.UUID,
     db: AsyncSession,
@@ -51,12 +57,16 @@ async def _get_user_session(
     load_messages: bool = False,
 ) -> ChatSession:
     """Fetch a session or raise 404. Optionally eager-load messages."""
-    stmt = select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
+    stmt = select(ChatSession).where(
+        ChatSession.id == session_id, ChatSession.user_id == user_id
+    )
     if load_messages:
         stmt = stmt.options(selectinload(ChatSession.messages))
     session = (await db.execute(stmt)).scalar_one_or_none()
     if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found"
+        )
     return session
 
 
@@ -64,7 +74,10 @@ async def _get_user_session(
 # Endpoints (order matters: /sessions/active must precede /sessions/{id})
 # ---------------------------------------------------------------------------
 
-@router.get("/sessions/{session_id}/module-runs", response_model=list[ChatAiModuleRunResponse])
+
+@router.get(
+    "/sessions/{session_id}/module-runs", response_model=list[ChatAiModuleRunResponse]
+)
 async def list_session_ai_module_runs(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -74,13 +87,17 @@ async def list_session_ai_module_runs(
     """Prozpr audit trail for a session's AI module invocations."""
     await _get_user_session(session_id, db, current_user.id)
     rows = (
-        await db.execute(
-            select(ChatAiModuleRun)
-            .where(ChatAiModuleRun.session_id == session_id)
-            .order_by(ChatAiModuleRun.created_at.desc())
-            .limit(min(limit, 200))
+        (
+            await db.execute(
+                select(ChatAiModuleRun)
+                .where(ChatAiModuleRun.session_id == session_id)
+                .order_by(ChatAiModuleRun.created_at.desc())
+                .limit(min(limit, 200))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [ChatAiModuleRunResponse.model_validate(r) for r in rows]
 
 
@@ -93,7 +110,10 @@ async def get_or_create_active_session(
     stmt = (
         select(ChatSession)
         .options(selectinload(ChatSession.messages))
-        .where(ChatSession.user_id == current_user.id, ChatSession.status == ChatSessionStatus.active)
+        .where(
+            ChatSession.user_id == current_user.id,
+            ChatSession.status == ChatSessionStatus.active,
+        )
         .order_by(ChatSession.created_at.desc())
         .limit(1)
     )
@@ -125,14 +145,18 @@ async def list_sessions(
     return [ChatSessionResponse.model_validate(s) for s in result.scalars().all()]
 
 
-@router.post("/sessions", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/sessions", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_session(
     payload: ChatSessionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Create a new chat session."""
-    session = ChatSession(user_id=current_user.id, title=payload.title or "New conversation")
+    session = ChatSession(
+        user_id=current_user.id, title=payload.title or "New conversation"
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -146,7 +170,9 @@ async def get_session(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Fetch a single session with its full message history."""
-    session = await _get_user_session(session_id, db, current_user.id, load_messages=True)
+    session = await _get_user_session(
+        session_id, db, current_user.id, load_messages=True
+    )
     return ChatSessionDetailResponse(
         **ChatSessionResponse.model_validate(session).model_dump(),
         messages=[ChatMessageResponse.model_validate(m) for m in session.messages],
@@ -169,12 +195,17 @@ async def send_message(
     session = await _get_user_session(session_id, db, current_user.id)
 
     if session.status == ChatSessionStatus.closed:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This chat session is closed.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This chat session is closed.",
+        )
 
     conversation_history = await load_conversation_history(session_id, db)
 
     # Persist user message.
-    user_msg = ChatMessage(session_id=session_id, role=ChatMessageRole.user, content=payload.content)
+    user_msg = ChatMessage(
+        session_id=session_id, role=ChatMessageRole.user, content=payload.content
+    )
     db.add(user_msg)
 
     # Run the AI brain.
@@ -209,7 +240,10 @@ async def send_message(
     # generator never raises (deterministic fallback), and on a session detached
     # by a brain rollback this simply won't persist, which is fine.
     if not conversation_history and (session.title or "") in (
-        "", "New Chat", "New conversation", "Pi Chat",
+        "",
+        "New Chat",
+        "New conversation",
+        "Pi Chat",
     ):
         session.title = await generate_chat_title(payload.content, brain_result.intent)
 
@@ -296,11 +330,13 @@ async def upload_statement(
         chunks.append(chunk)
     raw_text = b"".join(chunks).decode(errors="ignore")
 
-    db.add(ChatMessage(
-        session_id=session.id,
-        role=ChatMessageRole.user,
-        content=f"[Uploaded statement: {file.filename}]\n\n{raw_text}",
-    ))
+    db.add(
+        ChatMessage(
+            session_id=session.id,
+            role=ChatMessageRole.user,
+            content=f"[Uploaded statement: {file.filename}]\n\n{raw_text}",
+        )
+    )
     await db.commit()
 
     return UploadStatementResponse(

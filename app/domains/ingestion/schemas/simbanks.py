@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -43,4 +42,3 @@ class SyncSimBankAccountsResponse(BaseModel):
     portfolio_total_invested: float
     portfolio_total_gain_percentage: Optional[float] = None
     linked_account_ids: list[uuid.UUID]
-

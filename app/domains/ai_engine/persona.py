@@ -5,6 +5,7 @@ importable by both layers). This module injects ``AI_Agents/src`` into sys.path
 and re-exports, so app-layer consumers import from one place (mirrors
 ``app/domains/ai_engine/common.py``).
 """
+
 from __future__ import annotations
 
 import sys

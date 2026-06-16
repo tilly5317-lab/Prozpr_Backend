@@ -3,13 +3,16 @@
 App-layer persistence and calculation helpers for the user’s effective risk assessment (distinct from the deterministic ``risk_profiling.scoring`` used when building ``AllocationInput`` for ideal allocation).
 """
 
-
 from __future__ import annotations
 
 from datetime import date
 from typing import Optional
 
-from app.domains.profile.models import InvestmentProfile, PersonalFinanceProfile, RiskProfile
+from app.domains.profile.models import (
+    InvestmentProfile,
+    PersonalFinanceProfile,
+    RiskProfile,
+)
 from app.domains.identity.models.user import User
 from app.domains.profile.services import profile_finance as pf
 from app.domains.profile.services._effective_risk.calculation import (
@@ -37,15 +40,21 @@ def _mid_or_none(lo: Optional[float], hi: Optional[float]) -> Optional[float]:
 # These delegate to profile_finance — the single canonical source — so income /
 # expense / assets / liabilities resolve identically here, in the cashflow
 # engine, and in asset allocation. (inv kept in the signature for back-compat.)
-def derive_annual_income(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
+def derive_annual_income(
+    profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]
+) -> float:
     return pf.annual_income_pfp(profile)
 
 
-def derive_annual_expense(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
+def derive_annual_expense(
+    profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]
+) -> float:
     return pf.annual_household_expense_pfp(profile)
 
 
-def derive_financial_assets(profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]) -> float:
+def derive_financial_assets(
+    profile: Optional[PersonalFinanceProfile], inv: Optional[InvestmentProfile]
+) -> float:
     return pf.financial_assets_pfp(profile)
 
 
@@ -96,7 +105,9 @@ def build_computation_input(
     # These columns were removed from InvestmentProfile (mortgage/property detail
     # now lives on user_current_properties, not eager-loaded here) — read
     # defensively so a missing attribute can never crash the recalc.
-    annual_mortgage_payment = float(getattr(inv, "annual_mortgage_payment", None) or 0.0) if inv else 0.0
+    annual_mortgage_payment = (
+        float(getattr(inv, "annual_mortgage_payment", None) or 0.0) if inv else 0.0
+    )
     properties_owned = int(getattr(inv, "properties_owned", None) or 0) if inv else 0
 
     inp = EffectiveRiskComputationInput(

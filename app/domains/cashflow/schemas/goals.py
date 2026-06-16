@@ -40,7 +40,9 @@ class CashflowGoalBase(BaseModel):
             if self.target_pv is None and self.target_fv is None:
                 raise ValueError("target_pv or target_fv required for property goals")
         elif self.goal_value_pv is None and self.goal_value_fv is None:
-            raise ValueError("goal_value_pv or goal_value_fv required for this goal type")
+            raise ValueError(
+                "goal_value_pv or goal_value_fv required for this goal type"
+            )
         return self
 
 

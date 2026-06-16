@@ -18,7 +18,9 @@ OTHERS_FUND_CAP_PCT: float = float(os.getenv("REBAL_OTHERS_FUND_CAP_PCT", "10.0"
 # Per Excel R247: `short_debt` carries a higher per-fund cap than the
 # generic 10% because the universe of high-quality short-duration debt
 # funds is small and concentration risk is correspondingly lower.
-SHORT_DEBT_FUND_CAP_PCT: float = float(os.getenv("REBAL_SHORT_DEBT_FUND_CAP_PCT", "30.0"))
+SHORT_DEBT_FUND_CAP_PCT: float = float(
+    os.getenv("REBAL_SHORT_DEBT_FUND_CAP_PCT", "30.0")
+)
 ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", "30.0"))
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
 EXIT_FLOOR_RATING: int = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
@@ -33,7 +35,9 @@ FORCE_EXIT_RANK: int = 9999
 
 # ── Bucket C — tax limits ─────────────────────────────────────────────────────
 
-LTCG_ANNUAL_EXEMPTION_INR: Decimal = Decimal(os.getenv("REBAL_LTCG_EXEMPTION_INR", "125000"))
+LTCG_ANNUAL_EXEMPTION_INR: Decimal = Decimal(
+    os.getenv("REBAL_LTCG_EXEMPTION_INR", "125000")
+)
 STCG_RATE_EQUITY_PCT: float = float(os.getenv("REBAL_STCG_RATE_EQUITY", "20.0"))
 LTCG_RATE_EQUITY_PCT: float = float(os.getenv("REBAL_LTCG_RATE_EQUITY", "12.5"))
 ST_THRESHOLD_MONTHS_EQUITY: int = int(os.getenv("REBAL_ST_THRESHOLD_EQUITY", "12"))

@@ -36,7 +36,9 @@ async def get_user_investment_list(
     return await user_investment_list_service.get_list(db, list_id, current_user.id)
 
 
-@router.post("/", response_model=UserInvestmentListResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=UserInvestmentListResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_user_investment_list(
     payload: UserInvestmentListCreate,
     db: AsyncSession = Depends(get_db),
@@ -52,7 +54,9 @@ async def update_user_investment_list(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await user_investment_list_service.update_list(db, list_id, current_user.id, payload)
+    return await user_investment_list_service.update_list(
+        db, list_id, current_user.id, payload
+    )
 
 
 @router.delete("/{list_id}", status_code=status.HTTP_204_NO_CONTENT)

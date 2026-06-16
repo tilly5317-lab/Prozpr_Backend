@@ -26,6 +26,7 @@ Daily job (typical)
 
     0 22 * * * cd /path/to/Recurring_run && python3 build_mf_nav_history.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,15 +54,21 @@ def main() -> int:
         description="Part 2: fetch NAV history + write mf_nav_history.txt",
     )
     ap.add_argument(
-        "--step", type=int, action="append", choices=[3, 4],
+        "--step",
+        type=int,
+        action="append",
+        choices=[3, 4],
         help="Run only step 3 or 4 (repeatable; default: both)",
     )
     ap.add_argument(
-        "--workers", type=int, default=MAX_WORKERS,
+        "--workers",
+        type=int,
+        default=MAX_WORKERS,
         help=f"Concurrent HTTP threads (default {MAX_WORKERS})",
     )
     ap.add_argument(
-        "--history-start", default=HISTORY_START,
+        "--history-start",
+        default=HISTORY_START,
         help=f"Start date for new schemes YYYY-MM-DD (default {HISTORY_START})",
     )
     args = ap.parse_args()
@@ -83,20 +90,23 @@ def main() -> int:
 
     wall = time.monotonic()
     log.info("=" * 60)
-    log.info(f"build_mf_nav_history  |  steps {sorted(steps)}  |  {datetime.today():%Y-%m-%d}")
+    log.info(
+        f"build_mf_nav_history  |  steps {sorted(steps)}  |  {datetime.today():%Y-%m-%d}"
+    )
     log.info("=" * 60)
 
     if 3 in steps or 4 in steps:
         if not OUT_ACTIVE_CSV.is_file():
-            log.error(
-                f"Missing {OUT_ACTIVE_CSV.name}. Run: python extract_mf_funds.py"
-            )
+            log.error(f"Missing {OUT_ACTIVE_CSV.name}. Run: python extract_mf_funds.py")
             return 1
 
     if 3 in steps:
         step3(
-            OUT_ACTIVE_CSV, OUT_NAV_DIR, SEED_NAV_DIR,
-            args.history_start, args.workers,
+            OUT_ACTIVE_CSV,
+            OUT_NAV_DIR,
+            SEED_NAV_DIR,
+            args.history_start,
+            args.workers,
         )
 
     if 4 in steps:

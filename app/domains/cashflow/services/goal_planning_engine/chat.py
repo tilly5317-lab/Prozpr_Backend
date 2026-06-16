@@ -5,6 +5,7 @@ resulting ``facts_pack`` to the shared answer-formatter. The formatter LLM
 is the customer-facing voice — this module never templates user-visible
 prose itself; it produces facts and lets the formatter speak.
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,67 +69,69 @@ def _build_cashflow_chart_payloads(snapshot) -> list[dict]:
     if not annual:
         return []
 
-    return [{
-        "type": "cashflow_annual_bar",
-        "title": "Annual Cashflow Projection",
-        "data": [
-            {
-                "fy_label": row.fy_label,
-                "income": float(row.income),
-                "household_expense": float(row.household_expense),
-                "savings_post_emi": float(row.savings_post_emi),
-                "corpus_closing": float(row.corpus_closing),
-                "monthly_investment": float(row.monthly_investment),
-                "goal_payout": float(row.goal_payout),
-            }
-            for row in annual
-        ],
-        "annual_cashflow": [
-            {
-                "fy_end_date": str(row.fy_end_date),
-                "fy_label": row.fy_label,
-                "income": float(row.income),
-                "income_tax": float(row.income_tax),
-                "household_expense": float(row.household_expense),
-                "savings_pre_emi": float(row.savings_pre_emi),
-                "existing_mortgage_emi": float(row.existing_mortgage_emi),
-                "goal_mortgage_emi": float(row.goal_mortgage_emi),
-                "savings_post_emi": float(row.savings_post_emi),
-                "one_off_inflow": float(row.one_off_inflow),
-                "one_off_outflow": float(row.one_off_outflow),
-                "corpus_opening": float(row.corpus_opening),
-                "monthly_investment": float(row.monthly_investment),
-                "investment_returns": float(row.investment_returns),
-                "goal_payout": float(row.goal_payout),
-                "corpus_closing": float(row.corpus_closing),
-                "is_funded": row.is_funded,
-            }
-            for row in annual
-        ],
-        "monthly_cashflow": [
-            {
-                "month_end_date": str(row.month_end_date),
-                "fy_label": row.fy_label,
-                "income": float(row.income),
-                "income_tax": float(row.income_tax),
-                "household_expense": float(row.household_expense),
-                "savings_pre_emi": float(row.savings_pre_emi),
-                "existing_mortgage_emi": float(row.existing_mortgage_emi),
-                "goal_mortgage_emi": float(row.goal_mortgage_emi),
-                "savings_post_emi": float(row.savings_post_emi),
-                "one_off_inflow": float(row.one_off_inflow),
-                "one_off_outflow": float(row.one_off_outflow),
-                "corpus_opening": float(row.corpus_opening),
-                "monthly_investment": float(row.monthly_investment),
-                "investment_source": row.investment_source,
-                "investment_returns": float(row.investment_returns),
-                "goal_payout": float(row.goal_payout),
-                "corpus_closing": float(row.corpus_closing),
-                "is_funded": row.is_funded,
-            }
-            for row in (snapshot.monthly_cashflow or [])
-        ],
-    }]
+    return [
+        {
+            "type": "cashflow_annual_bar",
+            "title": "Annual Cashflow Projection",
+            "data": [
+                {
+                    "fy_label": row.fy_label,
+                    "income": float(row.income),
+                    "household_expense": float(row.household_expense),
+                    "savings_post_emi": float(row.savings_post_emi),
+                    "corpus_closing": float(row.corpus_closing),
+                    "monthly_investment": float(row.monthly_investment),
+                    "goal_payout": float(row.goal_payout),
+                }
+                for row in annual
+            ],
+            "annual_cashflow": [
+                {
+                    "fy_end_date": str(row.fy_end_date),
+                    "fy_label": row.fy_label,
+                    "income": float(row.income),
+                    "income_tax": float(row.income_tax),
+                    "household_expense": float(row.household_expense),
+                    "savings_pre_emi": float(row.savings_pre_emi),
+                    "existing_mortgage_emi": float(row.existing_mortgage_emi),
+                    "goal_mortgage_emi": float(row.goal_mortgage_emi),
+                    "savings_post_emi": float(row.savings_post_emi),
+                    "one_off_inflow": float(row.one_off_inflow),
+                    "one_off_outflow": float(row.one_off_outflow),
+                    "corpus_opening": float(row.corpus_opening),
+                    "monthly_investment": float(row.monthly_investment),
+                    "investment_returns": float(row.investment_returns),
+                    "goal_payout": float(row.goal_payout),
+                    "corpus_closing": float(row.corpus_closing),
+                    "is_funded": row.is_funded,
+                }
+                for row in annual
+            ],
+            "monthly_cashflow": [
+                {
+                    "month_end_date": str(row.month_end_date),
+                    "fy_label": row.fy_label,
+                    "income": float(row.income),
+                    "income_tax": float(row.income_tax),
+                    "household_expense": float(row.household_expense),
+                    "savings_pre_emi": float(row.savings_pre_emi),
+                    "existing_mortgage_emi": float(row.existing_mortgage_emi),
+                    "goal_mortgage_emi": float(row.goal_mortgage_emi),
+                    "savings_post_emi": float(row.savings_post_emi),
+                    "one_off_inflow": float(row.one_off_inflow),
+                    "one_off_outflow": float(row.one_off_outflow),
+                    "corpus_opening": float(row.corpus_opening),
+                    "monthly_investment": float(row.monthly_investment),
+                    "investment_source": row.investment_source,
+                    "investment_returns": float(row.investment_returns),
+                    "goal_payout": float(row.goal_payout),
+                    "corpus_closing": float(row.corpus_closing),
+                    "is_funded": row.is_funded,
+                }
+                for row in (snapshot.monthly_cashflow or [])
+            ],
+        }
+    ]
 
 
 @register("goal_planning")
@@ -163,6 +166,7 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
             from app.domains.cashflow.services.goal_planning_engine.readiness import (
                 REQUIRED_CASHFLOW_FIELDS,
             )
+
             labels = {f.key: f.label for f in REQUIRED_CASHFLOW_FIELDS}
             keys = [k for k in str(e).split(":", 1)[1].split(",") if k]
             needed = ", ".join(labels.get(k, k) for k in keys)

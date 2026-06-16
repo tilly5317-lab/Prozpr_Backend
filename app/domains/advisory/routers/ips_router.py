@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -45,11 +44,15 @@ async def get_current_ips(
     )
     ips = (await db.execute(stmt)).scalar_one_or_none()
     if not ips:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active IPS found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No active IPS found"
+        )
     return IPSResponse.model_validate(ips)
 
 
-@router.post("/generate", response_model=IPSResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/generate", response_model=IPSResponse, status_code=status.HTTP_201_CREATED
+)
 async def generate_ips(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
@@ -61,11 +64,27 @@ async def generate_ips(
             select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == uid)
         )
     ).scalar_one_or_none()
-    inv_profile = (await db.execute(select(InvestmentProfile).where(InvestmentProfile.user_id == uid))).scalar_one_or_none()
-    risk = (await db.execute(select(RiskProfile).where(RiskProfile.user_id == uid))).scalar_one_or_none()
-    constraint = (await db.execute(select(InvestmentConstraint).where(InvestmentConstraint.user_id == uid))).scalar_one_or_none()
-    tax = (await db.execute(select(TaxProfile).where(TaxProfile.user_id == uid))).scalar_one_or_none()
-    review = (await db.execute(select(ReviewPreference).where(ReviewPreference.user_id == uid))).scalar_one_or_none()
+    inv_profile = (
+        await db.execute(
+            select(InvestmentProfile).where(InvestmentProfile.user_id == uid)
+        )
+    ).scalar_one_or_none()
+    risk = (
+        await db.execute(select(RiskProfile).where(RiskProfile.user_id == uid))
+    ).scalar_one_or_none()
+    constraint = (
+        await db.execute(
+            select(InvestmentConstraint).where(InvestmentConstraint.user_id == uid)
+        )
+    ).scalar_one_or_none()
+    tax = (
+        await db.execute(select(TaxProfile).where(TaxProfile.user_id == uid))
+    ).scalar_one_or_none()
+    review = (
+        await db.execute(
+            select(ReviewPreference).where(ReviewPreference.user_id == uid)
+        )
+    ).scalar_one_or_none()
 
     alloc_constraints = []
     if constraint:
@@ -75,7 +94,11 @@ async def generate_ips(
             )
         )
         alloc_constraints = [
-            {"asset_class": ac.asset_class, "min": ac.min_allocation, "max": ac.max_allocation}
+            {
+                "asset_class": ac.asset_class,
+                "min": ac.min_allocation,
+                "max": ac.max_allocation,
+            }
             for ac in alloc_result.scalars().all()
         ]
 
@@ -89,8 +112,12 @@ async def generate_ips(
         "return_objectives": {
             "objectives": inv_profile.objectives if inv_profile else None,
             "detailed_goals": inv_profile.detailed_goals if inv_profile else None,
-            "portfolio_value": float(inv_profile.portfolio_value) if inv_profile and inv_profile.portfolio_value else None,
-            "target_corpus": float(inv_profile.target_corpus) if inv_profile and inv_profile.target_corpus else None,
+            "portfolio_value": float(inv_profile.portfolio_value)
+            if inv_profile and inv_profile.portfolio_value
+            else None,
+            "target_corpus": float(inv_profile.target_corpus)
+            if inv_profile and inv_profile.target_corpus
+            else None,
             "target_timeline": inv_profile.target_timeline if inv_profile else None,
             # Canonical household-finance scalars live on personal_finance_profiles.
             "monthly_savings": pf.starting_monthly_investment_pfp(profile),
@@ -101,33 +128,48 @@ async def generate_ips(
             "risk_level": risk.risk_level if risk else None,
             "investment_horizon": risk.investment_horizon if risk else None,
             "drop_reaction": risk.drop_reaction if risk else None,
-            "max_drawdown": float(risk.max_drawdown) if risk and risk.max_drawdown else None,
+            "max_drawdown": float(risk.max_drawdown)
+            if risk and risk.max_drawdown
+            else None,
             "comfort_assets": risk.comfort_assets if risk else None,
         },
         "financial_situation": {
             # Canonical household-finance scalars live on personal_finance_profiles.
             "investable_assets": pf.financial_assets_pfp(profile) or None,
-            "total_liabilities": pf.financial_liabilities_excl_mortgage_pfp(profile) or None,
+            "total_liabilities": pf.financial_liabilities_excl_mortgage_pfp(profile)
+            or None,
             # Property value is now per-property (user_current_properties), not a
             # scalar on investment_profile — not surfaced here.
             "property_value": None,
-            "emergency_fund": float(inv_profile.emergency_fund) if inv_profile and inv_profile.emergency_fund else None,
+            "emergency_fund": float(inv_profile.emergency_fund)
+            if inv_profile and inv_profile.emergency_fund
+            else None,
         },
         "investment_constraints": {
             "permitted_assets": constraint.permitted_assets if constraint else None,
-            "prohibited_instruments": constraint.prohibited_instruments if constraint else None,
+            "prohibited_instruments": constraint.prohibited_instruments
+            if constraint
+            else None,
             "leverage_allowed": constraint.is_leverage_allowed if constraint else None,
-            "derivatives_allowed": constraint.is_derivatives_allowed if constraint else None,
+            "derivatives_allowed": constraint.is_derivatives_allowed
+            if constraint
+            else None,
             "allocation_constraints": alloc_constraints,
         },
         "time_horizon": {
-            "is_multi_phase": inv_profile.is_multi_phase_horizon if inv_profile else None,
+            "is_multi_phase": inv_profile.is_multi_phase_horizon
+            if inv_profile
+            else None,
             "phase_description": inv_profile.phase_description if inv_profile else None,
             "total_horizon": inv_profile.total_horizon if inv_profile else None,
         },
         "tax_situation": {
-            "income_tax_rate": float(tax.income_tax_rate) if tax and tax.income_tax_rate else None,
-            "capital_gains_tax_rate": float(tax.capital_gains_tax_rate) if tax and tax.capital_gains_tax_rate else None,
+            "income_tax_rate": float(tax.income_tax_rate)
+            if tax and tax.income_tax_rate
+            else None,
+            "capital_gains_tax_rate": float(tax.capital_gains_tax_rate)
+            if tax and tax.capital_gains_tax_rate
+            else None,
             "notes": tax.notes if tax else None,
         },
         "review_process": {

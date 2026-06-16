@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -22,7 +21,9 @@ if TYPE_CHECKING:
 
 class InvestmentConstraint(Base):
     __tablename__ = "investment_constraints"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_investment_constraints_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_investment_constraints_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -34,7 +35,9 @@ class InvestmentConstraint(Base):
     permitted_assets: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     prohibited_instruments: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     is_leverage_allowed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    is_derivatives_allowed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_derivatives_allowed: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True
+    )
     diversification_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

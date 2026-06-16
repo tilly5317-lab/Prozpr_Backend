@@ -186,7 +186,9 @@ Output format:
 - Use `---` (horizontal rule) as a page-break indicator between page 1 and page 2.
 - Do not write any text before the letterhead block or after the disclaimer.
 """
-DOCUMENT_GENERATION_SYSTEM_PROMPT = build_system_prompt(_DOC_BODY, format_profile="document", question_aware=False)
+DOCUMENT_GENERATION_SYSTEM_PROMPT = build_system_prompt(
+    _DOC_BODY, format_profile="document", question_aware=False
+)
 
 # Placeholder format contract — keep callers aligned to these formats so the
 # rendered document looks consistent regardless of caller:
@@ -293,10 +295,12 @@ Today's date is {date}.
 # LangChain ChatPromptTemplate wrappers (used by LCEL chains)
 # ---------------------------------------------------------------------------
 
-DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", DOCUMENT_GENERATION_SYSTEM_PROMPT),
-    ("human", DOCUMENT_GENERATION_USER_PROMPT_TEMPLATE),
-])
+DOCUMENT_GENERATION_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", DOCUMENT_GENERATION_SYSTEM_PROMPT),
+        ("human", DOCUMENT_GENERATION_USER_PROMPT_TEMPLATE),
+    ]
+)
 
 _QA_BODY = (
     "Answer the customer's question using ONLY the market-commentary document provided below. "
@@ -309,9 +313,13 @@ _QA_BODY = (
     "{document_content}\n"
     "--- END OF DOCUMENT ---"
 )
-QA_SYSTEM_PROMPT = build_system_prompt(_QA_BODY, format_profile="chat", question_aware=True)
+QA_SYSTEM_PROMPT = build_system_prompt(
+    _QA_BODY, format_profile="chat", question_aware=True
+)
 
-QA_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", QA_SYSTEM_PROMPT),
-    ("human", "{user_question}"),
-])
+QA_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", QA_SYSTEM_PROMPT),
+        ("human", "{user_question}"),
+    ]
+)

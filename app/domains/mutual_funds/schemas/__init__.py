@@ -30,16 +30,33 @@ from app.domains.mutual_funds.schemas.holding_detail import (
     MfHoldingPosition,
     MfHoldingTransactionItem,
 )
-from app.domains.mutual_funds.schemas.latest_snapshot import UserMfLatestSnapshotResponse
-from app.domains.mutual_funds.schemas.nav_history import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
-from app.domains.mutual_funds.schemas.index_tri import IndexTriHistoryCreate, IndexTriHistoryResponse
+from app.domains.mutual_funds.schemas.latest_snapshot import (
+    UserMfLatestSnapshotResponse,
+)
+from app.domains.mutual_funds.schemas.nav_history import (
+    MfNavHistoryCreate,
+    MfNavHistoryResponse,
+    MfNavHistoryUpdate,
+)
+from app.domains.mutual_funds.schemas.index_tri import (
+    IndexTriHistoryCreate,
+    IndexTriHistoryResponse,
+)
 from app.domains.mutual_funds.schemas.portfolio_snapshot import (
     PortfolioAllocationSnapshotCreate,
     PortfolioAllocationSnapshotResponse,
     PortfolioAllocationSnapshotUpdate,
 )
-from app.domains.mutual_funds.schemas.sip_mandate import MfSipMandateCreate, MfSipMandateResponse, MfSipMandateUpdate
-from app.domains.mutual_funds.schemas.transaction import MfTransactionCreate, MfTransactionResponse, MfTransactionUpdate
+from app.domains.mutual_funds.schemas.sip_mandate import (
+    MfSipMandateCreate,
+    MfSipMandateResponse,
+    MfSipMandateUpdate,
+)
+from app.domains.mutual_funds.schemas.transaction import (
+    MfTransactionCreate,
+    MfTransactionResponse,
+    MfTransactionUpdate,
+)
 from app.domains.mutual_funds.schemas.user_investment_list import (
     UserInvestmentListCreate,
     UserInvestmentListResponse,

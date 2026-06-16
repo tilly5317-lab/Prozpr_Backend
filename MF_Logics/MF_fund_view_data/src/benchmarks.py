@@ -2,17 +2,19 @@
 
 Free fixed-rate proxies for debt (no clean free TRI series).
 """
+
 from __future__ import annotations
+
 # Index fund proxies (Direct Growth) for equity TRI benchmarks.
-NIFTY_50 = 120716           # UTI Nifty 50 Index Fund - Direct Growth
-NIFTY_NEXT_50 = 143341      # UTI Nifty Next 50 Index Fund - Direct Growth
-NIFTY_MIDCAP_150 = 148726   # Nippon India Nifty Midcap 150 Index - Direct Growth
-NIFTY_SMALLCAP_250 = 148519 # Nippon India Nifty Smallcap 250 Index - Direct Growth
-NIFTY_500 = 152731          # Axis Nifty 500 Index Fund - Direct Growth
-NIFTY_BANK = 149804         # Navi Nifty Bank Index Fund - Direct Growth
+NIFTY_50 = 120716  # UTI Nifty 50 Index Fund - Direct Growth
+NIFTY_NEXT_50 = 143341  # UTI Nifty Next 50 Index Fund - Direct Growth
+NIFTY_MIDCAP_150 = 148726  # Nippon India Nifty Midcap 150 Index - Direct Growth
+NIFTY_SMALLCAP_250 = 148519  # Nippon India Nifty Smallcap 250 Index - Direct Growth
+NIFTY_500 = 152731  # Axis Nifty 500 Index Fund - Direct Growth
+NIFTY_BANK = 149804  # Navi Nifty Bank Index Fund - Direct Growth
 
 # Hybrid blend marker (computed in tier2)
-HYBRID_AGGRESSIVE = "BLEND_65_35"   # 65% Nifty 50 + 35% fixed 6.5%
+HYBRID_AGGRESSIVE = "BLEND_65_35"  # 65% Nifty 50 + 35% fixed 6.5%
 HYBRID_CONSERVATIVE = "BLEND_25_75"
 
 # Fixed-rate proxy: annualized return %
@@ -24,7 +26,7 @@ SUBCAT_BENCHMARK = {
     "Large & Mid Cap Fund": NIFTY_500,
     "Mid Cap Fund": NIFTY_MIDCAP_150,
     "Small Cap Fund": NIFTY_SMALLCAP_250,
-    "Multi Cap Fund": NIFTY_50,        # proxy: no long-history Nifty 500 fund
+    "Multi Cap Fund": NIFTY_50,  # proxy: no long-history Nifty 500 fund
     "Flexi Cap Fund": NIFTY_50,
     "Focused Fund": NIFTY_50,
     "ELSS": NIFTY_50,
@@ -61,11 +63,11 @@ SUBCAT_BENCHMARK = {
     "Income": "FIXED_6.5",
     "IDF": "FIXED_6.5",
     # Other
-    "Index Funds": NIFTY_50,         # default, refine via name
+    "Index Funds": NIFTY_50,  # default, refine via name
     "Other  ETFs": NIFTY_50,
-    "Gold ETF": "FIXED_8.0",         # rough gold long-term avg
+    "Gold ETF": "FIXED_8.0",  # rough gold long-term avg
     "FoF Domestic": NIFTY_500,
-    "FoF Overseas": "FIXED_10.0",    # rough global equity proxy
+    "FoF Overseas": "FIXED_10.0",  # rough global equity proxy
     "Retirement Fund": NIFTY_500,
     "Children’s Fund": NIFTY_500,
     "Children's Fund": NIFTY_500,
@@ -90,7 +92,19 @@ def benchmark_for(sub_category: str, scheme_name: str = "") -> str | int:
             return NIFTY_BANK
         if "gold" in nm:
             return "FIXED_8.0"
-        if any(k in nm for k in ("liquid", "gilt", "psu", "bond", "g-sec", "duration", "money market", "tbill")):
+        if any(
+            k in nm
+            for k in (
+                "liquid",
+                "gilt",
+                "psu",
+                "bond",
+                "g-sec",
+                "duration",
+                "money market",
+                "tbill",
+            )
+        ):
             return "FIXED_6.5"
         if "nifty" in nm or "sensex" in nm:
             return NIFTY_50
@@ -112,5 +126,12 @@ def fixed_rate(token: str) -> float:
 
 
 if __name__ == "__main__":
-    for s in ["Large Cap Fund", "Mid Cap Fund", "Liquid Fund", "Aggressive Hybrid Fund", "Index Funds", "Sectoral/ Thematic"]:
+    for s in [
+        "Large Cap Fund",
+        "Mid Cap Fund",
+        "Liquid Fund",
+        "Aggressive Hybrid Fund",
+        "Index Funds",
+        "Sectoral/ Thematic",
+    ]:
         print(s, "->", benchmark_for(s))

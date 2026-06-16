@@ -1,4 +1,5 @@
 """Fetch NAV history from mfapi.in with on-disk caching."""
+
 from __future__ import annotations
 
 import json

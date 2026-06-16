@@ -15,12 +15,17 @@ from app.domains.asset_allocation.models.bucket import (
     AssetAllocationBucket,
     AssetAllocationBucketSubgroup,
 )
-from app.domains.asset_allocation.models.run import AssetAllocationRun, AssetAllocationRunTarget
+from app.domains.asset_allocation.models.run import (
+    AssetAllocationRun,
+    AssetAllocationRunTarget,
+)
 from app.domains.asset_allocation.services.aa_engine.persistence import (
     normalize_asset_allocation_engine_result,
     save_asset_allocation_from_engine_output,
 )
-from app.domains.rebalancing.services.rebal_engine.cached_allocation import try_parse_asset_allocation_json
+from app.domains.rebalancing.services.rebal_engine.cached_allocation import (
+    try_parse_asset_allocation_json,
+)
 
 
 def _minimal_engine_allocation_document() -> dict:
@@ -115,7 +120,10 @@ def _minimal_engine_allocation_document() -> dict:
 
 def test_normalize_accepts_wrapper_and_pydantic_shaped_dump() -> None:
     inner = _minimal_engine_allocation_document()
-    assert normalize_asset_allocation_engine_result({"goal_allocation_output": inner}) == inner
+    assert (
+        normalize_asset_allocation_engine_result({"goal_allocation_output": inner})
+        == inner
+    )
     assert normalize_asset_allocation_engine_result(inner) == inner
 
     class _DummyModel:
@@ -126,7 +134,9 @@ def test_normalize_accepts_wrapper_and_pydantic_shaped_dump() -> None:
 
 
 @pytest.mark.asyncio
-async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, fixture_user) -> None:
+async def test_save_writes_run_targets_buckets_rebalancing_payload(
+    db_session, fixture_user
+) -> None:
     inner = _minimal_engine_allocation_document()
     run_id = await save_asset_allocation_from_engine_output(
         db_session,
@@ -146,7 +156,9 @@ async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, f
 
     n_targets = (
         await db_session.execute(
-            select(func.count()).select_from(AssetAllocationRunTarget).where(
+            select(func.count())
+            .select_from(AssetAllocationRunTarget)
+            .where(
                 AssetAllocationRunTarget.run_id == run_id,
             )
         )
@@ -191,7 +203,9 @@ async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, f
     assert len(view.aggregated_subgroups) >= 1
 
     run = (
-        await db_session.execute(select(AssetAllocationRun).where(AssetAllocationRun.id == run_id))
+        await db_session.execute(
+            select(AssetAllocationRun).where(AssetAllocationRun.id == run_id)
+        )
     ).scalar_one()
     assert run.input_payload == {"k": "v"}
     assert float(run.grand_total) == 300000.0
@@ -199,7 +213,9 @@ async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, f
     # Verify aggregate rows (planned + actual) were created.
     n_agg = (
         await db_session.execute(
-            select(func.count()).select_from(AssetAllocationAggregate).where(
+            select(func.count())
+            .select_from(AssetAllocationAggregate)
+            .where(
                 AssetAllocationAggregate.run_id == run_id,
             )
         )
@@ -208,13 +224,17 @@ async def test_save_writes_run_targets_buckets_rebalancing_payload(db_session, f
 
     # Verify user_id is set on bucket subgroups.
     sub_user_ids = (
-        await db_session.execute(
-            select(AssetAllocationBucketSubgroup.user_id)
-            .join(
-                AssetAllocationBucket,
-                AssetAllocationBucketSubgroup.bucket_id == AssetAllocationBucket.id,
+        (
+            await db_session.execute(
+                select(AssetAllocationBucketSubgroup.user_id)
+                .join(
+                    AssetAllocationBucket,
+                    AssetAllocationBucketSubgroup.bucket_id == AssetAllocationBucket.id,
+                )
+                .where(AssetAllocationBucket.run_id == run_id)
             )
-            .where(AssetAllocationBucket.run_id == run_id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert all(uid == fixture_user.id for uid in sub_user_ids)

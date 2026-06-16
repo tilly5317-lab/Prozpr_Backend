@@ -68,7 +68,9 @@ def llm_chat(
         content = m.get("content") or ""
         if isinstance(content, list):
             content = " ".join(
-                b.get("text", b.get("content", "")) for b in content if isinstance(b, dict)
+                b.get("text", b.get("content", ""))
+                for b in content
+                if isinstance(b, dict)
             )
         if role == "system":
             system_parts.append(content)

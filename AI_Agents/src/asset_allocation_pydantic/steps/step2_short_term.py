@@ -15,17 +15,24 @@ ST2_LOWER_MONTHS_INCLUSIVE: int = 24
 ST2_TAX_THRESHOLD_PCT: float = 12.5
 
 
-def _route(tax_rate_pct: float, threshold_pct: float) -> Literal["short_debt", "arbitrage"]:
+def _route(
+    tax_rate_pct: float, threshold_pct: float
+) -> Literal["short_debt", "arbitrage"]:
     return "arbitrage" if tax_rate_pct > threshold_pct else "short_debt"
 
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
     # A.1: short-term bucket is months < MEDIUM_TERM_BOUNDARY_MONTHS (36).
     # A.3: split into ST1 (months < 24) and ST2 (24 <= months < 36).
-    st1_goals = [g for g in inp.goals if g.time_to_goal_months < ST2_LOWER_MONTHS_INCLUSIVE]
+    st1_goals = [
+        g for g in inp.goals if g.time_to_goal_months < ST2_LOWER_MONTHS_INCLUSIVE
+    ]
     st2_goals = [
-        g for g in inp.goals
-        if ST2_LOWER_MONTHS_INCLUSIVE <= g.time_to_goal_months < MEDIUM_TERM_BOUNDARY_MONTHS
+        g
+        for g in inp.goals
+        if ST2_LOWER_MONTHS_INCLUSIVE
+        <= g.time_to_goal_months
+        < MEDIUM_TERM_BOUNDARY_MONTHS
     ]
     goals_allocated = st1_goals + st2_goals
 
@@ -53,7 +60,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
     # Future investment when corpus runs out mid-bucket.
     future_investment: FutureInvestment | None = None
     if total_goal_amount > remaining_corpus:
-        negotiable = [g.goal_name for g in goals_allocated if g.goal_priority == "negotiable"]
+        negotiable = [
+            g.goal_name for g in goals_allocated if g.goal_priority == "negotiable"
+        ]
         negotiable_str = ", ".join(negotiable) if negotiable else "none flagged"
         msg = (
             f"Your short-term goals ask for a bit more than your current corpus "

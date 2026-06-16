@@ -30,7 +30,10 @@ class ChatSessionState(Base):
         primary_key=True,
     )
     awaiting_save: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false", nullable=False,
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
     last_counterfactual_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
@@ -38,7 +41,9 @@ class ChatSessionState(Base):
         nullable=True,
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     session: Mapped["ChatSession"] = relationship()

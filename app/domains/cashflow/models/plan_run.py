@@ -38,7 +38,10 @@ class CashflowPlanRun(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
@@ -61,13 +64,20 @@ class CashflowPlanRun(Base):
     warnings: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default="{}"
     )
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    is_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    is_stale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     user: Mapped[Optional["User"]] = relationship(back_populates="cashflow_plan_runs")
@@ -134,7 +144,9 @@ class CashflowAnnualRow(Base):
     corpus_closing: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, server_default="0"
     )
-    is_funded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    is_funded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
 
     plan_run: Mapped["CashflowPlanRun"] = relationship(back_populates="annual_rows")
 
@@ -192,7 +204,9 @@ class CashflowMonthlyRow(Base):
     corpus_closing: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, server_default="0"
     )
-    is_funded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    is_funded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
 
     plan_run: Mapped["CashflowPlanRun"] = relationship(back_populates="monthly_rows")
 
@@ -213,8 +227,12 @@ class CashflowHeadline(Base):
     last_fy_end_date: Mapped[date] = mapped_column(Date, nullable=False)
     number_of_goals: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     corpus_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
-    total_corpus_required_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
-    surplus_or_shortfall_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    total_corpus_required_today: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
+    surplus_or_shortfall_today: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
     corpus_closing: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     total_shortfall_fv: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     total_funded_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
@@ -241,10 +259,16 @@ class CashflowFundFlowSummary(Base):
     total_goals_paid: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     corpus_closing: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     corpus_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
-    total_corpus_required_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
-    surplus_or_shortfall_today: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    total_corpus_required_today: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
+    surplus_or_shortfall_today: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
 
-    plan_run: Mapped["CashflowPlanRun"] = relationship(back_populates="fund_flow_summary")
+    plan_run: Mapped["CashflowPlanRun"] = relationship(
+        back_populates="fund_flow_summary"
+    )
 
 
 class CashflowPlanSummary(Base):

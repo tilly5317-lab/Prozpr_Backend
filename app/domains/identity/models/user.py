@@ -3,14 +3,21 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, SmallInteger, String, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    SmallInteger,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -71,20 +78,28 @@ class User(Base):
     )
     country_code: Mapped[str] = mapped_column(String(10), nullable=False)
     mobile: Mapped[str] = mapped_column(String(20), nullable=False)
-    phone: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    phone: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, nullable=False
+    )
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     middle_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    pan: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    pan: Mapped[Optional[str]] = mapped_column(
+        String(20), unique=True, index=True, nullable=True
+    )
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    assumed_lifespan_years: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    assumed_lifespan_years: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
     occupation: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     family_status: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="INR", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_onboarding_complete: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -111,8 +126,8 @@ class User(Base):
     risk_profile: Mapped[Optional["RiskProfile"]] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
-    effective_risk_assessment: Mapped[Optional["EffectiveRiskAssessment"]] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    effective_risk_assessment: Mapped[Optional["EffectiveRiskAssessment"]] = (
+        relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
     )
     investment_profile: Mapped[Optional["InvestmentProfile"]] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
@@ -147,8 +162,8 @@ class User(Base):
     notifications: Mapped[List["Notification"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    investment_policy_statements: Mapped[List["InvestmentPolicyStatement"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+    investment_policy_statements: Mapped[List["InvestmentPolicyStatement"]] = (
+        relationship(back_populates="user", cascade="all, delete-orphan")
     )
     family_members_owned: Mapped[List["FamilyMember"]] = relationship(
         back_populates="owner",
@@ -173,8 +188,8 @@ class User(Base):
     investment_lists: Mapped[List["UserInvestmentList"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    portfolio_allocation_snapshots: Mapped[List["PortfolioAllocationSnapshot"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+    portfolio_allocation_snapshots: Mapped[List["PortfolioAllocationSnapshot"]] = (
+        relationship(back_populates="user", cascade="all, delete-orphan")
     )
     stock_transactions: Mapped[List["StockTransaction"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

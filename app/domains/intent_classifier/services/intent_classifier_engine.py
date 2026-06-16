@@ -36,9 +36,9 @@ _LEGACY_GOAL_PLANNING_PREFIX = "Goal planning — checking whether"
 # refresh). Kept so the history-scrub still catches them in old DB sessions.
 _LEGACY_OOS_PREFIXES: tuple[str, ...] = (
     "I'm Tilly — an AI assistant from Prozpr, here to help",  # IDENTITY_OR_META
-    "I can't help with passwords",                              # SECURITY_OR_CREDENTIALS
-    "Session summaries aren't built in yet",                    # CHAT_SUMMARY
-    "That's outside what I can help with",                      # OFF_TOPIC
+    "I can't help with passwords",  # SECURITY_OR_CREDENTIALS
+    "Session summaries aren't built in yet",  # CHAT_SUMMARY
+    "That's outside what I can help with",  # OFF_TOPIC
 )
 
 # Prefix of the previous generic OUT_OF_SCOPE_MESSAGE (pre tone refresh).
@@ -135,7 +135,10 @@ async def _classify_via_openai(
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
             json=payload,
         )
     if resp.status_code == 401:
@@ -154,7 +157,9 @@ async def _classify_via_openai(
         intent=intent,
         confidence=float(raw["confidence"]),
         reasoning=raw["reasoning"],
-        out_of_scope_message=OUT_OF_SCOPE_MESSAGE if intent == Intent.OUT_OF_SCOPE else None,
+        out_of_scope_message=OUT_OF_SCOPE_MESSAGE
+        if intent == Intent.OUT_OF_SCOPE
+        else None,
     )
 
 
@@ -168,7 +173,9 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
     """
     # Lazily import the tailored OOS replies + the goal-planning sentinel so
     # we don't pull in the LLM-call modules at classifier import time.
-    from app.domains.general_chat.services.general_chat_engine import _OOS_REPLIES_BY_SUBREASON
+    from app.domains.general_chat.services.general_chat_engine import (
+        _OOS_REPLIES_BY_SUBREASON,
+    )
     from app.domains.ai_engine.services.brain import _GOAL_PLANNING_SENTINEL
 
     canned_prefixes = (
@@ -245,11 +252,17 @@ async def classify_user_message(
     ]
     active = Intent(active_intent) if active_intent else None
     try:
-        inp = ClassificationInput(customer_question=customer_question, conversation_history=history, active_intent=active)
+        inp = ClassificationInput(
+            customer_question=customer_question,
+            conversation_history=history,
+            active_intent=active,
+        )
         result = await asyncio.to_thread(_get_classifier().classify, inp)
         return _apply_rebalancing_keyword_override(customer_question, result)
     except Exception as exc:
-        logger.warning("Anthropic classifier failed (%s), trying OpenAI fallback...", exc)
+        logger.warning(
+            "Anthropic classifier failed (%s), trying OpenAI fallback...", exc
+        )
 
     # NOTE: active_intent is intentionally not forwarded to the OpenAI fallback;
     # the bias is a small loss when the system is already degraded to recovery.

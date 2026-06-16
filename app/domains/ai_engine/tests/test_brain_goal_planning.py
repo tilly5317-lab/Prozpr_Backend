@@ -30,7 +30,6 @@ def _make_turn() -> ChatTurnInput:
 
 
 class BrainGoalPlanningSequenceTests(unittest.IsolatedAsyncioTestCase):
-
     async def test_goal_planning_runs_cashflow_module(self):
         # Fake classifier output — the intent classifier service is the FIRST
         # module the brain runs; we mock its underlying agent call.
@@ -47,21 +46,26 @@ class BrainGoalPlanningSequenceTests(unittest.IsolatedAsyncioTestCase):
 
         dispatch_result = ChatHandlerResult(text="cashflow module formatted answer")
 
-        with patch(
-            "app.domains.ai_engine.services.brain.build_turn_context",
-            new=AsyncMock(return_value=fake_turn_context),
-        ), patch(
-            # The intent_classifier service re-exports the classifier from its
-            # legacy home; patch the legacy symbol so both call sites observe it.
-            "app.domains.intent_classifier.services.intent_classifier_engine.classify_user_message",
-            new=AsyncMock(return_value=classification),
-        ), patch(
-            "app.domains.ai_engine.services.brain.log_chat_turn_flow_summary",
-            new=AsyncMock(return_value=None),
-        ), patch(
-            "app.domains.ai_engine.chat_dispatcher.dispatch_chat",
-            new=AsyncMock(return_value=dispatch_result),
-        ) as mock_dispatch:
+        with (
+            patch(
+                "app.domains.ai_engine.services.brain.build_turn_context",
+                new=AsyncMock(return_value=fake_turn_context),
+            ),
+            patch(
+                # The intent_classifier service re-exports the classifier from its
+                # legacy home; patch the legacy symbol so both call sites observe it.
+                "app.domains.intent_classifier.services.intent_classifier_engine.classify_user_message",
+                new=AsyncMock(return_value=classification),
+            ),
+            patch(
+                "app.domains.ai_engine.services.brain.log_chat_turn_flow_summary",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.domains.ai_engine.chat_dispatcher.dispatch_chat",
+                new=AsyncMock(return_value=dispatch_result),
+            ) as mock_dispatch,
+        ):
             result = await ChatBrain().run_turn(_make_turn())
 
         self.assertEqual(result.content, "cashflow module formatted answer")

@@ -32,8 +32,12 @@ def upgrade() -> None:
             sa.ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="pending"),
-        sa.Column("phase", sa.String(length=20), nullable=False, server_default="queued"),
+        sa.Column(
+            "status", sa.String(length=20), nullable=False, server_default="pending"
+        ),
+        sa.Column(
+            "phase", sa.String(length=20), nullable=False, server_default="queued"
+        ),
         sa.Column("progress_pct", sa.Numeric(5, 2), nullable=False, server_default="0"),
         sa.Column("message", sa.String(length=300), nullable=True),
         sa.Column("history_from", sa.Date(), nullable=True),

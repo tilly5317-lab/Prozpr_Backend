@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 
 class PersonalFinanceProfile(Base):
     __tablename__ = "personal_finance_profiles"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_personal_finance_profiles_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_personal_finance_profiles_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -38,9 +40,15 @@ class PersonalFinanceProfile(Base):
     wealth_sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     personal_values: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
-    annual_income: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
-    effective_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
-    financial_assets: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    annual_income: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    effective_tax_rate: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 6), nullable=True
+    )
+    financial_assets: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     financial_liabilities_excl_mortgage: Mapped[Optional[float]] = mapped_column(
         Numeric(18, 2), nullable=True
     )

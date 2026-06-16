@@ -88,26 +88,44 @@ class RebalancingFundRow(Base):
     invested_cost_inr: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )
-    st_value_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    st_cost_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    lt_value_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    lt_cost_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    st_value_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    st_cost_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    lt_value_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    lt_cost_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
 
-    exit_load_pct: Mapped[float] = mapped_column(Numeric(7, 4), nullable=False, default=0)
+    exit_load_pct: Mapped[float] = mapped_column(
+        Numeric(7, 4), nullable=False, default=0
+    )
     exit_load_months: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     units_within_exit_load_period: Mapped[float] = mapped_column(
         Numeric(20, 6), nullable=False, default=0
     )
-    current_nav: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False, default=0)
+    current_nav: Mapped[float] = mapped_column(
+        Numeric(20, 6), nullable=False, default=0
+    )
     exit_load_amount: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )
 
     diff: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     exit_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    worth_to_change: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    stcg_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    ltcg_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    worth_to_change: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    stcg_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    ltcg_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
 
     pass1_buy_amount: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0

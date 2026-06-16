@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import enum
@@ -11,7 +10,16 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,7 +48,9 @@ class MeetingNote(Base):
     meeting_date: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    is_mandate_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_mandate_approved: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -68,7 +78,11 @@ class MeetingNoteItem(Base):
     )
 
     item_type: Mapped[MeetingNoteItemType] = mapped_column(
-        SAEnum(MeetingNoteItemType, name="meeting_note_item_type_enum", create_constraint=True),
+        SAEnum(
+            MeetingNoteItemType,
+            name="meeting_note_item_type_enum",
+            create_constraint=True,
+        ),
         nullable=False,
     )
     role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

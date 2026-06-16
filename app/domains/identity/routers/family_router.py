@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -38,7 +37,11 @@ from app.domains.portfolio.schemas.portfolio import (
     PortfolioHoldingResponse,
     PortfolioResponse,
 )
-from app.domains.identity.services.otp_service import send_otp, verify_otp, resend_otp as resend_otp_svc
+from app.domains.identity.services.otp_service import (
+    send_otp,
+    verify_otp,
+    resend_otp as resend_otp_svc,
+)
 from app.core.security import hash_password
 from app.domains.identity.schemas.auth import full_phone
 
@@ -79,7 +82,10 @@ def _build_member_response(fm: FamilyMember) -> FamilyMemberResponse:
 
 # ── Step 1: Initiate — creates pending_otp record & sends OTP ───────────
 
-@router.post("/members", response_model=FamilyMemberResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/members", response_model=FamilyMemberResponse, status_code=status.HTTP_201_CREATED
+)
 async def add_family_member(
     payload: AddFamilyMemberRequest,
     db: AsyncSession = Depends(get_db),
@@ -170,7 +176,12 @@ async def add_family_member(
 
 # ── Onboard — register a new user and create the family link ─────────────
 
-@router.post("/members/onboard", response_model=FamilyMemberResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/members/onboard",
+    response_model=FamilyMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def onboard_family_member(
     payload: OnboardFamilyMemberRequest,
     db: AsyncSession = Depends(get_db),
@@ -234,6 +245,7 @@ async def onboard_family_member(
 
 # ── Step 2: Verify OTP — activates the link ──────────────────────────────
 
+
 @router.post("/members/{member_id}/verify-otp", response_model=FamilyMemberResponse)
 async def verify_family_otp(
     member_id: uuid.UUID,
@@ -278,7 +290,8 @@ async def verify_family_otp(
     if not fm.member_user_id:
         user_result = await db.execute(
             select(User).where(
-                or_(User.phone == fm.phone, User.email == fm.email) if fm.email
+                or_(User.phone == fm.phone, User.email == fm.email)
+                if fm.email
                 else User.phone == fm.phone
             )
         )
@@ -299,6 +312,7 @@ async def verify_family_otp(
 
 
 # ── Resend OTP ───────────────────────────────────────────────────────────
+
 
 @router.post("/members/{member_id}/resend-otp", response_model=OtpSentResponse)
 async def resend_family_otp(
@@ -335,6 +349,7 @@ async def resend_family_otp(
 
 # ── CRUD ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/members", response_model=FamilyMemberListResponse)
 async def list_family_members(
     db: AsyncSession = Depends(get_db),
@@ -369,7 +384,9 @@ async def update_family_member(
     )
     fm = (await db.execute(stmt)).scalar_one_or_none()
     if not fm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Family member not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Family member not found"
+        )
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(fm, field, value)
@@ -391,13 +408,16 @@ async def remove_family_member(
     )
     fm = (await db.execute(stmt)).scalar_one_or_none()
     if not fm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Family member not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Family member not found"
+        )
 
     await db.delete(fm)
     await db.commit()
 
 
 # ── Member portfolio (read-only, no header needed) ───────────────────────
+
 
 @router.get("/members/{member_id}/portfolio", response_model=PortfolioDetailResponse)
 async def get_member_portfolio(
@@ -428,6 +448,7 @@ async def get_member_portfolio(
     portfolio = (await db.execute(stmt)).scalar_one_or_none()
     if not portfolio:
         from datetime import datetime, timezone
+
         return PortfolioDetailResponse(
             id=uuid.uuid4(),
             name="Primary",
@@ -443,12 +464,17 @@ async def get_member_portfolio(
 
     return PortfolioDetailResponse(
         **PortfolioResponse.model_validate(portfolio).model_dump(),
-        allocations=[PortfolioAllocationResponse.model_validate(a) for a in portfolio.allocations],
-        holdings=[PortfolioHoldingResponse.model_validate(h) for h in portfolio.holdings],
+        allocations=[
+            PortfolioAllocationResponse.model_validate(a) for a in portfolio.allocations
+        ],
+        holdings=[
+            PortfolioHoldingResponse.model_validate(h) for h in portfolio.holdings
+        ],
     )
 
 
 # ── Cumulative portfolio ─────────────────────────────────────────────────
+
 
 @router.get("/portfolio/cumulative", response_model=CumulativePortfolioResponse)
 async def get_cumulative_portfolio(
@@ -489,7 +515,9 @@ async def get_cumulative_portfolio(
             relationship_type="self",
             portfolio_value=owner_value,
             total_invested=owner_invested,
-            gain_percentage=float(owner_portfolio.total_gain_percentage) if owner_portfolio and owner_portfolio.total_gain_percentage else None,
+            gain_percentage=float(owner_portfolio.total_gain_percentage)
+            if owner_portfolio and owner_portfolio.total_gain_percentage
+            else None,
         )
     )
 
@@ -502,7 +530,9 @@ async def get_cumulative_portfolio(
                 relationship_type=fm.relationship_type,
                 portfolio_value=float(p.total_value) if p else 0,
                 total_invested=float(p.total_invested) if p else 0,
-                gain_percentage=float(p.total_gain_percentage) if p and p.total_gain_percentage else None,
+                gain_percentage=float(p.total_gain_percentage)
+                if p and p.total_gain_percentage
+                else None,
             )
         )
 
@@ -542,6 +572,7 @@ async def get_cumulative_portfolio(
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def _split_phone(phone: str) -> tuple[str, str]:
     """Split a full phone like '+919876543210' into (country_code, mobile).

@@ -55,7 +55,9 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_index("ix_mf_transactions_source_system", "mf_transactions", ["source_system"])
+    op.create_index(
+        "ix_mf_transactions_source_system", "mf_transactions", ["source_system"]
+    )
     op.create_index(
         "ix_mf_transactions_source_import_id", "mf_transactions", ["source_import_id"]
     )
@@ -116,10 +118,18 @@ def downgrade() -> None:
     op.drop_column("mf_aa_imports", "normalized_at")
     op.drop_column("mf_aa_imports", "status")
 
-    op.drop_index("ix_mf_transactions_scheme_transaction_date", table_name="mf_transactions")
-    op.drop_index("ix_mf_transactions_user_transaction_date", table_name="mf_transactions")
-    op.drop_constraint("uq_mf_txn_source_fingerprint", "mf_transactions", type_="unique")
-    op.drop_index("ix_mf_transactions_source_txn_fingerprint", table_name="mf_transactions")
+    op.drop_index(
+        "ix_mf_transactions_scheme_transaction_date", table_name="mf_transactions"
+    )
+    op.drop_index(
+        "ix_mf_transactions_user_transaction_date", table_name="mf_transactions"
+    )
+    op.drop_constraint(
+        "uq_mf_txn_source_fingerprint", "mf_transactions", type_="unique"
+    )
+    op.drop_index(
+        "ix_mf_transactions_source_txn_fingerprint", table_name="mf_transactions"
+    )
     op.drop_index("ix_mf_transactions_source_import_id", table_name="mf_transactions")
     op.drop_index("ix_mf_transactions_source_system", table_name="mf_transactions")
     op.drop_constraint(

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ChatHandlerResult:
     """Return shape for every chat handler. Forwarded to ChatBrainResult."""
+
     text: str
     snapshot_id: uuid.UUID | None = None
     asset_allocation_run_id: uuid.UUID | None = None
@@ -39,19 +40,20 @@ _HANDLERS: dict[str, Handler] = {}
 
 def register(intent: str) -> Callable[[Handler], Handler]:
     """Register a chat handler for the given intent. Stackable."""
+
     def decorator(fn: Handler) -> Handler:
         _HANDLERS[intent] = fn
         return fn
+
     return decorator
 
 
 async def dispatch_chat(
-    intent: str, turn_context: "TurnContext",
+    intent: str,
+    turn_context: "TurnContext",
 ) -> ChatHandlerResult:
     """Look up the handler for ``intent`` and invoke it."""
     handler = _HANDLERS.get(intent)
     if handler is None:
-        raise RuntimeError(
-            f"No chat handler registered for intent={intent!r}"
-        )
+        raise RuntimeError(f"No chat handler registered for intent={intent!r}")
     return await handler(turn_context)

@@ -151,11 +151,13 @@ def _make_minimal_response(*, with_warnings=False, tax_zero=True, with_actions=F
         ]
     warnings = []
     if with_warnings:
-        warnings.append(RebalancingWarning(
-            code=WarningCode.UNREBALANCED_REMAINDER,
-            message="₹500 unrebalanced",
-            affected_isins=[],
-        ))
+        warnings.append(
+            RebalancingWarning(
+                code=WarningCode.UNREBALANCED_REMAINDER,
+                message="₹500 unrebalanced",
+                affected_isins=[],
+            )
+        )
     knobs = KnobSnapshot(
         multi_fund_cap_pct=20.0,
         others_fund_cap_pct=10.0,

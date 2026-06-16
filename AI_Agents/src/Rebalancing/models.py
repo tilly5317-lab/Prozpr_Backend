@@ -84,22 +84,22 @@ class FundRowInput(BaseModel):
 
 
 class FundRowAfterStep1(FundRowInput):
-    max_pct: float                       # cap that applies to this fund (% of corpus)
-    target_pre_cap_pct: float              # original pre-cap target / corpus
-    target_own_capped_pct: float              # post-own-cap, before spill received
-    final_target_pct: float              # final after spill cascade
-    final_target_amount: Decimal         # final rupees, rounded
+    max_pct: float  # cap that applies to this fund (% of corpus)
+    target_pre_cap_pct: float  # original pre-cap target / corpus
+    target_own_capped_pct: float  # post-own-cap, before spill received
+    final_target_pct: float  # final after spill cascade
+    final_target_amount: Decimal  # final rupees, rounded
 
 
 class FundRowAfterStep2(FundRowAfterStep1):
-    diff: Decimal                        # final_target_amount − present (signed)
-    exit_flag: bool                      # forced exit (BAD or low-rated)
-    worth_to_change: bool                # |diff| past threshold OR exit_flag
+    diff: Decimal  # final_target_amount − present (signed)
+    exit_flag: bool  # forced exit (BAD or low-rated)
+    worth_to_change: bool  # |diff| past threshold OR exit_flag
 
 
 class FundRowAfterStep3(FundRowAfterStep2):
-    stcg_amount: Decimal                 # st_value − st_cost (signed)
-    ltcg_amount: Decimal                 # lt_value − lt_cost (signed)
+    stcg_amount: Decimal  # st_value − st_cost (signed)
+    ltcg_amount: Decimal  # lt_value − lt_cost (signed)
 
 
 class FundRowAfterStep4(FundRowAfterStep3):
@@ -232,9 +232,9 @@ class TradeAction(BaseModel):
     recommended_fund: Optional[str] = None
     action: Literal["BUY", "SELL", "EXIT", "SELL_DIRECT_STOCKS"]
     amount_inr: Decimal
-    reason_code: str                 # machine — stable, analytics
-    reason_title: str                # customer card header
-    reason_text: str                 # customer card body, one sentence
+    reason_code: str  # machine — stable, analytics
+    reason_title: str  # customer card header
+    reason_text: str  # customer card body, one sentence
     # Per-fund rationale from the ranking CSV. BUY or SELL-trim of a
     # recommended fund → selection_reason; EXIT of a BAD/off-list fund →
     # joined rejection reasons. None only when no fund-specific reason exists
@@ -260,21 +260,22 @@ class SubgroupSummary(BaseModel):
     `practical_allocation.corpus_breakdown` and no trades are generated
     against them inside the engine (`SELL_DIRECT_STOCKS` rides on
     `trade_list`, not on `SubgroupSummary.actions`)."""
+
     asset_subgroup: str
-    goal_target_inr: Decimal              # what goal allocation said we want
-    current_holding_inr: Decimal          # what's there today (sum of present)
+    goal_target_inr: Decimal  # what goal allocation said we want
+    current_holding_inr: Decimal  # what's there today (sum of present)
     suggested_final_holding_inr: Decimal  # what we'll have after rebalance
-    rebalance_inr: Decimal                # suggested_final − current (signed)
+    rebalance_inr: Decimal  # suggested_final − current (signed)
     total_buy_inr: Decimal
     total_sell_inr: Decimal
-    ranks_total: int                      # ranks defined for this subgroup
-    ranks_with_holding: int               # ranks with present_allocation > 0
-    ranks_with_action: int                # ranks with a buy or sell
+    ranks_total: int  # ranks defined for this subgroup
+    ranks_with_holding: int  # ranks with present_allocation > 0
+    ranks_with_action: int  # ranks with a buy or sell
     actions: list[FundRowAfterStep5] = Field(default_factory=list)
 
 
 class RebalancingComputeResponse(BaseModel):
-    rows: list[FundRowAfterStep5]                             # full audit trail
+    rows: list[FundRowAfterStep5]  # full audit trail
     subgroups: list[SubgroupSummary] = Field(default_factory=list)  # presentation
     totals: RebalancingTotals
     metadata: RebalancingRunMetadata

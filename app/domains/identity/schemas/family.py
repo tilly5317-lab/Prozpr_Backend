@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -15,7 +14,13 @@ from pydantic import BaseModel, Field, field_validator
 from app.domains.identity.schemas.auth import _normalize_country_code
 
 VALID_RELATIONSHIPS = [
-    "spouse", "child", "parent", "sibling", "grandparent", "grandchild", "other"
+    "spouse",
+    "child",
+    "parent",
+    "sibling",
+    "grandparent",
+    "grandchild",
+    "other",
 ]
 VALID_STATUSES = ["pending_otp", "active", "revoked"]
 
@@ -56,6 +61,7 @@ class AddFamilyMemberRequest(BaseModel):
 
 class OnboardFamilyMemberRequest(BaseModel):
     """Create a new user account for a family member who doesn't have one yet."""
+
     nickname: str = Field(..., min_length=1, max_length=120)
     phone: str = Field(..., min_length=6, max_length=32)
     country_code: str = Field(default="+91", min_length=1, max_length=10)

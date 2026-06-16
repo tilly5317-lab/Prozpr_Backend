@@ -21,7 +21,9 @@ if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 
 from app.domains.asset_allocation.models.run import AssetAllocationRun
-from app.domains.mutual_funds.models.mf_allocation_snapshot import PortfolioAllocationSnapshot
+from app.domains.mutual_funds.models.mf_allocation_snapshot import (
+    PortfolioAllocationSnapshot,
+)
 from app.domains.mutual_funds.models.enums import PortfolioSnapshotKind
 from app.domains.asset_allocation.services.aa_engine.service import (
     AllocationRunOutcome,
@@ -33,12 +35,16 @@ from app.domains.ai_engine.common import (
     format_inr_indian,
     trace_line,
 )
-from app.domains.rebalancing.services.rebal_engine.formatter import build_fallback_rebal_brief
+from app.domains.rebalancing.services.rebal_engine.formatter import (
+    build_fallback_rebal_brief,
+)
 from app.domains.rebalancing.services.rebal_engine.input_builder import (
     build_rebalancing_input_for_user,
 )
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+)
 from app.domains.rebalancing.services.rebalancing_persist_service import (
     persist_rebalancing_recommendation,
 )
@@ -133,35 +139,38 @@ def build_goal_buckets_block(
             # Skip empty non-emergency buckets — nothing meaningful to anchor.
             continue
         split = per_bucket_split.get(bucket_alloc.bucket)
-        out.append({
-            "bucket": bucket_alloc.bucket,
-            "horizon_label": _BUCKET_HORIZON_LABELS.get(
-                bucket_alloc.bucket, bucket_alloc.bucket,
-            ),
-            "goals": [
-                {
-                    "name": g.goal_name,
-                    "horizon_months": g.time_to_goal_months,
-                    "amount_needed_inr": float(g.amount_needed),
-                    "amount_needed_indian": format_inr_indian(g.amount_needed),
-                    "priority": g.goal_priority,
-                }
-                for g in bucket_alloc.goals
-            ],
-            "total_goal_amount_inr": float(bucket_alloc.total_goal_amount),
-            "total_goal_amount_indian": format_inr_indian(
-                bucket_alloc.total_goal_amount,
-            ),
-            "allocated_amount_inr": float(bucket_alloc.allocated_amount),
-            "allocated_amount_indian": format_inr_indian(
-                bucket_alloc.allocated_amount,
-            ),
-            "planned_split_pct": {
-                "equity": round(float(split.equity_pct)) if split else 0,
-                "debt": round(float(split.debt_pct)) if split else 0,
-                "others": round(float(split.others_pct)) if split else 0,
-            },
-        })
+        out.append(
+            {
+                "bucket": bucket_alloc.bucket,
+                "horizon_label": _BUCKET_HORIZON_LABELS.get(
+                    bucket_alloc.bucket,
+                    bucket_alloc.bucket,
+                ),
+                "goals": [
+                    {
+                        "name": g.goal_name,
+                        "horizon_months": g.time_to_goal_months,
+                        "amount_needed_inr": float(g.amount_needed),
+                        "amount_needed_indian": format_inr_indian(g.amount_needed),
+                        "priority": g.goal_priority,
+                    }
+                    for g in bucket_alloc.goals
+                ],
+                "total_goal_amount_inr": float(bucket_alloc.total_goal_amount),
+                "total_goal_amount_indian": format_inr_indian(
+                    bucket_alloc.total_goal_amount,
+                ),
+                "allocated_amount_inr": float(bucket_alloc.allocated_amount),
+                "allocated_amount_indian": format_inr_indian(
+                    bucket_alloc.allocated_amount,
+                ),
+                "planned_split_pct": {
+                    "equity": round(float(split.equity_pct)) if split else 0,
+                    "debt": round(float(split.debt_pct)) if split else 0,
+                    "others": round(float(split.others_pct)) if split else 0,
+                },
+            }
+        )
     return out
 
 
@@ -245,22 +254,18 @@ def build_rebal_facts_pack(
     rows = list(getattr(response, "rows", []) or [])
     warnings_list = list(getattr(response, "warnings", []) or [])
 
-    buys_total = sum(
-        float(getattr(r, "pass1_buy_amount", 0) or 0)
-        for r in rows
-    )
-    sells_total = sum(
-        float(getattr(r, "pass1_sell_amount", 0) or 0)
-        for r in rows
-    )
+    buys_total = sum(float(getattr(r, "pass1_buy_amount", 0) or 0) for r in rows)
+    sells_total = sum(float(getattr(r, "pass1_sell_amount", 0) or 0) for r in rows)
 
     # totals is a RebalancingTotals object; fall back to computed if absent
     totals_obj = getattr(response, "totals", None)
-    tax_impact = float(
-        getattr(totals_obj, "total_tax_estimate_inr", 0) or 0
+    tax_impact = float(getattr(totals_obj, "total_tax_estimate_inr", 0) or 0)
+    total_buy_inr = float(
+        getattr(totals_obj, "total_buy_inr", buys_total) or buys_total
     )
-    total_buy_inr = float(getattr(totals_obj, "total_buy_inr", buys_total) or buys_total)
-    total_sell_inr = float(getattr(totals_obj, "total_sell_inr", sells_total) or sells_total)
+    total_sell_inr = float(
+        getattr(totals_obj, "total_sell_inr", sells_total) or sells_total
+    )
 
     # Derive portfolio total from subgroup current holdings (not gross trade volume).
     subgroups = list(getattr(response, "subgroups", []) or [])
@@ -315,16 +320,18 @@ def build_rebal_facts_pack(
                     reason = getattr(action, "rejection_reason", None) or ""
                 else:
                     reason = ""
-                fund_rows.append({
-                    "fund_name": fund_name,
-                    "sub_category": sub_cat,
-                    "asset_subgroup": sg_subgroup,
-                    "current_inr": present,
-                    "buy_inr": buy,
-                    "sell_inr": sell,
-                    "planned_final_inr": present + buy - sell,
-                    "reason": reason,
-                })
+                fund_rows.append(
+                    {
+                        "fund_name": fund_name,
+                        "sub_category": sub_cat,
+                        "asset_subgroup": sg_subgroup,
+                        "current_inr": present,
+                        "buy_inr": buy,
+                        "sell_inr": sell,
+                        "planned_final_inr": present + buy - sell,
+                        "reason": reason,
+                    }
+                )
 
     buckets: list[dict[str, Any]] = []
     for bucket in by_key.values():
@@ -391,8 +398,12 @@ def build_rebal_facts_pack(
     if knob is not None:
         ltcg_exemption_inr = float(getattr(knob, "ltcg_annual_exemption_inr", 0) or 0)
         tax_rules = {
-            "ltcg_rate_equity_pct": float(getattr(knob, "ltcg_rate_equity_pct", 0) or 0),
-            "stcg_rate_equity_pct": float(getattr(knob, "stcg_rate_equity_pct", 0) or 0),
+            "ltcg_rate_equity_pct": float(
+                getattr(knob, "ltcg_rate_equity_pct", 0) or 0
+            ),
+            "stcg_rate_equity_pct": float(
+                getattr(knob, "stcg_rate_equity_pct", 0) or 0
+            ),
             "ltcg_annual_exemption_inr": ltcg_exemption_inr,
             "ltcg_annual_exemption_indian": format_inr_indian(ltcg_exemption_inr),
             "equity_long_term_threshold_months": int(
@@ -409,10 +420,14 @@ def build_rebal_facts_pack(
         "sells_total_indian": format_inr_indian(total_sell_inr),
         "tax_impact_inr": tax_impact,
         "tax_impact_indian": format_inr_indian(tax_impact),
-        "trade_count": sum(1 for r in rows if (
-            float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
-            or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
-        )),
+        "trade_count": sum(
+            1
+            for r in rows
+            if (
+                float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
+                or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
+            )
+        ),
         "asset_class_mix_pct": asset_class_pct,
         "asset_class_mix_inr": asset_class_inr,
         "asset_class_mix_indian": asset_class_indian,
@@ -432,14 +447,17 @@ def build_rebal_facts_pack(
 async def _user_has_mf_holdings(db: AsyncSession, user_id: uuid.UUID) -> bool:
     from app.domains.mutual_funds.models.mf_transaction import MfTransaction
 
-    row = (await db.execute(
-        select(MfTransaction.id).where(MfTransaction.user_id == user_id).limit(1)
-    )).first()
+    row = (
+        await db.execute(
+            select(MfTransaction.id).where(MfTransaction.user_id == user_id).limit(1)
+        )
+    ).first()
     return row is not None
 
 
 async def _load_cached_allocation(
-    db: AsyncSession, user_id: uuid.UUID,
+    db: AsyncSession,
+    user_id: uuid.UUID,
 ) -> tuple[Optional[GoalAllocationOutput], Optional[uuid.UUID]]:
     """Latest asset-allocation run ≤ 90 days old → (parsed output, run_id) or (None, None).
 
@@ -450,25 +468,37 @@ async def _load_cached_allocation(
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALLOCATION_TTL_DAYS)
 
-    run = (await db.execute(
-        select(AssetAllocationRun)
-        .where(AssetAllocationRun.portfolio_id == portfolio.id)
-        .where(AssetAllocationRun.created_at >= cutoff)
-        .order_by(desc(AssetAllocationRun.created_at))
-        .limit(1)
-    )).scalar_one_or_none()
+    run = (
+        await db.execute(
+            select(AssetAllocationRun)
+            .where(AssetAllocationRun.portfolio_id == portfolio.id)
+            .where(AssetAllocationRun.created_at >= cutoff)
+            .order_by(desc(AssetAllocationRun.created_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if run is None:
         return None, None
 
-    snap = (await db.execute(
-        select(PortfolioAllocationSnapshot)
-        .where(PortfolioAllocationSnapshot.user_id == run.user_id)
-        .where(PortfolioAllocationSnapshot.snapshot_kind == PortfolioSnapshotKind.IDEAL)
-        .where(PortfolioAllocationSnapshot.created_at >= run.created_at - timedelta(seconds=30))
-        .where(PortfolioAllocationSnapshot.created_at <= run.created_at + timedelta(seconds=30))
-        .order_by(desc(PortfolioAllocationSnapshot.created_at))
-        .limit(1)
-    )).scalar_one_or_none()
+    snap = (
+        await db.execute(
+            select(PortfolioAllocationSnapshot)
+            .where(PortfolioAllocationSnapshot.user_id == run.user_id)
+            .where(
+                PortfolioAllocationSnapshot.snapshot_kind == PortfolioSnapshotKind.IDEAL
+            )
+            .where(
+                PortfolioAllocationSnapshot.created_at
+                >= run.created_at - timedelta(seconds=30)
+            )
+            .where(
+                PortfolioAllocationSnapshot.created_at
+                <= run.created_at + timedelta(seconds=30)
+            )
+            .order_by(desc(PortfolioAllocationSnapshot.created_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if snap is None:
         return None, None
 
@@ -510,16 +540,20 @@ async def compute_rebalancing_result(
 
     if getattr(user, "date_of_birth", None) is None:
         return RebalancingRunOutcome(
-            response=None, blocking_message=_MSG_MISSING_DOB,
+            response=None,
+            blocking_message=_MSG_MISSING_DOB,
         )
 
     if not await _user_has_mf_holdings(db, acting_user_id):
         return RebalancingRunOutcome(
-            response=None, blocking_message=_MSG_NO_HOLDINGS,
+            response=None,
+            blocking_message=_MSG_NO_HOLDINGS,
         )
 
     if chat_ctx is None:
-        from app.domains.ai_engine.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+        from app.domains.ai_engine.turn_context import (
+            TurnContext,
+        )  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
 
         chat_ctx = TurnContext(
             user_ctx=user,
@@ -541,7 +575,8 @@ async def compute_rebalancing_result(
         used_cache = False
     else:
         cached_output, source_allocation_id = await _load_cached_allocation(
-            db, acting_user_id,
+            db,
+            acting_user_id,
         )
         used_cache = cached_output is not None
     allocation_snapshot_id: Optional[uuid.UUID] = None
@@ -567,7 +602,8 @@ async def compute_rebalancing_result(
             )
         if alloc_outcome.result is None:
             return RebalancingRunOutcome(
-                response=None, blocking_message=_MSG_ENGINE_ERROR,
+                response=None,
+                blocking_message=_MSG_ENGINE_ERROR,
             )
         cached_output = alloc_outcome.result
         source_allocation_id = alloc_outcome.asset_allocation_run_id
@@ -575,24 +611,28 @@ async def compute_rebalancing_result(
 
     try:
         request, debug = await build_rebalancing_input_for_user(
-            chat_ctx, cached_output,
+            chat_ctx,
+            cached_output,
         )
     except Exception as exc:
         logger.exception("rebalancing input builder failed: %s", exc)
         return RebalancingRunOutcome(
-            response=None, blocking_message=_MSG_UNPRICEABLE,
+            response=None,
+            blocking_message=_MSG_UNPRICEABLE,
         )
 
     trace_line(f"rebalancing input debug: {debug}")
 
     try:
         response: RebalancingComputeResponse = await asyncio.to_thread(
-            run_rebalancing, request,
+            run_rebalancing,
+            request,
         )
     except Exception as exc:
         logger.exception("run_rebalancing failed: %s", exc)
         return RebalancingRunOutcome(
-            response=None, blocking_message=_MSG_ENGINE_ERROR,
+            response=None,
+            blocking_message=_MSG_ENGINE_ERROR,
         )
 
     # Goal-tied bucket block — derived once from the AA output that drove this
@@ -646,7 +686,8 @@ async def compute_rebalancing_result(
             logger.warning("ai_module_telemetry skipped (non-fatal): %s", exc)
 
     formatted = build_fallback_rebal_brief(
-        response, used_cached_allocation=used_cache,
+        response,
+        used_cached_allocation=used_cache,
     )
 
     return RebalancingRunOutcome(

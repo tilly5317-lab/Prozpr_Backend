@@ -38,20 +38,27 @@ def compute_drift(inp: DriftInput) -> DriftOutput:
         display_name = get_display_name(sg)
 
         fund_drifts = _build_fund_drifts(
-            sg, ideal_amt, actual_funds, fund_map, asset_class,
-            display_name, total_ideal,
+            sg,
+            ideal_amt,
+            actual_funds,
+            fund_map,
+            asset_class,
+            display_name,
+            total_ideal,
         )
 
-        subgroup_drifts.append(SubgroupDrift(
-            subgroup=sg,
-            display_name=display_name,
-            asset_class=asset_class,
-            ideal_amount=ideal_amt,
-            actual_amount=actual_sum,
-            drift_amount=actual_sum - ideal_amt,
-            drift_pct=_pct(actual_sum - ideal_amt, total_ideal),
-            funds=fund_drifts,
-        ))
+        subgroup_drifts.append(
+            SubgroupDrift(
+                subgroup=sg,
+                display_name=display_name,
+                asset_class=asset_class,
+                ideal_amount=ideal_amt,
+                actual_amount=actual_sum,
+                drift_amount=actual_sum - ideal_amt,
+                drift_pct=_pct(actual_sum - ideal_amt, total_ideal),
+                funds=fund_drifts,
+            )
+        )
 
     asset_classes = _roll_up_asset_classes(subgroup_drifts, total_ideal, total_actual)
 
@@ -115,34 +122,38 @@ def _build_fund_drifts(
         if is_rec:
             rec_found = True
         ideal = ideal_amt if is_rec else 0.0
-        drifts.append(FundDrift(
-            scheme_code=code,
-            scheme_name=name,
-            isin=isin,
-            asset_class=asset_class,
-            asset_subgroup=subgroup,
-            display_name=display_name,
-            is_recommended=is_rec,
-            ideal_amount=ideal,
-            actual_amount=val,
-            drift_amount=val - ideal,
-            drift_pct=_pct(val - ideal, total_ideal),
-        ))
+        drifts.append(
+            FundDrift(
+                scheme_code=code,
+                scheme_name=name,
+                isin=isin,
+                asset_class=asset_class,
+                asset_subgroup=subgroup,
+                display_name=display_name,
+                is_recommended=is_rec,
+                ideal_amount=ideal,
+                actual_amount=val,
+                drift_amount=val - ideal,
+                drift_pct=_pct(val - ideal, total_ideal),
+            )
+        )
 
     if not rec_found and fund_map and ideal_amt > 0:
-        drifts.append(FundDrift(
-            scheme_code=fund_map.asset_subgroup,
-            scheme_name=fund_map.recommended_fund,
-            isin=fund_map.isin,
-            asset_class=asset_class,
-            asset_subgroup=subgroup,
-            display_name=display_name,
-            is_recommended=True,
-            ideal_amount=ideal_amt,
-            actual_amount=0.0,
-            drift_amount=-ideal_amt,
-            drift_pct=_pct(-ideal_amt, total_ideal),
-        ))
+        drifts.append(
+            FundDrift(
+                scheme_code=fund_map.asset_subgroup,
+                scheme_name=fund_map.recommended_fund,
+                isin=fund_map.isin,
+                asset_class=asset_class,
+                asset_subgroup=subgroup,
+                display_name=display_name,
+                is_recommended=True,
+                ideal_amount=ideal_amt,
+                actual_amount=0.0,
+                drift_amount=-ideal_amt,
+                drift_pct=_pct(-ideal_amt, total_ideal),
+            )
+        )
 
     return drifts
 
@@ -163,16 +174,18 @@ def _roll_up_asset_classes(
             continue
         ideal_sum = sum(s.ideal_amount for s in sgs)
         actual_sum = sum(s.actual_amount for s in sgs)
-        result.append(AssetClassDrift(
-            asset_class=ac,
-            ideal_amount=ideal_sum,
-            ideal_pct=_pct(ideal_sum, total_ideal),
-            actual_amount=actual_sum,
-            actual_pct=_pct(actual_sum, total_actual),
-            drift_amount=actual_sum - ideal_sum,
-            drift_pct=_pct(actual_sum - ideal_sum, total_ideal),
-            subgroups=sgs,
-        ))
+        result.append(
+            AssetClassDrift(
+                asset_class=ac,
+                ideal_amount=ideal_sum,
+                ideal_pct=_pct(ideal_sum, total_ideal),
+                actual_amount=actual_sum,
+                actual_pct=_pct(actual_sum, total_actual),
+                drift_amount=actual_sum - ideal_sum,
+                drift_pct=_pct(actual_sum - ideal_sum, total_ideal),
+                subgroups=sgs,
+            )
+        )
     return result
 
 

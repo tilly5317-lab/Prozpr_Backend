@@ -19,11 +19,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("mf_transactions", sa.Column("isin", sa.String(length=12), nullable=True))
-    op.add_column("mf_transactions", sa.Column("fund_name", sa.String(length=200), nullable=True))
-    op.add_column("mf_transactions", sa.Column("category", sa.String(length=50), nullable=True))
-    op.add_column("mf_transactions", sa.Column("sub_category", sa.String(length=100), nullable=True))
-    op.add_column("mf_transactions", sa.Column("sub_group", sa.String(length=100), nullable=True))
+    op.add_column(
+        "mf_transactions", sa.Column("isin", sa.String(length=12), nullable=True)
+    )
+    op.add_column(
+        "mf_transactions", sa.Column("fund_name", sa.String(length=200), nullable=True)
+    )
+    op.add_column(
+        "mf_transactions", sa.Column("category", sa.String(length=50), nullable=True)
+    )
+    op.add_column(
+        "mf_transactions",
+        sa.Column("sub_category", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_transactions", sa.Column("sub_group", sa.String(length=100), nullable=True)
+    )
     op.create_index("ix_mf_transactions_isin", "mf_transactions", ["isin"])
     op.create_index("ix_mf_transactions_category", "mf_transactions", ["category"])
 
@@ -53,12 +64,20 @@ def upgrade() -> None:
         sa.Column("category", sa.String(length=50), nullable=True),
         sa.Column("sub_category", sa.String(length=100), nullable=True),
         sa.Column("sub_group", sa.String(length=100), nullable=True),
-        sa.Column("invested_amount", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("current_units", sa.Numeric(18, 4), nullable=False, server_default="0"),
+        sa.Column(
+            "invested_amount", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "current_units", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
         sa.Column("avg_nav", sa.Numeric(12, 4), nullable=True),
         sa.Column("current_nav", sa.Numeric(12, 4), nullable=True),
-        sa.Column("current_value", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("unrealized_pnl", sa.Numeric(18, 2), nullable=False, server_default="0"),
+        sa.Column(
+            "current_value", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "unrealized_pnl", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
         sa.Column("absolute_return_pct", sa.Numeric(10, 4), nullable=True),
         sa.Column("xirr_pct", sa.Numeric(10, 4), nullable=True),
         sa.Column("portfolio_weight_pct", sa.Numeric(10, 4), nullable=True),
@@ -68,23 +87,50 @@ def upgrade() -> None:
         sa.Column("first_investment_date", sa.Date(), nullable=True),
         sa.Column("last_transaction_date", sa.Date(), nullable=True),
         sa.Column("nav_date", sa.Date(), nullable=True),
-        sa.Column("transactions_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "transactions_count", sa.Integer(), nullable=False, server_default="0"
+        ),
         sa.Column("folio_number", sa.String(length=30), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.UniqueConstraint("user_id", "scheme_code", name="uq_user_mf_latest_snapshot_user_scheme"),
+        sa.UniqueConstraint(
+            "user_id", "scheme_code", name="uq_user_mf_latest_snapshot_user_scheme"
+        ),
     )
-    op.create_index("ix_user_mf_latest_snapshot_user_id", "user_mf_latest_snapshot", ["user_id"])
-    op.create_index("ix_user_mf_latest_snapshot_scheme_code", "user_mf_latest_snapshot", ["scheme_code"])
-    op.create_index("ix_user_mf_latest_snapshot_isin", "user_mf_latest_snapshot", ["isin"])
-    op.create_index("ix_user_mf_latest_snapshot_category", "user_mf_latest_snapshot", ["category"])
+    op.create_index(
+        "ix_user_mf_latest_snapshot_user_id", "user_mf_latest_snapshot", ["user_id"]
+    )
+    op.create_index(
+        "ix_user_mf_latest_snapshot_scheme_code",
+        "user_mf_latest_snapshot",
+        ["scheme_code"],
+    )
+    op.create_index(
+        "ix_user_mf_latest_snapshot_isin", "user_mf_latest_snapshot", ["isin"]
+    )
+    op.create_index(
+        "ix_user_mf_latest_snapshot_category", "user_mf_latest_snapshot", ["category"]
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_user_mf_latest_snapshot_category", table_name="user_mf_latest_snapshot")
-    op.drop_index("ix_user_mf_latest_snapshot_isin", table_name="user_mf_latest_snapshot")
-    op.drop_index("ix_user_mf_latest_snapshot_scheme_code", table_name="user_mf_latest_snapshot")
-    op.drop_index("ix_user_mf_latest_snapshot_user_id", table_name="user_mf_latest_snapshot")
+    op.drop_index(
+        "ix_user_mf_latest_snapshot_category", table_name="user_mf_latest_snapshot"
+    )
+    op.drop_index(
+        "ix_user_mf_latest_snapshot_isin", table_name="user_mf_latest_snapshot"
+    )
+    op.drop_index(
+        "ix_user_mf_latest_snapshot_scheme_code", table_name="user_mf_latest_snapshot"
+    )
+    op.drop_index(
+        "ix_user_mf_latest_snapshot_user_id", table_name="user_mf_latest_snapshot"
+    )
     op.drop_table("user_mf_latest_snapshot")
 
     op.drop_index("ix_mf_transactions_category", table_name="mf_transactions")

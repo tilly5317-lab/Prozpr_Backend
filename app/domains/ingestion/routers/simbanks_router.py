@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -21,12 +20,19 @@ from app.domains.ingestion.schemas.simbanks import (
     SyncSimBankAccountsRequest,
     SyncSimBankAccountsResponse,
 )
-from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
-from app.domains.ingestion.services.simbanks_service import discover_simbanks_accounts, sync_simbanks_accounts
+from app.domains.profile.services._effective_risk import (
+    maybe_recalculate_effective_risk,
+)
+from app.domains.ingestion.services.simbanks_service import (
+    discover_simbanks_accounts,
+    sync_simbanks_accounts,
+)
 
 router = APIRouter(prefix="/simbanks", tags=["SimBanks"])
 logger = logging.getLogger(__name__)
-discover_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+discover_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/token", auto_error=False
+)
 
 
 def _truthy(v: str | None) -> bool:
@@ -74,7 +80,9 @@ async def discover_accounts(
     try:
         accounts = await discover_simbanks_accounts(current_user.mobile)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
     return DiscoverSimBankAccountsResponse(accounts=accounts)
 
 
@@ -91,10 +99,14 @@ async def sync_accounts(
             accepted_account_ref_nos=payload.accepted_account_ref_nos,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     except Exception as exc:
         logger.exception("[SIMBANKS][sync] Failed to sync accounts")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
 
     await maybe_recalculate_effective_risk(db, current_user.id, "simbanks_sync")
     await db.commit()
@@ -107,4 +119,3 @@ async def sync_accounts(
         else None,
         linked_account_ids=linked_account_ids,
     )
-

@@ -1,4 +1,5 @@
 """NL → ExtractedFinancialEvent | ExtractionError."""
+
 from __future__ import annotations
 import asyncio
 from datetime import date
@@ -15,8 +16,11 @@ from rapidfuzz import fuzz
 
 from cashflow_statement.models import (
     Assumptions,
-    ExtractedFinancialEvent, ExtractionError,
-    ExtractedGoal, ExtractedProperty, ExtractedMutation,
+    ExtractedFinancialEvent,
+    ExtractionError,
+    ExtractedGoal,
+    ExtractedProperty,
+    ExtractedMutation,
 )
 from cashflow_statement.agent.prompts import EXTRACTOR_SYSTEM_PROMPT
 
@@ -48,10 +52,12 @@ def _normalize(name: str) -> str:
 def _get_default_chain():
     """Build (and cache) the extractor chain on first call. Module-level singleton."""
     llm = ChatAnthropic(model=EXTRACTOR_MODEL, temperature=0)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", EXTRACTOR_SYSTEM_PROMPT),
-        ("human", "{description}"),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", EXTRACTOR_SYSTEM_PROMPT),
+            ("human", "{description}"),
+        ]
+    )
     structured = llm.with_structured_output(_ExtractionEnvelope)
     unwrap = RunnableLambda(lambda env: env.event)
     return prompt | structured | unwrap
@@ -73,14 +79,17 @@ async def extract_event(
     chain = _chain if _chain is not None else _get_default_chain()
     a = assumptions or Assumptions()
     try:
-        result = await asyncio.to_thread(chain.invoke, {
-            "description": description,
-            "anchor_date": anchor_date.isoformat(),
-            "existing_goal_names": ", ".join(existing_goal_names) or "(none)",
-            "default_property_downpayment_pct": a.default_property_downpayment_pct,
-            "default_mortgage_tenure_years": a.default_mortgage_tenure_years,
-            "default_mortgage_interest": a.default_mortgage_interest_annual,
-        })
+        result = await asyncio.to_thread(
+            chain.invoke,
+            {
+                "description": description,
+                "anchor_date": anchor_date.isoformat(),
+                "existing_goal_names": ", ".join(existing_goal_names) or "(none)",
+                "default_property_downpayment_pct": a.default_property_downpayment_pct,
+                "default_mortgage_tenure_years": a.default_mortgage_tenure_years,
+                "default_mortgage_interest": a.default_mortgage_interest_annual,
+            },
+        )
     except (OutputParserException, ValidationError, APIError) as e:
         return ExtractionError(kind="error", reason=f"Could not parse: {e}")
     except Exception as e:
@@ -88,11 +97,16 @@ async def extract_event(
 
     # Fuzzy collision check → promote to mutation
     if isinstance(result, (ExtractedGoal, ExtractedProperty)):
-        new_name = result.goal.name if isinstance(result, ExtractedGoal) else result.property.name
+        new_name = (
+            result.goal.name
+            if isinstance(result, ExtractedGoal)
+            else result.property.name
+        )
         best_match = _best_fuzzy_match(new_name, existing_goal_names)
         if best_match:
             return ExtractedMutation(
-                kind="goal_mutation", op="update",
+                kind="goal_mutation",
+                op="update",
                 goal_name=best_match,
                 fields=_diff_against_existing(result),
             )
@@ -100,7 +114,9 @@ async def extract_event(
     # Past-date guard via dated_field accessor
     d = result.dated_field()
     if d is not None and d < anchor_date:
-        return ExtractionError(kind="error", reason=f"Date {d.isoformat()} is in the past")
+        return ExtractionError(
+            kind="error", reason=f"Date {d.isoformat()} is in the past"
+        )
 
     return result
 

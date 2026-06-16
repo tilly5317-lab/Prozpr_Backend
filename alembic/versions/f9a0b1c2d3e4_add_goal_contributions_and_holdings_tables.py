@@ -101,7 +101,9 @@ def upgrade() -> None:
 
         # Reuse the shared updated_at trigger function created in
         # e4f8a2b1c901_fintech_goals_mf_networth_schema.py.
-        op.execute("DROP TRIGGER IF EXISTS trg_goal_holdings_updated_at ON goal_holdings;")
+        op.execute(
+            "DROP TRIGGER IF EXISTS trg_goal_holdings_updated_at ON goal_holdings;"
+        )
         op.execute(
             """
             CREATE TRIGGER trg_goal_holdings_updated_at

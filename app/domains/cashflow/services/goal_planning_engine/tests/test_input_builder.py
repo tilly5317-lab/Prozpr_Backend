@@ -1,4 +1,5 @@
 """Unit tests for the goal_planning input builder."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -36,8 +37,13 @@ def _user(
 
 
 def _goal(
-    *, name: str, goal_type: str, pv: float, target: date,
-    status: str = "ACTIVE", inflation: float | None = 6.0,
+    *,
+    name: str,
+    goal_type: str,
+    pv: float,
+    target: date,
+    status: str = "ACTIVE",
+    inflation: float | None = 6.0,
 ):
     return SimpleNamespace(
         goal_name=name,
@@ -66,10 +72,15 @@ def test_happy_path_maps_all_fields():
     )
     inv = SimpleNamespace(retirement_age=62, target_corpus=15_000_000)
     goals = [
-        _goal(name="kid_education", goal_type="CHILD_EDUCATION",
-              pv=3_000_000, target=date(2038, 7, 1)),
-        _goal(name="vacation", goal_type="TRAVEL",
-              pv=500_000, target=date(2029, 12, 1)),
+        _goal(
+            name="kid_education",
+            goal_type="CHILD_EDUCATION",
+            pv=3_000_000,
+            target=date(2038, 7, 1),
+        ),
+        _goal(
+            name="vacation", goal_type="TRAVEL", pv=500_000, target=date(2029, 12, 1)
+        ),
     ]
     user = _user(pfp=pfp, inv=inv, goals=goals)
     inp, debug = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
@@ -115,14 +126,23 @@ def test_skips_inactive_and_past_goals():
     goal is NOT skipped any more — it flows through as a custom goal."""
     today = date(2026, 5, 15)
     goals = [
-        _goal(name="my_retirement", goal_type="RETIREMENT",
-              pv=20_000_000, target=date(2045, 1, 1)),
-        _goal(name="achieved_goal", goal_type="OTHER",
-              pv=100_000, target=date(2030, 1, 1), status="ACHIEVED"),
-        _goal(name="past_goal", goal_type="OTHER",
-              pv=100_000, target=date(2024, 1, 1)),
-        _goal(name="live_goal", goal_type="VEHICLE",
-              pv=500_000, target=date(2030, 6, 1)),
+        _goal(
+            name="my_retirement",
+            goal_type="RETIREMENT",
+            pv=20_000_000,
+            target=date(2045, 1, 1),
+        ),
+        _goal(
+            name="achieved_goal",
+            goal_type="OTHER",
+            pv=100_000,
+            target=date(2030, 1, 1),
+            status="ACHIEVED",
+        ),
+        _goal(name="past_goal", goal_type="OTHER", pv=100_000, target=date(2024, 1, 1)),
+        _goal(
+            name="live_goal", goal_type="VEHICLE", pv=500_000, target=date(2030, 6, 1)
+        ),
     ]
     pfp = SimpleNamespace(
         annual_income=1_000_000,
@@ -147,7 +167,9 @@ def test_missing_tax_rate_blocks_engine():
         effective_tax_rate=None,
     )
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), tax=None)
-    with pytest.raises(ValueError, match="missing_required_inputs:.*effective_tax_rate"):
+    with pytest.raises(
+        ValueError, match="missing_required_inputs:.*effective_tax_rate"
+    ):
         build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
 
 
@@ -179,8 +201,14 @@ def test_home_purchase_emits_property_validation_issue():
         financial_liabilities_excl_mortgage=0,
         effective_tax_rate=0.25,
     )
-    goals = [_goal(name="dream_home", goal_type="HOME_PURCHASE",
-                   pv=15_000_000, target=date(2032, 4, 1))]
+    goals = [
+        _goal(
+            name="dream_home",
+            goal_type="HOME_PURCHASE",
+            pv=15_000_000,
+            target=date(2032, 4, 1),
+        )
+    ]
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=goals)
     inp, debug = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
     assert inp.custom_goals[0].goal_type.value == "property"
@@ -193,10 +221,10 @@ def test_user_retirement_goal_flows_through_as_custom_goal():
     so the projection considers retirement only when the user adds it."""
     today = date(2026, 5, 15)
     goals = [
-        _goal(name="Retirement", goal_type="OTHER",
-              pv=20_000_000, target=date(2045, 1, 1)),
-        _goal(name="travel", goal_type="TRAVEL",
-              pv=500_000, target=date(2030, 6, 1)),
+        _goal(
+            name="Retirement", goal_type="OTHER", pv=20_000_000, target=date(2045, 1, 1)
+        ),
+        _goal(name="travel", goal_type="TRAVEL", pv=500_000, target=date(2030, 6, 1)),
     ]
     pfp = SimpleNamespace(
         annual_income=1_000_000,
@@ -210,7 +238,9 @@ def test_user_retirement_goal_flows_through_as_custom_goal():
     # Both goals pass through; nothing is skipped as "retirement".
     assert sorted(g.name for g in inp.custom_goals) == ["Retirement", "travel"]
     assert inp.model_retirement is False
-    assert not any("skipped" in v and "retirement" in v.lower() for v in debug["validation_issues"])
+    assert not any(
+        "skipped" in v and "retirement" in v.lower() for v in debug["validation_issues"]
+    )
 
 
 def test_output_is_engine_consumable():
@@ -225,9 +255,12 @@ def test_output_is_engine_consumable():
         effective_tax_rate=0.25,
     )
     inv = SimpleNamespace(retirement_age=60)
-    goals = [_goal(name="travel", goal_type="TRAVEL",
-                   pv=500_000, target=date(2030, 6, 1))]
-    user = _user(pfp=pfp, inv=inv, tax=SimpleNamespace(income_tax_rate=25.0), goals=goals)
+    goals = [
+        _goal(name="travel", goal_type="TRAVEL", pv=500_000, target=date(2030, 6, 1))
+    ]
+    user = _user(
+        pfp=pfp, inv=inv, tax=SimpleNamespace(income_tax_rate=25.0), goals=goals
+    )
     inp, _ = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
 
     out = compute_full_projection(inp)

@@ -4,6 +4,7 @@ Best for: 'what changes after this rebalance?' before-and-after questions.
 Bucketing logic mirrors the original ``ai_bridge/rebalancing/charts.py``
 ``compute_category_gap_bar`` (still on disk; archived in Plan 2 Task 9).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -35,13 +36,20 @@ class _Bucket:
 
     @property
     def buy_total(self) -> Decimal:
-        return sum(((r.pass1_buy_amount or Decimal(0)) for r in self.actions), Decimal(0))
+        return sum(
+            ((r.pass1_buy_amount or Decimal(0)) for r in self.actions), Decimal(0)
+        )
 
     @property
     def sell_total(self) -> Decimal:
         return sum(
-            (((r.pass1_sell_amount or Decimal(0)) + (r.pass2_sell_amount or Decimal(0)))
-             for r in self.actions),
+            (
+                (
+                    (r.pass1_sell_amount or Decimal(0))
+                    + (r.pass2_sell_amount or Decimal(0))
+                )
+                for r in self.actions
+            ),
             Decimal(0),
         )
 
@@ -55,7 +63,9 @@ def _bucketise(response: Any) -> list[_Bucket]:
     for s in response.subgroups:
         for row in s.actions:
             buy = row.pass1_buy_amount or Decimal(0)
-            sell = (row.pass1_sell_amount or Decimal(0)) + (row.pass2_sell_amount or Decimal(0))
+            sell = (row.pass1_sell_amount or Decimal(0)) + (
+                row.pass2_sell_amount or Decimal(0)
+            )
             if row.present_allocation_inr <= 0 and buy <= 0 and sell <= 0:
                 continue
             key = (s.asset_subgroup, row.sub_category)

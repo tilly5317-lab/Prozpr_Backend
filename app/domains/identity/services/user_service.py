@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -15,8 +14,12 @@ from app.domains.identity.models.user import User
 from app.domains.profile.models import PersonalFinanceProfile
 
 
-async def get_or_create_profile(db: AsyncSession, user_id: uuid.UUID) -> PersonalFinanceProfile:
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == user_id)
+async def get_or_create_profile(
+    db: AsyncSession, user_id: uuid.UUID
+) -> PersonalFinanceProfile:
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == user_id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
         profile = PersonalFinanceProfile(user_id=user_id)
@@ -25,7 +28,9 @@ async def get_or_create_profile(db: AsyncSession, user_id: uuid.UUID) -> Persona
     return profile
 
 
-async def update_user_fields(db: AsyncSession, user_id: uuid.UUID, **kwargs) -> User | None:
+async def update_user_fields(
+    db: AsyncSession, user_id: uuid.UUID, **kwargs
+) -> User | None:
     stmt = select(User).where(User.id == user_id)
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:

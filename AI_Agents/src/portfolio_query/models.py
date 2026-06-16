@@ -102,4 +102,6 @@ class PortfolioContext(BaseModel):
     xirr_pct: float | None = None
     holdings: list[Holding] = Field(default_factory=list)
     allocations: list[AllocationRow] = Field(default_factory=list)
-    sub_category_allocations: list[SubCategoryAllocationRow] = Field(default_factory=list)
+    sub_category_allocations: list[SubCategoryAllocationRow] = Field(
+        default_factory=list
+    )

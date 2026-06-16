@@ -110,7 +110,9 @@ def apply(
                     **r.model_dump(),
                     max_pct=cap_pct_for(r.asset_subgroup),
                     target_pre_cap_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
-                    target_own_capped_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
+                    target_own_capped_pct=_pct_of_corpus(
+                        r.target_amount_pre_cap, corpus
+                    ),
                     final_target_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
                     final_target_amount=r.target_amount_pre_cap,
                 )

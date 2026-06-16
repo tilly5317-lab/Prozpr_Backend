@@ -75,20 +75,40 @@ class PracticalAssetAllocationRun(Base):
     )
 
     # ---- recommended asset-class roll-up ------------------------------------
-    equity_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    equity_total: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     debt_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    others_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    equity_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
-    debt_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
-    others_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
+    others_total: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    equity_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
+    debt_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
+    others_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
 
     # ---- practical-only corpus breakdown ------------------------------------
     mf_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    non_mf_equity_input: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    non_mf_equity_actual: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    excess_direct_stocks: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    elss_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    rebalancing_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    non_mf_equity_input: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    non_mf_equity_actual: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    excess_direct_stocks: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    elss_corpus: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    rebalancing_corpus: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     max_non_mf_equity_pct_computed: Mapped[float] = mapped_column(
         Numeric(6, 4), nullable=False, default=0
     )

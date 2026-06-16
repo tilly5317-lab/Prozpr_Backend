@@ -3,14 +3,15 @@
 Exposes ``/api/v1/ai-modules/...`` style endpoints for debugging or direct module invocation. Not always on the live chat path; chat uses ``routers/chat`` + ``ChatBrain`` instead.
 """
 
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.ai_engine.schemas import IntentClassifyRequest, IntentClassifyResponse
-from app.domains.intent_classifier.services.intent_classifier_engine import classify_user_message
+from app.domains.intent_classifier.services.intent_classifier_engine import (
+    classify_user_message,
+)
 
 router = APIRouter(prefix="/intent-classifier", tags=["AI — Intent classifier"])
 

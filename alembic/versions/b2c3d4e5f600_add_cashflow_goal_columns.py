@@ -49,9 +49,14 @@ def upgrade() -> None:
             sa.Column(
                 "goal_type",
                 sa.Enum(
-                    "retirement", "property", "child_abroad_education",
-                    "child_local_education", "child_marriage", "custom",
-                    name="cashflow_goal_type_enum", create_type=False,
+                    "retirement",
+                    "property",
+                    "child_abroad_education",
+                    "child_local_education",
+                    "child_marriage",
+                    "custom",
+                    name="cashflow_goal_type_enum",
+                    create_type=False,
                 ),
                 nullable=True,
             )
@@ -68,7 +73,12 @@ def upgrade() -> None:
         _add.append(sa.Column("target_fv", sa.Numeric(18, 2), nullable=True))
     if "is_downpayment_only" not in cols:
         _add.append(
-            sa.Column("is_downpayment_only", sa.Boolean(), nullable=True, server_default="false")
+            sa.Column(
+                "is_downpayment_only",
+                sa.Boolean(),
+                nullable=True,
+                server_default="false",
+            )
         )
     if "upfront_amount" not in cols:
         _add.append(sa.Column("upfront_amount", sa.Numeric(18, 2), nullable=True))
@@ -79,7 +89,9 @@ def upgrade() -> None:
     if "mortgage_tenure_years" not in cols:
         _add.append(sa.Column("mortgage_tenure_years", sa.Integer(), nullable=True))
     if "mortgage_interest_annual" not in cols:
-        _add.append(sa.Column("mortgage_interest_annual", sa.Numeric(7, 6), nullable=True))
+        _add.append(
+            sa.Column("mortgage_interest_annual", sa.Numeric(7, 6), nullable=True)
+        )
     if "date_of_birth" not in cols:
         _add.append(sa.Column("date_of_birth", sa.Date(), nullable=True))
     if "time_to_goal_months" not in cols:
@@ -96,16 +108,31 @@ def upgrade() -> None:
 
     # Backfill: set `name` from `goal_name` for existing rows.
     if "name" not in cols:
-        op.execute("UPDATE goals SET name = goal_name WHERE name IS NULL AND goal_name IS NOT NULL")
+        op.execute(
+            "UPDATE goals SET name = goal_name WHERE name IS NULL AND goal_name IS NOT NULL"
+        )
 
 
 def downgrade() -> None:
     cols_to_drop = [
-        "name", "goal_type", "goal_date", "goal_value_pv", "goal_value_fv",
-        "target_pv", "target_fv", "is_downpayment_only", "upfront_amount",
-        "downpayment_pct", "inflation_annual", "mortgage_tenure_years",
-        "mortgage_interest_annual", "date_of_birth", "time_to_goal_months",
-        "amount_needed", "goal_priority", "investment_goal",
+        "name",
+        "goal_type",
+        "goal_date",
+        "goal_value_pv",
+        "goal_value_fv",
+        "target_pv",
+        "target_fv",
+        "is_downpayment_only",
+        "upfront_amount",
+        "downpayment_pct",
+        "inflation_annual",
+        "mortgage_tenure_years",
+        "mortgage_interest_annual",
+        "date_of_birth",
+        "time_to_goal_months",
+        "amount_needed",
+        "goal_priority",
+        "investment_goal",
     ]
     conn = op.get_bind()
     insp = sa.inspect(conn)

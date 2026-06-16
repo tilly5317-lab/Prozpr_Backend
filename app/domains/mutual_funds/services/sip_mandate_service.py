@@ -27,18 +27,26 @@ async def list_mandates(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def get_mandate(db: AsyncSession, mandate_id: uuid.UUID, user_id: uuid.UUID) -> MfSipMandate:
+async def get_mandate(
+    db: AsyncSession, mandate_id: uuid.UUID, user_id: uuid.UUID
+) -> MfSipMandate:
     row = (
         await db.execute(
-            select(MfSipMandate).where(MfSipMandate.id == mandate_id, MfSipMandate.user_id == user_id)
+            select(MfSipMandate).where(
+                MfSipMandate.id == mandate_id, MfSipMandate.user_id == user_id
+            )
         )
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SIP mandate not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="SIP mandate not found"
+        )
     return row
 
 
-async def create_mandate(db: AsyncSession, user_id: uuid.UUID, payload: MfSipMandateCreate) -> MfSipMandate:
+async def create_mandate(
+    db: AsyncSession, user_id: uuid.UUID, payload: MfSipMandateCreate
+) -> MfSipMandate:
     data = payload.model_dump()
     data["user_id"] = user_id
     row = MfSipMandate(**data)
@@ -49,7 +57,10 @@ async def create_mandate(db: AsyncSession, user_id: uuid.UUID, payload: MfSipMan
 
 
 async def update_mandate(
-    db: AsyncSession, mandate_id: uuid.UUID, user_id: uuid.UUID, payload: MfSipMandateUpdate
+    db: AsyncSession,
+    mandate_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: MfSipMandateUpdate,
 ) -> MfSipMandate:
     row = await get_mandate(db, mandate_id, user_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
@@ -59,7 +70,9 @@ async def update_mandate(
     return row
 
 
-async def delete_mandate(db: AsyncSession, mandate_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def delete_mandate(
+    db: AsyncSession, mandate_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     row = await get_mandate(db, mandate_id, user_id)
     await db.delete(row)
     await db.commit()

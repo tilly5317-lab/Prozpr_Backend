@@ -108,9 +108,13 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("scheme_code", name="uq_mf_fund_ratings_scheme_code"),
     )
-    op.create_index("ix_mf_fund_ratings_scheme_code", "mf_fund_ratings", ["scheme_code"])
+    op.create_index(
+        "ix_mf_fund_ratings_scheme_code", "mf_fund_ratings", ["scheme_code"]
+    )
     op.create_index("ix_mf_fund_ratings_isin", "mf_fund_ratings", ["isin"])
-    op.create_index("ix_mf_fund_ratings_asset_class", "mf_fund_ratings", ["asset_class"])
+    op.create_index(
+        "ix_mf_fund_ratings_asset_class", "mf_fund_ratings", ["asset_class"]
+    )
 
     # Backfill curated rows from any pre-split data — only when at least one
     # rating field is non-null on the legacy mf_fund_metadata row.
@@ -141,35 +145,116 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Add the moved columns back to mf_fund_metadata.
-    op.add_column("mf_fund_metadata", sa.Column("risk_rating_sebi", sa.String(length=50), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("asset_class_sebi", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("asset_class", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("asset_subgroup", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("portfolio_managers_current", sa.Text(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("portfolio_managers_history", sa.Text(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("portfolio_manager_change_date", sa.Date(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("rating_external_agency_1", sa.String(length=50), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("rating_external_agency_2", sa.String(length=50), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_parameter_1", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_parameter_2", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_parameter_3", sa.String(length=100), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_history_parameter_1", sa.Text(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_history_parameter_2", sa.Text(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("our_rating_history_parameter_3", sa.Text(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("direct_plan_fees", sa.Numeric(6, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("regular_plan_fees", sa.Numeric(6, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("entry_load_percent", sa.Numeric(6, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("exit_load_percent", sa.Numeric(6, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("exit_load_months", sa.Integer(), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("large_cap_equity_pct", sa.Numeric(6, 2), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("mid_cap_equity_pct", sa.Numeric(6, 2), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("small_cap_equity_pct", sa.Numeric(6, 2), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("debt_pct", sa.Numeric(6, 2), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("others_pct", sa.Numeric(6, 2), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("returns_1y_pct", sa.Numeric(8, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("returns_3y_pct", sa.Numeric(8, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("returns_5y_pct", sa.Numeric(8, 4), nullable=True))
-    op.add_column("mf_fund_metadata", sa.Column("returns_10y_pct", sa.Numeric(8, 4), nullable=True))
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("risk_rating_sebi", sa.String(length=50), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("asset_class_sebi", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("asset_class", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("asset_subgroup", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("portfolio_managers_current", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("portfolio_managers_history", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("portfolio_manager_change_date", sa.Date(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("rating_external_agency_1", sa.String(length=50), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("rating_external_agency_2", sa.String(length=50), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_parameter_1", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_parameter_2", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_parameter_3", sa.String(length=100), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_history_parameter_1", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_history_parameter_2", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("our_rating_history_parameter_3", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("direct_plan_fees", sa.Numeric(6, 4), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("regular_plan_fees", sa.Numeric(6, 4), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("entry_load_percent", sa.Numeric(6, 4), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("exit_load_percent", sa.Numeric(6, 4), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("exit_load_months", sa.Integer(), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("large_cap_equity_pct", sa.Numeric(6, 2), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("mid_cap_equity_pct", sa.Numeric(6, 2), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("small_cap_equity_pct", sa.Numeric(6, 2), nullable=True),
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("debt_pct", sa.Numeric(6, 2), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("others_pct", sa.Numeric(6, 2), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("returns_1y_pct", sa.Numeric(8, 4), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("returns_3y_pct", sa.Numeric(8, 4), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata", sa.Column("returns_5y_pct", sa.Numeric(8, 4), nullable=True)
+    )
+    op.add_column(
+        "mf_fund_metadata",
+        sa.Column("returns_10y_pct", sa.Numeric(8, 4), nullable=True),
+    )
 
     # Copy curated values back from mf_fund_ratings.
     set_clauses = ", ".join(f"{c} = r.{c}" for c in _RATING_COLUMNS)

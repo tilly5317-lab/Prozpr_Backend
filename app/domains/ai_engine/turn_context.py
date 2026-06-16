@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class AgentRunRecord:
     """Frozen view of one persisted chat_ai_module_runs row used by handlers."""
+
     id: uuid.UUID
     module: str
     intent_detected: str | None
@@ -36,6 +37,7 @@ class AgentRunRecord:
 @dataclass(frozen=True)
 class TurnContext:
     """Everything a handler needs about the current turn + session history."""
+
     user_ctx: User
     user_question: str
     conversation_history: list[dict[str, str]]
@@ -92,7 +94,8 @@ async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
 
 
 async def _load_last_agent_runs(
-    db: AsyncSession, session_id: uuid.UUID,
+    db: AsyncSession,
+    session_id: uuid.UUID,
 ) -> dict[str, AgentRunRecord]:
     """One row per module — the most recent with output_payload populated.
 
@@ -132,10 +135,12 @@ async def _load_last_agent_runs(
 
 
 async def _load_awaiting_save(
-    db: AsyncSession, session_id: uuid.UUID,
+    db: AsyncSession,
+    session_id: uuid.UUID,
 ) -> bool:
     """Return chat_session_state.awaiting_save for this session, or False if no row."""
     from app.domains.chat.models.chat_session_state import ChatSessionState
+
     stmt = select(ChatSessionState.awaiting_save).where(
         ChatSessionState.session_id == session_id,
     )
@@ -145,7 +150,9 @@ async def _load_awaiting_save(
 
 
 async def upsert_awaiting_save(
-    db: AsyncSession, session_id: uuid.UUID, value: bool,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    value: bool,
 ) -> None:
     """Set chat_session_state.awaiting_save for this session. Idempotent.
 
@@ -153,9 +160,12 @@ async def upsert_awaiting_save(
     rather than postgres-specific ON CONFLICT.
     """
     from app.domains.chat.models.chat_session_state import ChatSessionState
-    existing = (await db.execute(
-        select(ChatSessionState).where(ChatSessionState.session_id == session_id)
-    )).scalar_one_or_none()
+
+    existing = (
+        await db.execute(
+            select(ChatSessionState).where(ChatSessionState.session_id == session_id)
+        )
+    ).scalar_one_or_none()
     if existing is None:
         db.add(ChatSessionState(session_id=session_id, awaiting_save=value))
     else:
@@ -164,7 +174,8 @@ async def upsert_awaiting_save(
 
 
 async def _load_active_intent(
-    db: AsyncSession, session_id: uuid.UUID,
+    db: AsyncSession,
+    session_id: uuid.UUID,
 ) -> str | None:
     """Most-recent intent_detected for this session, excluding canned-redirect intents.
 

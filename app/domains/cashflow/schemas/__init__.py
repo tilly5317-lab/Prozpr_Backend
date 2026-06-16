@@ -16,7 +16,10 @@ from app.domains.cashflow.schemas.goals import (
     CashflowGoalResponse,
     CashflowGoalUpdate,
 )
-from app.domains.cashflow.schemas.input import CashflowClientProfile, CashflowPlanningInput
+from app.domains.cashflow.schemas.input import (
+    CashflowClientProfile,
+    CashflowPlanningInput,
+)
 from app.domains.cashflow.schemas.one_off import (
     CashflowOneOffEventCreate,
     CashflowOneOffEventResponse,
@@ -32,6 +35,7 @@ from app.domains.cashflow.schemas.outputs import (
     MonthlyCashflowRowSchema,
     PlanSummarySchema,
 )
+
 __all__ = [
     "AnnualCashflowRowSchema",
     "CashflowAssumptionsCreate",

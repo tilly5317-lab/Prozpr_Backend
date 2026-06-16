@@ -25,9 +25,11 @@ async def deploy_info():
     """Return API version and optional git SHA from build-time env (set in Docker/CI)."""
     settings = get_settings()
     sha = (
-        (os.getenv("GIT_COMMIT") or os.getenv("RENDER_GIT_COMMIT") or os.getenv("VERCEL_GIT_COMMIT_SHA") or "")
-        .strip()
-    )
+        os.getenv("GIT_COMMIT")
+        or os.getenv("RENDER_GIT_COMMIT")
+        or os.getenv("VERCEL_GIT_COMMIT_SHA")
+        or ""
+    ).strip()
     return {
         "api_version": settings.VERSION,
         "git_commit": sha or None,
