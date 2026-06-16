@@ -16,6 +16,7 @@ from app.domains.cashflow.models.plan_run import (
     CashflowPlanRun,
     CashflowPlanSummary,
 )
+
 __all__ = [
     "CashflowAnnualRow",
     "CashflowFundFlowSummary",

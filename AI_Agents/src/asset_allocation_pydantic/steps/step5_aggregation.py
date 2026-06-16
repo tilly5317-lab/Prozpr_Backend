@@ -42,14 +42,16 @@ def run(
         long_term = step4.subgroup_amounts.get(sg, 0)
         total = emergency + short_term + medium_term + long_term
         if total > 0:
-            rows.append(AggregatedRow(
-                subgroup=sg,
-                emergency=emergency,
-                short_term=short_term,
-                medium_term=medium_term,
-                long_term=long_term,
-                total=total,
-            ))
+            rows.append(
+                AggregatedRow(
+                    subgroup=sg,
+                    emergency=emergency,
+                    short_term=short_term,
+                    medium_term=medium_term,
+                    long_term=long_term,
+                    total=total,
+                )
+            )
 
     grand_total = sum(row.total for row in rows)
     grand_total_matches_corpus = grand_total == round_to_100(total_corpus)

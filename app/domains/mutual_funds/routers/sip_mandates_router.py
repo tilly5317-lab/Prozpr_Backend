@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
-from app.domains.mutual_funds.schemas import MfSipMandateCreate, MfSipMandateResponse, MfSipMandateUpdate
+from app.domains.mutual_funds.schemas import (
+    MfSipMandateCreate,
+    MfSipMandateResponse,
+    MfSipMandateUpdate,
+)
 from app.domains.mutual_funds.services import sip_mandate_service
 
 router = APIRouter(prefix="/sip-mandates", tags=["MF Data"])
@@ -22,7 +26,9 @@ async def list_sip_mandates(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    return await sip_mandate_service.list_mandates(db, current_user.id, skip=skip, limit=limit)
+    return await sip_mandate_service.list_mandates(
+        db, current_user.id, skip=skip, limit=limit
+    )
 
 
 @router.get("/{mandate_id}", response_model=MfSipMandateResponse)
@@ -34,7 +40,9 @@ async def get_sip_mandate(
     return await sip_mandate_service.get_mandate(db, mandate_id, current_user.id)
 
 
-@router.post("/", response_model=MfSipMandateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=MfSipMandateResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_sip_mandate(
     payload: MfSipMandateCreate,
     db: AsyncSession = Depends(get_db),
@@ -50,7 +58,9 @@ async def update_sip_mandate(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await sip_mandate_service.update_mandate(db, mandate_id, current_user.id, payload)
+    return await sip_mandate_service.update_mandate(
+        db, mandate_id, current_user.id, payload
+    )
 
 
 @router.delete("/{mandate_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -22,7 +22,9 @@ from app.domains.ai_engine.turn_context import (
     upsert_awaiting_save,
 )
 from app.domains.ai_engine.answer_formatter import format_with_telemetry
-from app.domains.rebalancing.services.rebal_engine.formatter import build_fallback_rebal_brief
+from app.domains.rebalancing.services.rebal_engine.formatter import (
+    build_fallback_rebal_brief,
+)
 from app.domains.rebalancing.services.rebal_engine.overrides import (
     _REBAL_ALLOWED_OVERRIDE_KEYS,
     with_chat_overrides,
@@ -34,6 +36,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Action schema
 # ---------------------------------------------------------------------------
+
 
 class RebalanceAction(BaseModel):
     mode: Literal[
@@ -303,6 +306,7 @@ _NARRATE_DEGRADED_FALLBACK = (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _format_or_fallback_rebal(
     *,
     ctx: TurnContext,
@@ -332,6 +336,7 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
     """
     try:
         from Rebalancing.models import RebalancingComputeResponse  # type: ignore[import-not-found]
+
         return RebalancingComputeResponse.model_validate(payload)
     except Exception as exc:
         logger.warning(
@@ -344,6 +349,7 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------
 # Public handler
 # ---------------------------------------------------------------------------
+
 
 @register("rebalancing")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
@@ -359,10 +365,14 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
-            return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     rebalancing_recommendation_id=None)
+            return ChatHandlerResult(
+                text=outcome.blocking_message,
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
         text = await _format_or_fallback_rebal(
-            ctx=ctx, response=outcome.response,
+            ctx=ctx,
+            response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="compute",
             goal_buckets=outcome.goal_buckets,
@@ -383,13 +393,17 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     if action.mode == "clarify":
         text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
-        return ChatHandlerResult(text=text, snapshot_id=None,
-                                 rebalancing_recommendation_id=None)
+        return ChatHandlerResult(
+            text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        )
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
-        return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason),
-                                 snapshot_id=None, rebalancing_recommendation_id=None)
+        return ChatHandlerResult(
+            text=_REDIRECT_TEMPLATE.format(reason=reason),
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
 
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
@@ -416,10 +430,14 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
-            return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                     rebalancing_recommendation_id=None)
+            return ChatHandlerResult(
+                text=outcome.blocking_message,
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
         text = await _format_or_fallback_rebal(
-            ctx=ctx, response=outcome.response,
+            ctx=ctx,
+            response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
             action_mode="recompute",
             goal_buckets=outcome.goal_buckets,
@@ -448,21 +466,27 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         if isinstance(response, dict):
             fallback = _NARRATE_DEGRADED_FALLBACK
         else:
-            fallback = build_fallback_rebal_brief(response, used_cached_allocation=False)
+            fallback = build_fallback_rebal_brief(
+                response, used_cached_allocation=False
+            )
     except (AttributeError, TypeError, ValueError):
         fallback = _NARRATE_DEGRADED_FALLBACK
     text = await _format_or_fallback_rebal(
-        ctx=ctx, response=response, fallback_brief=fallback,
-        action_mode=action.mode,   # "narrate" or "educate"
+        ctx=ctx,
+        response=response,
+        fallback_brief=fallback,
+        action_mode=action.mode,  # "narrate" or "educate"
         goal_buckets=persisted_goal_buckets,
     )
-    return ChatHandlerResult(text=text, snapshot_id=None,
-                             rebalancing_recommendation_id=None)
+    return ChatHandlerResult(
+        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+    )
 
 
 # ---------------------------------------------------------------------------
 # Override helpers (counterfactual_explore)
 # ---------------------------------------------------------------------------
+
 
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
@@ -470,7 +494,8 @@ def _validate_overrides(overrides: dict[str, Any]) -> bool:
 
 
 async def _counterfactual_explore(
-    ctx: TurnContext, overrides: dict[str, Any],
+    ctx: TurnContext,
+    overrides: dict[str, Any],
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical.
 
@@ -497,18 +522,22 @@ async def _counterfactual_explore(
         db=ctx.db,
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
-        persist=False,    # counterfactual_explore — no recommendation row, no telemetry write
+        persist=False,  # counterfactual_explore — no recommendation row, no telemetry write
         force_fresh_allocation=needs_fresh_aa,
         chat_ctx=chat_ctx,
     )
 
     if outcome.blocking_message is not None:
-        return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 rebalancing_recommendation_id=None)
+        return ChatHandlerResult(
+            text=outcome.blocking_message,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't compute that hypothetical right now.",
-            snapshot_id=None, rebalancing_recommendation_id=None,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
         )
 
     # Capture overrides for a potential save_last_counterfactual follow-up,
@@ -516,7 +545,10 @@ async def _counterfactual_explore(
     # Both writes are best-effort — if either fails, the customer can re-state.
     if ctx.db is not None:
         try:
-            from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
+            from app.domains.chat.services.ai_module_telemetry import (
+                record_ai_module_run,
+            )
+
             await record_ai_module_run(
                 ctx.db,
                 user_id=ctx.effective_user_id,
@@ -537,13 +569,15 @@ async def _counterfactual_explore(
             logger.warning("awaiting_save_upsert_failed: %s", exc)
 
     text = await _format_or_fallback_rebal(
-        ctx=ctx, response=outcome.response,
+        ctx=ctx,
+        response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="counterfactual_explore",
         goal_buckets=outcome.goal_buckets,
     )
-    return ChatHandlerResult(text=text, snapshot_id=None,
-                             rebalancing_recommendation_id=None)
+    return ChatHandlerResult(
+        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+    )
 
 
 async def _save_last_counterfactual(
@@ -576,18 +610,22 @@ async def _save_last_counterfactual(
         db=ctx.db,
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
-        persist=True,    # commit
+        persist=True,  # commit
         force_fresh_allocation=needs_fresh_aa,
         chat_ctx=chat_ctx,
     )
 
     if outcome.blocking_message is not None:
-        return ChatHandlerResult(text=outcome.blocking_message, snapshot_id=None,
-                                 rebalancing_recommendation_id=None)
+        return ChatHandlerResult(
+            text=outcome.blocking_message,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
     if outcome.response is None:
         return ChatHandlerResult(
             text="I couldn't save that recommendation right now. Please try again.",
-            snapshot_id=None, rebalancing_recommendation_id=None,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
         )
 
     # Save succeeded — clear the state-machine flag so a subsequent unrelated
@@ -599,7 +637,8 @@ async def _save_last_counterfactual(
             logger.warning("awaiting_save_reset_failed: %s", exc)
 
     text = await _format_or_fallback_rebal(
-        ctx=ctx, response=outcome.response,
+        ctx=ctx,
+        response=outcome.response,
         fallback_brief=outcome.formatted_text or "",
         action_mode="save_last_counterfactual",
         goal_buckets=outcome.goal_buckets,
@@ -620,6 +659,7 @@ async def _load_last_counterfactual_payload(
         return None
     from sqlalchemy import select
     from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
+
     stmt = (
         select(ChatAiModuleRun)
         .where(ChatAiModuleRun.session_id == ctx.session_id)
@@ -660,9 +700,11 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
     """
     if not output_payload:
         return {}
-    payload = output_payload.get("rebalancing_response") if isinstance(
-        output_payload, dict
-    ) else None
+    payload = (
+        output_payload.get("rebalancing_response")
+        if isinstance(output_payload, dict)
+        else None
+    )
     if not payload:
         return {}
     response = _rehydrate_response(payload)
@@ -677,7 +719,8 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
 
 
 async def _detect_rebal_action(
-    last_run: AgentRunRecord, ctx: TurnContext,
+    last_run: AgentRunRecord,
+    ctx: TurnContext,
 ) -> RebalanceAction:
     """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_run.output_payload)
@@ -685,14 +728,16 @@ async def _detect_rebal_action(
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
         logger.info(
             "detect_rebal_action_snapshot_truncated original_len=%d budget=%d",
-            len(snapshot_json), _DETECT_SNAPSHOT_BUDGET,
+            len(snapshot_json),
+            _DETECT_SNAPSHOT_BUDGET,
         )
         snapshot_json = snapshot_json[:_DETECT_SNAPSHOT_BUDGET]
 
     history_block = build_detect_history_block(ctx.conversation_history)
     history_section = (
         f"\n\nRecent conversation (oldest → newest):\n{history_block}"
-        if history_block else ""
+        if history_block
+        else ""
     )
     user_block = (
         f"Customer's question: {ctx.user_question}\n\n"
@@ -706,5 +751,3 @@ async def _detect_rebal_action(
         api_key=get_settings().get_anthropic_rebalancing_key(),
         max_tokens=300,
     )
-
-

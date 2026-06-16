@@ -38,6 +38,7 @@ Usage
   python split_aa_mf_holdings.py --input-dir Testing_data/ --stem combined --out-dir ./out
   python split_aa_mf_holdings.py file1.json file2.json --stem combined --out-dir ./out
 """
+
 from __future__ import annotations
 
 import argparse
@@ -302,11 +303,17 @@ def main() -> int:
                 priority_columns=("segment", "pan", "fromDate", "toDate"),
                 append=append,
             )
-            print(f"[{source}] Appended {len(rows)} rows -> {all_path}") if append else print(
-                f"[{source}] Wrote {all_path}  ({len(rows)} rows incl. 1 meta)")
+            print(
+                f"[{source}] Appended {len(rows)} rows -> {all_path}"
+            ) if append else print(
+                f"[{source}] Wrote {all_path}  ({len(rows)} rows incl. 1 meta)"
+            )
         else:
             meta_path, txn_path, summ_path, inv_path, n_txn, n_sum = split_payload(
-                payload, stem, out_dir, append=append,
+                payload,
+                stem,
+                out_dir,
+                append=append,
             )
             total_txn += n_txn
             total_sum += n_sum
@@ -314,11 +321,18 @@ def main() -> int:
             print(f"[{source}] {action}: {n_txn} transactions, {n_sum} summary rows")
 
     if not args.all_in_one and batch_mode:
-        print(f"\nDone. Totals: {total_txn} transactions, {total_sum} summary rows across {len(input_files)} files.")
+        print(
+            f"\nDone. Totals: {total_txn} transactions, {total_sum} summary rows across {len(input_files)} files."
+        )
         first_stem = args.stem or input_files[0].stem
         final_dir = (args.out_dir or input_files[0].parent).resolve()
         print(f"Output files in {final_dir}/:")
-        for suffix in ("_meta.csv", "_investor.csv", "_transactions.csv", "_summary.csv"):
+        for suffix in (
+            "_meta.csv",
+            "_investor.csv",
+            "_transactions.csv",
+            "_summary.csv",
+        ):
             p = final_dir / f"{first_stem}{suffix}"
             if p.exists():
                 print(f"  {p.name}")

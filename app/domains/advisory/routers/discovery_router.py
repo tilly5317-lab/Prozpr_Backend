@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -16,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.mutual_funds.models.fund import Fund
-from app.domains.advisory.schemas.discovery import FundListResponse, FundResponse, SectorResponse
+from app.domains.advisory.schemas.discovery import (
+    FundListResponse,
+    FundResponse,
+    SectorResponse,
+)
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 
@@ -38,7 +41,9 @@ async def list_funds(
     if search:
         pattern = f"%{search}%"
         stmt = stmt.where(Fund.name.ilike(pattern) | Fund.ticker_symbol.ilike(pattern))
-        count_stmt = count_stmt.where(Fund.name.ilike(pattern) | Fund.ticker_symbol.ilike(pattern))
+        count_stmt = count_stmt.where(
+            Fund.name.ilike(pattern) | Fund.ticker_symbol.ilike(pattern)
+        )
     if category:
         stmt = stmt.where(Fund.category == category)
         count_stmt = count_stmt.where(Fund.category == category)
@@ -64,7 +69,9 @@ async def get_fund(
     )
     fund = (await db.execute(stmt)).scalar_one_or_none()
     if not fund:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund not found"
+        )
     return FundResponse.model_validate(fund)
 
 
@@ -83,7 +90,10 @@ async def list_sectors(
         .order_by(func.count(Fund.id).desc())
     )
     result = await db.execute(stmt)
-    return [SectorResponse(sector=row.sector, fund_count=row.fund_count) for row in result.all()]
+    return [
+        SectorResponse(sector=row.sector, fund_count=row.fund_count)
+        for row in result.all()
+    ]
 
 
 @router.get("/trending", response_model=list[FundResponse])

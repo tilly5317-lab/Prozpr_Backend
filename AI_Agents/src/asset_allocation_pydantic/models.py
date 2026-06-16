@@ -41,7 +41,9 @@ class MarketCommentaryScores(BaseModel):
     low_beta_equities: float = Field(default=_SG["low_beta_equities"], ge=1, le=10)
     value_equities: float = Field(default=_SG["value_equities"], ge=1, le=10)
     dividend_equities: float = Field(default=_SG["dividend_equities"], ge=1, le=10)
-    medium_beta_equities: float = Field(default=_SG["medium_beta_equities"], ge=1, le=10)
+    medium_beta_equities: float = Field(
+        default=_SG["medium_beta_equities"], ge=1, le=10
+    )
     high_beta_equities: float = Field(default=_SG["high_beta_equities"], ge=1, le=10)
     sector_equities: float = Field(default=_SG["sector_equities"], ge=1, le=10)
     us_equities: float = Field(default=_SG["us_equities"], ge=1, le=10)
@@ -65,7 +67,9 @@ class AllocationInput(BaseModel):
     intergenerational_transfer: bool = False
     effective_tax_rate: float = Field(..., ge=0.0, le=100.0)
     goals: List[Goal] = []
-    market_commentary: MarketCommentaryScores = Field(default_factory=MarketCommentaryScores)
+    market_commentary: MarketCommentaryScores = Field(
+        default_factory=MarketCommentaryScores
+    )
     multi_asset_composition: MultiAssetFundComposition = Field(
         default_factory=lambda: MultiAssetFundComposition(
             equity_pct=DEFAULT_MULTI_ASSET_COMPOSITION_PCTS[0],
@@ -84,7 +88,9 @@ class AllocationInput(BaseModel):
 
 
 class FutureInvestment(BaseModel):
-    bucket: Optional[Literal["emergency", "short_term", "medium_term", "long_term"]] = None
+    bucket: Optional[Literal["emergency", "short_term", "medium_term", "long_term"]] = (
+        None
+    )
     future_investment_amount: float = Field(default=0.0, ge=0)
     message: Optional[str] = None
 
@@ -154,6 +160,7 @@ class SubgroupBreakdown(BaseModel):
     """`recommended` is the engine's post-adjustment deployment plan (was historically
     named `actual`, but it is not the customer's current holdings — see
     bridge note in `asset_allocation/service.py`)."""
+
     planned: List[SubgroupBucketSplit]
     recommended: List[SubgroupBucketSplit] = Field(
         validation_alias=AliasChoices("recommended", "actual"),
@@ -164,13 +171,15 @@ class AssetClassBreakdown(BaseModel):
     """`recommended` is the engine's post-adjustment deployment plan (was historically
     named `actual`). It is NOT the customer's current holdings — those are read
     from `PortfolioAllocation` rows by the chat bridge, not by the engine."""
+
     planned: AssetClassSplitBlock
     recommended: AssetClassSplitBlock = Field(
         validation_alias=AliasChoices("recommended", "actual"),
     )
     recommended_sum_matches_grand_total: bool = Field(
         validation_alias=AliasChoices(
-            "recommended_sum_matches_grand_total", "actual_sum_matches_grand_total",
+            "recommended_sum_matches_grand_total",
+            "actual_sum_matches_grand_total",
         ),
     )
     subgroups: Optional[SubgroupBreakdown] = None

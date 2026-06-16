@@ -38,12 +38,20 @@ class LLMClient:
             [tool],
             tool_choice={"type": "tool", "name": tool["name"]},
         )
-        response = await llm.ainvoke([
-            SystemMessage(content=[
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-            ]),
-            HumanMessage(content=user),
-        ])
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": system,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ]
+                ),
+                HumanMessage(content=user),
+            ]
+        )
 
         tool_input: dict | None = None
         for tool_call in response.tool_calls:
@@ -61,8 +69,12 @@ class LLMClient:
         usage = {
             "input_tokens": usage_dict.get("input_tokens", 0) or 0,
             "output_tokens": usage_dict.get("output_tokens", 0) or 0,
-            "cache_creation_input_tokens": usage_dict.get("cache_creation_input_tokens", 0) or 0,
-            "cache_read_input_tokens": usage_dict.get("cache_read_input_tokens", 0) or 0,
+            "cache_creation_input_tokens": usage_dict.get(
+                "cache_creation_input_tokens", 0
+            )
+            or 0,
+            "cache_read_input_tokens": usage_dict.get("cache_read_input_tokens", 0)
+            or 0,
         }
         self.total_input_tokens += usage["input_tokens"]
         self.total_output_tokens += usage["output_tokens"]

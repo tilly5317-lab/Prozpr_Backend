@@ -35,11 +35,15 @@ async def list_imports(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def get_import(db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID) -> MfAaImport:
+async def get_import(
+    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID
+) -> MfAaImport:
     return await get_aa_import_for_user(db, import_id, user_id)
 
 
-async def create_import(db: AsyncSession, user_id: uuid.UUID, payload: MfAaImportCreate) -> MfAaImport:
+async def create_import(
+    db: AsyncSession, user_id: uuid.UUID, payload: MfAaImportCreate
+) -> MfAaImport:
     data = payload.model_dump()
     data["user_id"] = user_id
     row = MfAaImport(**data)
@@ -50,7 +54,10 @@ async def create_import(db: AsyncSession, user_id: uuid.UUID, payload: MfAaImpor
 
 
 async def update_import(
-    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID, payload: MfAaImportUpdate
+    db: AsyncSession,
+    import_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: MfAaImportUpdate,
 ) -> MfAaImport:
     row = await get_import(db, import_id, user_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
@@ -60,7 +67,9 @@ async def update_import(
     return row
 
 
-async def delete_import(db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def delete_import(
+    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     row = await get_import(db, import_id, user_id)
     await db.delete(row)
     await db.commit()
@@ -70,7 +79,12 @@ async def delete_import(db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UU
 
 
 async def list_summaries(
-    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID, *, skip: int = 0, limit: int = 50
+    db: AsyncSession,
+    import_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int = 50,
 ) -> list[MfAaSummary]:
     await get_import(db, import_id, user_id)
     skip, limit = clamp_skip_limit(skip, limit)
@@ -97,12 +111,17 @@ async def get_summary(
         )
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AA summary row not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AA summary row not found"
+        )
     return row
 
 
 async def create_summary(
-    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID, payload: MfAaSummaryCreate
+    db: AsyncSession,
+    import_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: MfAaSummaryCreate,
 ) -> MfAaSummary:
     await get_import(db, import_id, user_id)
     data = payload.model_dump()
@@ -141,7 +160,12 @@ async def delete_summary(
 
 
 async def list_aa_transactions(
-    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID, *, skip: int = 0, limit: int = 50
+    db: AsyncSession,
+    import_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int = 50,
 ) -> list[MfAaTransaction]:
     await get_import(db, import_id, user_id)
     skip, limit = clamp_skip_limit(skip, limit)
@@ -168,12 +192,17 @@ async def get_aa_transaction(
         )
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AA transaction row not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AA transaction row not found"
+        )
     return row
 
 
 async def create_aa_transaction(
-    db: AsyncSession, import_id: uuid.UUID, user_id: uuid.UUID, payload: MfAaTransactionCreate
+    db: AsyncSession,
+    import_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: MfAaTransactionCreate,
 ) -> MfAaTransaction:
     await get_import(db, import_id, user_id)
     data = payload.model_dump()

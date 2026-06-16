@@ -31,13 +31,18 @@ from financial_primitives.xirr import xirr
 from app.domains.mutual_funds.models import IndexTriHistory, MfNavHistory, MfTransaction
 
 # Horizon -> trailing days; MAX = since first purchase.
-HORIZON_DAYS: dict[str, Optional[int]] = {"1M": 30, "1Y": 365, "3Y": 365 * 3, "MAX": None}
+HORIZON_DAYS: dict[str, Optional[int]] = {
+    "1M": 30,
+    "1Y": 365,
+    "3Y": 365 * 3,
+    "MAX": None,
+}
 
 # Transaction-type handling (string values of MfTransactionType).
 ADD_UNIT_TYPES = {"BUY", "SWITCH_IN", "DIVIDEND_REINVEST"}  # increase units held
-REMOVE_UNIT_TYPES = {"SELL", "SWITCH_OUT"}                  # decrease units held
-EXTERNAL_IN_TYPES = {"BUY"}                                 # external money in (+invested)
-EXTERNAL_OUT_TYPES = {"SELL"}                               # external money out (-invested)
+REMOVE_UNIT_TYPES = {"SELL", "SWITCH_OUT"}  # decrease units held
+EXTERNAL_IN_TYPES = {"BUY"}  # external money in (+invested)
+EXTERNAL_OUT_TYPES = {"SELL"}  # external money out (-invested)
 # SWITCH_IN/OUT are internal at the portfolio grain: units move, no external cashflow,
 # no effect on the Nifty clone. DIVIDEND_REINVEST: units grow, zero cashflow.
 
@@ -66,7 +71,9 @@ def _window_start(first_purchase: date, as_of: date, horizon: str) -> date:
     return max(first_purchase, as_of - timedelta(days=days))
 
 
-def build_step_lookup(rows: list[tuple[date, float]]) -> Callable[[date], Optional[float]]:
+def build_step_lookup(
+    rows: list[tuple[date, float]],
+) -> Callable[[date], Optional[float]]:
     """Return f(on) -> value of the nearest row with date <= on, else None."""
     ordered = sorted(rows, key=lambda r: r[0])
     ds = [r[0] for r in ordered]
@@ -141,7 +148,9 @@ def build_comparison_series(
 
         if invested > 0:
             cust_val = sum(
-                u * (nav_lookup(s, d) or 0.0) for s, u in units_per_scheme.items() if u > 0
+                u * (nav_lookup(s, d) or 0.0)
+                for s, u in units_per_scheme.items()
+                if u > 0
             )
             tri_d = tri_lookup(d)
             bench_val = nifty_units * (tri_d or 0.0)
@@ -187,12 +196,16 @@ NIFTY_INDEX_NAME = "NIFTY 50"
 
 async def _load_txns(db: AsyncSession, user_id: uuid.UUID) -> list[TxnLite]:
     rows = (
-        await db.execute(
-            select(MfTransaction)
-            .where(MfTransaction.user_id == user_id)
-            .order_by(MfTransaction.transaction_date.asc())
+        (
+            await db.execute(
+                select(MfTransaction)
+                .where(MfTransaction.user_id == user_id)
+                .order_by(MfTransaction.transaction_date.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         TxnLite(
             txn_date=t.transaction_date,
@@ -210,8 +223,9 @@ async def _load_nav_rows(db: AsyncSession, codes: set[str]):
         return []
     return (
         await db.execute(
-            select(MfNavHistory.scheme_code, MfNavHistory.nav_date, MfNavHistory.nav)
-            .where(MfNavHistory.scheme_code.in_(codes))
+            select(
+                MfNavHistory.scheme_code, MfNavHistory.nav_date, MfNavHistory.nav
+            ).where(MfNavHistory.scheme_code.in_(codes))
         )
     ).all()
 
@@ -219,8 +233,9 @@ async def _load_nav_rows(db: AsyncSession, codes: set[str]):
 async def _load_tri_rows(db: AsyncSession):
     return (
         await db.execute(
-            select(IndexTriHistory.tri_date, IndexTriHistory.tri_value)
-            .where(IndexTriHistory.index_name == NIFTY_INDEX_NAME)
+            select(IndexTriHistory.tri_date, IndexTriHistory.tri_value).where(
+                IndexTriHistory.index_name == NIFTY_INDEX_NAME
+            )
         )
     ).all()
 
@@ -256,4 +271,6 @@ async def compute_portfolio_vs_nifty(
     tri_rows = await _load_tri_rows(db)
     tri_lookup = build_step_lookup([(d, float(v)) for d, v in tri_rows])
 
-    return build_comparison_series(txns, nav_lookup, tri_lookup, as_of=as_of, horizon=horizon)
+    return build_comparison_series(
+        txns, nav_lookup, tri_lookup, as_of=as_of, horizon=horizon
+    )

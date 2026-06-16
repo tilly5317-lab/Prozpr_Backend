@@ -38,24 +38,31 @@ def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
     dbt = calc["current_debt_percent"]
     debt_str = "N/A (no financial assets)" if dbt >= 999.0 else f"{dbt:.0f}%"
 
-    result = _summary_chain.invoke({
-        "age": inp["age"],
-        "effective_risk_score": data["output"]["effective_risk_score"],
-        "risk_profile_category": calc["risk_profile_category"],
-        "risk_capacity_score": calc["risk_capacity_score_clamped"],
-        "risk_willingness": inp["risk_willingness"],
-        "osi": calc["osi"],
-        "osi_category": calc["osi_category"],
-        "gap_exceeds_3": calc["gap_exceeds_3"],
-        "savings_rate_pct": savings_rate_pct,
-        "savings_rate_adjustment": calc["savings_rate_adjustment"],
-        "net_financial_assets_indian": format_inr_indian(calc["net_financial_assets"]) or "N/A",
-        "expense_coverage": coverage_str,
-        "current_debt_percent": debt_str,
-        "properties_owned": inp["properties_owned"],
-    })
+    result = _summary_chain.invoke(
+        {
+            "age": inp["age"],
+            "effective_risk_score": data["output"]["effective_risk_score"],
+            "risk_profile_category": calc["risk_profile_category"],
+            "risk_capacity_score": calc["risk_capacity_score_clamped"],
+            "risk_willingness": inp["risk_willingness"],
+            "osi": calc["osi"],
+            "osi_category": calc["osi_category"],
+            "gap_exceeds_3": calc["gap_exceeds_3"],
+            "savings_rate_pct": savings_rate_pct,
+            "savings_rate_adjustment": calc["savings_rate_adjustment"],
+            "net_financial_assets_indian": format_inr_indian(
+                calc["net_financial_assets"]
+            )
+            or "N/A",
+            "expense_coverage": coverage_str,
+            "current_debt_percent": debt_str,
+            "properties_owned": inp["properties_owned"],
+        }
+    )
     data["output"]["risk_summary"] = result.summary
     return data
 
 
-risk_profiling_chain = RunnableLambda(compute_all_scores) | RunnableLambda(_generate_summary)
+risk_profiling_chain = RunnableLambda(compute_all_scores) | RunnableLambda(
+    _generate_summary
+)

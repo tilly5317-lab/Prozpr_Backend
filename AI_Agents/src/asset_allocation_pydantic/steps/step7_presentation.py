@@ -99,7 +99,9 @@ def _with_pcts(split: BucketAssetClassSplit) -> BucketAssetClassSplit:
     total = split.equity + split.debt + split.others
     return BucketAssetClassSplit(
         bucket=split.bucket,
-        equity=split.equity, debt=split.debt, others=split.others,
+        equity=split.equity,
+        debt=split.debt,
+        others=split.others,
         equity_pct=_pct(split.equity, total),
         debt_pct=_pct(split.debt, total),
         others_pct=_pct(split.others, total),
@@ -114,19 +116,21 @@ def _split_block(per_bucket: List[BucketAssetClassSplit]) -> AssetClassSplitBloc
     grand = eq + dt + oth
     return AssetClassSplitBlock(
         per_bucket=with_pcts,
-        equity_total=eq, debt_total=dt, others_total=oth,
+        equity_total=eq,
+        debt_total=dt,
+        others_total=oth,
         equity_total_pct=_pct(eq, grand),
         debt_total_pct=_pct(dt, grand),
         others_total_pct=_pct(oth, grand),
     )
 
 
-def _subgroup_bucket(
-    bucket: str, amounts: dict[str, int]
-) -> SubgroupBucketSplit:
+def _subgroup_bucket(bucket: str, amounts: dict[str, int]) -> SubgroupBucketSplit:
     total = sum(amounts.values())
     rows = [
-        SubgroupBucketAllocation(subgroup=sg, amount=amt, pct_of_bucket=_pct(amt, total))
+        SubgroupBucketAllocation(
+            subgroup=sg, amount=amt, pct_of_bucket=_pct(amt, total)
+        )
         for sg, amt in amounts.items()
         if amt > 0
     ]
@@ -171,10 +175,16 @@ def _asset_class_breakdown(
 ) -> AssetClassBreakdown:
     # Emergency and short-term are all-debt in both planned and actual views.
     emergency = BucketAssetClassSplit(
-        bucket="emergency", equity=0, debt=step1.total_emergency, others=0,
+        bucket="emergency",
+        equity=0,
+        debt=step1.total_emergency,
+        others=0,
     )
     short_term = BucketAssetClassSplit(
-        bucket="short_term", equity=0, debt=step2.allocated_amount, others=0,
+        bucket="short_term",
+        equity=0,
+        debt=step2.allocated_amount,
+        others=0,
     )
 
     # ── PLANNED ────────────────────────────────────────────────────────────
@@ -190,7 +200,10 @@ def _asset_class_breakdown(
         mt_planned_eq = int(round(mt_planned_eq * scale))
         mt_planned_dt = mt_alloc - mt_planned_eq
     medium_planned = BucketAssetClassSplit(
-        bucket="medium_term", equity=mt_planned_eq, debt=mt_planned_dt, others=0,
+        bucket="medium_term",
+        equity=mt_planned_eq,
+        debt=mt_planned_dt,
+        others=0,
     )
 
     # Long-term planned: Phase-2 output (before multi-asset/overage).
@@ -205,10 +218,9 @@ def _asset_class_breakdown(
     # ── RECOMMENDED (post-adjustment deployment plan) ──────────────────────
     # Medium-term: multi-asset slice decomposed via inp composition.
     mt_multi = step3.subgroup_amounts.get("multi_asset", 0)
-    mt_pure_debt = (
-        step3.subgroup_amounts.get("short_debt", 0)
-        + step3.subgroup_amounts.get("arbitrage_plus_income", 0)
-    )
+    mt_pure_debt = step3.subgroup_amounts.get(
+        "short_debt", 0
+    ) + step3.subgroup_amounts.get("arbitrage_plus_income", 0)
     comp = inp.multi_asset_composition
     mt_eq = int(round(mt_multi * comp.equity_pct / 100.0))
     mt_oth = int(round(mt_multi * comp.others_pct / 100.0))
@@ -275,7 +287,9 @@ def run(
     aggregated_subgroups = _aggregated_subgroups(step5)
 
     future_investments_summary: List[FutureInvestment] = [
-        b.future_investment for b in bucket_allocations if b.future_investment is not None
+        b.future_investment
+        for b in bucket_allocations
+        if b.future_investment is not None
     ]
 
     fn: RationaleFn = rationale_fn or _rationale_llm.generate_rationales
@@ -284,12 +298,20 @@ def run(
     except Exception:
         rationales = _rationale_llm._fallback_response(bucket_allocations)
 
-    _rationale_llm.apply_rationales(bucket_allocations, future_investments_summary, rationales)
+    _rationale_llm.apply_rationales(
+        bucket_allocations, future_investments_summary, rationales
+    )
 
     all_mult = all(
         float(v).is_integer() and int(v) % 100 == 0
         for row in step5.rows
-        for v in (row.emergency, row.short_term, row.medium_term, row.long_term, row.total)
+        for v in (
+            row.emergency,
+            row.short_term,
+            row.medium_term,
+            row.long_term,
+            row.total,
+        )
     )
 
     asset_class_breakdown = _asset_class_breakdown(

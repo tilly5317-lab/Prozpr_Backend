@@ -87,7 +87,9 @@ async def main():
 
     # Summary
     print("\n" + "═" * 55)
-    print(f"  Total tokens: {llm.total_input_tokens:,} in / {llm.total_output_tokens:,} out")
+    print(
+        f"  Total tokens: {llm.total_input_tokens:,} in / {llm.total_output_tokens:,} out"
+    )
     print(
         f"  Estimated cost: ~${(llm.total_input_tokens * 0.0000008 + llm.total_output_tokens * 0.000004):.4f}"
     )

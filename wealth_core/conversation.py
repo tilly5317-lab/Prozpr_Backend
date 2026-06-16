@@ -89,20 +89,23 @@ Stop asking new questions once there are no unfilled fields left, and just say t
 # Purpose: Find the next question to ask, Logic: Iterate through FIELDS_SEQUENCE in order >> Check if field exists in conv_state dictionary
 # >>Return first missing field >> Return None if all fields are filled
 
+
 def get_next_unfilled_field(conv_state: Dict) -> Optional[str]:
     for f in FIELDS_SEQUENCE:
         if f not in conv_state:
             return f
     return None
 
+
 # This is the most complex function - it handles diverse user inputs and converts them to structured data.
 # Purpose: Transform natural language answers into typed data
 
-def normalise_answer(field: str, answer: str):    
-    #CASE 1  handle not applicable
+
+def normalise_answer(field: str, answer: str):
+    # CASE 1  handle not applicable
     if answer.strip().lower() in ["na", "n/a", "not applicable", "none", "no"]:
-        return None    
-    
+        return None
+
     # Case 2: Numeric Fields
     numeric_fields = {
         "annual_income",
@@ -124,11 +127,11 @@ def normalise_answer(field: str, answer: str):
 
     if field in numeric_fields:
         # Remove commas, currency symbols, whitespace
-        clean = re.sub(r'[,$₹\s%]', '', answer)     
+        clean = re.sub(r"[,$₹\s%]", "", answer)
         # Handle "k" (thousands) and "m" (millions)
-        if clean.lower().endswith('k'):
+        if clean.lower().endswith("k"):
             clean = str(float(clean[:-1]) * 1000)
-        elif clean.lower().endswith('m'):
+        elif clean.lower().endswith("m"):
             clean = str(float(clean[:-1]) * 1000000)
         try:
             return float(clean)
@@ -151,7 +154,9 @@ def normalise_answer(field: str, answer: str):
                     gtype = segs[2].lower()
                     if gtype not in ["growth", "income", "retirement", "expense"]:
                         gtype = "growth"
-                    items.append(Goal(description=desc, target_year=year, goal_type=gtype))
+                    items.append(
+                        Goal(description=desc, target_year=year, goal_type=gtype)
+                    )
             else:
                 if len(segs) >= 3:
                     desc = segs[0]

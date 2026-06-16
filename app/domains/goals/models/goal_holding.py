@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -30,8 +29,12 @@ class GoalHolding(Base):
     fund_name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     invested_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    current_value: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    gain_percentage: Mapped[Optional[float]] = mapped_column(Numeric(7, 2), nullable=True)
+    current_value: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    gain_percentage: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

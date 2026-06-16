@@ -49,7 +49,9 @@ class EffectiveRiskComputationInput:
     risk_willingness: float
 
 
-def compute_effective_risk_document(inp: EffectiveRiskComputationInput) -> dict[str, Any]:
+def compute_effective_risk_document(
+    inp: EffectiveRiskComputationInput,
+) -> dict[str, Any]:
     """Run scoring + LLM summary via AI_Agents and return the persisted JSON doc."""
     from risk_profiling import risk_profiling_chain  # noqa: E402
     from risk_profiling.scoring import OSI_MAP  # noqa: E402

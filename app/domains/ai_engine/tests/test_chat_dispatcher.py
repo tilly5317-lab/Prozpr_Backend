@@ -12,7 +12,6 @@ from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult
 
 
 class ChatDispatcherTests(unittest.TestCase):
-
     def setUp(self):
         cd._HANDLERS.clear()
 
@@ -84,7 +83,10 @@ class RegisterImportSideEffectTests(unittest.TestCase):
 
         # Clear and force a fresh import so the @register decorators run again.
         cd._HANDLERS.clear()
-        from app.domains.asset_allocation.services.aa_engine import chat as asset_allocation_chat
+        from app.domains.asset_allocation.services.aa_engine import (
+            chat as asset_allocation_chat,
+        )
+
         importlib.reload(asset_allocation_chat)
 
         # asset_allocation is registered.

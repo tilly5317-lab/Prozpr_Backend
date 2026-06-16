@@ -11,8 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
-from app.domains.profile.models import OtherInvestment, OtherInvestmentStatus, PersonalFinanceProfile
-from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
+from app.domains.profile.models import (
+    OtherInvestment,
+    OtherInvestmentStatus,
+    PersonalFinanceProfile,
+)
+from app.domains.profile.services._effective_risk import (
+    maybe_recalculate_effective_risk,
+)
 from app.domains.identity.schemas.onboarding import (
     OnboardingCompleteRequest,
     OnboardingProfileCreate,
@@ -23,7 +29,14 @@ from app.domains.identity.schemas.onboarding import (
 
 router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
 
-_USER_FIELDS = {"date_of_birth", "occupation", "assumed_lifespan_years", "family_status", "address", "currency"}
+_USER_FIELDS = {
+    "date_of_birth",
+    "occupation",
+    "assumed_lifespan_years",
+    "family_status",
+    "address",
+    "currency",
+}
 _PFP_FIELDS = {
     "selected_goals",
     "custom_goals",
@@ -48,7 +61,9 @@ def _other_investment_to_legacy_response(row: OtherInvestment) -> OtherAssetResp
     )
 
 
-def _profile_to_response(user: User, profile: PersonalFinanceProfile) -> OnboardingProfileResponse:
+def _profile_to_response(
+    user: User, profile: PersonalFinanceProfile
+) -> OnboardingProfileResponse:
     return OnboardingProfileResponse(
         user_id=user.id,
         date_of_birth=user.date_of_birth,
@@ -62,12 +77,18 @@ def _profile_to_response(user: User, profile: PersonalFinanceProfile) -> Onboard
         investment_horizon=profile.investment_horizon,
         wealth_sources=profile.wealth_sources or [],
         personal_values=profile.personal_values or [],
-        annual_income=float(profile.annual_income) if profile.annual_income is not None else None,
+        annual_income=float(profile.annual_income)
+        if profile.annual_income is not None
+        else None,
         effective_tax_rate=(
-            float(profile.effective_tax_rate) if profile.effective_tax_rate is not None else None
+            float(profile.effective_tax_rate)
+            if profile.effective_tax_rate is not None
+            else None
         ),
         financial_assets=(
-            float(profile.financial_assets) if profile.financial_assets is not None else None
+            float(profile.financial_assets)
+            if profile.financial_assets is not None
+            else None
         ),
         financial_liabilities_excl_mortgage=(
             float(profile.financial_liabilities_excl_mortgage)
@@ -94,15 +115,21 @@ async def save_onboarding_profile(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     existing = (await db.execute(stmt)).scalar_one_or_none()
     user_stmt = select(User).where(User.id == current_user.id)
     user = (await db.execute(user_stmt)).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     payload_data = payload.model_dump(exclude_unset=existing is not None)
-    user_updates = {k: payload_data.pop(k) for k in list(payload_data) if k in _USER_FIELDS}
+    user_updates = {
+        k: payload_data.pop(k) for k in list(payload_data) if k in _USER_FIELDS
+    }
     for field, value in user_updates.items():
         if field == "occupation" and value is not None:
             value = value.strip()[:100] if value.strip() else None
@@ -126,7 +153,9 @@ async def save_onboarding_profile(
     await db.commit()
     await db.refresh(profile)
     try:
-        await maybe_recalculate_effective_risk(db, current_user.id, "onboarding_profile_update")
+        await maybe_recalculate_effective_risk(
+            db, current_user.id, "onboarding_profile_update"
+        )
         await db.commit()
     except Exception:
         await db.rollback()
@@ -136,6 +165,7 @@ async def save_onboarding_profile(
     from app.domains.cashflow.services.cashflow_persist_service import (
         mark_stale as mark_cashflow_stale,
     )
+
     await mark_cashflow_stale(db, current_user.id)
 
     return _profile_to_response(user, profile)
@@ -146,12 +176,16 @@ async def get_onboarding_profile(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     user_stmt = select(User).where(User.id == current_user.id)
     user = (await db.execute(user_stmt)).scalar_one_or_none()
     if not profile or not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
+        )
 
     return _profile_to_response(user, profile)
 
@@ -194,7 +228,9 @@ async def save_other_assets(
         OtherInvestment(
             user_id=current_user.id,
             investment_name=asset.asset_name.strip()[:200],
-            investment_type=((asset.asset_type or asset.asset_name).strip()[:50] or "OTHER"),
+            investment_type=(
+                (asset.asset_type or asset.asset_name).strip()[:50] or "OTHER"
+            ),
             present_value=asset.current_value or 0,
             as_of_date=today,
             status=OtherInvestmentStatus.ACTIVE,
@@ -218,7 +254,9 @@ async def complete_onboarding(
     user_stmt = select(User).where(User.id == current_user.id)
     user = (await db.execute(user_stmt)).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     user.is_onboarding_complete = payload.is_complete
     user.updated_at = datetime.now(timezone.utc)
     await db.commit()

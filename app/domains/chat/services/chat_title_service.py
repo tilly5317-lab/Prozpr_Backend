@@ -87,7 +87,9 @@ async def generate_chat_title(first_message: str, intent_name: str | None) -> st
         from langchain_core.messages import HumanMessage, SystemMessage
 
         llm = ChatAnthropic(
-            model=_TITLE_MODEL, api_key=api_key, max_tokens=40,
+            model=_TITLE_MODEL,
+            api_key=api_key,
+            max_tokens=40,
         ).with_structured_output(_ChatTitle)
         user_block = (
             f"Detected topic: {intent_name or 'general'}\n"
@@ -96,7 +98,10 @@ async def generate_chat_title(first_message: str, intent_name: str | None) -> st
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 llm.invoke,
-                [SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_block)],
+                [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=user_block),
+                ],
             ),
             timeout=_TITLE_TIMEOUT_S,
         )

@@ -8,7 +8,10 @@ from pydantic import BaseModel
 
 from app.domains.profile.schemas.constraints import InvestmentConstraintResponse
 from app.domains.profile.schemas.investment import InvestmentProfileResponse
-from app.domains.profile.schemas.personal import PersonalFinanceResponse, PersonalInfoResponse
+from app.domains.profile.schemas.personal import (
+    PersonalFinanceResponse,
+    PersonalInfoResponse,
+)
 from app.domains.profile.schemas.review import ReviewPreferenceResponse
 from app.domains.profile.schemas.risk import RiskProfileResponse
 from app.domains.profile.schemas.tax import TaxProfileResponse

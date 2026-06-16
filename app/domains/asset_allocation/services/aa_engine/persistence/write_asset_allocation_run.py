@@ -7,7 +7,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.asset_allocation.models.run import AssetAllocationRun, AssetAllocationRunStatus
+from app.domains.asset_allocation.models.run import (
+    AssetAllocationRun,
+    AssetAllocationRunStatus,
+)
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -38,7 +41,9 @@ def build_asset_allocation_run_row(
 
     age = summary.get("age")
     if age is None:
-        raise ValueError("client_summary.age is required to persist an asset allocation run")
+        raise ValueError(
+            "client_summary.age is required to persist an asset allocation run"
+        )
 
     risk = summary.get("effective_risk_score")
     if risk is None:

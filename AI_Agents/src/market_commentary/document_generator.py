@@ -34,7 +34,7 @@ def _build_prompt_vars(inputs: dict) -> dict:
     snapshot: MacroSnapshot = inputs["snapshot"]
     date: datetime = inputs.get("date") or datetime.utcnow()
 
-    edition = date.strftime("%B %Y")      # e.g. "March 2026"
+    edition = date.strftime("%B %Y")  # e.g. "March 2026"
     date_str = date.strftime("%d %B %Y")  # e.g. "12 March 2026"
     data_gaps_str = ", ".join(snapshot.data_gaps) if snapshot.data_gaps else "None"
 
@@ -50,8 +50,12 @@ def _build_prompt_vars(inputs: dict) -> dict:
         # Fixed income — with pre-computed spreads
         "gsec_10yr_yield_pct": _fmt(snapshot.gsec_10yr_yield_pct),
         "sbi_fd_1yr_rate_pct": _fmt(snapshot.sbi_fd_1yr_rate_pct),
-        "gsec_repo_spread": _spread(snapshot.gsec_10yr_yield_pct, snapshot.repo_rate_pct),
-        "gsec_fd_spread": _spread(snapshot.gsec_10yr_yield_pct, snapshot.sbi_fd_1yr_rate_pct),
+        "gsec_repo_spread": _spread(
+            snapshot.gsec_10yr_yield_pct, snapshot.repo_rate_pct
+        ),
+        "gsec_fd_spread": _spread(
+            snapshot.gsec_10yr_yield_pct, snapshot.sbi_fd_1yr_rate_pct
+        ),
         # Equity
         "nifty50_pe": _fmt(snapshot.nifty50_pe, precision=1),
         "nifty_midcap150_pe": _fmt(snapshot.nifty_midcap150_pe, precision=1),
@@ -61,7 +65,8 @@ def _build_prompt_vars(inputs: dict) -> dict:
         # Pre-formatted in Indian notation so the LLM never converts raw rupees
         # to lakh/crore at inference time (Haiku's known order-of-magnitude bug).
         # System prompt instructs the model to copy this string verbatim.
-        "gold_price_inr_per_10g": format_inr_indian(snapshot.gold_price_inr_per_10g) or "N/A",
+        "gold_price_inr_per_10g": format_inr_indian(snapshot.gold_price_inr_per_10g)
+        or "N/A",
         "gold_price_usd_per_oz": _fmt(snapshot.gold_price_usd_per_oz, precision=0),
         # Flows & FX
         "fii_net_flows_cr_inr": _fmt(snapshot.fii_net_flows_cr_inr, precision=0),
@@ -97,7 +102,9 @@ def generate_document(snapshot: MacroSnapshot, date: Optional[datetime] = None) 
     """Generate a 2-page Markdown market commentary from a MacroSnapshot."""
     prompt_vars = _build_prompt_vars({"snapshot": snapshot, "date": date})
     messages = DOCUMENT_GENERATION_PROMPT.format_messages(**prompt_vars)
-    document = extract_reasoned_reply(_llm_bound.invoke(messages), answer_field="document")
+    document = extract_reasoned_reply(
+        _llm_bound.invoke(messages), answer_field="document"
+    )
     if not document:
         raise RuntimeError("Document generation returned no `document` field.")
     return document

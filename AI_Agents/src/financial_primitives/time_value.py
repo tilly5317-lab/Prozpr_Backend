@@ -1,4 +1,5 @@
 """Time-value-of-money primitives. Pure Python, no LLM, no I/O."""
+
 from __future__ import annotations
 
 

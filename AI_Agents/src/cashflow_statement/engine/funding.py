@@ -2,13 +2,19 @@
 
 Critical algorithm: single shared corpus pool with proportional shortfall split at payout months.
 """
+
 from __future__ import annotations
 from datetime import date
 from cashflow_statement.models import (
-    GoalFundingStatus, OneOffFundingStatus, OneOffEvent, MonthlyCashflowRow,
+    GoalFundingStatus,
+    OneOffFundingStatus,
+    OneOffEvent,
+    MonthlyCashflowRow,
 )
 from cashflow_statement.engine._types import (
-    RunContext, GoalInternal, FundingResult,
+    RunContext,
+    GoalInternal,
+    FundingResult,
 )
 from cashflow_statement.engine.dates import fy_for_date
 
@@ -71,7 +77,9 @@ def compute_funding(
     # cannot collide with a one-off description and corrupt attribution. The
     # combined exposed dicts at the end are prefix-namespaced for the same reason.
     goal_underfunded: dict[str, float] = {g.name: 0.0 for g in goals_internal}
-    one_off_underfunded: dict[str, float] = {e.description: 0.0 for e in one_off_outflows}
+    one_off_underfunded: dict[str, float] = {
+        e.description: 0.0 for e in one_off_outflows
+    }
 
     # Group payouts by month_end (last day of month)
     # For each cashflow row m, gather any goal whose goal_date_fy is the same FY AND goal_date.month == m.month
@@ -94,9 +102,7 @@ def compute_funding(
     # speculative return earned during the stub. Returns begin compounding from
     # the first full FY. When today IS the FY start (a genuinely full first year)
     # nothing is zeroed, so a full year of growth is not lost.
-    partial_current_fy = (
-        ctx.latest_update_date > date(ctx.current_fy_year - 1, 4, 1)
-    )
+    partial_current_fy = ctx.latest_update_date > date(ctx.current_fy_year - 1, 4, 1)
 
     for cf in monthly_cashflow:
         m = cf.month_end_date
@@ -128,7 +134,7 @@ def compute_funding(
             # Stub period: establish the starting corpus, don't grow it.
             roi = 0.0
         else:
-            roi = max(corpus_opening * ((1 + roi_annual) ** (1/12) - 1), 0)
+            roi = max(corpus_opening * ((1 + roi_annual) ** (1 / 12) - 1), 0)
 
         # One-off inflow this month (sourced from cf row — populated by project_cashflow).
         oin = cf.one_off_inflow
@@ -160,20 +166,28 @@ def compute_funding(
                 shortfall = total_outflow - max(available, 0.0)
                 for name, amt in goal_outflows_this.items():
                     weight = amt / total_outflow
-                    goal_underfunded[name] = goal_underfunded.get(name, 0.0) + shortfall * weight
+                    goal_underfunded[name] = (
+                        goal_underfunded.get(name, 0.0) + shortfall * weight
+                    )
                 for desc, amt in one_off_outflows_this.items():
                     weight = amt / total_outflow
-                    one_off_underfunded[desc] = one_off_underfunded.get(desc, 0.0) + shortfall * weight
+                    one_off_underfunded[desc] = (
+                        one_off_underfunded.get(desc, 0.0) + shortfall * weight
+                    )
 
-        monthly_enriched.append(cf.model_copy(update={
-            "corpus_opening": corpus_opening,
-            "monthly_investment": monthly_investment,
-            "investment_source": kind,
-            "investment_returns": roi,
-            "goal_payout": goal_payout,
-            "corpus_closing": corpus,
-            "is_funded": funded,
-        }))
+        monthly_enriched.append(
+            cf.model_copy(
+                update={
+                    "corpus_opening": corpus_opening,
+                    "monthly_investment": monthly_investment,
+                    "investment_source": kind,
+                    "investment_returns": roi,
+                    "goal_payout": goal_payout,
+                    "corpus_closing": corpus,
+                    "is_funded": funded,
+                }
+            )
+        )
 
     corpus_closing = corpus
 
@@ -182,23 +196,36 @@ def compute_funding(
     for g in goals_internal:
         underfunded = goal_underfunded.get(g.name, 0.0)
         funded_amt = g.corpus_required_fv - underfunded
-        per_goal_status.append(GoalFundingStatus(
-            name=g.name, goal_type=g.goal_type, goal_date=g.goal_date,
-            goal_value_pv=g.goal_value_pv, goal_value_fv=g.goal_value_fv,
-            corpus_required_fv=g.corpus_required_fv,
-            investment_required_pv=g.investment_required_pv, funded_amount=funded_amt,
-            is_funded=(underfunded == 0), shortfall_fv=underfunded,
-            expected_roi=g.expected_roi,
-        ))
+        per_goal_status.append(
+            GoalFundingStatus(
+                name=g.name,
+                goal_type=g.goal_type,
+                goal_date=g.goal_date,
+                goal_value_pv=g.goal_value_pv,
+                goal_value_fv=g.goal_value_fv,
+                corpus_required_fv=g.corpus_required_fv,
+                investment_required_pv=g.investment_required_pv,
+                funded_amount=funded_amt,
+                is_funded=(underfunded == 0),
+                shortfall_fv=underfunded,
+                expected_roi=g.expected_roi,
+            )
+        )
 
     per_one_off_outflow_status: list[OneOffFundingStatus] = []
     for e in one_off_outflows:
         underfunded = one_off_underfunded.get(e.description, 0.0)
         funded_amt = e.amount - underfunded
-        per_one_off_outflow_status.append(OneOffFundingStatus(
-            description=e.description, date=e.date, amount=e.amount,
-            funded_amount=funded_amt, is_funded=(underfunded == 0), shortfall=underfunded,
-        ))
+        per_one_off_outflow_status.append(
+            OneOffFundingStatus(
+                description=e.description,
+                date=e.date,
+                amount=e.amount,
+                funded_amount=funded_amt,
+                is_funded=(underfunded == 0),
+                shortfall=underfunded,
+            )
+        )
 
     return FundingResult(
         monthly_enriched=monthly_enriched,

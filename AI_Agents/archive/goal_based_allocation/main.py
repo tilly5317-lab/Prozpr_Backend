@@ -40,17 +40,30 @@ _API_KEY = os.environ.get("asset_allocation_key")
 
 from .models import AllocationInput, GoalAllocationOutput
 from .prompts import (
-    step1_prompt, step2_prompt, step3_prompt, step4_prompt,
-    step5_prompt, step6_prompt, step7_prompt,
+    step1_prompt,
+    step2_prompt,
+    step3_prompt,
+    step4_prompt,
+    step5_prompt,
+    step6_prompt,
+    step7_prompt,
     _serialize,
-    _slim_for_step2, _slim_for_step3, _slim_for_step4,
-    _slim_for_step5, _slim_for_step6, _slim_for_step7,
+    _slim_for_step2,
+    _slim_for_step3,
+    _slim_for_step4,
+    _slim_for_step5,
+    _slim_for_step6,
+    _slim_for_step7,
 )
 
 logger = logging.getLogger(__name__)
 
-_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", max_tokens=3000, api_key=_API_KEY, temperature=0)
-_llm_step7 = ChatAnthropic(model="claude-haiku-4-5-20251001", max_tokens=5000, api_key=_API_KEY, temperature=0)
+_llm = ChatAnthropic(
+    model="claude-haiku-4-5-20251001", max_tokens=3000, api_key=_API_KEY, temperature=0
+)
+_llm_step7 = ChatAnthropic(
+    model="claude-haiku-4-5-20251001", max_tokens=5000, api_key=_API_KEY, temperature=0
+)
 
 
 def _add_cache_control(messages: list) -> list:
@@ -89,7 +102,7 @@ def _extract_json(text: str) -> dict:
         return obj
     match = re.search(r"\{", raw)
     if match:
-        obj, _ = json.JSONDecoder().raw_decode(raw[match.start():])
+        obj, _ = json.JSONDecoder().raw_decode(raw[match.start() :])
         return obj
     raise json.JSONDecodeError("No JSON object found", raw, 0)
 
@@ -109,8 +122,12 @@ def _make_step(prompt, step_name: str, state_slicer=None, llm=None):
                 return _extract_json(raw)
             except json.JSONDecodeError as e:
                 last_err = e
-                logger.warning("[%s] JSON parse failed (attempt %s/3): %s",
-                               step_name, attempt + 1, e.msg)
+                logger.warning(
+                    "[%s] JSON parse failed (attempt %s/3): %s",
+                    step_name,
+                    attempt + 1,
+                    e.msg,
+                )
                 time.sleep(1.0 * (attempt + 1))
         raise last_err
 
@@ -120,13 +137,29 @@ def _make_step(prompt, step_name: str, state_slicer=None, llm=None):
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 goal_allocation_chain = (
-    RunnablePassthrough.assign(step1_emergency    = _make_step(step1_prompt, "step1_emergency"))
-  | RunnablePassthrough.assign(step2_short_term   = _make_step(step2_prompt, "step2_short_term",   _slim_for_step2))
-  | RunnablePassthrough.assign(step3_medium_term  = _make_step(step3_prompt, "step3_medium_term",  _slim_for_step3))
-  | RunnablePassthrough.assign(step4_long_term    = _make_step(step4_prompt, "step4_long_term",    _slim_for_step4))
-  | RunnablePassthrough.assign(step5_aggregation  = _make_step(step5_prompt, "step5_aggregation",  _slim_for_step5))
-  | RunnablePassthrough.assign(step6_guardrails   = _make_step(step6_prompt, "step6_guardrails",   _slim_for_step6))
-  | RunnablePassthrough.assign(step7_presentation = _make_step(step7_prompt, "step7_presentation", _slim_for_step7, llm=_llm_step7))
+    RunnablePassthrough.assign(
+        step1_emergency=_make_step(step1_prompt, "step1_emergency")
+    )
+    | RunnablePassthrough.assign(
+        step2_short_term=_make_step(step2_prompt, "step2_short_term", _slim_for_step2)
+    )
+    | RunnablePassthrough.assign(
+        step3_medium_term=_make_step(step3_prompt, "step3_medium_term", _slim_for_step3)
+    )
+    | RunnablePassthrough.assign(
+        step4_long_term=_make_step(step4_prompt, "step4_long_term", _slim_for_step4)
+    )
+    | RunnablePassthrough.assign(
+        step5_aggregation=_make_step(step5_prompt, "step5_aggregation", _slim_for_step5)
+    )
+    | RunnablePassthrough.assign(
+        step6_guardrails=_make_step(step6_prompt, "step6_guardrails", _slim_for_step6)
+    )
+    | RunnablePassthrough.assign(
+        step7_presentation=_make_step(
+            step7_prompt, "step7_presentation", _slim_for_step7, llm=_llm_step7
+        )
+    )
 )
 
 

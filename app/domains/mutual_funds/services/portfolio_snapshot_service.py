@@ -38,7 +38,9 @@ async def list_snapshots(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def get_snapshot(db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.UUID) -> PortfolioAllocationSnapshot:
+async def get_snapshot(
+    db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.UUID
+) -> PortfolioAllocationSnapshot:
     row = (
         await db.execute(
             select(PortfolioAllocationSnapshot).where(
@@ -48,7 +50,10 @@ async def get_snapshot(db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.U
         )
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allocation snapshot not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Allocation snapshot not found",
+        )
     return row
 
 
@@ -65,7 +70,10 @@ async def create_snapshot(
 
 
 async def update_snapshot(
-    db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.UUID, payload: PortfolioAllocationSnapshotUpdate
+    db: AsyncSession,
+    snapshot_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: PortfolioAllocationSnapshotUpdate,
 ) -> PortfolioAllocationSnapshot:
     row = await get_snapshot(db, snapshot_id, user_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
@@ -75,7 +83,9 @@ async def update_snapshot(
     return row
 
 
-async def delete_snapshot(db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def delete_snapshot(
+    db: AsyncSession, snapshot_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     row = await get_snapshot(db, snapshot_id, user_id)
     await db.delete(row)
     await db.commit()

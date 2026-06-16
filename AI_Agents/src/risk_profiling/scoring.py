@@ -5,8 +5,16 @@ from typing import Any, Dict
 from common import category_for_effective_risk_score
 
 AGE_ANCHORS = [
-    (20, 10), (30, 9), (40, 8), (50, 7), (55, 6),
-    (60, 5), (65, 4), (70, 3), (80, 2), (90, 1),
+    (20, 10),
+    (30, 9),
+    (40, 8),
+    (50, 7),
+    (55, 6),
+    (60, 5),
+    (65, 4),
+    (70, 3),
+    (80, 2),
+    (90, 1),
 ]
 
 OSI_MAP = {
@@ -20,6 +28,7 @@ OSI_MAP = {
 
 
 # ── Step A: Age → Base Risk Capacity ─────────────────────────────────────────
+
 
 def _age_score(age: int) -> Dict[str, Any]:
     clamped = max(20, min(90, age))
@@ -38,7 +47,9 @@ def _age_score(age: int) -> Dict[str, Any]:
             }
 
         if a_low < clamped < a_high:
-            score = round(s_low + (clamped - a_low) / (a_high - a_low) * (s_high - s_low), 4)
+            score = round(
+                s_low + (clamped - a_low) / (a_high - a_low) * (s_high - s_low), 4
+            )
             calc = f"{s_low} + ({clamped}-{a_low})/({a_high}-{a_low}) * ({s_high}-{s_low}) = {score}"
             return {
                 "clamped_age": clamped,
@@ -61,6 +72,7 @@ def _age_score(age: int) -> Dict[str, Any]:
 
 
 # ── Step B: Savings Rate Adjustment ──────────────────────────────────────────
+
 
 def _savings_adjustment(annual_income: float, annual_expense: float) -> Dict[str, Any]:
     if annual_income == 0:
@@ -96,6 +108,7 @@ def _savings_adjustment(annual_income: float, annual_expense: float) -> Dict[str
 
 # ── Step C: Assets & Liabilities ─────────────────────────────────────────────
 
+
 def _asset_scores(
     financial_assets: float,
     liabilities_excl_mortgage: float,
@@ -120,7 +133,9 @@ def _asset_scores(
         elif expense_coverage_ratio > 12:
             expense_coverage_score = 10.0
         else:
-            expense_coverage_score = round(1 + (expense_coverage_ratio - 0.5) / (12 - 0.5) * 9, 4)
+            expense_coverage_score = round(
+                1 + (expense_coverage_ratio - 0.5) / (12 - 0.5) * 9, 4
+            )
 
     # Current debt score
     if financial_assets <= 0:
@@ -135,13 +150,20 @@ def _asset_scores(
         elif current_debt_percent < 6:
             current_debt_score = 10.0
         else:
-            current_debt_score = round(1 + (100 - current_debt_percent) / (100 - 6) * 9, 4)
+            current_debt_score = round(
+                1 + (100 - current_debt_percent) / (100 - 6) * 9, 4
+            )
 
     # Property score
-    own_property_score = 10.0 if properties_owned > 1 else (8.0 if properties_owned == 1 else 2.0)
+    own_property_score = (
+        10.0 if properties_owned > 1 else (8.0 if properties_owned == 1 else 2.0)
+    )
 
     net_asset_score = round(
-        0.40 * expense_coverage_score + 0.30 * current_debt_score + 0.30 * own_property_score, 4
+        0.40 * expense_coverage_score
+        + 0.30 * current_debt_score
+        + 0.30 * own_property_score,
+        4,
     )
 
     return {
@@ -157,6 +179,7 @@ def _asset_scores(
 
 # ── Step C cont.: Adjust Risk Capacity ───────────────────────────────────────
 
+
 def _risk_capacity(age_based_score: float, net_asset_score: float) -> Dict[str, Any]:
     raw = round(age_based_score + 0.50 * (net_asset_score - 5), 4)
     clamped = round(max(1.0, min(10.0, raw)), 4)
@@ -170,6 +193,7 @@ def _risk_capacity(age_based_score: float, net_asset_score: float) -> Dict[str, 
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
+
 
 def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
     """Run Steps A–E and return the full JSON structure (risk_summary left empty)."""
@@ -186,10 +210,15 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
     age_data = _age_score(age)
     savings_data = _savings_adjustment(annual_income, annual_expense)
     asset_data = _asset_scores(
-        financial_assets, liabilities_excl_mortgage,
-        annual_expense, annual_mortgage, properties_owned,
+        financial_assets,
+        liabilities_excl_mortgage,
+        annual_expense,
+        annual_mortgage,
+        properties_owned,
     )
-    capacity_data = _risk_capacity(age_data["age_based_score"], asset_data["net_asset_score"])
+    capacity_data = _risk_capacity(
+        age_data["age_based_score"], asset_data["net_asset_score"]
+    )
 
     osi = OSI_MAP[occupation_type]
     risk_capacity_score = capacity_data["risk_capacity_score_clamped"]
@@ -208,7 +237,9 @@ def compute_all_scores(inputs: Dict[str, Any]) -> Dict[str, Any]:
         "effective_risk_score_formula": (
             f"0.7 * {risk_willingness} + 0.3 * {risk_capacity_score} = {effective_risk_score}"
         ),
-        "risk_profile_category": category_for_effective_risk_score(effective_risk_score),
+        "risk_profile_category": category_for_effective_risk_score(
+            effective_risk_score
+        ),
     }
 
     return {

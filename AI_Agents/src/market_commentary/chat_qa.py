@@ -13,7 +13,7 @@ from .prompts import QA_PROMPT
 _DOCUMENT_FILENAME = "market_commentary_latest.md"
 
 _QA_MODEL = "claude-sonnet-4-6"
-_QA_MAX_TOKENS = 1500          # was 1024 — room for the discarded reasoning field
+_QA_MAX_TOKENS = 1500  # was 1024 — room for the discarded reasoning field
 
 _qa_llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS)
 
@@ -70,7 +70,8 @@ def answer_question(
         document_content = load_latest_commentary(output_dir)
 
     messages = QA_PROMPT.format_messages(
-        document_content=document_content, user_question=user_question,
+        document_content=document_content,
+        user_question=user_question,
     )
     answer = extract_reasoned_reply(_qa_llm_bound.invoke(messages))
     if answer:

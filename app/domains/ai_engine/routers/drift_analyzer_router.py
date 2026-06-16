@@ -3,7 +3,6 @@
 Exposes ``/api/v1/ai-modules/...`` style endpoints for debugging or direct module invocation. Not always on the live chat path; chat uses ``routers/chat`` + ``ChatBrain`` instead.
 """
 
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

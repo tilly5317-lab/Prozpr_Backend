@@ -8,7 +8,9 @@ from unittest.mock import MagicMock
 from app.domains.asset_allocation.services.aa_engine.input_builder import (
     build_goal_allocation_input_for_user,
 )
-from app.domains.asset_allocation.services.aa_engine.overrides import with_chat_overrides
+from app.domains.asset_allocation.services.aa_engine.overrides import (
+    with_chat_overrides,
+)
 from app.domains.ai_engine.turn_context import TurnContext
 
 
@@ -92,7 +94,9 @@ class ChatOverrideTests(unittest.TestCase):
         """additional_cash adds on top of an absolute total_corpus override."""
         user = self._build_minimal_user()
         ctx = self._make_ctx(
-            user, total_corpus=5_000_000.0, additional_cash_inr=200_000.0,
+            user,
+            total_corpus=5_000_000.0,
+            additional_cash_inr=200_000.0,
         )
         alloc_input, _ = build_goal_allocation_input_for_user(ctx)
         self.assertEqual(alloc_input.total_corpus, 5_200_000.0)

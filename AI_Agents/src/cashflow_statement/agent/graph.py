@@ -1,4 +1,5 @@
 """StateGraph definition + compile + run_cashflow_statement entry."""
+
 from __future__ import annotations
 
 import logging
@@ -9,11 +10,16 @@ from langgraph.prebuilt import ToolNode
 
 from cashflow_statement.agent.state import AgentState
 from cashflow_statement.agent.nodes import (
-    ingest_baseline_node, make_agent_node, should_continue, finalize_node,
+    ingest_baseline_node,
+    make_agent_node,
+    should_continue,
+    finalize_node,
 )
 from cashflow_statement.agent.tools import TOOLS
 from cashflow_statement.models import (
-    GoalPlanningOutput, GoalPlanningRequest, GoalPlanningSnapshot,
+    GoalPlanningOutput,
+    GoalPlanningRequest,
+    GoalPlanningSnapshot,
 )
 
 
@@ -36,7 +42,8 @@ def build_graph(checkpointer=None, model: str = "claude-sonnet-4-6"):
     workflow.set_entry_point("ingest_baseline")
     workflow.add_edge("ingest_baseline", "agent")
     workflow.add_conditional_edges(
-        "agent", should_continue,
+        "agent",
+        should_continue,
         {"tools": "tools", "finalize": "finalize"},
     )
     workflow.add_edge("tools", "agent")
@@ -130,7 +137,9 @@ def _snapshot_from_output(
         one_off_outflow_status=out.one_off_outflow_status,
         annual_cashflow=out.annual_cashflow,
         fund_flow_summary=out.fund_flow_summary,
-        monthly_cashflow=out.monthly_cashflow if request.detail_level == "full" else None,
+        monthly_cashflow=out.monthly_cashflow
+        if request.detail_level == "full"
+        else None,
         warnings=out.warnings,
         extracted_events_this_turn=extracted_events_this_turn,
         actions_taken_this_turn=actions_taken_this_turn,
@@ -142,7 +151,8 @@ def _snapshot_from_output(
 
 
 def _build_snapshot_from_state(
-    request: GoalPlanningRequest, final_state: dict,
+    request: GoalPlanningRequest,
+    final_state: dict,
 ) -> GoalPlanningSnapshot:
     """Build the snapshot from the final agent state."""
     out: GoalPlanningOutput | None = final_state.get("last_output")
@@ -150,10 +160,12 @@ def _build_snapshot_from_state(
         # finalize_node normally populates this; defensive fallback for paths
         # that bypass finalize (e.g., a future early-exit branch).
         from cashflow_statement.engine import compute_full_projection
+
         out = compute_full_projection(request.baseline_input)
 
     return _snapshot_from_output(
-        request, out,
+        request,
+        out,
         extracted_events_this_turn=final_state.get("extracted_events_this_turn", []),
         actions_taken_this_turn=final_state.get("actions_taken_this_turn", []),
         levers=final_state.get("last_levers", []),
@@ -162,12 +174,16 @@ def _build_snapshot_from_state(
     )
 
 
-def _build_error_snapshot(request: GoalPlanningRequest, reason: str) -> GoalPlanningSnapshot:
+def _build_error_snapshot(
+    request: GoalPlanningRequest, reason: str
+) -> GoalPlanningSnapshot:
     """Fallback snapshot when the graph itself fails (e.g., recursion limit)."""
     from cashflow_statement.engine import compute_full_projection
+
     out = compute_full_projection(request.baseline_input)
     return _snapshot_from_output(
-        request, out,
+        request,
+        out,
         extracted_events_this_turn=[],
         actions_taken_this_turn=[],
         levers=[],

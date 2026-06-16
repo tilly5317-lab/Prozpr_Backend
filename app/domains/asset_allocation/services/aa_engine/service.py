@@ -40,7 +40,8 @@ from app.domains.asset_allocation.services.aa_engine.input_builder import (
 
 
 def _invoke_pipeline(
-    alloc_input: AllocationInput, anthropic_api_key: str,
+    alloc_input: AllocationInput,
+    anthropic_api_key: str,
 ) -> tuple[dict[str, Any], GoalAllocationOutput]:
     """Run the 7-step pipeline with ``ANTHROPIC_API_KEY`` set for the LLM rationale step."""
     key = anthropic_api_key.strip()
@@ -54,15 +55,18 @@ def _invoke_pipeline(
         else:
             os.environ["ANTHROPIC_API_KEY"] = prev
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class AllocationRunOutcome:
     """Immutable outcome of one allocation pipeline run."""
+
     result: GoalAllocationOutput | None
     blocking_message: str | None = None
     asset_allocation_run_id: uuid.UUID | None = None
@@ -74,6 +78,7 @@ class AllocationRunOutcome:
 # Trace / debug helpers
 # ---------------------------------------------------------------------------
 
+
 def _short_json(obj: object, limit: int = 450) -> str:
     """JSON-serialise *obj* and truncate to *limit* chars for trace logs."""
     try:
@@ -84,12 +89,12 @@ def _short_json(obj: object, limit: int = 450) -> str:
 
 
 _STEP_MAP = [
-    ("Step 1 (emergency)",    "step1_emergency"),
-    ("Step 2 (short-term)",   "step2_short_term"),
-    ("Step 3 (medium-term)",  "step3_medium_term"),
-    ("Step 4 (long-term)",    "step4_long_term"),
-    ("Step 5 (aggregation)",  "step5_aggregation"),
-    ("Step 6 (guardrails)",   "step6_guardrails"),
+    ("Step 1 (emergency)", "step1_emergency"),
+    ("Step 2 (short-term)", "step2_short_term"),
+    ("Step 3 (medium-term)", "step3_medium_term"),
+    ("Step 4 (long-term)", "step4_long_term"),
+    ("Step 5 (aggregation)", "step5_aggregation"),
+    ("Step 6 (guardrails)", "step6_guardrails"),
     ("Step 7 (presentation)", "step7_output"),
 ]
 
@@ -153,9 +158,7 @@ _BUCKET_TITLES = {
 }
 
 
-def build_fallback_brief(
-    output: GoalAllocationOutput, spine_mode: str | None
-) -> str:
+def build_fallback_brief(output: GoalAllocationOutput, spine_mode: str | None) -> str:
     """Render a ``GoalAllocationOutput`` as user-facing markdown."""
     cs = output.client_summary
     lines: list[str] = []
@@ -210,7 +213,8 @@ def build_fallback_brief(
             bucket_splits[bucket_name].equity
             + bucket_splits[bucket_name].debt
             + bucket_splits[bucket_name].others
-        ) > 0
+        )
+        > 0
     ]
     if breakdown_rows:
         lines.append("**By horizon**")
@@ -257,15 +261,21 @@ def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
     if not portfolios:
         return None
     primary = next(
-        (p for p in portfolios if getattr(p, "is_primary", False)), portfolios[0],
+        (p for p in portfolios if getattr(p, "is_primary", False)),
+        portfolios[0],
     )
     allocations = list(getattr(primary, "allocations", []) or [])
     if not allocations:
         return None
 
     totals = {"equity": 0.0, "debt": 0.0, "cash": 0.0, "others": 0.0}
-    name_map = {"equity": "equity", "debt": "debt", "cash": "cash",
-                "other": "others", "others": "others"}
+    name_map = {
+        "equity": "equity",
+        "debt": "debt",
+        "cash": "cash",
+        "other": "others",
+        "others": "others",
+    }
     for a in allocations:
         key = name_map.get((getattr(a, "asset_class", None) or "").strip().lower())
         totals[key or "others"] += float(getattr(a, "amount", 0.0) or 0.0)
@@ -314,28 +324,32 @@ def build_aa_facts_pack(
         bucket_total = split.equity + split.debt + split.others
         if bucket_total <= 0:
             continue
-        by_horizon.append({
-            "horizon": split.bucket,
-            "amount_inr": bucket_total,
-            "amount_indian": format_inr_indian(bucket_total),
-            "mix_pct": {
-                "equity": round(split.equity_pct),
-                "debt": round(split.debt_pct),
-                "others": round(split.others_pct),
-            },
-        })
+        by_horizon.append(
+            {
+                "horizon": split.bucket,
+                "amount_inr": bucket_total,
+                "amount_indian": format_inr_indian(bucket_total),
+                "mix_pct": {
+                    "equity": round(split.equity_pct),
+                    "debt": round(split.debt_pct),
+                    "others": round(split.others_pct),
+                },
+            }
+        )
 
     goals = []
     for b in output.bucket_allocations:
         for g in b.goals:
-            goals.append({
-                "name": g.goal_name,
-                "amount_needed_inr": g.amount_needed,
-                "amount_needed_indian": format_inr_indian(g.amount_needed),
-                "horizon_months": g.time_to_goal_months,
-                "bucket": b.bucket,
-                "rationale": b.goal_rationales.get(g.goal_name),
-            })
+            goals.append(
+                {
+                    "name": g.goal_name,
+                    "amount_needed_inr": g.amount_needed,
+                    "amount_needed_indian": format_inr_indian(g.amount_needed),
+                    "horizon_months": g.time_to_goal_months,
+                    "bucket": b.bucket,
+                    "rationale": b.goal_rationales.get(g.goal_name),
+                }
+            )
 
     future = [
         {
@@ -357,7 +371,9 @@ def build_aa_facts_pack(
         "total_corpus_indian": format_inr_indian(output.grand_total),
         "emergency_fund_months": cs.emergency_fund_months,
         "monthly_household_expense_inr": cs.monthly_household_expense,
-        "monthly_household_expense_indian": format_inr_indian(cs.monthly_household_expense),
+        "monthly_household_expense_indian": format_inr_indian(
+            cs.monthly_household_expense
+        ),
         "plan_target_pct": {
             "equity": round(recommended.equity_total_pct),
             "debt": round(recommended.debt_total_pct),
@@ -418,6 +434,7 @@ _MSG_ENGINE_ERROR = (
 # Core pipeline orchestration
 # ---------------------------------------------------------------------------
 
+
 async def compute_allocation_result(
     user,
     user_question: str,
@@ -438,7 +455,9 @@ async def compute_allocation_result(
     trace_line("module: asset_allocation — building inputs")
 
     if chat_ctx is None:
-        from app.domains.ai_engine.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+        from app.domains.ai_engine.turn_context import (
+            TurnContext,
+        )  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
 
         chat_ctx = TurnContext(
             user_ctx=user,
@@ -476,7 +495,9 @@ async def compute_allocation_result(
 
     try:
         full_state, output = await asyncio.to_thread(
-            _invoke_pipeline, alloc_input, api_key,
+            _invoke_pipeline,
+            alloc_input,
+            api_key,
         )
     except Exception as exc:
         logger.exception("asset_allocation pipeline failed: %s", exc)
@@ -485,7 +506,8 @@ async def compute_allocation_result(
 
     for label, key in _STEP_MAP:
         trace_line(
-            _summarize_step(label, key, full_state[key]) if key in full_state
+            _summarize_step(label, key, full_state[key])
+            if key in full_state
             else f"{label}: <missing in state>"
         )
     trace_line(f"GoalAllocationOutput grand_total={output.grand_total}")
@@ -494,7 +516,12 @@ async def compute_allocation_result(
     reb_id: uuid.UUID | None = None
     snap_id: uuid.UUID | None = None
     aa_run_id: uuid.UUID | None = None
-    if db is not None and persist_recommendation and output is not None and acting_user_id is not None:
+    if (
+        db is not None
+        and persist_recommendation
+        and output is not None
+        and acting_user_id is not None
+    ):
         from app.domains.asset_allocation.services.allocation_recommendation_persist_service import (
             persist_goal_allocation_recommendation,
         )
@@ -503,7 +530,9 @@ async def compute_allocation_result(
         )
 
         reb_id, snap_id = await persist_goal_allocation_recommendation(
-            db, acting_user_id, output,
+            db,
+            acting_user_id,
+            output,
             chat_session_id=chat_session_id,
             user_question=None,
             spine_mode=spine_mode,
@@ -529,7 +558,9 @@ async def compute_allocation_result(
             )
             trace_line(f"persisted: asset_allocation_run_id={aa_run_id}")
         except Exception:
-            logger.exception("asset allocation persist failed; continuing without run id")
+            logger.exception(
+                "asset allocation persist failed; continuing without run id"
+            )
 
     # Persist AgentRun row for follow-up reasoning. Does not replace
     # allocation_recommendation_persist; this captures structured I/O for chat.
@@ -548,7 +579,9 @@ async def compute_allocation_result(
                     "allocation_result": output.model_dump(mode="json"),
                     "correlation_ids": {
                         "snapshot_id": str(snap_id) if snap_id else None,
-                        "rebalancing_recommendation_id": str(reb_id) if reb_id else None,
+                        "rebalancing_recommendation_id": str(reb_id)
+                        if reb_id
+                        else None,
                     },
                 },
                 emit_standard_log=False,
@@ -569,6 +602,7 @@ async def compute_allocation_result(
 # Standalone HTTP entry point
 # ---------------------------------------------------------------------------
 
+
 async def generate_asset_allocation_response(
     user,
     user_question: str,
@@ -579,7 +613,8 @@ async def generate_asset_allocation_response(
 ) -> str:
     """Run allocation for standalone HTTP and return a full user-facing string."""
     outcome = await compute_allocation_result(
-        user, user_question,
+        user,
+        user_question,
         db=db,
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,

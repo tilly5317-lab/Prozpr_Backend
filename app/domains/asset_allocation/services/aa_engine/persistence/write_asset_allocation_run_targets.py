@@ -7,7 +7,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.asset_allocation.models.run import AssetAllocationRun, AssetAllocationRunTarget
+from app.domains.asset_allocation.models.run import (
+    AssetAllocationRun,
+    AssetAllocationRunTarget,
+)
 
 
 def _float(value: Any, default: float = 0.0) -> float:

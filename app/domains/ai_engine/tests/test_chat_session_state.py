@@ -65,7 +65,8 @@ def _make_turn(user, session, db) -> ChatTurnInput:
 
 @pytest.mark.asyncio
 async def test_build_turn_context_loads_awaiting_save_true(
-    db_session: AsyncSession, fixture_user_and_session,
+    db_session: AsyncSession,
+    fixture_user_and_session,
 ):
     user, session = fixture_user_and_session
     db_session.add(ChatSessionState(session_id=session.id, awaiting_save=True))
@@ -77,7 +78,8 @@ async def test_build_turn_context_loads_awaiting_save_true(
 
 @pytest.mark.asyncio
 async def test_build_turn_context_awaiting_save_defaults_false(
-    db_session: AsyncSession, fixture_user_and_session,
+    db_session: AsyncSession,
+    fixture_user_and_session,
 ):
     user, session = fixture_user_and_session
     # No ChatSessionState row inserted.

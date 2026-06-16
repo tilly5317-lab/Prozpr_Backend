@@ -34,13 +34,21 @@ async def classify_action(
 ) -> T:
     """Single Haiku call with structured output bound to `action_model`."""
     llm = ChatAnthropic(
-        model=model, api_key=api_key, max_tokens=max_tokens,
+        model=model,
+        api_key=api_key,
+        max_tokens=max_tokens,
     ).with_structured_output(action_model)
 
     messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
-        ]),
+        SystemMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        ),
         HumanMessage(content=user_block),
     ]
     return await asyncio.to_thread(llm.invoke, messages)

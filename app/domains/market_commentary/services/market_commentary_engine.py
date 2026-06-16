@@ -30,7 +30,9 @@ _IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 # Skip 14x web search + Sonnet extraction when the on-disk snapshot is still fresh.
 _CACHE_MAX_AGE_SEC = int(os.getenv("MARKET_COMMENTARY_CACHE_MAX_AGE_SEC", "86400"))
 
-_MARKET_COMMENTARY_DIR = Path(market_commentary.__file__).resolve().parents[2] / "Reference_docs"
+_MARKET_COMMENTARY_DIR = (
+    Path(market_commentary.__file__).resolve().parents[2] / "Reference_docs"
+)
 
 
 async def generate_market_commentary(
@@ -38,7 +40,10 @@ async def generate_market_commentary(
     conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
     """Run the MarketCommentaryAgent pipeline (cache fast path -> full run)."""
-    del user_question, conversation_history  # reserved for future question-conditioned runs
+    del (
+        user_question,
+        conversation_history,
+    )  # reserved for future question-conditioned runs
 
     mc_key = get_settings().get_anthropic_market_commentary_key()
     agent = MarketCommentaryAgent(

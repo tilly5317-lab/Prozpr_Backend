@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -148,7 +147,9 @@ class TwrPoint(BaseModel):
 
     date: date
     portfolio_index: float
-    nifty_index: Optional[float] = None  # Nifty 50 TRI normalized to inception; null if no baseline
+    nifty_index: Optional[float] = (
+        None  # Nifty 50 TRI normalized to inception; null if no baseline
+    )
 
 
 class TwrSeriesResponse(BaseModel):

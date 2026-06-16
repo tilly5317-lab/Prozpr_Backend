@@ -31,10 +31,12 @@ in order. All amounts to debt_subgroup. Check shortfall against total_corpus.
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step1_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP1_SYSTEM),
-    ("human", _STEP1_HUMAN),
-])
+step1_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP1_SYSTEM),
+        ("human", _STEP1_HUMAN),
+    ]
+)
 
 
 # ── Step 2: Short-Term Goals ──────────────────────────────────────────────────
@@ -50,10 +52,12 @@ Apply the tax-rate instrument selection rule, then check shortfall.
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step2_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP2_SYSTEM),
-    ("human", _STEP2_HUMAN),
-])
+step2_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP2_SYSTEM),
+        ("human", _STEP2_HUMAN),
+    ]
+)
 
 
 # ── Step 3: Medium-Term Goals ─────────────────────────────────────────────────
@@ -69,10 +73,12 @@ Apply risk bucket → equity/debt table per goal, then assign instruments and ch
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step3_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP3_SYSTEM),
-    ("human", _STEP3_HUMAN),
-])
+step3_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP3_SYSTEM),
+        ("human", _STEP3_HUMAN),
+    ]
+)
 
 
 # ── Step 4: Long-Term Goals ───────────────────────────────────────────────────
@@ -103,10 +109,12 @@ Run all 5 phases in order:
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step4_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP4_SYSTEM),
-    ("human", _STEP4_HUMAN),
-])
+step4_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP4_SYSTEM),
+        ("human", _STEP4_HUMAN),
+    ]
+)
 
 
 # ── Step 5: Aggregation ───────────────────────────────────────────────────────
@@ -122,10 +130,12 @@ Sum to grand_total and verify it equals total_corpus.
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step5_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP5_SYSTEM),
-    ("human", _STEP5_HUMAN),
-])
+step5_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP5_SYSTEM),
+        ("human", _STEP5_HUMAN),
+    ]
+)
 
 
 # ── Step 6: Guardrails + Fund Mapping ────────────────────────────────────────
@@ -146,10 +156,12 @@ Accumulated state (Steps 1–5 outputs):
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step6_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP6_SYSTEM),
-    ("human", _STEP6_HUMAN),
-])
+step6_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP6_SYSTEM),
+        ("human", _STEP6_HUMAN),
+    ]
+)
 
 
 # ── Step 7: Presentation ──────────────────────────────────────────────────────
@@ -166,13 +178,16 @@ Verify grand_total equals total_corpus.
 
 Return ONLY a valid JSON object matching the output schema — no commentary, no markdown fences.
 """
-step7_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP7_SYSTEM),
-    ("human", _STEP7_HUMAN),
-])
+step7_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP7_SYSTEM),
+        ("human", _STEP7_HUMAN),
+    ]
+)
 
 
 # ── State slimmers ────────────────────────────────────────────────────────────
+
 
 def _input_fields(state: dict) -> dict:
     """Return all top-level input fields (non-step keys)."""
@@ -182,57 +197,100 @@ def _input_fields(state: dict) -> dict:
 def _slim_for_step2(state: dict) -> dict:
     return {
         **_input_fields(state),
-        "step1_emergency": {"output": state.get("step1_emergency", {}).get("output", {})},
+        "step1_emergency": {
+            "output": state.get("step1_emergency", {}).get("output", {})
+        },
     }
 
 
 def _slim_for_step3(state: dict) -> dict:
     return {
         **_input_fields(state),
-        "step1_emergency": {"output": state.get("step1_emergency", {}).get("output", {})},
-        "step2_short_term": {"output": state.get("step2_short_term", {}).get("output", {})},
+        "step1_emergency": {
+            "output": state.get("step1_emergency", {}).get("output", {})
+        },
+        "step2_short_term": {
+            "output": state.get("step2_short_term", {}).get("output", {})
+        },
     }
 
 
 def _slim_for_step4(state: dict) -> dict:
     return {
         **_input_fields(state),
-        "step1_emergency":  {"output": state.get("step1_emergency", {}).get("output", {})},
-        "step2_short_term": {"output": state.get("step2_short_term", {}).get("output", {})},
-        "step3_medium_term":{"output": state.get("step3_medium_term", {}).get("output", {})},
+        "step1_emergency": {
+            "output": state.get("step1_emergency", {}).get("output", {})
+        },
+        "step2_short_term": {
+            "output": state.get("step2_short_term", {}).get("output", {})
+        },
+        "step3_medium_term": {
+            "output": state.get("step3_medium_term", {}).get("output", {})
+        },
     }
 
 
 def _slim_for_step5(state: dict) -> dict:
     return {
         "total_corpus": state.get("total_corpus"),
-        "step1_emergency":  {"output": state.get("step1_emergency", {}).get("output", {})},
-        "step2_short_term": {"output": state.get("step2_short_term", {}).get("output", {})},
-        "step3_medium_term":{"output": state.get("step3_medium_term", {}).get("output", {})},
-        "step4_long_term":  {"output": state.get("step4_long_term", {}).get("output", {})},
+        "step1_emergency": {
+            "output": state.get("step1_emergency", {}).get("output", {})
+        },
+        "step2_short_term": {
+            "output": state.get("step2_short_term", {}).get("output", {})
+        },
+        "step3_medium_term": {
+            "output": state.get("step3_medium_term", {}).get("output", {})
+        },
+        "step4_long_term": {
+            "output": state.get("step4_long_term", {}).get("output", {})
+        },
     }
 
 
 def _slim_for_step6(state: dict) -> dict:
     return {
         "effective_risk_score": state.get("effective_risk_score"),
-        "step4_long_term":  {"output": state.get("step4_long_term", {}).get("output", {})},
-        "step5_aggregation":{"output": state.get("step5_aggregation", {}).get("output", {})},
+        "step4_long_term": {
+            "output": state.get("step4_long_term", {}).get("output", {})
+        },
+        "step5_aggregation": {
+            "output": state.get("step5_aggregation", {}).get("output", {})
+        },
     }
 
 
 def _slim_for_step7(state: dict) -> dict:
     input_keys = [
-        "age", "occupation_type", "effective_risk_score", "total_corpus",
-        "goals", "monthly_household_expense", "primary_income_from_portfolio",
-        "tax_regime", "section_80c_utilized", "effective_tax_rate",
+        "age",
+        "occupation_type",
+        "effective_risk_score",
+        "total_corpus",
+        "goals",
+        "monthly_household_expense",
+        "primary_income_from_portfolio",
+        "tax_regime",
+        "section_80c_utilized",
+        "effective_tax_rate",
     ]
     return {
         **{k: state[k] for k in input_keys if k in state},
-        "step1_emergency":  {"output": state.get("step1_emergency", {}).get("output", {})},
-        "step2_short_term": {"output": state.get("step2_short_term", {}).get("output", {})},
-        "step3_medium_term":{"output": state.get("step3_medium_term", {}).get("output", {})},
-        "step4_long_term":  {"output": state.get("step4_long_term", {}).get("output", {})},
-        "step5_aggregation":{"output": state.get("step5_aggregation", {}).get("output", {})},
-        "step6_guardrails": {"output": state.get("step6_guardrails", {}).get("output", {})},
+        "step1_emergency": {
+            "output": state.get("step1_emergency", {}).get("output", {})
+        },
+        "step2_short_term": {
+            "output": state.get("step2_short_term", {}).get("output", {})
+        },
+        "step3_medium_term": {
+            "output": state.get("step3_medium_term", {}).get("output", {})
+        },
+        "step4_long_term": {
+            "output": state.get("step4_long_term", {}).get("output", {})
+        },
+        "step5_aggregation": {
+            "output": state.get("step5_aggregation", {}).get("output", {})
+        },
+        "step6_guardrails": {
+            "output": state.get("step6_guardrails", {}).get("output", {})
+        },
     }

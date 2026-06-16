@@ -97,9 +97,12 @@ def phase1_bounds(
             debt_min += dt_add_min
 
     return ResolvedBounds(
-        eq_min=eq_min, eq_max=eq_max,
-        debt_min=debt_min, debt_max=debt_max,
-        others_min=others_min, others_max=others_max,
+        eq_min=eq_min,
+        eq_max=eq_max,
+        debt_min=debt_min,
+        debt_max=debt_max,
+        others_min=others_min,
+        others_max=others_max,
     )
 
 
@@ -130,7 +133,11 @@ def _clamp_and_redistribute(
             values[i] = float(mins[i])
 
         # Redistribute delta across unclamped values proportionally to their current value.
-        unclamped = [i for i in range(len(values)) if i not in clamped_high and i not in clamped_low]
+        unclamped = [
+            i
+            for i in range(len(values))
+            if i not in clamped_high and i not in clamped_low
+        ]
         if not unclamped:
             return values
         u_sum = sum(values[i] for i in unclamped)
@@ -152,7 +159,11 @@ def phase2_asset_class_pcts(
     """Return (equities_pct, debt_pct, others_pct) — integers summing to 100."""
     mins = [float(bounds.eq_min), float(bounds.debt_min), float(bounds.others_min)]
     maxs = [float(bounds.eq_max), float(bounds.debt_max), float(bounds.others_max)]
-    views = [market_commentary.equities, market_commentary.debt, market_commentary.others]
+    views = [
+        market_commentary.equities,
+        market_commentary.debt,
+        market_commentary.others,
+    ]
 
     raws: list[float] = []
     for mn, mx, view in zip(mins, maxs, views):
@@ -214,7 +225,9 @@ def phase4_multi_asset(
     # (e.g. others_gate zeroed it), the excess is funded by shrinking the equity
     # subgroup pool — not by trimming the fund.
     overage = max(0, others_component - others_amount)
-    equity_for_subgroups = round_to_100(max(0, equities_amount - equity_component - overage))
+    equity_for_subgroups = round_to_100(
+        max(0, equities_amount - equity_component - overage)
+    )
     debt_for_subgroups = round_to_100(max(0, debt_amount - debt_component))
     remaining_others_for_gold = round_to_100(max(0, others_amount - others_component))
 
@@ -283,7 +296,9 @@ def phase5_equity_subgroups(
     # Drop-below-threshold pass (repeat once so values freed in round 1 can be
     # re-filtered if their redistribution pushed another subgroup below the bar).
     for _ in range(2):
-        small_idx = [i for i, v in enumerate(ints) if 0 < v < PHASE5_MIN_SUBGROUP_SHARE_PCT]
+        small_idx = [
+            i for i, v in enumerate(ints) if 0 < v < PHASE5_MIN_SUBGROUP_SHARE_PCT
+        ]
         if not small_idx:
             break
         freed = sum(ints[i] for i in small_idx)
@@ -340,14 +355,16 @@ def _drop_small_equity_subgroups(
     result, _min_pct, _avg = apply_equity_subgroup_slider(
         equity_subgroup_amounts,
         equity_pool=equity_for_subgroups,
-        equities_amount=0,   # ideal engine: no ELSS/non-MF → locked_share = 0
+        equities_amount=0,  # ideal engine: no ELSS/non-MF → locked_share = 0
         locked_amount=0,
     )
     return result
 
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
-    lt_goals = [g for g in inp.goals if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS]
+    lt_goals = [
+        g for g in inp.goals if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS
+    ]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
 
     if sum_goals > remaining_corpus:
@@ -378,7 +395,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     drift = total_long_term_corpus - (equities_amount + debt_amount + others_amount)
     if drift != 0:
         amounts_by_name = {
-            "eq": equities_amount, "dt": debt_amount, "oth": others_amount,
+            "eq": equities_amount,
+            "dt": debt_amount,
+            "oth": others_amount,
         }
         largest = max(amounts_by_name, key=lambda k: amounts_by_name[k])
         amounts_by_name[largest] += drift
@@ -428,13 +447,21 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         eq_pct_final, dt_pct_final, oth_pct_final = eq_pct, dt_pct, oth_pct
 
     asset_class_allocation = AssetClassAllocation(
-        equities_pct=eq_pct_final, debt_pct=dt_pct_final, others_pct=oth_pct_final,
-        equities_amount=eq_amt_final, debt_amount=debt_amount, others_amount=oth_amt_final,
+        equities_pct=eq_pct_final,
+        debt_pct=dt_pct_final,
+        others_pct=oth_pct_final,
+        equities_amount=eq_amt_final,
+        debt_amount=debt_amount,
+        others_amount=oth_amt_final,
     )
 
     planned_asset_class_allocation = AssetClassAllocation(
-        equities_pct=eq_pct, debt_pct=dt_pct, others_pct=oth_pct,
-        equities_amount=equities_amount, debt_amount=debt_amount, others_amount=others_amount,
+        equities_pct=eq_pct,
+        debt_pct=dt_pct,
+        others_pct=oth_pct,
+        equities_amount=equities_amount,
+        debt_amount=debt_amount,
+        others_amount=others_amount,
     )
 
     planned_subgroup_amounts: dict[str, int] = {sg: 0 for sg in STEP4_SUBGROUPS}
@@ -480,7 +507,11 @@ def _verify_invariants(out: Step4Output) -> None:
     )
     assert abs(m.debt_component + m.debt_for_subgroups - ac.debt_amount) <= tol
     others_gap = m.others_component + alloc["gold_commodities"] - ac.others_amount
-    assert abs(others_gap) <= tol, f"others reconciliation off by more than {tol}: gap={others_gap}"
+    assert abs(others_gap) <= tol, (
+        f"others reconciliation off by more than {tol}: gap={others_gap}"
+    )
     assert sum(alloc.values()) == out.total_allocated
     for sg, v in alloc.items():
-        assert v >= 0 and v % 100 == 0, f"{sg}={v} is not a non-negative multiple of 100"
+        assert v >= 0 and v % 100 == 0, (
+            f"{sg}={v} is not a non-negative multiple of 100"
+        )

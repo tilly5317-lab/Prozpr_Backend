@@ -26,7 +26,9 @@ async def get_rating_by_scheme(
 ):
     row = await fund_rating_service.get_rating_by_scheme_code(db, scheme_code)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found"
+        )
     return row
 
 
@@ -37,7 +39,9 @@ async def get_rating_by_isin(
 ):
     row = await fund_rating_service.get_rating_by_isin(db, isin)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found"
+        )
     return row
 
 
@@ -49,7 +53,9 @@ async def get_rating(
     return await fund_rating_service.get_rating(db, rating_id)
 
 
-@router.post("/", response_model=MfFundRatingResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=MfFundRatingResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_rating(
     payload: MfFundRatingCreate,
     db: AsyncSession = Depends(get_db),

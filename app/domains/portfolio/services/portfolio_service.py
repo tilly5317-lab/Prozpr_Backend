@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -20,12 +19,18 @@ from app.domains.portfolio.models.portfolio import Portfolio
 logger = logging.getLogger(__name__)
 
 
-async def get_primary_portfolio(db: AsyncSession, user_id: uuid.UUID) -> Portfolio | None:
-    stmt = select(Portfolio).where(Portfolio.user_id == user_id, Portfolio.is_primary == True)
+async def get_primary_portfolio(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Portfolio | None:
+    stmt = select(Portfolio).where(
+        Portfolio.user_id == user_id, Portfolio.is_primary == True
+    )
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-async def get_or_create_primary_portfolio(db: AsyncSession, user_id: uuid.UUID) -> Portfolio:
+async def get_or_create_primary_portfolio(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Portfolio:
     portfolio = await get_primary_portfolio(db, user_id)
     if not portfolio:
         portfolio = Portfolio(user_id=user_id, name="Primary", is_primary=True)
@@ -140,7 +145,9 @@ async def revalue_primary_portfolio_at_latest_nav(
         if units > 0 and cost > 0:
             invested += units * cost
     # Keep the statement cost basis when holdings carry no per-unit cost.
-    total_invested = round(invested, 2) if invested > 0 else float(portfolio.total_invested or 0)
+    total_invested = (
+        round(invested, 2) if invested > 0 else float(portfolio.total_invested or 0)
+    )
 
     # Authoritative headline = the holdings roll-up above: each CAS scheme's *closing
     # balance* re-marked to today's NAV. The CAS closing balance is the broker's own net
@@ -163,7 +170,9 @@ async def revalue_primary_portfolio_at_latest_nav(
 
     for h in holdings:
         h.allocation_percentage = (
-            round(100.0 * float(h.current_value or 0) / total_value, 2) if total_value > 0 else None
+            round(100.0 * float(h.current_value or 0) / total_value, 2)
+            if total_value > 0
+            else None
         )
 
     # Re-scale the bucket allocation amounts so the donut rupee figures track today's
@@ -186,7 +195,9 @@ async def revalue_primary_portfolio_at_latest_nav(
     if repriced:
         logger.debug(
             "revalued portfolio %s at latest NAV: total_value=%s invested=%s",
-            portfolio.id, total_value, total_invested,
+            portfolio.id,
+            total_value,
+            total_invested,
         )
     await db.commit()
     return portfolio

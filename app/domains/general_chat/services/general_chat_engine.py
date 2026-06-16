@@ -83,6 +83,7 @@ def _oos_reply(classification: ClassificationResult) -> str:
         )
     return OUT_OF_SCOPE_MESSAGE
 
+
 # Keep market commentary under this limit so the prompt fits the context window.
 _MAX_COMMENTARY_CHARS = 7000
 
@@ -122,7 +123,9 @@ _GENERAL_CHAT_BODY = (
     "- For pure factual lookups, skip the customer's name entirely. Don't gate the answer on missing "
     "personal data. Do NOT moralize, disclaim, or list what you'd need to advise further."
 )
-_SYSTEM_PROMPT = build_system_prompt(_GENERAL_CHAT_BODY, format_profile="chat", question_aware=True)
+_SYSTEM_PROMPT = build_system_prompt(
+    _GENERAL_CHAT_BODY, format_profile="chat", question_aware=True
+)
 
 _RETURN_REPLY_TOOL = {
     "name": "return_reply",
@@ -287,21 +290,26 @@ async def generate_general_chat_response(
         max_tokens=600,
         api_key=api_key,
         timeout=90.0,
-    ).bind_tools([
-        {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
-    ])
+    ).bind_tools(
+        [
+            {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+        ]
+    )
     try:
-        research_resp = await research_llm.ainvoke([
-            SystemMessage(content=_RESEARCH_SYSTEM_PROMPT),
-            HumanMessage(content=user_prompt),
-        ])
+        research_resp = await research_llm.ainvoke(
+            [
+                SystemMessage(content=_RESEARCH_SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt),
+            ]
+        )
     except anthropic.AuthenticationError:
         return unauthorised_reply
 
     content = research_resp.content
     if isinstance(content, list):
         research_raw = "".join(
-            b.get("text", "") for b in content
+            b.get("text", "")
+            for b in content
             if isinstance(b, dict) and b.get("type") == "text"
         )
     else:
@@ -326,10 +334,12 @@ async def generate_general_chat_response(
         tool_choice={"type": "tool", "name": "return_reply"},
     )
     try:
-        compose_resp = await compose_llm.ainvoke([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            HumanMessage(content=compose_user_prompt),
-        ])
+        compose_resp = await compose_llm.ainvoke(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                HumanMessage(content=compose_user_prompt),
+            ]
+        )
     except anthropic.AuthenticationError:
         return unauthorised_reply
 
@@ -349,7 +359,8 @@ async def generate_general_chat_response(
     content = compose_resp.content
     if isinstance(content, list):
         text_parts = [
-            b.get("text", "") for b in content
+            b.get("text", "")
+            for b in content
             if isinstance(b, dict) and b.get("type") == "text"
         ]
     else:
@@ -357,6 +368,4 @@ async def generate_general_chat_response(
     fallback_text = _strip_cite_tags("".join(text_parts))
     if fallback_text:
         return fallback_text
-    return (
-        "I couldn't produce a reply in the expected format. Please try rephrasing your question."
-    )
+    return "I couldn't produce a reply in the expected format. Please try rephrasing your question."

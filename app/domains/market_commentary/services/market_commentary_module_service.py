@@ -52,7 +52,8 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     except asyncio.TimeoutError:
         logger.warning(
             "Market commentary timed out (%.0fs) session=%s; sequence will continue without macro doc",
-            _MARKET_COMMENTARY_TIMEOUT_S, turn.session_id,
+            _MARKET_COMMENTARY_TIMEOUT_S,
+            turn.session_id,
         )
         return ModuleOutput(payload=None)
     except Exception:

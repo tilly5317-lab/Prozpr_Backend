@@ -6,6 +6,7 @@ Two-step flow per fund:
 
 Cached by AMFI scheme_code under build/cache/scrape/<code>.json.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
     "Accept": "application/json",
 }
 
@@ -47,7 +48,9 @@ def _get(url: str, params: dict | None = None, timeout: int = 12) -> dict | None
     for attempt in range(3):
         try:
             r = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
-            if r.status_code == 200 and r.headers.get("content-type", "").startswith("application/json"):
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith(
+                "application/json"
+            ):
                 return r.json()
             if r.status_code in (404, 400):
                 return None
@@ -87,14 +90,18 @@ def fetch_detail_by_slug(slug: str) -> dict | None:
     return _get(DETAIL_URL.format(slug=slug))
 
 
-def fetch_for_scheme(scheme_code: int, scheme_name: str, force: bool = False) -> dict | None:
+def fetch_for_scheme(
+    scheme_code: int, scheme_name: str, force: bool = False
+) -> dict | None:
     cache_file = CACHE_DIR / f"{scheme_code}.json"
     if cache_file.exists() and not force:
         with open(cache_file) as f:
             return json.load(f)
     slug = search_slug(scheme_name)
     if not slug:
-        cache_file.write_text(json.dumps({"_status": "no_search_match", "scheme_name": scheme_name}))
+        cache_file.write_text(
+            json.dumps({"_status": "no_search_match", "scheme_name": scheme_name})
+        )
         return None
     detail = fetch_detail_by_slug(slug)
     if not detail:
@@ -123,7 +130,7 @@ def _safe_isin_match(detail: dict, target_isins: tuple[str, ...]) -> bool:
 def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> dict:
     """Normalize Groww detail into the framework's Tier 3 fields."""
     out = {
-        "asset_size_cr": None,           # AUM in INR crore
+        "asset_size_cr": None,  # AUM in INR crore
         "min_investment": None,
         "expense_ratio_pct": None,
         "performance_fees": "Not applicable in Indian MFs",
@@ -135,7 +142,7 @@ def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> di
         "pm_turnover_l5y": None,
         "top10_holdings_weight_pct": None,
         "size_exposure_LMS": None,
-        "style_exposure_GV": None,        # not in Groww; leave null
+        "style_exposure_GV": None,  # not in Groww; leave null
         "portfolio_churn_l3y_pct": None,
         "groww_benchmark": None,
         "groww_isin_match": None,
@@ -165,12 +172,25 @@ def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> di
     if pool:
         # Earliest date_from = lead manager's tenure start; pick the one named in fund_manager
         pm_name_hint = (detail.get("fund_manager") or "").split(",")[0].strip()
-        match = next((m for m in pool if pm_name_hint and pm_name_hint.lower() in (m.get("person_name") or "").lower()), None) or pool[0]
+        match = (
+            next(
+                (
+                    m
+                    for m in pool
+                    if pm_name_hint
+                    and pm_name_hint.lower() in (m.get("person_name") or "").lower()
+                ),
+                None,
+            )
+            or pool[0]
+        )
         out["lead_pm_name"] = match.get("person_name")
         df = match.get("date_from")
         if df:
             try:
-                out["manager_start_date"] = datetime.fromisoformat(df.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+                out["manager_start_date"] = datetime.fromisoformat(
+                    df.replace("Z", "+00:00")
+                ).strftime("%Y-%m-%d")
             except Exception:
                 out["manager_start_date"] = df
 
@@ -183,7 +203,9 @@ def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> di
             df = m.get("date_from")
             if df:
                 try:
-                    d = datetime.fromisoformat(df.replace("Z", "+00:00")).replace(tzinfo=None)
+                    d = datetime.fromisoformat(df.replace("Z", "+00:00")).replace(
+                        tzinfo=None
+                    )
                     if d >= cutoff:
                         seen.add(m.get("person_name"))
                 except Exception:
@@ -192,16 +214,26 @@ def extract_tier3(detail: dict | None, target_isins: tuple[str, ...] = ()) -> di
 
     # Holdings — top 10 weight (size exposure not in this endpoint, leave null)
     holdings = detail.get("holdings") or []
-    equity_h = [h for h in holdings if (h.get("nature_name") or "").upper() in {"EQ", "EQUITY", "STOCK", "EQUITIES"}]
+    equity_h = [
+        h
+        for h in holdings
+        if (h.get("nature_name") or "").upper() in {"EQ", "EQUITY", "STOCK", "EQUITIES"}
+    ]
     if equity_h:
-        sorted_h = sorted(equity_h, key=lambda x: x.get("corpus_per", 0) or 0, reverse=True)
+        sorted_h = sorted(
+            equity_h, key=lambda x: x.get("corpus_per", 0) or 0, reverse=True
+        )
         top10 = sorted_h[:10]
-        out["top10_holdings_weight_pct"] = round(sum((h.get("corpus_per", 0) or 0) for h in top10), 2)
+        out["top10_holdings_weight_pct"] = round(
+            sum((h.get("corpus_per", 0) or 0) for h in top10), 2
+        )
 
     # Category rank (current) — useful even though not strictly the framework's "rolling %ile"
     stats = detail.get("stats") or []
     rank_row = next((s for s in stats if s.get("type") == "RANK_WITHIN_CATEGORY"), None)
-    cat_avg_row = next((s for s in stats if s.get("type") == "CATEGORY_AVG_RETURN"), None)
+    cat_avg_row = next(
+        (s for s in stats if s.get("type") == "CATEGORY_AVG_RETURN"), None
+    )
     if rank_row:
         out["category_rank_1y"] = rank_row.get("stat_1y")
         out["category_rank_3y"] = rank_row.get("stat_3y")

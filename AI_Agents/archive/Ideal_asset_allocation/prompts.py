@@ -23,6 +23,7 @@ def _load(filename: str) -> str:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _serialize(state: dict) -> str:
     """Serialize state to a compact but readable JSON string."""
     return json.dumps(state, indent=2, default=str)
@@ -45,10 +46,12 @@ Return ONLY a valid JSON object matching the JSON Output schema in the reference
 no commentary, no markdown fences.
 """
 
-step1_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP1_SYSTEM),
-    ("human", _STEP1_HUMAN),
-])
+step1_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP1_SYSTEM),
+        ("human", _STEP1_HUMAN),
+    ]
+)
 
 
 # ── Step 2: Asset Class Allocation ───────────────────────────────────────────
@@ -73,10 +76,12 @@ Return ONLY a valid JSON object matching the schema in the reference — \
 no commentary, no markdown fences.
 """
 
-step2_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP2_SYSTEM),
-    ("human", _STEP2_HUMAN),
-])
+step2_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP2_SYSTEM),
+        ("human", _STEP2_HUMAN),
+    ]
+)
 
 
 # ── Step 3: Subgroup Allocation ───────────────────────────────────────────────
@@ -109,10 +114,12 @@ Return ONLY a valid JSON object matching the schema in the reference — \
 no commentary, no markdown fences.
 """
 
-step3_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP3_SYSTEM),
-    ("human", _STEP3_HUMAN),
-])
+step3_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP3_SYSTEM),
+        ("human", _STEP3_HUMAN),
+    ]
+)
 
 
 # ── Step 4: Guardrails validation & correction (LLM) ─────────────────────────
@@ -151,10 +158,12 @@ Return ONLY a valid JSON object matching the output schema in the reference — 
 no commentary, no markdown fences.
 """
 
-step4_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP4_SYSTEM),
-    ("human", _STEP4_HUMAN),
-])
+step4_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP4_SYSTEM),
+        ("human", _STEP4_HUMAN),
+    ]
+)
 
 
 # ── Step 5: Presentation ──────────────────────────────────────────────────────
@@ -192,23 +201,29 @@ your long-term investments."
 Return ONLY a valid JSON object matching the schema — no commentary, no markdown fences.
 """
 
-step5_prompt = ChatPromptTemplate.from_messages([
-    ("system", _STEP5_SYSTEM),
-    ("human", _STEP5_HUMAN),
-])
+step5_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", _STEP5_SYSTEM),
+        ("human", _STEP5_HUMAN),
+    ]
+)
 
 
 # ── State serializer runnable ─────────────────────────────────────────────────
 # Each prompt receives {state_json}. We bind state_json = serialized full state.
 
+
 def make_state_serializer(prompt):
     """Wrap a prompt so it receives state_json from the full accumulated dict."""
+
     def _bind(state: dict):
         return prompt.format_messages(state_json=_serialize(state))
+
     return RunnableLambda(_bind)
 
 
 # ── Per-step state slimmers ────────────────────────────────────────────────────
+
 
 def _slim_for_step2(state: dict) -> dict:
     s1 = state.get("step1_carve_outs", {})
@@ -222,8 +237,12 @@ def _slim_for_step3(state: dict) -> dict:
     s1 = state.get("step1_carve_outs", {})
     s2 = state.get("step2_asset_class", {})
     input_fields = [
-        "effective_risk_score", "tax_regime", "section_80c_utilized",
-        "annual_income", "investment_horizon", "investment_horizon_years",
+        "effective_risk_score",
+        "tax_regime",
+        "section_80c_utilized",
+        "annual_income",
+        "investment_horizon",
+        "investment_horizon_years",
     ]
     return {
         **{k: state[k] for k in input_fields if k in state},
@@ -240,7 +259,9 @@ def _slim_for_step4(state: dict) -> dict:
         "effective_risk_score": state.get("effective_risk_score"),
         "step1_carve_outs": {
             "output": {
-                "remaining_investable_corpus": s1.get("output", {}).get("remaining_investable_corpus")
+                "remaining_investable_corpus": s1.get("output", {}).get(
+                    "remaining_investable_corpus"
+                )
             }
         },
         "step2_asset_class": {"output": s2.get("output", {})},
@@ -252,10 +273,17 @@ def _slim_for_step5(state: dict) -> dict:
     s1 = state.get("step1_carve_outs", {})
     s4 = state.get("step4_validation", {})
     input_keys = [
-        "age", "occupation_type", "investment_horizon", "investment_goal",
-        "effective_risk_score", "total_corpus", "monthly_household_expense",
-        "primary_income_from_portfolio", "short_term_expenses",
-        "tax_regime", "section_80c_utilized",
+        "age",
+        "occupation_type",
+        "investment_horizon",
+        "investment_goal",
+        "effective_risk_score",
+        "total_corpus",
+        "monthly_household_expense",
+        "primary_income_from_portfolio",
+        "short_term_expenses",
+        "tax_regime",
+        "section_80c_utilized",
     ]
     return {
         **{k: state[k] for k in input_keys if k in state},

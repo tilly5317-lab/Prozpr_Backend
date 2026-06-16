@@ -6,6 +6,7 @@ of this file) adapt those impls to LangGraph — they read InjectedState, call t
 impl, and return a Command that propagates state mutations plus a ToolMessage.
 `TOOLS` is the list bound to the agent node and the ToolNode.
 """
+
 from __future__ import annotations
 import asyncio
 from typing import Annotated, Any
@@ -16,8 +17,14 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
 from cashflow_statement.models import (
-    OverrideSpec, GoalMutation, ExtractedFinancialEvent, ExtractionError,
-    ExtractedGoal, ExtractedProperty, ExtractedCashflow, ExtractedMutation,
+    OverrideSpec,
+    GoalMutation,
+    ExtractedFinancialEvent,
+    ExtractionError,
+    ExtractedGoal,
+    ExtractedProperty,
+    ExtractedCashflow,
+    ExtractedMutation,
     TurnAction,
 )
 from cashflow_statement.agent.state import AgentState, CapturedCashflow
@@ -30,7 +37,8 @@ TOP_UNDERFUNDED_GOALS_SHOWN = 3
 
 
 async def extract_financial_event_impl(
-    description: str, state: AgentState,
+    description: str,
+    state: AgentState,
 ) -> tuple[str, ExtractedFinancialEvent | None]:
     """Returns (summary_for_llm, structured_event_for_audit_or_None_on_error)."""
     existing_names = (
@@ -41,7 +49,9 @@ async def extract_financial_event_impl(
         + [p.name for p in state["captured_properties"]]
     )
     result = await extract_event(
-        description, state["anchor_date"], existing_names,
+        description,
+        state["anchor_date"],
+        existing_names,
         assumptions=state["baseline_input"].assumptions,
     )
 
@@ -52,19 +62,35 @@ async def extract_financial_event_impl(
     state["dirty"] = True
     if isinstance(result, ExtractedGoal):
         state["captured_goals"].append(result.goal)
-        return f"Captured custom goal: {result.goal.name} on {result.goal.goal_date.isoformat()}", result
+        return (
+            f"Captured custom goal: {result.goal.name} on {result.goal.goal_date.isoformat()}",
+            result,
+        )
     if isinstance(result, ExtractedProperty):
         state["captured_properties"].append(result.property)
         if result.assumptions_used:
-            return f"Captured property goal: {result.property.name}; assumptions used: {', '.join(result.assumptions_used)}", result
+            return (
+                f"Captured property goal: {result.property.name}; assumptions used: {', '.join(result.assumptions_used)}",
+                result,
+            )
         return f"Captured property goal: {result.property.name}", result
     if isinstance(result, ExtractedCashflow):
-        state["captured_cashflows"].append(CapturedCashflow(event=result.event, direction=result.direction))
-        return f"Captured one-off {result.direction}flow: {result.event.description} ₹{result.event.amount:,.0f}", result
+        state["captured_cashflows"].append(
+            CapturedCashflow(event=result.event, direction=result.direction)
+        )
+        return (
+            f"Captured one-off {result.direction}flow: {result.event.description} ₹{result.event.amount:,.0f}",
+            result,
+        )
     if isinstance(result, ExtractedMutation):
-        state["captured_mutations"].append(GoalMutation(
-            kind="mutation", op=result.op, goal_name=result.goal_name, fields=result.fields,
-        ))
+        state["captured_mutations"].append(
+            GoalMutation(
+                kind="mutation",
+                op=result.op,
+                goal_name=result.goal_name,
+                fields=result.fields,
+            )
+        )
         return f"Captured mutation on {result.goal_name}: {result.op}", result
     return "Unknown extraction kind", None
 
@@ -92,11 +118,18 @@ def clear_overrides_impl(keys: list[str] | None, state: AgentState) -> str:
     return f"Cleared {before - len(state['accumulated_overrides'])} override(s)."
 
 
-def mutate_goal_impl(op: str, goal_name: str, fields: dict[str, Any], state: AgentState) -> str:
+def mutate_goal_impl(
+    op: str, goal_name: str, fields: dict[str, Any], state: AgentState
+) -> str:
     """Stage a goal mutation."""
-    state["captured_mutations"].append(GoalMutation(
-        kind="mutation", op=op, goal_name=goal_name, fields=fields,  # type: ignore[arg-type]
-    ))
+    state["captured_mutations"].append(
+        GoalMutation(
+            kind="mutation",
+            op=op,
+            goal_name=goal_name,
+            fields=fields,  # type: ignore[arg-type]
+        )
+    )
     state["dirty"] = True
     return f"Goal mutation staged: {op} '{goal_name}' with fields {list(fields.keys())}"
 
@@ -123,21 +156,32 @@ def _merge_state_into_input(state: AgentState):
     for o in by_key.values():
         if o.kind == "numeric":
             if o.key == "starting_monthly_investment":
-                inp.profile = inp.profile.model_copy(update={"starting_monthly_investment": o.value})
+                inp.profile = inp.profile.model_copy(
+                    update={"starting_monthly_investment": o.value}
+                )
             elif o.key == "annual_income":
                 inp.profile = inp.profile.model_copy(update={"annual_income": o.value})
             elif o.key == "monthly_household_expense":
-                inp.profile = inp.profile.model_copy(update={"monthly_household_expense": o.value})
+                inp.profile = inp.profile.model_copy(
+                    update={"monthly_household_expense": o.value}
+                )
             elif o.key == "step_up_rate":
-                inp.assumptions = inp.assumptions.model_copy(update={"annual_invested_amount_growth": o.value})
+                inp.assumptions = inp.assumptions.model_copy(
+                    update={"annual_invested_amount_growth": o.value}
+                )
         elif o.kind == "rate":
             inp.assumptions = inp.assumptions.model_copy(update={o.key: o.value})
 
     # Apply mutations
     from cashflow_statement.agent.levers import _apply_goal_mutation
+
     for m in state["captured_mutations"]:
         if m.op == "remove":
-            inp.custom_goals = [g for g in inp.custom_goals if g.name.casefold() != m.goal_name.casefold()]
+            inp.custom_goals = [
+                g
+                for g in inp.custom_goals
+                if g.name.casefold() != m.goal_name.casefold()
+            ]
         elif m.op == "update":
             inp = _apply_goal_mutation(inp, m.goal_name, m.fields)
 
@@ -169,7 +213,8 @@ def _summarize_output(out) -> str:
     h = out.headline
     underfunded = sorted(
         [g for g in out.goals if g.shortfall_fv > 0],
-        key=lambda g: g.shortfall_fv, reverse=True,
+        key=lambda g: g.shortfall_fv,
+        reverse=True,
     )[:TOP_UNDERFUNDED_GOALS_SHOWN]
     lines = [
         f"Feasible: {h.is_feasible}",
@@ -180,7 +225,9 @@ def _summarize_output(out) -> str:
     if underfunded:
         lines.append("Top underfunded goals:")
         for g in underfunded:
-            lines.append(f"  - {g.name}: short by ₹{g.shortfall_fv:,.0f} (target ₹{g.corpus_required_fv:,.0f})")
+            lines.append(
+                f"  - {g.name}: short by ₹{g.shortfall_fv:,.0f} (target ₹{g.corpus_required_fv:,.0f})"
+            )
     return "\n".join(lines)
 
 
@@ -230,11 +277,13 @@ def _build_tool_command(
         arguments=arguments,
         summary=summary,
     )
-    return Command(update={
-        **state_updates,
-        "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
-        "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
-    })
+    return Command(
+        update={
+            **state_updates,
+            "actions_taken_this_turn": [*state["actions_taken_this_turn"], new_action],
+            "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
+        }
+    )
 
 
 @tool
@@ -255,11 +304,16 @@ def extract_financial_event(
     }
     if event is not None:
         state_updates["extracted_events_this_turn"] = [
-            *state["extracted_events_this_turn"], event,
+            *state["extracted_events_this_turn"],
+            event,
         ]
     return _build_tool_command(
-        state, "extract_financial_event", {"description": description},
-        summary, tool_call_id, state_updates,
+        state,
+        "extract_financial_event",
+        {"description": description},
+        summary,
+        tool_call_id,
+        state_updates,
     )
 
 
@@ -271,11 +325,15 @@ def apply_override(
 ) -> Command:
     """Stage a what-if change to a parameter (income, expense, SIP, rate)."""
     from pydantic import TypeAdapter
+
     parsed = TypeAdapter(OverrideSpec).validate_python(override)
     summary = apply_override_impl(parsed, state)
     return _build_tool_command(
-        state, "apply_override", {"override": override},
-        summary, tool_call_id,
+        state,
+        "apply_override",
+        {"override": override},
+        summary,
+        tool_call_id,
         state_updates={
             "accumulated_overrides": state["accumulated_overrides"],
             "dirty": state["dirty"],
@@ -292,8 +350,11 @@ def clear_overrides(
     """Clear staged overrides (all if keys=None, or specific keys)."""
     summary = clear_overrides_impl(keys, state)
     return _build_tool_command(
-        state, "clear_overrides", {"keys": keys},
-        summary, tool_call_id,
+        state,
+        "clear_overrides",
+        {"keys": keys},
+        summary,
+        tool_call_id,
         state_updates={
             "accumulated_overrides": state["accumulated_overrides"],
             "dirty": state["dirty"],
@@ -312,9 +373,11 @@ def mutate_goal(
     """Remove/update a goal (incl. retirement)."""
     summary = mutate_goal_impl(op, goal_name, fields, state)
     return _build_tool_command(
-        state, "mutate_goal",
+        state,
+        "mutate_goal",
         {"op": op, "goal_name": goal_name, "fields": fields},
-        summary, tool_call_id,
+        summary,
+        tool_call_id,
         state_updates={
             "captured_mutations": state["captured_mutations"],
             "dirty": state["dirty"],
@@ -330,8 +393,11 @@ def compute_projection(
     """Run the goal-planning engine. Idempotent."""
     summary = compute_projection_impl(state)
     return _build_tool_command(
-        state, "compute_projection", {},
-        summary, tool_call_id,
+        state,
+        "compute_projection",
+        {},
+        summary,
+        tool_call_id,
         state_updates={
             "last_output": state["last_output"],
             "dirty": state["dirty"],
@@ -347,8 +413,11 @@ def propose_levers(
     """Generate up to 3 deterministic recommendations to close shortfalls."""
     summary = propose_levers_impl(state)
     return _build_tool_command(
-        state, "propose_levers", {},
-        summary, tool_call_id,
+        state,
+        "propose_levers",
+        {},
+        summary,
+        tool_call_id,
         state_updates={
             "last_levers": state["last_levers"],
         },
@@ -356,6 +425,10 @@ def propose_levers(
 
 
 TOOLS = [
-    extract_financial_event, apply_override, clear_overrides,
-    mutate_goal, compute_projection, propose_levers,
+    extract_financial_event,
+    apply_override,
+    clear_overrides,
+    mutate_goal,
+    compute_projection,
+    propose_levers,
 ]

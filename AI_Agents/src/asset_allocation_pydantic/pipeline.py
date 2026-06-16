@@ -28,9 +28,7 @@ def run_allocation_with_state(
     s4 = step4_long_term.run(inp, s3.remaining_corpus)
     s5 = step5_aggregation.run(inp.total_corpus, s1, s2, s3, s4)
     s6 = step6_guardrails.run(s4, s5, inp.effective_risk_score)
-    output = step7_presentation.run(
-        inp, s1, s2, s3, s4, s5, rationale_fn=rationale_fn
-    )
+    output = step7_presentation.run(inp, s1, s2, s3, s4, s5, rationale_fn=rationale_fn)
     state = {
         "step1_emergency": s1,
         "step2_short_term": s2,

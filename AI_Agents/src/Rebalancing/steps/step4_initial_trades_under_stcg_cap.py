@@ -49,13 +49,15 @@ def _tax_cheapness_key(row: FundRowAfterStep3) -> float:
 
     lt_gain_ratio = (
         float(row.ltcg_amount) / float(row.lt_value_inr)
-        if row.lt_value_inr > 0 else 0.0
+        if row.lt_value_inr > 0
+        else 0.0
     )
     lt_eff = max(lt_gain_ratio, 0.0) * LTCG_RATE_EQUITY_PCT / 100.0
 
     st_gain_ratio = (
         float(row.stcg_amount) / float(row.st_value_inr)
-        if row.st_value_inr > 0 else 0.0
+        if row.st_value_inr > 0
+        else 0.0
     )
     # Negative ratio (loss) → negative effective rate (cheaper).
     st_eff = st_gain_ratio * STCG_RATE_EQUITY_PCT / 100.0
@@ -150,7 +152,13 @@ def _apply_stcg_budget(
         return Decimal(0), Decimal(0), stcg_remaining, slice_amount, slice_stcg
 
     if slice_stcg <= stcg_remaining:
-        return slice_amount, slice_stcg, stcg_remaining - slice_stcg, Decimal(0), Decimal(0)
+        return (
+            slice_amount,
+            slice_stcg,
+            stcg_remaining - slice_stcg,
+            Decimal(0),
+            Decimal(0),
+        )
 
     # Partial fit: scale slice to fit remaining headroom.
     affordable_amount = stcg_remaining * slice_amount / slice_stcg
@@ -327,8 +335,7 @@ def apply(
     warnings: list[RebalancingWarning] = []
     if stcg_budget is not None:
         binding_isins = [
-            r.isin for r in rows
-            if state[r.isin]["pass1_blocked_stcg_value"] > 0
+            r.isin for r in rows if state[r.isin]["pass1_blocked_stcg_value"] > 0
         ]
         if binding_isins:
             warnings.append(

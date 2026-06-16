@@ -1,5 +1,7 @@
 from .graph import (
-    build_graph, get_compiled_graph, run_cashflow_statement,
+    build_graph,
+    get_compiled_graph,
+    run_cashflow_statement,
     TOOLS,
 )
 
@@ -7,6 +9,9 @@ from .graph import (
 cashflow_statement_graph = get_compiled_graph
 
 __all__ = [
-    "cashflow_statement_graph", "build_graph", "get_compiled_graph",
-    "run_cashflow_statement", "TOOLS",
+    "cashflow_statement_graph",
+    "build_graph",
+    "get_compiled_graph",
+    "run_cashflow_statement",
+    "TOOLS",
 ]

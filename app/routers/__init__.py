@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from app.routers.health import router as health_router
 from app.domains.identity.routers.auth_router import router as auth_router
 from app.domains.identity.routers.onboarding_router import router as onboarding_router
@@ -11,12 +10,20 @@ from app.domains.profile.routers.profile_router import router as profile_router
 from app.domains.goals.routers.goals_router import router as goals_router
 from app.domains.portfolio.routers.portfolio_router import router as portfolio_router
 from app.domains.chat.routers.chat_router import router as chat_router
-from app.domains.advisory.routers.meeting_notes_router import router as meeting_notes_router
-from app.domains.notifications.routers.notifications_router import router as notifications_router
+from app.domains.advisory.routers.meeting_notes_router import (
+    router as meeting_notes_router,
+)
+from app.domains.notifications.routers.notifications_router import (
+    router as notifications_router,
+)
 from app.domains.advisory.routers.discovery_router import router as discovery_router
-from app.domains.rebalancing.routers.rebalancing_router import router as rebalancing_router
+from app.domains.rebalancing.routers.rebalancing_router import (
+    router as rebalancing_router,
+)
 from app.domains.advisory.routers.ips_router import router as ips_router
-from app.domains.identity.routers.linked_accounts_router import router as linked_accounts_router
+from app.domains.identity.routers.linked_accounts_router import (
+    router as linked_accounts_router,
+)
 from app.domains.identity.routers.family_router import router as family_router
 from app.domains.ingestion.routers.simbanks_router import router as simbanks_router
 from app.domains.mutual_funds.routers import router as mf_data_router

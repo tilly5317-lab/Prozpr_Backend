@@ -35,7 +35,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     result = await dispatch_chat("asset_allocation", ctx)
     return ModuleOutput(
         text=result.text,
-        payload=result,                                      # carries the structured Allocation result for downstream
+        payload=result,  # carries the structured Allocation result for downstream
         persisted_run_id=result.asset_allocation_run_id,
         snapshot_id=result.snapshot_id,
         rebalancing_recommendation_id=result.rebalancing_recommendation_id,

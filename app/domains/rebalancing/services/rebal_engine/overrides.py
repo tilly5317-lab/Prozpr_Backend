@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.domains.asset_allocation.services.aa_engine.overrides import with_chat_overrides
+from app.domains.asset_allocation.services.aa_engine.overrides import (
+    with_chat_overrides,
+)
 
 __all__ = [
     "with_chat_overrides",
@@ -19,13 +21,15 @@ if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 
 
-_REBAL_ALLOWED_OVERRIDE_KEYS = frozenset({
-    "effective_tax_rate",
-    "stcg_offset_budget_inr",
-    "carryforward_st_loss_inr",
-    "carryforward_lt_loss_inr",
-    "additional_cash_inr",  # cross-module: also in AA's allow-list (corpus adjustment)
-})
+_REBAL_ALLOWED_OVERRIDE_KEYS = frozenset(
+    {
+        "effective_tax_rate",
+        "stcg_offset_budget_inr",
+        "carryforward_st_loss_inr",
+        "carryforward_lt_loss_inr",
+        "additional_cash_inr",  # cross-module: also in AA's allow-list (corpus adjustment)
+    }
+)
 
 
 def effective_param(ctx: "TurnContext", key: str, fallback: Any) -> Any:

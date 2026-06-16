@@ -19,7 +19,9 @@ _RECENT_NAV_LOOKBACK_DAYS = 15
 
 
 def _has_recent_nav():
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RECENT_NAV_LOOKBACK_DAYS)).date()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=_RECENT_NAV_LOOKBACK_DAYS)
+    ).date()
     # Correlate so `mf_fund_metadata` in the subquery refers to the outer row only (not a separate scan).
     inner = (
         select(MfNavHistory.id)
@@ -55,13 +57,19 @@ async def list_metadata(
 
 
 async def get_metadata(db: AsyncSession, metadata_id: uuid.UUID) -> MfFundMetadata:
-    row = (await db.execute(select(MfFundMetadata).where(MfFundMetadata.id == metadata_id))).scalar_one_or_none()
+    row = (
+        await db.execute(select(MfFundMetadata).where(MfFundMetadata.id == metadata_id))
+    ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund metadata not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund metadata not found"
+        )
     return row
 
 
-async def create_metadata(db: AsyncSession, payload: MfFundMetadataCreate) -> MfFundMetadata:
+async def create_metadata(
+    db: AsyncSession, payload: MfFundMetadataCreate
+) -> MfFundMetadata:
     data = payload.model_dump()
     row = MfFundMetadata(**data)
     db.add(row)
@@ -70,7 +78,9 @@ async def create_metadata(db: AsyncSession, payload: MfFundMetadataCreate) -> Mf
     return row
 
 
-async def update_metadata(db: AsyncSession, metadata_id: uuid.UUID, payload: MfFundMetadataUpdate) -> MfFundMetadata:
+async def update_metadata(
+    db: AsyncSession, metadata_id: uuid.UUID, payload: MfFundMetadataUpdate
+) -> MfFundMetadata:
     row = await get_metadata(db, metadata_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(row, k, v)
@@ -107,7 +117,9 @@ async def search_metadata(
 
     if asset_class:
         # asset_class lives on the curated rating table — filter via a join.
-        stmt = stmt.join(MfFundRating, MfFundRating.scheme_code == MfFundMetadata.scheme_code)
+        stmt = stmt.join(
+            MfFundRating, MfFundRating.scheme_code == MfFundMetadata.scheme_code
+        )
         count_stmt = count_stmt.join(
             MfFundRating, MfFundRating.scheme_code == MfFundMetadata.scheme_code
         )

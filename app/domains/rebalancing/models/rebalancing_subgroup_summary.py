@@ -50,16 +50,24 @@ class RebalancingSubgroupSummary(Base):
 
     asset_subgroup: Mapped[str] = mapped_column(String(80), nullable=False)
 
-    goal_target_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    goal_target_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     current_holding_inr: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )
     suggested_final_holding_inr: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )
-    rebalance_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    total_buy_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    total_sell_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    rebalance_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    total_buy_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    total_sell_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
 
     ranks_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ranks_with_holding: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -5,7 +5,6 @@ Includes JWT bearer auth (``get_current_user``), optional family-member imperson
 full ``User`` ORM graph for chat and allocation (profiles, goals, portfolios).
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -94,6 +93,7 @@ async def get_effective_user(
         return current_user
 
     from app.domains.identity.models.family_member import FamilyMember
+
     try:
         member_id = uuid.UUID(x_family_member_id)
     except ValueError:

@@ -9,6 +9,7 @@ returns it to the customer.
 Self-contained (stdlib only); must not import any peer agent module. Duck-types the
 response's ``.tool_calls`` so it does not depend on langchain.
 """
+
 from __future__ import annotations
 
 DEFAULT_REASONING_DESC = (

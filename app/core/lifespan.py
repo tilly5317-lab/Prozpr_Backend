@@ -58,6 +58,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 # startup
 # ---------------------------------------------------------------------------
 
+
 async def _startup() -> None:
     logger.info(_BANNER)
     logger.info("Starting Ask PI API v2.0")
@@ -83,7 +84,8 @@ def _log_db_engine_info() -> None:
         logger.info(
             "Database engine: postgresql (host=%s, db=%s). "
             "Run `alembic upgrade head` on RDS for migrations.",
-            parsed.host or "?", parsed.database or "?",
+            parsed.host or "?",
+            parsed.database or "?",
         )
     elif parsed.drivername.startswith("sqlite"):
         logger.warning("Database engine: sqlite (ALLOW_SQLITE dev mode only)")
@@ -116,7 +118,8 @@ async def _initialize_database() -> None:
         # when the DB role lacks ALTER privileges. Log and move on.
         logger.warning(
             "Postgres schema patches failed "
-            "(check DB permissions / table chat_ai_module_runs): %s", exc,
+            "(check DB permissions / table chat_ai_module_runs): %s",
+            exc,
         )
 
     logger.info("Database tables ready (create_all).")
@@ -137,7 +140,9 @@ def _start_schedulers() -> None:
             logger.warning("mfapi scheduler failed to start: %s", exc)
 
     if not get_settings().index_tri_scheduler_enabled():
-        logger.info("index TRI scheduler disabled (INDEX_TRI_SCHEDULER_ENABLED is false)")
+        logger.info(
+            "index TRI scheduler disabled (INDEX_TRI_SCHEDULER_ENABLED is false)"
+        )
     else:
         try:
             start_tri_scheduler()
@@ -148,6 +153,7 @@ def _start_schedulers() -> None:
 # ---------------------------------------------------------------------------
 # shutdown
 # ---------------------------------------------------------------------------
+
 
 async def _shutdown() -> None:
     logger.info("Shutting down Ask PI API...")

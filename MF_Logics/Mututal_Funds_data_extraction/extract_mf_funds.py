@@ -12,6 +12,7 @@ Run
   python extract_mf_funds.py
   python extract_mf_funds.py --workers 8 --active-months 3
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,15 +40,22 @@ def main() -> int:
         description="Part 1: fetch all MF schemes + build active list (latest NAV / dates)",
     )
     ap.add_argument(
-        "--workers", type=int, default=MAX_WORKERS,
+        "--workers",
+        type=int,
+        default=MAX_WORKERS,
         help=f"Concurrent HTTP threads (default {MAX_WORKERS})",
     )
     ap.add_argument(
-        "--active-months", type=int, default=ACTIVE_MONTHS,
+        "--active-months",
+        type=int,
+        default=ACTIVE_MONTHS,
         help=f"Active = NAV updated in last N months (default {ACTIVE_MONTHS})",
     )
     ap.add_argument(
-        "--step", type=int, choices=[1, 2], action="append",
+        "--step",
+        type=int,
+        choices=[1, 2],
+        action="append",
         help="Run only step 1 or 2 (repeatable; default: both)",
     )
     args = ap.parse_args()
@@ -69,7 +77,9 @@ def main() -> int:
 
     wall = time.monotonic()
     log.info("=" * 60)
-    log.info(f"extract_mf_funds  |  steps {sorted(steps)}  |  {datetime.today():%Y-%m-%d}")
+    log.info(
+        f"extract_mf_funds  |  steps {sorted(steps)}  |  {datetime.today():%Y-%m-%d}"
+    )
     log.info("=" * 60)
 
     if 1 in steps:
@@ -77,7 +87,9 @@ def main() -> int:
 
     if 2 in steps:
         if not OUT_JSON.is_file():
-            log.error(f"Cannot run step 2: {OUT_JSON.name} not found. Run step 1 first.")
+            log.error(
+                f"Cannot run step 2: {OUT_JSON.name} not found. Run step 1 first."
+            )
             return 1
         step2(OUT_JSON, OUT_ALL_CSV, OUT_ACTIVE_CSV, args.active_months)
 

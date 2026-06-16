@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -33,7 +32,9 @@ from app.domains.goals.schemas.goal import (
     GoalUpdate,
     goal_to_response,
 )
-from app.domains.cashflow.services.cashflow_persist_service import mark_stale as mark_cashflow_stale
+from app.domains.cashflow.services.cashflow_persist_service import (
+    mark_stale as mark_cashflow_stale,
+)
 
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
@@ -48,11 +49,16 @@ _LEGACY_STATUS = {
 }
 
 
-async def _goal_totals_map(db: AsyncSession, goal_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[float, float]]:
+async def _goal_totals_map(
+    db: AsyncSession, goal_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[float, float]]:
     if not goal_ids:
         return {}
     inv_stmt = (
-        select(GoalContribution.goal_id, func.coalesce(func.sum(GoalContribution.amount), 0))
+        select(
+            GoalContribution.goal_id,
+            func.coalesce(func.sum(GoalContribution.amount), 0),
+        )
         .where(GoalContribution.goal_id.in_(goal_ids))
         .group_by(GoalContribution.goal_id)
     )
@@ -132,19 +138,26 @@ async def get_goal(
 ):
     stmt = (
         select(FinancialGoal)
-        .options(selectinload(FinancialGoal.contributions), selectinload(FinancialGoal.holdings))
+        .options(
+            selectinload(FinancialGoal.contributions),
+            selectinload(FinancialGoal.holdings),
+        )
         .where(FinancialGoal.id == goal_id, FinancialGoal.user_id == current_user.id)
     )
     goal = (await db.execute(stmt)).scalar_one_or_none()
     if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
 
     totals = await _goal_totals_map(db, [goal.id])
     inv, cur = totals.get(goal.id, (0.0, 0.0))
     base = goal_to_response(goal, invested_amount=inv, current_value=cur)
     return GoalDetailResponse(
         **base.model_dump(),
-        contributions=[GoalContributionResponse.model_validate(c) for c in goal.contributions],
+        contributions=[
+            GoalContributionResponse.model_validate(c) for c in goal.contributions
+        ],
         holdings=[GoalHoldingResponse.model_validate(h) for h in goal.holdings],
     )
 
@@ -161,7 +174,9 @@ async def update_goal(
     )
     goal = (await db.execute(stmt)).scalar_one_or_none()
     if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
 
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
@@ -232,13 +247,19 @@ async def delete_goal(
     )
     goal = (await db.execute(stmt)).scalar_one_or_none()
     if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
     await db.delete(goal)
     await db.commit()
     await mark_cashflow_stale(db, current_user.id)
 
 
-@router.post("/{goal_id}/contributions", response_model=GoalContributionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{goal_id}/contributions",
+    response_model=GoalContributionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_contribution(
     goal_id: uuid.UUID,
     payload: GoalContributionCreate,
@@ -250,7 +271,9 @@ async def add_contribution(
     )
     goal = (await db.execute(stmt)).scalar_one_or_none()
     if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
 
     contribution = GoalContribution(
         goal_id=goal_id,
@@ -273,7 +296,9 @@ async def list_contributions(
         FinancialGoal.id == goal_id, FinancialGoal.user_id == current_user.id
     )
     if not (await db.execute(stmt)).scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
 
     result = await db.execute(
         select(GoalContribution)
@@ -293,7 +318,9 @@ async def list_holdings(
         FinancialGoal.id == goal_id, FinancialGoal.user_id == current_user.id
     )
     if not (await db.execute(stmt)).scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found"
+        )
 
     result = await db.execute(select(GoalHolding).where(GoalHolding.goal_id == goal_id))
     return [GoalHoldingResponse.model_validate(h) for h in result.scalars().all()]

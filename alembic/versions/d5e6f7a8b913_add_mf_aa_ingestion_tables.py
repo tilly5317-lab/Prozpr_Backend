@@ -17,7 +17,9 @@ depends_on: Union[str, tuple[str, ...], None] = None
 def upgrade() -> None:
     op.create_table(
         "mf_aa_imports",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("pan", sa.String(length=20), nullable=True),
         sa.Column("pekrn", sa.String(length=32), nullable=True),
@@ -38,19 +40,33 @@ def upgrade() -> None:
         sa.Column("pincode", sa.String(length=20), nullable=True),
         sa.Column("country", sa.String(length=100), nullable=True),
         sa.Column("source_file", sa.String(length=255), nullable=True),
-        sa.Column("imported_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "imported_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="SET NULL"),
         sa.UniqueConstraint("req_id", "email", name="uq_mf_aa_import_req_email"),
     )
     op.create_index("ix_mf_aa_imports_user_id", "mf_aa_imports", ["user_id"])
     op.create_index("ix_mf_aa_imports_pan", "mf_aa_imports", ["pan"])
     op.create_index("ix_mf_aa_imports_email", "mf_aa_imports", ["email"])
-    op.execute("ALTER TABLE mf_aa_imports ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE mf_aa_imports ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     op.create_table(
         "mf_aa_summaries",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("aa_import_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("row_no", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("amc", sa.String(length=20), nullable=True),
@@ -77,19 +93,32 @@ def upgrade() -> None:
         sa.Column("scheme", sa.String(length=20), nullable=True),
         sa.Column("scheme_name", sa.String(length=255), nullable=True),
         sa.Column("tax_status", sa.String(length=20), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["aa_import_id"], ["mf_aa_imports.id"], ondelete="CASCADE"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["aa_import_id"], ["mf_aa_imports.id"], ondelete="CASCADE"
+        ),
     )
-    op.create_index("ix_mf_aa_summaries_aa_import_id", "mf_aa_summaries", ["aa_import_id"])
+    op.create_index(
+        "ix_mf_aa_summaries_aa_import_id", "mf_aa_summaries", ["aa_import_id"]
+    )
     op.create_index("ix_mf_aa_summaries_asset_type", "mf_aa_summaries", ["asset_type"])
     op.create_index("ix_mf_aa_summaries_folio", "mf_aa_summaries", ["folio"])
     op.create_index("ix_mf_aa_summaries_isin", "mf_aa_summaries", ["isin"])
     op.create_index("ix_mf_aa_summaries_scheme", "mf_aa_summaries", ["scheme"])
-    op.execute("ALTER TABLE mf_aa_summaries ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE mf_aa_summaries ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     op.create_table(
         "mf_aa_transactions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("aa_import_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("row_no", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("amc", sa.String(length=20), nullable=True),
@@ -112,16 +141,31 @@ def upgrade() -> None:
         sa.Column("trxn_mode", sa.String(length=10), nullable=True),
         sa.Column("trxn_type_flag", sa.String(length=20), nullable=True),
         sa.Column("trxn_units", sa.Numeric(18, 3), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["aa_import_id"], ["mf_aa_imports.id"], ondelete="CASCADE"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["aa_import_id"], ["mf_aa_imports.id"], ondelete="CASCADE"
+        ),
     )
-    op.create_index("ix_mf_aa_transactions_aa_import_id", "mf_aa_transactions", ["aa_import_id"])
+    op.create_index(
+        "ix_mf_aa_transactions_aa_import_id", "mf_aa_transactions", ["aa_import_id"]
+    )
     op.create_index("ix_mf_aa_transactions_folio", "mf_aa_transactions", ["folio"])
     op.create_index("ix_mf_aa_transactions_isin", "mf_aa_transactions", ["isin"])
     op.create_index("ix_mf_aa_transactions_scheme", "mf_aa_transactions", ["scheme"])
-    op.create_index("ix_mf_aa_transactions_trxn_date", "mf_aa_transactions", ["trxn_date"])
-    op.create_index("ix_mf_aa_transactions_trxn_type_flag", "mf_aa_transactions", ["trxn_type_flag"])
-    op.execute("ALTER TABLE mf_aa_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_mf_aa_transactions_trxn_date", "mf_aa_transactions", ["trxn_date"]
+    )
+    op.create_index(
+        "ix_mf_aa_transactions_trxn_type_flag", "mf_aa_transactions", ["trxn_type_flag"]
+    )
+    op.execute(
+        "ALTER TABLE mf_aa_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
 
 def downgrade() -> None:

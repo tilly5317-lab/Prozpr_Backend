@@ -48,7 +48,10 @@ class PersonalFinanceResponse(PersonalFinanceFields):
     # DB columns are nullable — coerce NULL to [] so `model_validate(orm_row)`
     # doesn't reject a row that simply hasn't set these list fields yet.
     @field_validator(
-        "selected_goals", "custom_goals", "wealth_sources", "personal_values",
+        "selected_goals",
+        "custom_goals",
+        "wealth_sources",
+        "personal_values",
         mode="before",
     )
     @classmethod

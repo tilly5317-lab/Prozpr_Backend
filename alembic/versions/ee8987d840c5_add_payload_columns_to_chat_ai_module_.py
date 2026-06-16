@@ -37,6 +37,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_chat_ai_module_runs_session_module_created", table_name="chat_ai_module_runs")
+    op.drop_index(
+        "ix_chat_ai_module_runs_session_module_created",
+        table_name="chat_ai_module_runs",
+    )
     op.drop_column("chat_ai_module_runs", "output_payload")
     op.drop_column("chat_ai_module_runs", "input_payload")

@@ -18,6 +18,7 @@ from typing import Any, Callable, Literal, TypedDict
 # cycle through the app.domains.ai_engine package __init__.
 import sys
 from pathlib import Path as _Path
+
 _AI_AGENTS_SRC = str(_Path(__file__).resolve().parents[4] / "AI_Agents" / "src")
 if _AI_AGENTS_SRC not in sys.path:
     sys.path.insert(0, _AI_AGENTS_SRC)
@@ -38,10 +39,10 @@ ActionMode = Literal[
     "compute",
     "narrate",
     "educate",
-    "recompute",                   # rebalancing
-    "recompute_full",              # asset_allocation
-    "counterfactual_explore",      # both
-    "save_last_counterfactual",    # both — commits most recent counterfactual
+    "recompute",  # rebalancing
+    "recompute_full",  # asset_allocation
+    "counterfactual_explore",  # both
+    "save_last_counterfactual",  # both — commits most recent counterfactual
 ]
 
 
@@ -61,7 +62,7 @@ _FORMATTER_FACTS_NOTES = (
     "- Cite only values present in the FACTS_PACK (including rates/exemptions such as "
     "`tax_rules.ltcg_rate_equity_pct`, `tax_rules.ltcg_annual_exemption_indian`). If asked HOW a "
     "computed figure was derived and the FACTS_PACK lacks the underlying rate or threshold, "
-    "describe the result without inventing the method (e.g. \"the system estimates ₹X in tax\").\n"
+    'describe the result without inventing the method (e.g. "the system estimates ₹X in tax").\n'
     "- The whole-number asset-class rule applies to every mix field in the FACTS_PACK: "
     "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
     "`your_actual_holdings_today_pct` (show a separate **Cash** label when a `cash` key is present).\n"
@@ -87,6 +88,7 @@ class _Prompt(TypedDict):
 # Prompt assembly (pure)
 # ---------------------------------------------------------------------------
 
+
 def assemble_prompt(
     *,
     question: str,
@@ -100,8 +102,7 @@ def assemble_prompt(
     """Build the (system, user) prompt pair. Pure — no LLM call."""
     system = "\n\n".join([FORMATTER_HOUSE_STYLE, body_prompt])
     history_lines = [
-        f"{m.get('role','user')}: {m.get('content','')}"
-        for m in (history or [])[-6:]
+        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in (history or [])[-6:]
     ]
     user = (
         f"MODULE: {module_name}\n"
@@ -118,6 +119,7 @@ def assemble_prompt(
 # Async LLM call
 # ---------------------------------------------------------------------------
 
+
 async def format_answer(
     *,
     question: str,
@@ -133,16 +135,22 @@ async def format_answer(
     Caller is expected to wrap in try/except and fall back to a templated brief.
     """
     prompt = assemble_prompt(
-        question=question, action_mode=action_mode, module_name=module_name,
-        facts_pack=facts_pack, body_prompt=body_prompt,
-        history=history, profile=profile,
+        question=question,
+        action_mode=action_mode,
+        module_name=module_name,
+        facts_pack=facts_pack,
+        body_prompt=body_prompt,
+        history=history,
+        profile=profile,
     )
     try:
         text = await _invoke_llm(prompt["system"], prompt["user"])
     except FormatterFailure:
         raise
     except Exception as exc:
-        raise FormatterFailure(f"formatter_llm_call_failed: {type(exc).__name__}") from exc
+        raise FormatterFailure(
+            f"formatter_llm_call_failed: {type(exc).__name__}"
+        ) from exc
 
     if not text or not text.strip():
         raise FormatterFailure("formatter_llm_returned_empty")
@@ -190,7 +198,7 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
     _llm_kwargs = {
         "model": "claude-haiku-4-5-20251001",
         "api_key": api_key,
-        "max_tokens": 6000,                    # room for long allocation / rebalancing answers
+        "max_tokens": 6000,  # room for long allocation / rebalancing answers
     }
     # Eval mode sets this to 0 for reproducible output; prod leaves it unset (default temp).
     _temp = os.environ.get("AILAX_FORMATTER_TEMPERATURE")
@@ -200,9 +208,15 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
         [tool], tool_choice={"type": "tool", "name": "return_formatted_answer"}
     )
     messages = [
-        SystemMessage(content=[
-            {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-        ]),
+        SystemMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        ),
         HumanMessage(content=user_text),
     ]
     raw = await asyncio.to_thread(llm.invoke, messages)
@@ -267,7 +281,10 @@ async def format_with_telemetry(
         formatter_error_class = type(exc).__name__
         logger.error(
             "formatter_failed module=%s mode=%s error_class=%s reason=%s",
-            module_name, action_mode, formatter_error_class, exc,
+            module_name,
+            action_mode,
+            formatter_error_class,
+            exc,
         )
         text = build_fallback()
     finally:

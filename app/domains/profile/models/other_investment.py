@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import enum
@@ -11,7 +10,16 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,7 +52,11 @@ class OtherInvestment(Base):
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     maturity_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     status: Mapped[OtherInvestmentStatus] = mapped_column(
-        SAEnum(OtherInvestmentStatus, name="other_investment_status_enum", create_constraint=True),
+        SAEnum(
+            OtherInvestmentStatus,
+            name="other_investment_status_enum",
+            create_constraint=True,
+        ),
         nullable=False,
         default=OtherInvestmentStatus.ACTIVE,
     )
@@ -54,7 +66,10 @@ class OtherInvestment(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     user: Mapped["User"] = relationship(back_populates="other_investments")

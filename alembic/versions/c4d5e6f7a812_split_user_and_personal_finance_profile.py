@@ -15,31 +15,49 @@ depends_on: Union[str, tuple[str, ...], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("middle_name", sa.String(length=100), nullable=True))
+    op.add_column(
+        "users", sa.Column("middle_name", sa.String(length=100), nullable=True)
+    )
     op.add_column("users", sa.Column("pan", sa.String(length=20), nullable=True))
     op.add_column("users", sa.Column("date_of_birth", sa.Date(), nullable=True))
-    op.add_column("users", sa.Column("occupation", sa.String(length=100), nullable=True))
-    op.add_column("users", sa.Column("family_status", sa.String(length=100), nullable=True))
+    op.add_column(
+        "users", sa.Column("occupation", sa.String(length=100), nullable=True)
+    )
+    op.add_column(
+        "users", sa.Column("family_status", sa.String(length=100), nullable=True)
+    )
     op.add_column("users", sa.Column("address", sa.String(length=500), nullable=True))
     op.add_column(
         "users",
-        sa.Column("currency", sa.String(length=3), nullable=False, server_default="GBP"),
+        sa.Column(
+            "currency", sa.String(length=3), nullable=False, server_default="GBP"
+        ),
     )
     op.create_index("ix_users_pan", "users", ["pan"], unique=True)
 
     op.create_table(
         "personal_finance_profiles",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("selected_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("custom_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "selected_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
+            "custom_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         sa.Column("investment_horizon", sa.String(length=50), nullable=True),
         sa.Column("annual_income_min", sa.Numeric(15, 2), nullable=True),
         sa.Column("annual_income_max", sa.Numeric(15, 2), nullable=True),
         sa.Column("annual_expense_min", sa.Numeric(15, 2), nullable=True),
         sa.Column("annual_expense_max", sa.Numeric(15, 2), nullable=True),
-        sa.Column("wealth_sources", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("personal_values", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "wealth_sources", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
+            "personal_values", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -92,11 +110,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.create_table(
         "user_profiles",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("date_of_birth", sa.Date(), nullable=True),
-        sa.Column("selected_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("custom_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "selected_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
+            "custom_goals", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         sa.Column("investment_horizon", sa.String(length=50), nullable=True),
         sa.Column("annual_income_min", sa.Numeric(15, 2), nullable=True),
         sa.Column("annual_income_max", sa.Numeric(15, 2), nullable=True),
@@ -104,10 +128,16 @@ def downgrade() -> None:
         sa.Column("annual_expense_max", sa.Numeric(15, 2), nullable=True),
         sa.Column("occupation", sa.String(length=100), nullable=True),
         sa.Column("family_status", sa.String(length=100), nullable=True),
-        sa.Column("wealth_sources", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("personal_values", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "wealth_sources", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
+            "personal_values", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         sa.Column("address", sa.String(length=500), nullable=True),
-        sa.Column("currency", sa.String(length=3), nullable=False, server_default="GBP"),
+        sa.Column(
+            "currency", sa.String(length=3), nullable=False, server_default="GBP"
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

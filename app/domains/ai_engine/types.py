@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 # Intent classifier result
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class IntentDecision:
     """Routing key + the raw classifier output."""
@@ -50,6 +51,7 @@ class IntentDecision:
 # Each name has exactly one owning domain + one *_module_service.py file.
 # ---------------------------------------------------------------------------
 
+
 class AIModule(StrEnum):
     """The AI modules the brain can run as part of a turn.
 
@@ -65,17 +67,18 @@ class AIModule(StrEnum):
     """
 
     INTENT_CLASSIFIER = "intent_classifier"
-    ASSET_ALLOCATION  = "asset_allocation"
-    REBALANCING       = "rebalancing"
-    CASHFLOW          = "cashflow"
-    PORTFOLIO_QUERY   = "portfolio_query"
+    ASSET_ALLOCATION = "asset_allocation"
+    REBALANCING = "rebalancing"
+    CASHFLOW = "cashflow"
+    PORTFOLIO_QUERY = "portfolio_query"
     MARKET_COMMENTARY = "market_commentary"
-    GENERAL_CHAT      = "general_chat"
+    GENERAL_CHAT = "general_chat"
 
 
 # ---------------------------------------------------------------------------
 # Module output — the uniform shape every module service returns.
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ModuleOutput:

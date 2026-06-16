@@ -46,7 +46,9 @@ def _parse_bucket_name(raw: str | None) -> AllocationBucketName:
         raise ValueError(f"unknown allocation bucket name: {raw!r}") from exc
 
 
-def _find_per_bucket_row(per_bucket: list[Any] | None, key: str) -> dict[str, Any] | None:
+def _find_per_bucket_row(
+    per_bucket: list[Any] | None, key: str
+) -> dict[str, Any] | None:
     """Find the entry in a ``per_bucket`` list whose ``bucket`` matches *key*."""
     for row in per_bucket or []:
         if isinstance(row, dict) and str(row.get("bucket") or "").lower() == key:
@@ -64,8 +66,13 @@ def _subgroup_lists_for_bucket(
 
     def _extract(blocks: list[Any]) -> list[dict[str, Any]]:
         for block in blocks:
-            if isinstance(block, dict) and str(block.get("bucket") or "").lower() == bucket_key:
-                return [x for x in (block.get("subgroups") or []) if isinstance(x, dict)]
+            if (
+                isinstance(block, dict)
+                and str(block.get("bucket") or "").lower() == bucket_key
+            ):
+                return [
+                    x for x in (block.get("subgroups") or []) if isinstance(x, dict)
+                ]
         return []
 
     return (
@@ -101,7 +108,9 @@ async def _link_goals_to_bucket(
             AssetAllocationBucketRunTarget(
                 bucket_id=bucket.id,
                 run_target_id=target_id,
-                goal_rationale=str(rationale_text) if rationale_text is not None else None,
+                goal_rationale=str(rationale_text)
+                if rationale_text is not None
+                else None,
             )
         )
     await db.flush()
@@ -130,7 +139,15 @@ async def _insert_subgroups(
     planned_rows, actual_rows = _subgroup_lists_for_bucket(doc, bucket_key)
 
     if planned_rows or actual_rows:
-        _write_detailed_subgroups(db, bucket, planned_rows, actual_rows, flat_amounts, allocated, user_id=user_id)
+        _write_detailed_subgroups(
+            db,
+            bucket,
+            planned_rows,
+            actual_rows,
+            flat_amounts,
+            allocated,
+            user_id=user_id,
+        )
     else:
         _write_flat_subgroups(db, bucket, flat_amounts, allocated, user_id=user_id)
 
@@ -271,6 +288,8 @@ async def insert_buckets_and_children(
         db.add(bucket)
         await db.flush()
 
-        await _link_goals_to_bucket(db, bucket, bucket_block, target_name_to_snapshot_id)
+        await _link_goals_to_bucket(
+            db, bucket, bucket_block, target_name_to_snapshot_id
+        )
         await _insert_subgroups(db, bucket, bucket_block, doc, bkey, user_id=uid)
         await _insert_asset_class_splits(db, bucket, planned_per, actual_per, bkey)

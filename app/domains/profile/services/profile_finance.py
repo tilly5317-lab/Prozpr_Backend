@@ -90,7 +90,9 @@ def personal_finance_scalars(user: Any) -> dict[str, float | None]:
         # cashflow starting corpus separately (see input_builder) so the live
         # portfolio stays the single source of truth for that figure.
         "financial_assets": financial_assets_pfp(pfp),
-        "financial_liabilities_excl_mortgage": financial_liabilities_excl_mortgage_pfp(pfp),
+        "financial_liabilities_excl_mortgage": financial_liabilities_excl_mortgage_pfp(
+            pfp
+        ),
         "monthly_household_expense": monthly_household_expense_pfp(pfp),
         "starting_monthly_investment": starting_monthly_investment_pfp(pfp),
     }

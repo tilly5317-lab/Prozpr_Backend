@@ -1,4 +1,5 @@
 """LangGraph nodes for cashflow_statement agent."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -38,12 +39,22 @@ def _format_profile_section(inp: GoalPlanningInput, anchor: date) -> list[str]:
     lines: list[str] = ["PROFILE"]
     if age is not None:
         lines.append(f"- Date of birth: {r.date_of_birth} (current age ~{age})")
-    lines.append(f"- Retirement: planned at age {r.retirement_age} (~year {r.date_of_birth.year + r.retirement_age if r.date_of_birth else 'unknown'}); assumed lifespan {r.assumed_lifespan_years}")
-    lines.append(f"- Annual income: {_fmt_inr(p.annual_income)} (effective tax rate {p.effective_tax_rate:.0%})")
-    lines.append(f"- Net financial assets: {_fmt_inr(corpus)}  (assets {_fmt_inr(p.financial_assets)} − liabilities {_fmt_inr(p.financial_liabilities_excl_mortgage)})")
-    lines.append(f"- Monthly household expense: {_fmt_inr(p.monthly_household_expense)}")
+    lines.append(
+        f"- Retirement: planned at age {r.retirement_age} (~year {r.date_of_birth.year + r.retirement_age if r.date_of_birth else 'unknown'}); assumed lifespan {r.assumed_lifespan_years}"
+    )
+    lines.append(
+        f"- Annual income: {_fmt_inr(p.annual_income)} (effective tax rate {p.effective_tax_rate:.0%})"
+    )
+    lines.append(
+        f"- Net financial assets: {_fmt_inr(corpus)}  (assets {_fmt_inr(p.financial_assets)} − liabilities {_fmt_inr(p.financial_liabilities_excl_mortgage)})"
+    )
+    lines.append(
+        f"- Monthly household expense: {_fmt_inr(p.monthly_household_expense)}"
+    )
     if p.starting_monthly_investment:
-        lines.append(f"- Monthly investment / SIP: {_fmt_inr(p.starting_monthly_investment)}")
+        lines.append(
+            f"- Monthly investment / SIP: {_fmt_inr(p.starting_monthly_investment)}"
+        )
     else:
         lines.append("- Monthly investment / SIP: not set")
     return lines
@@ -64,14 +75,26 @@ def _format_goals_section(inp: GoalPlanningInput, anchor: date) -> list[str]:
                 down_str = f"{gp.downpayment_pct:.0%} down"
             else:
                 down_str = f"{_fmt_inr(gp.upfront_amount or 0)} down"
-            tenure_str = f"{gp.mortgage_tenure_years}y" if gp.mortgage_tenure_years else "default tenure"
-            rate_str = f"{gp.mortgage_interest_annual:.1%}" if gp.mortgage_interest_annual else "default rate"
+            tenure_str = (
+                f"{gp.mortgage_tenure_years}y"
+                if gp.mortgage_tenure_years
+                else "default tenure"
+            )
+            rate_str = (
+                f"{gp.mortgage_interest_annual:.1%}"
+                if gp.mortgage_interest_annual
+                else "default rate"
+            )
             mortgage_note = f" — mortgage path: {down_str}, {tenure_str} at {rate_str}"
-        lines.append(f"- {gp.name} (property): {_fmt_inr(target or 0)} in {gp.goal_date.year} ({_years_until(anchor, gp.goal_date)} away){mortgage_note}")
+        lines.append(
+            f"- {gp.name} (property): {_fmt_inr(target or 0)} in {gp.goal_date.year} ({_years_until(anchor, gp.goal_date)} away){mortgage_note}"
+        )
     for cg in inp.custom_goals:
         target = cg.goal_value_pv if cg.goal_value_pv else cg.corpus_required_fv
         units = "PV" if cg.goal_value_pv is not None else "FV"
-        lines.append(f"- {cg.name} ({cg.goal_type.value}): {_fmt_inr(target or 0)} {units} in {cg.goal_date.year} ({_years_until(anchor, cg.goal_date)} away)")
+        lines.append(
+            f"- {cg.name} ({cg.goal_type.value}): {_fmt_inr(target or 0)} {units} in {cg.goal_date.year} ({_years_until(anchor, cg.goal_date)} away)"
+        )
     return lines
 
 
@@ -79,14 +102,17 @@ def _format_existing_mortgages_section(inp: GoalPlanningInput) -> list[str]:
     if not inp.current_properties:
         return []
     active = [
-        cp for cp in inp.current_properties
+        cp
+        for cp in inp.current_properties
         if cp.has_mortgage and cp.mortgage_emi and cp.mortgage_end_date
     ]
     if not active:
         return []
     lines = [f"EXISTING MORTGAGES ({len(active)})"]
     for cp in active:
-        lines.append(f"- {cp.name}: {_fmt_inr(cp.mortgage_emi)}/month EMI through {cp.mortgage_end_date}")
+        lines.append(
+            f"- {cp.name}: {_fmt_inr(cp.mortgage_emi)}/month EMI through {cp.mortgage_end_date}"
+        )
     return lines
 
 
@@ -131,8 +157,12 @@ def ingest_baseline_node(state: AgentState) -> dict:
     dropped = []
     for o in state.get("accumulated_overrides", []):
         if hasattr(o, "property_name"):
-            existing_names = {p.name.casefold() for p in state["baseline_input"].current_properties}
-            existing_names |= {p.name.casefold() for p in state["baseline_input"].goal_properties}
+            existing_names = {
+                p.name.casefold() for p in state["baseline_input"].current_properties
+            }
+            existing_names |= {
+                p.name.casefold() for p in state["baseline_input"].goal_properties
+            }
             if o.property_name.casefold() not in existing_names:
                 dropped.append(f"{o.kind}:{o.property_name}")
                 continue
@@ -154,8 +184,8 @@ def ingest_baseline_node(state: AgentState) -> dict:
         "captured_cashflows": state.get("captured_cashflows", []),
         "captured_mutations": state.get("captured_mutations", []),
         "last_levers": [],
-        "actions_taken_this_turn": [],         # NEW: reset each turn
-        "extracted_events_this_turn": [],      # NEW: reset each turn
+        "actions_taken_this_turn": [],  # NEW: reset each turn
+        "extracted_events_this_turn": [],  # NEW: reset each turn
         "last_output": None if invalidate else last_out,
         "last_summary": None,  # per-turn output; finalize_node refreshes it
         "dirty": bool(dropped) or invalidate,
@@ -172,12 +202,15 @@ def make_agent_node(tools: list, model: str = AGENT_MODEL_DEFAULT):
 
     def agent_node(state: AgentState) -> dict:
         baseline_summary = _format_baseline_summary(
-            state["baseline_input"], state["anchor_date"],
+            state["baseline_input"],
+            state["anchor_date"],
         )
-        sys_msg = SystemMessage(content=SYSTEM_PROMPT.format(
-            anchor_date=state["anchor_date"].isoformat(),
-            baseline_summary=baseline_summary,
-        ))
+        sys_msg = SystemMessage(
+            content=SYSTEM_PROMPT.format(
+                anchor_date=state["anchor_date"].isoformat(),
+                baseline_summary=baseline_summary,
+            )
+        )
         response = llm.invoke([sys_msg] + state["messages"])
         return {"messages": [response]}
 

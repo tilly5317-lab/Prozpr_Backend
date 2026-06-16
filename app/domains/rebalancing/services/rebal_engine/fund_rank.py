@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 # [4]=app, [5]=repo root (where AI_Agents/ lives).
 _CSV_PATH = (
     Path(__file__).resolve().parents[5]
-    / "AI_Agents" / "Reference_docs" / "prozpr_fund_ranking_may_2026.csv"
+    / "AI_Agents"
+    / "Reference_docs"
+    / "prozpr_fund_ranking_may_2026.csv"
 )
 
 
@@ -94,14 +96,16 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
             rank_int = int(rank_raw)
             if rank_int == FORCE_EXIT_RANK:
                 continue
-            by_sg[row["asset_subgroup"]].append(FundRankRow(
-                asset_subgroup=row["asset_subgroup"],
-                sub_category=row["sub_category"],
-                rank=rank_int,
-                isin=row["isin"],
-                fund_name=row["recommended_fund"],
-                selection_reason=(row.get("selection_reason") or "").strip(),
-            ))
+            by_sg[row["asset_subgroup"]].append(
+                FundRankRow(
+                    asset_subgroup=row["asset_subgroup"],
+                    sub_category=row["sub_category"],
+                    rank=rank_int,
+                    isin=row["isin"],
+                    fund_name=row["recommended_fund"],
+                    selection_reason=(row.get("selection_reason") or "").strip(),
+                )
+            )
     for subgroup in by_sg:
         by_sg[subgroup].sort(key=lambda r: r.rank)
     return dict(by_sg)

@@ -104,7 +104,9 @@ _RATIONALE_BODY = (
     "- For goal_rationales the inner dict (short/medium/long_term) is keyed by each goal's goal_name; "
     "future_investment_messages keys are bucket names (emergency excluded)."
 )
-_SYSTEM_PROMPT = build_system_prompt(_RATIONALE_BODY, format_profile="plain", question_aware=False)
+_SYSTEM_PROMPT = build_system_prompt(
+    _RATIONALE_BODY, format_profile="plain", question_aware=False
+)
 
 
 class RationaleResponse(BaseModel):
@@ -153,7 +155,9 @@ def apply_rationales(
         per_goal_from_llm = rationales.goal_rationales.get(b.bucket, {}) or {}
         attached: Dict[str, str] = {}
         for g in b.goals:
-            msg = per_goal_from_llm.get(g.goal_name) or default_goal_rationale(b.bucket, g)
+            msg = per_goal_from_llm.get(g.goal_name) or default_goal_rationale(
+                b.bucket, g
+            )
             if msg:
                 attached[g.goal_name] = msg
         b.goal_rationales = attached
@@ -179,6 +183,7 @@ def _build_user_payload(
     rupee numbers itself — Haiku frequently drops an order of magnitude when
     asked to do the conversion at inference time.
     """
+
     def _goal_entry(g: Goal) -> Dict[str, Any]:
         return {
             "goal_name": g.goal_name,
@@ -193,7 +198,9 @@ def _build_user_payload(
         if fi is None:
             return None
         d = fi.model_dump()
-        d["future_investment_amount_indian"] = format_inr_indian(fi.future_investment_amount)
+        d["future_investment_amount_indian"] = format_inr_indian(
+            fi.future_investment_amount
+        )
         return d
 
     client_dict = client_summary.model_dump()

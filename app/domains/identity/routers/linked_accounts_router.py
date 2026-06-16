@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -14,8 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
-from app.domains.identity.models.linked_account import LinkedAccount, LinkedAccountStatus, LinkedAccountType
-from app.domains.identity.schemas.linked_account import LinkAccountListResponse, LinkAccountRequest, LinkAccountResponse
+from app.domains.identity.models.linked_account import (
+    LinkedAccount,
+    LinkedAccountStatus,
+    LinkedAccountType,
+)
+from app.domains.identity.schemas.linked_account import (
+    LinkAccountListResponse,
+    LinkAccountRequest,
+    LinkAccountResponse,
+)
 from app.core.security import get_fernet
 
 router = APIRouter(prefix="/linked-accounts", tags=["Linked Accounts"])
@@ -36,7 +43,9 @@ async def list_accounts(
     return LinkAccountListResponse(accounts=accounts)
 
 
-@router.post("/", response_model=LinkAccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=LinkAccountResponse, status_code=status.HTTP_201_CREATED
+)
 async def link_account(
     payload: LinkAccountRequest,
     db: AsyncSession = Depends(get_db),
@@ -75,7 +84,9 @@ async def unlink_account(
     )
     account = (await db.execute(stmt)).scalar_one_or_none()
     if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Account not found"
+        )
 
     await db.delete(account)
     await db.commit()

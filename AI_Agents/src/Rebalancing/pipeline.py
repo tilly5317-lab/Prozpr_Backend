@@ -34,10 +34,12 @@ from .steps import (
 # Subgroups that exist in `practical.aggregated_subgroups` but have no MF
 # rows in the engine — their amounts are surfaced as frozen
 # `SubgroupSummary` entries in step6, not lifted onto rank-1 rows here.
-_FROZEN_SUBGROUPS: frozenset[str] = frozenset({
-    "tax_efficient_equities",
-    "non_mf_equities",
-})
+_FROZEN_SUBGROUPS: frozenset[str] = frozenset(
+    {
+        "tax_efficient_equities",
+        "non_mf_equities",
+    }
+)
 
 
 def _assign_targets_to_rank1(
@@ -69,15 +71,17 @@ def _assign_targets_to_rank1(
                 + r.st_value_inr
             )
     for sg, neutral_st in neutral_st_by_subgroup.items():
-        target_by_subgroup[sg] = max(
-            target_by_subgroup[sg] - neutral_st, Decimal(0)
-        )
+        target_by_subgroup[sg] = max(target_by_subgroup[sg] - neutral_st, Decimal(0))
     out: list[FundRowInput] = []
     for r in rows:
         if r.rank == 1 and r.asset_subgroup in target_by_subgroup:
-            out.append(r.model_copy(update={
-                "target_amount_pre_cap": target_by_subgroup[r.asset_subgroup],
-            }))
+            out.append(
+                r.model_copy(
+                    update={
+                        "target_amount_pre_cap": target_by_subgroup[r.asset_subgroup],
+                    }
+                )
+            )
         else:
             out.append(r)
     return out
@@ -101,5 +105,9 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
 
     all_warnings = list(s1_warnings) + list(s2_warnings) + list(s4_warnings)
     return step6_presentation.apply(
-        s5_rows, request, all_warnings, unrebalanced_total, practical=practical,
+        s5_rows,
+        request,
+        all_warnings,
+        unrebalanced_total,
+        practical=practical,
     )

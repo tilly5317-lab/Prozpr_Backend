@@ -2,6 +2,7 @@
 
 Re-exports from financial_primitives.dates where applicable.
 """
+
 from __future__ import annotations
 from datetime import date
 
@@ -36,6 +37,10 @@ def medium_term_cutoff(near_term_end: date, years: int = 3) -> date:
 
 
 __all__ = [
-    "_round_thousand", "near_term_cutoff", "medium_term_cutoff",
-    "fy_for_date", "fy_end_after", "eomonth",
+    "_round_thousand",
+    "near_term_cutoff",
+    "medium_term_cutoff",
+    "fy_for_date",
+    "fy_end_after",
+    "eomonth",
 ]

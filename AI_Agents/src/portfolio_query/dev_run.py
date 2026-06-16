@@ -118,11 +118,36 @@ async def main():
             AllocationRow(asset_class="Gold", percentage=10.0, amount_inr=200000.0),
         ],
         sub_category_allocations=[
-            SubCategoryAllocationRow(asset_class="Equity", sub_category="Large Cap", percentage=40.0, amount_inr=800000.0),
-            SubCategoryAllocationRow(asset_class="Equity", sub_category="Mid Cap", percentage=15.0, amount_inr=300000.0),
-            SubCategoryAllocationRow(asset_class="Equity", sub_category="Small Cap", percentage=10.0, amount_inr=200000.0),
-            SubCategoryAllocationRow(asset_class="Debt", sub_category="Short Duration", percentage=25.0, amount_inr=500000.0),
-            SubCategoryAllocationRow(asset_class="Gold", sub_category="Gold", percentage=10.0, amount_inr=200000.0),
+            SubCategoryAllocationRow(
+                asset_class="Equity",
+                sub_category="Large Cap",
+                percentage=40.0,
+                amount_inr=800000.0,
+            ),
+            SubCategoryAllocationRow(
+                asset_class="Equity",
+                sub_category="Mid Cap",
+                percentage=15.0,
+                amount_inr=300000.0,
+            ),
+            SubCategoryAllocationRow(
+                asset_class="Equity",
+                sub_category="Small Cap",
+                percentage=10.0,
+                amount_inr=200000.0,
+            ),
+            SubCategoryAllocationRow(
+                asset_class="Debt",
+                sub_category="Short Duration",
+                percentage=25.0,
+                amount_inr=500000.0,
+            ),
+            SubCategoryAllocationRow(
+                asset_class="Gold",
+                sub_category="Gold",
+                percentage=10.0,
+                amount_inr=200000.0,
+            ),
         ],
     )
 
@@ -184,7 +209,9 @@ async def main():
             print(f"  Expected guardrail but got answer: {result.answer}")
 
     print("\n" + "=" * 60)
-    print(f"  Total tokens: {llm.total_input_tokens:,} in / {llm.total_output_tokens:,} out")
+    print(
+        f"  Total tokens: {llm.total_input_tokens:,} in / {llm.total_output_tokens:,} out"
+    )
     print(
         f"  Estimated cost: ~${(llm.total_input_tokens * 0.0000008 + llm.total_output_tokens * 0.000004):.4f}"
     )

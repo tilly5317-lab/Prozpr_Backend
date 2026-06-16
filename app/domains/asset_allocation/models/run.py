@@ -113,12 +113,22 @@ class AssetAllocationRun(Base):
     total_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
 
     grand_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
-    equity_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    equity_total: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     debt_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    others_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    equity_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
-    debt_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
-    others_total_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
+    others_total: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    equity_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
+    debt_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
+    others_total_pct: Mapped[float] = mapped_column(
+        Numeric(7, 2), nullable=False, default=0
+    )
 
     all_amounts_in_multiples_of_100: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

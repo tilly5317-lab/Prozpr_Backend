@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -73,7 +72,9 @@ def _parse_date(value: object) -> date:
     return datetime.now(timezone.utc).date()
 
 
-def _map_transaction_type(flag: Optional[str], desc: Optional[str], amount: float) -> MfTransactionType:
+def _map_transaction_type(
+    flag: Optional[str], desc: Optional[str], amount: float
+) -> MfTransactionType:
     f = (flag or "").upper()
     d = (desc or "").upper()
     if f in {"SO", "SWITCH_OUT", "SWITCH_OUT_MERGER"}:
@@ -133,7 +134,9 @@ def _to_scheme_code(txn_or_summary: object) -> Optional[str]:
     return None
 
 
-def _canonical_code(txn_or_summary: object, isin_to_amfi: dict[str, str]) -> Optional[str]:
+def _canonical_code(
+    txn_or_summary: object, isin_to_amfi: dict[str, str]
+) -> Optional[str]:
     """``_to_scheme_code`` resolved to the canonical AMFI code when the ISIN is known.
 
     Falls back to the raw amfi-or-isin value (truncated) when unresolvable, so nothing
@@ -168,8 +171,16 @@ async def _upsert_metadata(
         return
 
     existing = (
-        await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code.in_(scheme_codes)))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(MfFundMetadata).where(
+                    MfFundMetadata.scheme_code.in_(scheme_codes)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     by_code = {row.scheme_code: row for row in existing}
 
     for summary in aa_import.summaries:
@@ -203,7 +214,9 @@ async def _upsert_metadata(
         by_code[code] = row
 
 
-async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> NormalizeResult:
+async def normalize_single_import(
+    db: AsyncSession, aa_import: MfAaImport
+) -> NormalizeResult:
     if aa_import.user_id is None:
         aa_import.status = MfAaImportStatus.FAILED
         aa_import.failure_reason = "user_id_missing"
@@ -223,19 +236,29 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
     try:
         # Resolve ISIN-keyed identifiers to canonical AMFI codes up front, so transactions,
         # metadata, and (downstream) NAV pricing all share one identifier space.
-        isin_to_amfi = await build_isin_to_amfi_map(db, _import_isin_to_amfi_keys(aa_import))
+        isin_to_amfi = await build_isin_to_amfi_map(
+            db, _import_isin_to_amfi_keys(aa_import)
+        )
 
         await _upsert_metadata(db, aa_import, isin_to_amfi)
         await db.flush()
         metadata_rows = (
-            await db.execute(
-                select(MfFundMetadata).where(
-                    MfFundMetadata.scheme_code.in_(
-                        {_canonical_code(t, isin_to_amfi) for t in aa_import.transactions if _canonical_code(t, isin_to_amfi)}
+            (
+                await db.execute(
+                    select(MfFundMetadata).where(
+                        MfFundMetadata.scheme_code.in_(
+                            {
+                                _canonical_code(t, isin_to_amfi)
+                                for t in aa_import.transactions
+                                if _canonical_code(t, isin_to_amfi)
+                            }
+                        )
                     )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         metadata_by_code = {m.scheme_code: m for m in metadata_rows}
 
         pending_rows: list[tuple[MfTransaction, str]] = []
@@ -273,7 +296,9 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
                         units=units,
                         nav=nav,
                         amount=amount,
-                        isin=metadata_by_code.get(scheme_code).isin if metadata_by_code.get(scheme_code) else None,
+                        isin=metadata_by_code.get(scheme_code).isin
+                        if metadata_by_code.get(scheme_code)
+                        else None,
                         fund_name=(
                             metadata_by_code.get(scheme_code).scheme_name
                             if metadata_by_code.get(scheme_code)
@@ -309,7 +334,9 @@ async def normalize_single_import(db: AsyncSession, aa_import: MfAaImport) -> No
                             MfTransaction.source_txn_fingerprint.in_(fingerprints),
                         )
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
 
         inserted = 0

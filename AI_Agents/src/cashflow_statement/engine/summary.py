@@ -1,7 +1,10 @@
 """Stage 8: Summary — HeadlineStatus + FundFlowSummary."""
+
 from __future__ import annotations
 from cashflow_statement.models import (
-    HeadlineStatus, FundFlowSummary, OneOffEvent,
+    HeadlineStatus,
+    FundFlowSummary,
+    OneOffEvent,
 )
 from cashflow_statement.engine._types import RunContext, GoalInternal, FundingResult
 from cashflow_statement.engine.dates import fy_end_after
@@ -18,13 +21,19 @@ def build_headline_status(
 
     # Include one-off outflow dates in last_goal_date / last_fy_end_date.
     candidate_dates = [g.goal_date for g in goals_internal]
-    candidate_dates += [e.date for e in one_off_outflows if e.date > ctx.latest_update_date]
+    candidate_dates += [
+        e.date for e in one_off_outflows if e.date > ctx.latest_update_date
+    ]
     last_goal_date = max(candidate_dates, default=ctx.latest_update_date)
     candidate_fys = [g.goal_date_fy for g in goals_internal]
     # Wrap one-off outflow dates with fy_end_after() so candidate_fys stays homogeneous
     # — FY-end (March 31) dates only. Mixing raw dates would make max() return a non-FY
     # boundary when the latest event is a one-off (bug fix).
-    candidate_fys += [fy_end_after(e.date) for e in one_off_outflows if e.date > ctx.latest_update_date]
+    candidate_fys += [
+        fy_end_after(e.date)
+        for e in one_off_outflows
+        if e.date > ctx.latest_update_date
+    ]
     last_fy_end_date = max(candidate_fys, default=ctx.current_fy_end)
 
     total_shortfall = sum(s.shortfall_fv for s in funding.per_goal_status)

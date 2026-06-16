@@ -4,15 +4,16 @@ from typing import Any, Dict
 from .models import ClientSnapshot
 from .allocation_reasoning import serialize_client_input
 
+
 def explain_client_profile(snapshot: ClientSnapshot) -> Dict[str, str]:
     """
-    Produces narrative explanations by populating the specific 
+    Produces narrative explanations by populating the specific
     assessment fields defined in the ClientSnapshot model.
     """
     # Use unified serialization to maintain logic consistency
     serialize_client_input(snapshot)
     bg = snapshot.background
-    
+
     # 1. Profile Summary
     profile_summary = (
         f"{bg.client_name}, working as {bg.occupation or 'Professional'}, "
@@ -28,10 +29,16 @@ def explain_client_profile(snapshot: ClientSnapshot) -> Dict[str, str]:
 
     # 3. Goals Alignment
     if snapshot.goals:
-        goals_text = "; ".join([f"{g.description} ({g.target_year})" for g in snapshot.goals])
-        goals_alignment_assessment = f"Strategy is optimized for the following milestones: {goals_text}."
+        goals_text = "; ".join(
+            [f"{g.description} ({g.target_year})" for g in snapshot.goals]
+        )
+        goals_alignment_assessment = (
+            f"Strategy is optimized for the following milestones: {goals_text}."
+        )
     else:
-        goals_alignment_assessment = "No specific goals provided; focusing on general capital preservation."
+        goals_alignment_assessment = (
+            "No specific goals provided; focusing on general capital preservation."
+        )
 
     # Update the snapshot instance directly (if your workflow supports mutation)
     snapshot.profile_summary = profile_summary
@@ -44,14 +51,15 @@ def explain_client_profile(snapshot: ClientSnapshot) -> Dict[str, str]:
         "goals_alignment_assessment": goals_alignment_assessment,
     }
 
+
 def risk_profile_embedding(snapshot: ClientSnapshot) -> Any:
     """
     Public entry point for other modules to get the client's vector representation.
     We reuse the unified serialization and embedding logic from allocation_reasoning.
     """
     from .allocation_reasoning import get_embedding, serialize_client_input
-    
-    # Use the EXACT same serialization as the allocation engine 
+
+    # Use the EXACT same serialization as the allocation engine
     # so the 'coordinates' in your vector space are identical.
     text = serialize_client_input(snapshot)
     return get_embedding(text)

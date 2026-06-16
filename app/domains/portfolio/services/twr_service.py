@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from financial_primitives import twr_wealth_index
 
 from app.domains.mutual_funds.models import IndexTriHistory, MfTransaction
-from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
+from app.domains.portfolio.models.user_portfolio_nav_history import (
+    UserPortfolioNavHistory,
+)
 from app.domains.portfolio.schemas.portfolio import TwrPoint, TwrSeriesResponse
 from app.domains.portfolio.services.benchmark_service import (
     EXTERNAL_IN_TYPES,

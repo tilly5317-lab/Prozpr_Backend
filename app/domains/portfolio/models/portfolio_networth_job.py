@@ -34,19 +34,32 @@ class PortfolioNetworthJob(Base):
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
-    phase: Mapped[str] = mapped_column(String(20), nullable=False, server_default="queued")
-    progress_pct: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="0")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending"
+    )
+    phase: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="queued"
+    )
+    progress_pct: Mapped[float] = mapped_column(
+        Numeric(5, 2), nullable=False, server_default="0"
+    )
     message: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     # The earliest day the computed series covers (first transaction date).
     history_from: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     days_total: Mapped[Optional[int]] = mapped_column(Numeric(8, 0), nullable=True)
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

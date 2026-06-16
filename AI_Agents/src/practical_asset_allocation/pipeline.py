@@ -1,4 +1,5 @@
 """practical_asset_allocation pipeline — see module __init__ docstring."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ NFA_BAND_PCT_ABOVE_2CR: float = 0.60
 NFA_BAND_PCT_ABOVE_1CR: float = 0.50
 NFA_BAND_PCT_DEFAULT: float = 0.33
 
+
 def _nfa_banded_max_non_mf_equity_pct(nfa: Optional[float]) -> float:
     """R182: returns the NFA-banded max non-MF equity %. Treats None NFA as the
     bottom band (33%) — defensive: callers normally pass NFA always."""
@@ -118,6 +120,7 @@ class CorpusBreakdown(BaseModel):
     All amounts are rupees rounded to whole integers; the engine internally
     works in floats and rounds at the boundary.
     """
+
     total_corpus_inr: int = Field(..., ge=0)
     mf_corpus_inr: int = Field(..., ge=0)
     non_mf_equity_input_inr: int = Field(..., ge=0)
@@ -144,6 +147,7 @@ class PracticalAllocationOutput(BaseModel):
     Any consumer that already understands GoalAllocationOutput handles
     PracticalAllocationOutput for the shared seven fields with zero change.
     """
+
     client_summary: ClientSummary
     bucket_allocations: List[BucketAllocation]
     aggregated_subgroups: List[AggregatedSubgroupRow]
@@ -161,6 +165,7 @@ class PracticalAllocationOutput(BaseModel):
 class _PracticalLongTermResult:
     """Internal carrier for the long-term step output. Filled in across
     Tasks 5-10; output assembly (Tasks 11-12) reads from here."""
+
     # R157-R165 (Task 5):
     total_long_term_corpus: int
     min_equity_elss_pct: float
@@ -229,8 +234,7 @@ def _run_practical_long_term(
     # operator as upstream step4_long_term.run). Emit FutureInvestment when
     # corpus is short of the goal sum (spec §B.7 edge case β).
     lt_goals = [
-        g for g in inp.goals
-        if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS
+        g for g in inp.goals if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS
     ]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
     future_investment: Optional[FutureInvestment] = None
@@ -268,7 +272,9 @@ def _run_practical_long_term(
         and inp.market_commentary.others < PRACTICAL_OTHERS_GATE_VIEW_THRESHOLD
     )
     bounds_for_phase2 = bounds_1
-    if practical_others_gate_fired and (bounds_1.others_min > 0 or bounds_1.others_max > 0):
+    if practical_others_gate_fired and (
+        bounds_1.others_min > 0 or bounds_1.others_max > 0
+    ):
         # Pro-rata redistribute the zeroed others to equity and debt mins.
         freed_max = bounds_1.others_max
         freed_min = bounds_1.others_min
@@ -287,14 +293,18 @@ def _run_practical_long_term(
             eq_min_new += eq_add_min
             debt_min_new += freed_min - eq_add_min
         bounds_for_phase2 = ResolvedBounds(
-            eq_min=eq_min_new, eq_max=eq_max_new,
-            debt_min=debt_min_new, debt_max=debt_max_new,
-            others_min=0, others_max=0,
+            eq_min=eq_min_new,
+            eq_max=eq_max_new,
+            debt_min=debt_min_new,
+            debt_max=debt_max_new,
+            others_min=0,
+            others_max=0,
         )
 
     # R170: market-view tilt → phase2_asset_class_pcts (reused upstream).
     a2_eq_pct_raw, a2_debt_pct_raw, a2_oth_pct_raw = phase2_asset_class_pcts(
-        bounds_for_phase2, inp.market_commentary,
+        bounds_for_phase2,
+        inp.market_commentary,
     )
 
     # R171: ELSS floor lifts equity allocation if needed.
@@ -315,9 +325,9 @@ def _run_practical_long_term(
     else:
         dt_oth_raw = a2_debt_pct_raw + a2_oth_pct_raw
         if dt_oth_raw > 0:
-            allocation_2_debt_pct = int(round(
-                remaining_pct * a2_debt_pct_raw / dt_oth_raw
-            ))
+            allocation_2_debt_pct = int(
+                round(remaining_pct * a2_debt_pct_raw / dt_oth_raw)
+            )
             allocation_2_others_pct = remaining_pct - allocation_2_debt_pct
         else:
             # Degenerate: both raws zero. All residual → debt by default.
@@ -328,16 +338,18 @@ def _run_practical_long_term(
     equities_amount = round_to_100(
         total_long_term_corpus * allocation_2_equity_pct / 100
     )
-    others_amount = round_to_100(
-        total_long_term_corpus * allocation_2_others_pct / 100
-    )
+    others_amount = round_to_100(total_long_term_corpus * allocation_2_others_pct / 100)
     debt_amount = max(0, total_long_term_corpus - equities_amount - others_amount)
     debt_amount = round_to_100(debt_amount)
 
     # Reconcile rounding drift onto the largest amount (mirrors upstream pattern).
     drift = total_long_term_corpus - (equities_amount + debt_amount + others_amount)
     if drift != 0:
-        amounts_by_name = {"eq": equities_amount, "dt": debt_amount, "oth": others_amount}
+        amounts_by_name = {
+            "eq": equities_amount,
+            "dt": debt_amount,
+            "oth": others_amount,
+        }
         largest = max(amounts_by_name, key=lambda k: amounts_by_name[k])
         amounts_by_name[largest] += drift
         equities_amount = max(0, amounts_by_name["eq"])
@@ -356,27 +368,31 @@ def _run_practical_long_term(
     )
 
     # R185: ceiling for non-MF equity absorption.
-    max_equities_shares = int(round(
-        max_non_mf_equity_pct_considered * equities_amount
-    ))
+    max_equities_shares = int(round(max_non_mf_equity_pct_considered * equities_amount))
 
     # R186: non-MF actual = min(input, equities_amount - elss, max_equities_shares).
     available_after_elss = max(0, equities_amount - elss_amount_frozen)
-    non_mf_equity_actual = int(round(min(
-        non_mf_equity_input,
-        available_after_elss,
-        max_equities_shares,
-    )))
+    non_mf_equity_actual = int(
+        round(
+            min(
+                non_mf_equity_input,
+                available_after_elss,
+                max_equities_shares,
+            )
+        )
+    )
     non_mf_equity_actual = max(0, non_mf_equity_actual)
 
     # Excess (drives SELL_DIRECT_STOCKS downstream in Rebalancing).
     excess_direct_stocks = max(
-        0, int(round(non_mf_equity_input)) - non_mf_equity_actual,
+        0,
+        int(round(non_mf_equity_input)) - non_mf_equity_actual,
     )
 
     # Residual equity corpus available for MF subgroups (pre-multi-asset).
     residual_equity_corpus_pre_multi_asset = max(
-        0, equities_amount - non_mf_equity_actual - elss_amount_frozen,
+        0,
+        equities_amount - non_mf_equity_actual - elss_amount_frozen,
     )
 
     # R187: multi-asset block. The upstream helper already caps the multi-asset
@@ -396,14 +412,17 @@ def _run_practical_long_term(
     # and debt (allocation_2_debt_pct-weighted, clamped to remaining debt
     # capacity after the multi-asset debt component).
     multi_asset_others_excess = max(
-        0, multi_asset_block.others_component - others_amount,
+        0,
+        multi_asset_block.others_component - others_amount,
     )
     debt_capacity_after_multi = max(
-        0, debt_amount - multi_asset_block.debt_component,
+        0,
+        debt_amount - multi_asset_block.debt_component,
     )
-    if multi_asset_others_excess > 0 and (
-        allocation_2_debt_pct + allocation_2_equity_pct
-    ) > 0:
+    if (
+        multi_asset_others_excess > 0
+        and (allocation_2_debt_pct + allocation_2_equity_pct) > 0
+    ):
         # Spec wording: excess_to_debt = min(round_to_100(excess × allocation_2_debt
         # / 100), debt_amount − multi_asset_debt_component).
         excess_to_debt = min(
@@ -473,10 +492,12 @@ def _run_practical_long_term(
     drift = residual_equity_corpus_final - sum(equity_subgroup_amounts.values())
     if drift != 0 and any(v > 0 for v in equity_subgroup_amounts.values()):
         largest_sg = max(
-            equity_subgroup_amounts, key=lambda k: equity_subgroup_amounts[k],
+            equity_subgroup_amounts,
+            key=lambda k: equity_subgroup_amounts[k],
         )
         equity_subgroup_amounts[largest_sg] = max(
-            0, equity_subgroup_amounts[largest_sg] + drift,
+            0,
+            equity_subgroup_amounts[largest_sg] + drift,
         )
 
     # R220-R222: gold / commodities = others budget minus what the multi-asset
@@ -484,9 +505,8 @@ def _run_practical_long_term(
     # redistributed to eq/debt).
     others_minus_multi = max(
         0,
-        others_amount - (
-            multi_asset_block.others_component - multi_asset_others_excess
-        ),
+        others_amount
+        - (multi_asset_block.others_component - multi_asset_others_excess),
     )
     residual_other_corpus = round_to_100(others_minus_multi)
 
@@ -586,31 +606,37 @@ def run_practical_allocation(
 
     s5 = _step5_aggregation_with_frozen(
         total_corpus=inp.total_corpus,
-        s1=s1, s2=s2, s3=s3, s4_practical=s4_practical,
+        s1=s1,
+        s2=s2,
+        s3=s3,
+        s4_practical=s4_practical,
         elss_amount=inp.elss_corpus,
         non_mf_equity_actual=s4_practical.non_mf_equity_actual,
     )
 
     if trace is not None:
-        trace.update({
-            "rebalancing_corpus": rebalancing_corpus,
-            "lt_corpus_entering": s3.remaining_corpus,
-            "inputs": {
-                "elss_corpus": float(inp.elss_corpus),
-                "non_mf_equity_corpus": float(inp.non_mf_equity_corpus),
-                "mf_corpus": float(inp.mf_corpus),
-                "net_financial_assets": (
-                    None if inp.net_financial_assets is None
-                    else float(inp.net_financial_assets)
-                ),
-                "max_non_mf_equity_pct_client_input": inp.max_non_mf_equity_pct_client_input,
-            },
-            "step1_emergency": s1.model_dump(mode="json"),
-            "step2_short_term": s2.model_dump(mode="json"),
-            "step3_medium_term": s3.model_dump(mode="json"),
-            "step4_long_term": _practical_lt_result_to_dict(s4_practical),
-            "step5_aggregation": s5.model_dump(mode="json"),
-        })
+        trace.update(
+            {
+                "rebalancing_corpus": rebalancing_corpus,
+                "lt_corpus_entering": s3.remaining_corpus,
+                "inputs": {
+                    "elss_corpus": float(inp.elss_corpus),
+                    "non_mf_equity_corpus": float(inp.non_mf_equity_corpus),
+                    "mf_corpus": float(inp.mf_corpus),
+                    "net_financial_assets": (
+                        None
+                        if inp.net_financial_assets is None
+                        else float(inp.net_financial_assets)
+                    ),
+                    "max_non_mf_equity_pct_client_input": inp.max_non_mf_equity_pct_client_input,
+                },
+                "step1_emergency": s1.model_dump(mode="json"),
+                "step2_short_term": s2.model_dump(mode="json"),
+                "step3_medium_term": s3.model_dump(mode="json"),
+                "step4_long_term": _practical_lt_result_to_dict(s4_practical),
+                "step5_aggregation": s5.model_dump(mode="json"),
+            }
+        )
 
     return _build_output(inp, s1, s2, s3, s4_practical, s5)
 
@@ -623,56 +649,53 @@ def _practical_lt_result_to_dict(r: _PracticalLongTermResult) -> dict:
     """
     return {
         # Excel R157-R165 (Task 5 — corpus, ELSS floor, phase-1 bounds)
-        "total_long_term_corpus":           r.total_long_term_corpus,
-        "min_equity_elss_pct":              r.min_equity_elss_pct,
+        "total_long_term_corpus": r.total_long_term_corpus,
+        "min_equity_elss_pct": r.min_equity_elss_pct,
         "phase1_bounds_allocation_1": {
-            "eq_min":     r.phase1_bounds_allocation_1.eq_min,
-            "eq_max":     r.phase1_bounds_allocation_1.eq_max,
-            "debt_min":   r.phase1_bounds_allocation_1.debt_min,
-            "debt_max":   r.phase1_bounds_allocation_1.debt_max,
+            "eq_min": r.phase1_bounds_allocation_1.eq_min,
+            "eq_max": r.phase1_bounds_allocation_1.eq_max,
+            "debt_min": r.phase1_bounds_allocation_1.debt_min,
+            "debt_max": r.phase1_bounds_allocation_1.debt_max,
             "others_min": r.phase1_bounds_allocation_1.others_min,
             "others_max": r.phase1_bounds_allocation_1.others_max,
         },
         # R167-R174 (Task 6 — others-gate, allocation_2 percentages)
-        "practical_others_gate_fired":      r.practical_others_gate_fired,
-        "allocation_2_equity_pct":          r.allocation_2_equity_pct,
-        "allocation_2_debt_pct":            r.allocation_2_debt_pct,
-        "allocation_2_others_pct":          r.allocation_2_others_pct,
+        "practical_others_gate_fired": r.practical_others_gate_fired,
+        "allocation_2_equity_pct": r.allocation_2_equity_pct,
+        "allocation_2_debt_pct": r.allocation_2_debt_pct,
+        "allocation_2_others_pct": r.allocation_2_others_pct,
         # R177-R186 (Task 7 — amounts, ELSS, non-MF cap, residual_equity)
-        "equities_amount":                  r.equities_amount,
-        "debt_amount":                      r.debt_amount,
-        "others_amount":                    r.others_amount,
-        "elss_amount_frozen":               r.elss_amount_frozen,
-        "max_non_mf_equity_pct_computed":   r.max_non_mf_equity_pct_computed,
+        "equities_amount": r.equities_amount,
+        "debt_amount": r.debt_amount,
+        "others_amount": r.others_amount,
+        "elss_amount_frozen": r.elss_amount_frozen,
+        "max_non_mf_equity_pct_computed": r.max_non_mf_equity_pct_computed,
         "max_non_mf_equity_pct_considered": r.max_non_mf_equity_pct_considered,
-        "max_equities_shares":              r.max_equities_shares,
-        "non_mf_equity_actual":             r.non_mf_equity_actual,
-        "excess_direct_stocks":             r.excess_direct_stocks,
-        "residual_equity_corpus_pre_multi_asset":
-            r.residual_equity_corpus_pre_multi_asset,
+        "max_equities_shares": r.max_equities_shares,
+        "non_mf_equity_actual": r.non_mf_equity_actual,
+        "excess_direct_stocks": r.excess_direct_stocks,
+        "residual_equity_corpus_pre_multi_asset": r.residual_equity_corpus_pre_multi_asset,
         # R187-R194 (Task 8 — multi-asset block & overflow)
-        "multi_asset_block":                r.multi_asset_block.model_dump(mode="json"),
-        "multi_asset_others_excess":        r.multi_asset_others_excess,
-        "excess_to_debt":                   r.excess_to_debt,
-        "excess_to_equity":                 r.excess_to_equity,
-        "residual_equity_corpus_final":     r.residual_equity_corpus_final,
-        "residual_debt_corpus":             r.residual_debt_corpus,
+        "multi_asset_block": r.multi_asset_block.model_dump(mode="json"),
+        "multi_asset_others_excess": r.multi_asset_others_excess,
+        "excess_to_debt": r.excess_to_debt,
+        "excess_to_equity": r.excess_to_equity,
+        "residual_equity_corpus_final": r.residual_equity_corpus_final,
+        "residual_debt_corpus": r.residual_debt_corpus,
         # R196-R215 (Task 9 — equity subgroup slider)
-        "average_equity_subgroup_allocation_pct":
-            r.average_equity_subgroup_allocation_pct,
-        "min_equity_pct_required":          r.min_equity_pct_required,
-        "equity_subgroup_amounts":          dict(r.equity_subgroup_amounts),
-        "initial_equity_subgroup_amounts":  dict(r.initial_equity_subgroup_amounts),
-        "equity_share_denominator":         r.equity_share_denominator,
+        "average_equity_subgroup_allocation_pct": r.average_equity_subgroup_allocation_pct,
+        "min_equity_pct_required": r.min_equity_pct_required,
+        "equity_subgroup_amounts": dict(r.equity_subgroup_amounts),
+        "initial_equity_subgroup_amounts": dict(r.initial_equity_subgroup_amounts),
+        "equity_share_denominator": r.equity_share_denominator,
         # R217-R222 (Task 10 — debt & others residuals)
-        "residual_other_corpus":            r.residual_other_corpus,
-        "long_term_subgroup_amounts":       dict(r.long_term_subgroup_amounts),
-        "goals_allocated": [
-            g.model_dump(mode="json") for g in r.goals_allocated
-        ],
+        "residual_other_corpus": r.residual_other_corpus,
+        "long_term_subgroup_amounts": dict(r.long_term_subgroup_amounts),
+        "goals_allocated": [g.model_dump(mode="json") for g in r.goals_allocated],
         "future_investment": (
             r.future_investment.model_dump(mode="json")
-            if r.future_investment is not None else None
+            if r.future_investment is not None
+            else None
         ),
     }
 
@@ -685,7 +708,9 @@ def _adapt_practical_to_step4_output(
     .subgroup_amounts on the step4 input, so the other fields are best-effort
     placeholders. We construct minimal valid pydantic objects."""
     zero_alloc = AssetClassAllocation(
-        equities_pct=0, debt_pct=0, others_pct=0,
+        equities_pct=0,
+        debt_pct=0,
+        others_pct=0,
         equities_amount=s4_practical.equities_amount,
         debt_amount=s4_practical.debt_amount,
         others_amount=s4_practical.others_amount,
@@ -730,22 +755,30 @@ def _step5_aggregation_with_frozen(
     rows = list(base.rows)
     elss_int = int(round(elss_amount))
     if elss_int > 0:
-        rows.append(AggregatedRow(
-            subgroup="tax_efficient_equities",
-            emergency=0, short_term=0, medium_term=0,
-            long_term=elss_int, total=elss_int,
-        ))
+        rows.append(
+            AggregatedRow(
+                subgroup="tax_efficient_equities",
+                emergency=0,
+                short_term=0,
+                medium_term=0,
+                long_term=elss_int,
+                total=elss_int,
+            )
+        )
     if non_mf_equity_actual > 0:
-        rows.append(AggregatedRow(
-            subgroup="non_mf_equities",
-            emergency=0, short_term=0, medium_term=0,
-            long_term=non_mf_equity_actual, total=non_mf_equity_actual,
-        ))
+        rows.append(
+            AggregatedRow(
+                subgroup="non_mf_equities",
+                emergency=0,
+                short_term=0,
+                medium_term=0,
+                long_term=non_mf_equity_actual,
+                total=non_mf_equity_actual,
+            )
+        )
 
     grand_total = sum(row.total for row in rows)
-    grand_total_matches_corpus = abs(
-        grand_total - round_to_100(total_corpus)
-    ) <= 500
+    grand_total_matches_corpus = abs(grand_total - round_to_100(total_corpus)) <= 500
 
     return Step5Output(
         rows=rows,
@@ -823,13 +856,17 @@ def _build_asset_class_breakdown(
     for bucket_name, subs in bucket_dicts.items():
         eq, dt, oth = split_with(subs)
         tot = eq + dt + oth
-        per_bucket.append(BucketAssetClassSplit(
-            bucket=bucket_name,  # type: ignore[arg-type]
-            equity=eq, debt=dt, others=oth,
-            equity_pct=(eq * 100.0 / tot) if tot else 0.0,
-            debt_pct=(dt * 100.0 / tot) if tot else 0.0,
-            others_pct=(oth * 100.0 / tot) if tot else 0.0,
-        ))
+        per_bucket.append(
+            BucketAssetClassSplit(
+                bucket=bucket_name,  # type: ignore[arg-type]
+                equity=eq,
+                debt=dt,
+                others=oth,
+                equity_pct=(eq * 100.0 / tot) if tot else 0.0,
+                debt_pct=(dt * 100.0 / tot) if tot else 0.0,
+                others_pct=(oth * 100.0 / tot) if tot else 0.0,
+            )
+        )
 
     eq_total = sum(b.equity for b in per_bucket)
     dt_total = sum(b.debt for b in per_bucket)
@@ -838,7 +875,9 @@ def _build_asset_class_breakdown(
 
     block = AssetClassSplitBlock(
         per_bucket=per_bucket,
-        equity_total=eq_total, debt_total=dt_total, others_total=oth_total,
+        equity_total=eq_total,
+        debt_total=dt_total,
+        others_total=oth_total,
         equity_total_pct=(eq_total * 100.0 / grand) if grand else 0.0,
         debt_total_pct=(dt_total * 100.0 / grand) if grand else 0.0,
         others_total_pct=(oth_total * 100.0 / grand) if grand else 0.0,
@@ -967,15 +1006,21 @@ def _build_output(
     all_mult_100 = all(
         v % 100 == 0
         for d in (
-            s1.subgroup_amounts, s2.subgroup_amounts,
-            s3.subgroup_amounts, s4_practical.long_term_subgroup_amounts,
+            s1.subgroup_amounts,
+            s2.subgroup_amounts,
+            s3.subgroup_amounts,
+            s4_practical.long_term_subgroup_amounts,
         )
         for v in d.values()
     )
 
     # 7. asset_class_breakdown
     asset_class_breakdown = _build_asset_class_breakdown(
-        inp, s1, s2, s3, s4_practical,
+        inp,
+        s1,
+        s2,
+        s3,
+        s4_practical,
     )
 
     # corpus_breakdown extras
@@ -989,10 +1034,12 @@ def _build_output(
         excess_direct_stocks_inr=s4_practical.excess_direct_stocks,
         max_non_mf_equity_pct_computed=s4_practical.max_non_mf_equity_pct_considered,
         lt_equities_amount_inr=s4_practical.equities_amount,
-        non_mf_equity_cap_inr=int(round(
-            s4_practical.max_non_mf_equity_pct_considered
-            * s4_practical.equities_amount,
-        )),
+        non_mf_equity_cap_inr=int(
+            round(
+                s4_practical.max_non_mf_equity_pct_considered
+                * s4_practical.equities_amount,
+            )
+        ),
     )
 
     return PracticalAllocationOutput(

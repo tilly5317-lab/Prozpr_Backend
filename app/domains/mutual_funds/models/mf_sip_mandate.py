@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -26,7 +25,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
-from app.domains.mutual_funds.models.enums import MfSipFrequency, MfSipStatus, MfStepupFrequency
+from app.domains.mutual_funds.models.enums import (
+    MfSipFrequency,
+    MfSipStatus,
+    MfStepupFrequency,
+)
 
 if TYPE_CHECKING:
     from app.domains.identity.models.user import User
@@ -35,7 +38,9 @@ if TYPE_CHECKING:
 class MfSipMandate(Base):
     __tablename__ = "mf_sip_mandates"
     __table_args__ = (
-        CheckConstraint("debit_day >= 1 AND debit_day <= 28", name="ck_mf_sip_debit_day"),
+        CheckConstraint(
+            "debit_day >= 1 AND debit_day <= 28", name="ck_mf_sip_debit_day"
+        ),
         CheckConstraint("sip_amount > 0", name="ck_mf_sip_amount_positive"),
     )
 
@@ -60,10 +65,16 @@ class MfSipMandate(Base):
     debit_day: Mapped[int] = mapped_column(Integer, nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    stepup_amount: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    stepup_percentage: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    stepup_amount: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    stepup_percentage: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     stepup_frequency: Mapped[Optional[MfStepupFrequency]] = mapped_column(
-        SAEnum(MfStepupFrequency, name="mf_stepup_frequency_enum", create_constraint=True),
+        SAEnum(
+            MfStepupFrequency, name="mf_stepup_frequency_enum", create_constraint=True
+        ),
         nullable=True,
     )
     status: Mapped[MfSipStatus] = mapped_column(
@@ -75,8 +86,13 @@ class MfSipMandate(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     user: Mapped["User"] = relationship(back_populates="mf_sip_mandates")
-    transactions: Mapped[List["MfTransaction"]] = relationship(back_populates="sip_mandate")
+    transactions: Mapped[List["MfTransaction"]] = relationship(
+        back_populates="sip_mandate"
+    )

@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field
 class CamsPdfImportResponse(BaseModel):
     import_id: uuid.UUID
     status: str  # MfAaImportStatus value after normalization (NORMALIZED / FAILED / RECEIVED)
-    cas_file_type: Optional[str] = None  # casparser file_type, e.g. "CAMS" / "KARVY" / "CAMS_KARVY"
+    cas_file_type: Optional[str] = (
+        None  # casparser file_type, e.g. "CAMS" / "KARVY" / "CAMS_KARVY"
+    )
     cas_type: Optional[str] = None  # "DETAILED" (with transactions) or "SUMMARY"
     statement_period_from: Optional[str] = None
     statement_period_to: Optional[str] = None

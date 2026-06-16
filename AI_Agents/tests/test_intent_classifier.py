@@ -2,6 +2,7 @@
 
 No Anthropic API calls — validates schema drift guards and deterministic helpers only.
 """
+
 from __future__ import annotations
 
 import sys
@@ -50,8 +51,7 @@ class TestIntentClassifierHelpers(unittest.TestCase):
 
     def test_format_history_truncates_to_last_twelve(self) -> None:
         history = [
-            ConversationMessage(role="user", content=f"msg-{i}")
-            for i in range(20)
+            ConversationMessage(role="user", content=f"msg-{i}") for i in range(20)
         ]
         block = _format_history(history)
         self.assertIn("msg-19", block)

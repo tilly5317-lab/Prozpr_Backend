@@ -14,7 +14,9 @@ def round_to_step(amount: Decimal, step: int) -> Decimal:
         return Decimal(0)
     sign = Decimal(-1) if amount < 0 else Decimal(1)
     abs_amt = abs(amount)
-    quantized = (abs_amt / Decimal(step)).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * Decimal(step)
+    quantized = (abs_amt / Decimal(step)).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    ) * Decimal(step)
     return sign * quantized
 
 
@@ -28,7 +30,9 @@ def floor_to_step(amount: Decimal, step: int) -> Decimal:
         return Decimal(0)
     sign = Decimal(-1) if amount < 0 else Decimal(1)
     abs_amt = abs(amount)
-    floored = (abs_amt / Decimal(step)).quantize(Decimal("1"), rounding=ROUND_DOWN) * Decimal(step)
+    floored = (abs_amt / Decimal(step)).quantize(
+        Decimal("1"), rounding=ROUND_DOWN
+    ) * Decimal(step)
     return sign * floored
 
 

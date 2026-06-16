@@ -26,7 +26,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
-    from app.domains.asset_allocation.models.run import AssetAllocationRun, AssetAllocationRunTarget
+    from app.domains.asset_allocation.models.run import (
+        AssetAllocationRun,
+        AssetAllocationRunTarget,
+    )
 
 
 class AllocationBucketName(str, enum.Enum):
@@ -85,7 +88,9 @@ class AssetAllocationBucket(Base):
     future_investment_amount: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )
-    future_investment_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    future_investment_message: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -226,9 +231,15 @@ class AssetAllocationBucketAssetClass(Base):
         nullable=False,
     )
 
-    equity_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    debt_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    others_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    equity_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    debt_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    others_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     equity_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
     debt_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
     others_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
@@ -237,7 +248,9 @@ class AssetAllocationBucketAssetClass(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    bucket: Mapped["AssetAllocationBucket"] = relationship(back_populates="asset_classes")
+    bucket: Mapped["AssetAllocationBucket"] = relationship(
+        back_populates="asset_classes"
+    )
 
 
 class AssetAllocationAggregate(Base):
@@ -282,9 +295,15 @@ class AssetAllocationAggregate(Base):
         nullable=False,
     )
 
-    equity_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    debt_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    others_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    equity_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    debt_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    others_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     equity_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
     debt_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)
     others_pct: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0)

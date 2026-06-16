@@ -4,6 +4,7 @@ Revision ID: c3a7f2e1d456
 Revises: b8b16d9c1ccf
 Create Date: 2026-03-23 10:00:00.000000
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -37,10 +38,18 @@ def upgrade() -> None:
         sa.Column("nickname", sa.String(120), nullable=False),
         sa.Column("email", sa.String(320), nullable=True),
         sa.Column("phone", sa.String(32), nullable=True),
-        sa.Column("relationship_type", sa.String(30), nullable=False, server_default="other"),
-        sa.Column("status", sa.String(20), nullable=False, server_default="pending_otp"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "relationship_type", sa.String(30), nullable=False, server_default="other"
+        ),
+        sa.Column(
+            "status", sa.String(20), nullable=False, server_default="pending_otp"
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
         sa.UniqueConstraint("owner_id", "member_user_id", name="uq_owner_member"),
     )
 

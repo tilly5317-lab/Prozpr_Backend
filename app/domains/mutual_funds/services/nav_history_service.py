@@ -15,7 +15,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.mutual_funds.models import MfFundMetadata, MfNavHistory
-from app.domains.mutual_funds.services.mfapi_fetcher import MFAPI_TIMEOUT, fetch_scheme_detail
+from app.domains.mutual_funds.services.mfapi_fetcher import (
+    MFAPI_TIMEOUT,
+    fetch_scheme_detail,
+)
 from app.domains.mutual_funds.schemas import MfNavHistoryCreate, MfNavHistoryUpdate
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
 
@@ -41,7 +44,9 @@ async def list_nav_rows(
     nav_date_to: Optional[date] = None,
 ) -> list[MfNavHistory]:
     skip, limit = clamp_skip_limit(skip, limit)
-    stmt = select(MfNavHistory).order_by(MfNavHistory.nav_date.desc(), MfNavHistory.scheme_code)
+    stmt = select(MfNavHistory).order_by(
+        MfNavHistory.nav_date.desc(), MfNavHistory.scheme_code
+    )
     if scheme_code:
         stmt = stmt.where(MfNavHistory.scheme_code == scheme_code)
     if isin:
@@ -75,7 +80,9 @@ async def get_nav_by_scheme(
     stmt = stmt.where(MfNavHistory.nav_date == nav_date)
     row = (await db.execute(stmt)).scalar_one_or_none()
     if not row:
-        fetched = await _fetch_nav_from_source_for_scheme(db, scheme_code, nav_date=nav_date)
+        fetched = await _fetch_nav_from_source_for_scheme(
+            db, scheme_code, nav_date=nav_date
+        )
         if fetched is not None:
             return fetched
         raise HTTPException(
@@ -85,7 +92,9 @@ async def get_nav_by_scheme(
     return row
 
 
-async def get_nav_on_scheme_date(db: AsyncSession, scheme_code: str, nav_date: date) -> MfNavHistory:
+async def get_nav_on_scheme_date(
+    db: AsyncSession, scheme_code: str, nav_date: date
+) -> MfNavHistory:
     """Exact row for (scheme_code, nav_date) — table natural key."""
     row = (
         await db.execute(
@@ -103,7 +112,9 @@ async def get_nav_on_scheme_date(db: AsyncSession, scheme_code: str, nav_date: d
     return row
 
 
-async def get_nav_on_isin_date(db: AsyncSession, isin: str, nav_date: date) -> MfNavHistory:
+async def get_nav_on_isin_date(
+    db: AsyncSession, isin: str, nav_date: date
+) -> MfNavHistory:
     """Exact row for (isin, nav_date)."""
     isin_key = isin.strip().upper()
     row = (
@@ -182,7 +193,9 @@ async def update_nav_on_scheme_date(
     return row
 
 
-async def delete_nav_on_scheme_date(db: AsyncSession, scheme_code: str, nav_date: date) -> None:
+async def delete_nav_on_scheme_date(
+    db: AsyncSession, scheme_code: str, nav_date: date
+) -> None:
     row = await get_nav_on_scheme_date(db, scheme_code, nav_date)
     await db.delete(row)
     await db.commit()
@@ -280,7 +293,9 @@ async def get_latest_nav_with_source_fallback(
 
 
 def _mf_type(detail_scheme_type: str, detail_scheme_category: str) -> str:
-    value = " | ".join(p for p in (detail_scheme_type, detail_scheme_category) if p).strip()
+    value = " | ".join(
+        p for p in (detail_scheme_type, detail_scheme_category) if p
+    ).strip()
     return value or "Unknown"
 
 
@@ -321,7 +336,10 @@ async def ensure_nav_history_for_chart(
     if stored == 0:
         logger.info("scheme %s chart backfill: no NAV rows in DB yet", code)
         await _backfill_scheme_nav_history(
-            db, code, date_from=date_from, date_to=date_to,
+            db,
+            code,
+            date_from=date_from,
+            date_to=date_to,
         )
         return
 
@@ -363,7 +381,10 @@ async def ensure_nav_history_for_chart(
         coverage_start,
     )
     inserted = await _backfill_scheme_nav_history(
-        db, code, date_from=date_from, date_to=date_to,
+        db,
+        code,
+        date_from=date_from,
+        date_to=date_to,
     )
     if inserted == 0 and stored > 0:
         logger.debug(
@@ -385,7 +406,9 @@ async def _backfill_scheme_nav_history(
     if not code:
         return 0
 
-    async with httpx.AsyncClient(timeout=MFAPI_TIMEOUT, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=MFAPI_TIMEOUT, follow_redirects=True
+    ) as client:
         detail = await fetch_scheme_detail(client, code)
     if detail is None or not detail.navs:
         return 0
@@ -464,7 +487,9 @@ async def _fetch_nav_from_source_for_scheme(
             )
             return existing
 
-    async with httpx.AsyncClient(timeout=MFAPI_TIMEOUT, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=MFAPI_TIMEOUT, follow_redirects=True
+    ) as client:
         detail = await fetch_scheme_detail(client, code)
     if detail is None or not detail.navs:
         return None
@@ -553,7 +578,9 @@ async def _fetch_nav_from_source_for_isin(
     ).scalar_one_or_none()
     if not scheme_code:
         return None
-    return await _fetch_nav_from_source_for_scheme(db, str(scheme_code), nav_date=nav_date)
+    return await _fetch_nav_from_source_for_scheme(
+        db, str(scheme_code), nav_date=nav_date
+    )
 
 
 async def _persist_source_nav_and_metadata(
@@ -611,13 +638,16 @@ async def _persist_source_nav_and_metadata(
             await bg_db.commit()
             logger.info(
                 "Persisted %d NAV rows for scheme %s (offered %d)",
-                inserted, scheme_code, len(nav_rows),
+                inserted,
+                scheme_code,
+                len(nav_rows),
             )
             return inserted
         except Exception:
             logger.exception(
                 "Failed to persist NAV rows for scheme %s (%d rows offered)",
-                scheme_code, len(nav_rows),
+                scheme_code,
+                len(nav_rows),
             )
             await bg_db.rollback()
             return 0

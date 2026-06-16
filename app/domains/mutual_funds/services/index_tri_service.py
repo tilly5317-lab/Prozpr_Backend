@@ -84,7 +84,9 @@ async def backfill_full_history(
     async with httpx.AsyncClient(timeout=NIFTY_TRI_TIMEOUT) as client:
         rows = await fetch_tri_chunked(client, index_name, NIFTY_TRI_EARLIEST, today)
     inserted = await bulk_insert_tri_rows(db, index_name, rows)
-    logger.info("TRI backfill %s: fetched=%d inserted=%d", index_name, len(rows), inserted)
+    logger.info(
+        "TRI backfill %s: fetched=%d inserted=%d", index_name, len(rows), inserted
+    )
     return inserted
 
 
@@ -101,7 +103,11 @@ async def refresh_incremental(
         rows = await fetch_tri_chunked(client, index_name, start, today)
     inserted = await bulk_insert_tri_rows(db, index_name, rows)
     logger.info(
-        "TRI refresh %s: from=%s fetched=%d inserted=%d", index_name, start, len(rows), inserted
+        "TRI refresh %s: from=%s fetched=%d inserted=%d",
+        index_name,
+        start,
+        len(rows),
+        inserted,
     )
     return inserted
 
@@ -113,7 +119,9 @@ async def get_tri_on_or_before(
     return (
         await db.execute(
             select(IndexTriHistory)
-            .where(IndexTriHistory.index_name == index_name, IndexTriHistory.tri_date <= on)
+            .where(
+                IndexTriHistory.index_name == index_name, IndexTriHistory.tri_date <= on
+            )
             .order_by(IndexTriHistory.tri_date.desc())
             .limit(1)
         )
@@ -144,7 +152,9 @@ async def run_tri_refresh_job(index_name: str = DEFAULT_INDEX_NAME) -> None:
                 inserted = await refresh_incremental(db, index_name)
                 await db.commit()
                 logger.info(
-                    "TRI job done in %.1fs: inserted=%d", time.monotonic() - t0, inserted
+                    "TRI job done in %.1fs: inserted=%d",
+                    time.monotonic() - t0,
+                    inserted,
                 )
             except Exception:
                 await db.rollback()
@@ -155,6 +165,10 @@ async def run_tri_refresh_job(index_name: str = DEFAULT_INDEX_NAME) -> None:
                         text("SELECT pg_advisory_unlock(:k)"), {"k": INDEX_TRI_LOCK_KEY}
                     )
                 except SQLAlchemyError:
-                    logger.warning("TRI job: failed to release advisory lock", exc_info=True)
+                    logger.warning(
+                        "TRI job: failed to release advisory lock", exc_info=True
+                    )
     except SQLAlchemyError:
-        logger.warning("TRI job: database unavailable; will retry next schedule", exc_info=True)
+        logger.warning(
+            "TRI job: database unavailable; will retry next schedule", exc_info=True
+        )
