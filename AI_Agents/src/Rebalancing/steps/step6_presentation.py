@@ -73,33 +73,37 @@ def _frozen_subgroups(practical: PracticalAllocationOutput) -> list[SubgroupSumm
 
     out: list[SubgroupSummary] = []
     if elss > 0:
-        out.append(SubgroupSummary(
-            asset_subgroup="tax_efficient_equities",
-            goal_target_inr=elss,
-            current_holding_inr=elss,
-            suggested_final_holding_inr=elss,
-            rebalance_inr=Decimal(0),
-            total_buy_inr=Decimal(0),
-            total_sell_inr=Decimal(0),
-            ranks_total=0,
-            ranks_with_holding=0,
-            ranks_with_action=0,
-            actions=[],
-        ))
+        out.append(
+            SubgroupSummary(
+                asset_subgroup="tax_efficient_equities",
+                goal_target_inr=elss,
+                current_holding_inr=elss,
+                suggested_final_holding_inr=elss,
+                rebalance_inr=Decimal(0),
+                total_buy_inr=Decimal(0),
+                total_sell_inr=Decimal(0),
+                ranks_total=0,
+                ranks_with_holding=0,
+                ranks_with_action=0,
+                actions=[],
+            )
+        )
     if nme_input > 0 or nme_actual > 0:
-        out.append(SubgroupSummary(
-            asset_subgroup="non_mf_equities",
-            goal_target_inr=nme_actual,
-            current_holding_inr=nme_input,
-            suggested_final_holding_inr=nme_actual,
-            rebalance_inr=nme_actual - nme_input,
-            total_buy_inr=Decimal(0),
-            total_sell_inr=Decimal(0),
-            ranks_total=0,
-            ranks_with_holding=0,
-            ranks_with_action=0,
-            actions=[],
-        ))
+        out.append(
+            SubgroupSummary(
+                asset_subgroup="non_mf_equities",
+                goal_target_inr=nme_actual,
+                current_holding_inr=nme_input,
+                suggested_final_holding_inr=nme_actual,
+                rebalance_inr=nme_actual - nme_input,
+                total_buy_inr=Decimal(0),
+                total_sell_inr=Decimal(0),
+                ranks_total=0,
+                ranks_with_holding=0,
+                ranks_with_action=0,
+                actions=[],
+            )
+        )
     return out
 
 
@@ -142,7 +146,8 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
         if r.exit_flag:
             action = "EXIT"
             reason = (
-                "exit_low_rated" if r.fund_rating < EXIT_FLOOR_RATING
+                "exit_low_rated"
+                if r.fund_rating < EXIT_FLOOR_RATING
                 else "exit_bad_fund"
             )
         elif r.rank == 0:
@@ -177,6 +182,7 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
     # unchanged so downstream branching on it still works.
     if sold > 0 and r.pass1_undersell_due_to_stcg_cap > 0:
         from common import format_inr_indian  # type: ignore[import-not-found]
+
         text = text + STCG_CAP_SUFFIX_TEMPLATE.replace(
             "{amount}", format_inr_indian(int(r.pass1_undersell_due_to_stcg_cap))
         )
@@ -210,35 +216,36 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
         current = sum((r.present_allocation_inr for r in sg_rows), Decimal(0))
         if goal_target == 0 and current == 0:
             continue
-        suggested_final = sum(
-            (r.final_holding_amount for r in sg_rows), Decimal(0)
-        )
+        suggested_final = sum((r.final_holding_amount for r in sg_rows), Decimal(0))
         total_buy = sum((r.pass1_buy_amount for r in sg_rows), Decimal(0))
         total_sell = sum(
             (r.pass1_sell_amount + r.pass2_sell_amount for r in sg_rows),
             Decimal(0),
         )
         actions = [
-            r for r in sg_rows
+            r
+            for r in sg_rows
             if r.final_target_amount > 0 or r.present_allocation_inr > 0
         ]
         ranks_with_action = sum(1 for r in sg_rows if _row_has_action(r))
 
-        out.append(SubgroupSummary(
-            asset_subgroup=sg,
-            goal_target_inr=goal_target,
-            current_holding_inr=current,
-            suggested_final_holding_inr=suggested_final,
-            rebalance_inr=suggested_final - current,
-            total_buy_inr=total_buy,
-            total_sell_inr=total_sell,
-            ranks_total=len(sg_rows),
-            ranks_with_holding=sum(
-                1 for r in sg_rows if r.present_allocation_inr > 0
-            ),
-            ranks_with_action=ranks_with_action,
-            actions=actions,
-        ))
+        out.append(
+            SubgroupSummary(
+                asset_subgroup=sg,
+                goal_target_inr=goal_target,
+                current_holding_inr=current,
+                suggested_final_holding_inr=suggested_final,
+                rebalance_inr=suggested_final - current,
+                total_buy_inr=total_buy,
+                total_sell_inr=total_sell,
+                ranks_total=len(sg_rows),
+                ranks_with_holding=sum(
+                    1 for r in sg_rows if r.present_allocation_inr > 0
+                ),
+                ranks_with_action=ranks_with_action,
+                actions=actions,
+            )
+        )
 
     out.sort(key=lambda s: (-float(s.goal_target_inr), -float(s.current_holding_inr)))
     return out
@@ -252,7 +259,9 @@ def apply(
     practical: PracticalAllocationOutput,
 ) -> RebalancingComputeResponse:
     total_buy = sum((r.pass1_buy_amount for r in rows), Decimal(0))
-    total_sell = sum((r.pass1_sell_amount + r.pass2_sell_amount for r in rows), Decimal(0))
+    total_sell = sum(
+        (r.pass1_sell_amount + r.pass2_sell_amount for r in rows), Decimal(0)
+    )
     total_stcg = sum((r.pass1_realised_stcg for r in rows), Decimal(0))
     total_ltcg = sum((r.pass1_realised_ltcg for r in rows), Decimal(0))
     total_stcg_net_off = sum((r.stcg_offset_amount for r in rows), Decimal(0))
@@ -268,14 +277,13 @@ def apply(
 
     funds_to_buy = sum(1 for r in rows if r.pass1_buy_amount > 0)
     funds_to_sell = sum(
-        1 for r in rows
-        if (r.pass1_sell_amount + r.pass2_sell_amount) > 0
-        and not r.exit_flag
+        1
+        for r in rows
+        if (r.pass1_sell_amount + r.pass2_sell_amount) > 0 and not r.exit_flag
     )
     funds_to_exit = sum(1 for r in rows if r.exit_flag and r.present_allocation_inr > 0)
     funds_held = sum(
-        1 for r in rows
-        if not r.worth_to_change and r.present_allocation_inr > 0
+        1 for r in rows if not r.worth_to_change and r.present_allocation_inr > 0
     )
 
     totals = RebalancingTotals(
@@ -297,7 +305,9 @@ def apply(
     metadata = RebalancingRunMetadata(
         computed_at=datetime.now(timezone.utc),
         engine_version=ENGINE_VERSION,
-        request_corpus_inr=Decimal(str(request.practical_allocation_input.total_corpus)),
+        request_corpus_inr=Decimal(
+            str(request.practical_allocation_input.total_corpus)
+        ),
         knob_snapshot=_build_knob_snapshot(),
         request_id=request.request_id,
     )

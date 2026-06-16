@@ -3,14 +3,21 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,11 +47,15 @@ class RiskProfile(Base):
     # 0=Conservative, 1=Moderately Conservative, 2=Moderate, 3=Moderately Aggressive, 4=Aggressive
     risk_level: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # User-declared willingness on 1–10 scale (optional; falls back to mapping from risk_level)
-    risk_willingness: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    risk_willingness: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     # For effective risk score OSI mapping (public_sector | private_sector | ...)
     occupation_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     risk_capacity: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    investment_experience: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    investment_experience: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
     investment_horizon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     drop_reaction: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     max_drawdown: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)

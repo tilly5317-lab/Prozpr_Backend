@@ -45,9 +45,7 @@ class TradeExecutionStatus(str, enum.Enum):
 
 class RebalancingTrade(Base):
     __tablename__ = "rebalancing_trades"
-    __table_args__ = (
-        Index("ix_rebalancing_trades_run_action", "run_id", "action"),
-    )
+    __table_args__ = (Index("ix_rebalancing_trades_run_action", "run_id", "action"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

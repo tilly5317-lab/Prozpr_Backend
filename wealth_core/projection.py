@@ -17,7 +17,9 @@ def _determine_projection_horizon_year(snapshot: ClientSnapshot) -> int:
     if not snapshot.goals:
         return base_year + 10
 
-    max_goal_year = max((g.target_year for g in snapshot.goals if g.target_year), default=base_year + 10)
+    max_goal_year = max(
+        (g.target_year for g in snapshot.goals if g.target_year), default=base_year + 10
+    )
     return max(max_goal_year, base_year)
 
 
@@ -86,7 +88,11 @@ def build_client_projection(snapshot: ClientSnapshot) -> List[Dict]:
             if mortgage_balance <= 0:
                 break
             interest = mortgage_balance * mortgage_monthly_rate
-            emi = min(mortgage_emi, mortgage_balance + interest) if mortgage_emi > 0 else 0.0
+            emi = (
+                min(mortgage_emi, mortgage_balance + interest)
+                if mortgage_emi > 0
+                else 0.0
+            )
             principal = emi - interest
             mortgage_balance -= principal
             annual_emi_paid += emi
@@ -100,7 +106,9 @@ def build_client_projection(snapshot: ClientSnapshot) -> List[Dict]:
         for g in snapshot.goals:
             if g.target_year == fy and g.amount:
                 # If client didn't provide inflation, default to expense_growth
-                inf = g.inflation_rate if g.inflation_rate is not None else expense_growth
+                inf = (
+                    g.inflation_rate if g.inflation_rate is not None else expense_growth
+                )
                 years_from_start = max(fy - current_year, 0)
                 goal_outflow += g.amount * ((1 + inf) ** years_from_start)
 
@@ -116,7 +124,9 @@ def build_client_projection(snapshot: ClientSnapshot) -> List[Dict]:
             - one_off_outflows_year
         )
 
-        net_worth = opening_net_worth + roi_earned + net_cash_flow_before_goals - goal_outflow
+        net_worth = (
+            opening_net_worth + roi_earned + net_cash_flow_before_goals - goal_outflow
+        )
 
         rows.append(
             {

@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import enum
@@ -46,17 +45,29 @@ class LinkedAccount(Base):
     )
 
     account_type: Mapped[LinkedAccountType] = mapped_column(
-        SAEnum(LinkedAccountType, name="linked_account_type_enum", create_constraint=True)
+        SAEnum(
+            LinkedAccountType, name="linked_account_type_enum", create_constraint=True
+        )
     )
     provider_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    account_identifier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    account_identifier: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     encrypted_access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[LinkedAccountStatus] = mapped_column(
-        SAEnum(LinkedAccountStatus, name="linked_account_status_enum", create_constraint=True),
+        SAEnum(
+            LinkedAccountStatus,
+            name="linked_account_status_enum",
+            create_constraint=True,
+        ),
         default=LinkedAccountStatus.pending,
     )
-    metadata_json: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
-    linked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONB, nullable=True
+    )
+    linked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

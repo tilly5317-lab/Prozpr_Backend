@@ -3,13 +3,21 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import logging
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -25,13 +33,18 @@ from app.domains.mutual_funds.schemas.mfapi import (
     MfapiIngestResultSchema,
     MfapiRefreshRequest,
 )
-from app.domains.ingestion.services.cams_cas_ingest import CamsPdfParseError, ingest_cams_pdf
+from app.domains.ingestion.services.cams_cas_ingest import (
+    CamsPdfParseError,
+    ingest_cams_pdf,
+)
 from app.domains.portfolio.services.networth_history_service import (
     create_job,
     has_running_job,
     run_networth_backfill,
 )
-from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
+from app.domains.profile.services._effective_risk import (
+    maybe_recalculate_effective_risk,
+)
 from app.domains.mutual_funds.services.mfapi_ingest_service import (
     IngestMode,
     MfapiIngestError,
@@ -55,7 +68,9 @@ _MAX_CAS_PDF_BYTES = 20 * 1024 * 1024
 @router.post("/cams-pdf", response_model=CamsPdfImportResponse)
 async def ingest_cams_statement_pdf(
     background: BackgroundTasks,
-    file: UploadFile = File(..., description="CAMS / KFintech Consolidated Account Statement PDF"),
+    file: UploadFile = File(
+        ..., description="CAMS / KFintech Consolidated Account Statement PDF"
+    ),
     password: str = Form(
         ...,
         description="Password set when generating the CAS (commonly your PAN in capitals).",
@@ -94,14 +109,20 @@ async def ingest_cams_statement_pdf(
 
     data = await file.read()
     if not data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file is empty.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file is empty.",
+        )
     if len(data) > _MAX_CAS_PDF_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="The PDF is too large (limit 20 MB).",
         )
     if not (password or "").strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A PDF password is required.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A PDF password is required.",
+        )
 
     try:
         result = await ingest_cams_pdf(
@@ -115,7 +136,9 @@ async def ingest_cams_statement_pdf(
     except CamsPdfParseError as exc:
         raise HTTPException(
             status_code=(
-                status.HTTP_400_BAD_REQUEST if exc.bad_password else status.HTTP_422_UNPROCESSABLE_ENTITY
+                status.HTTP_400_BAD_REQUEST
+                if exc.bad_password
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
             ),
             detail=str(exc),
         ) from exc
@@ -183,7 +206,9 @@ async def normalize_import(
 ):
     aa_import = await get_import_for_user(db, current_user.id, import_id)
     if not aa_import:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AA import not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AA import not found"
+        )
     out = await normalize_single_import(db, aa_import)
     return MfAaNormalizeOneResponse(
         import_id=out.import_id,
@@ -274,6 +299,7 @@ async def refresh_mfapi(
             concurrency=payload.concurrency,
         )
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc)
         return MfapiIngestResultSchema(
             mode=payload.mode.value,

@@ -8,7 +8,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from app.domains.asset_allocation.schemas.aggregate import AssetAllocationAggregateResponse
+from app.domains.asset_allocation.schemas.aggregate import (
+    AssetAllocationAggregateResponse,
+)
 from app.domains.asset_allocation.schemas.bucket import AssetAllocationBucketResponse
 
 

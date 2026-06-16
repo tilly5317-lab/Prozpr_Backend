@@ -28,8 +28,15 @@ from typing import Optional
 # parents[0]=rebal_engine, [1]=services, [2]=rebalancing, [3]=domains,
 # [4]=app, [5]=repo root (where MF_Logics/ lives).
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_NAV_CSV = _REPO_ROOT / "MF_Logics" / "Mututal_Funds_data_extraction" / "latest_nav_active.csv"
-_META_CSV = _REPO_ROOT / "MF_Logics" / "Mututal_Funds_data_extraction" / "mf_subgroup_mapped.csv"
+_NAV_CSV = (
+    _REPO_ROOT / "MF_Logics" / "Mututal_Funds_data_extraction" / "latest_nav_active.csv"
+)
+_META_CSV = (
+    _REPO_ROOT
+    / "MF_Logics"
+    / "Mututal_Funds_data_extraction"
+    / "mf_subgroup_mapped.csv"
+)
 
 
 @dataclass(frozen=True)
@@ -96,7 +103,9 @@ def latest_nav_by_isin(isins: set[str]) -> dict[str, Decimal]:
     if not isins:
         return {}
     table = _load_nav_table()
-    return {isin: nav for isin, nav in ((i, table.get(i)) for i in isins) if nav is not None}
+    return {
+        isin: nav for isin, nav in ((i, table.get(i)) for i in isins) if nav is not None
+    }
 
 
 def metadata_by_isin(isins: set[str]) -> dict[str, CsvFundMetadata]:

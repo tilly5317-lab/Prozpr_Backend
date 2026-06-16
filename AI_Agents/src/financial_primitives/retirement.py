@@ -1,4 +1,5 @@
 """Composite retirement-corpus primitive."""
+
 from __future__ import annotations
 
 
@@ -18,4 +19,8 @@ def retirement_corpus_pv(
         return 0.0
     if real_roi_annual == 0:
         return annual_expense_fv * post_retirement_years
-    return annual_expense_fv * (1 - (1 + real_roi_annual) ** (-post_retirement_years)) / real_roi_annual
+    return (
+        annual_expense_fv
+        * (1 - (1 + real_roi_annual) ** (-post_retirement_years))
+        / real_roi_annual
+    )

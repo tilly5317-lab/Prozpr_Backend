@@ -26,7 +26,8 @@ class RebalancingKeywordOverrideTests(unittest.TestCase):
 
         raw = self._result("asset_allocation")
         out = _apply_rebalancing_keyword_override(
-            "please rebalance my portfolio", raw,
+            "please rebalance my portfolio",
+            raw,
         )
         self.assertEqual(out.intent, Intent.REBALANCING)
         self.assertGreaterEqual(out.confidence, 0.9)
@@ -43,7 +44,8 @@ class RebalancingKeywordOverrideTests(unittest.TestCase):
 
         raw = self._result("asset_allocation")
         out = _apply_rebalancing_keyword_override(
-            "what should my ideal allocation be?", raw,
+            "what should my ideal allocation be?",
+            raw,
         )
         self.assertEqual(out.intent, Intent.ASSET_ALLOCATION)
 

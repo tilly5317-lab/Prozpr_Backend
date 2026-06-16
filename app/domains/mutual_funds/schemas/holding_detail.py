@@ -35,7 +35,9 @@ class MfHoldingTransactionItem(BaseModel):
 
     id: uuid.UUID
     transaction_date: date
-    transaction_type: MfTransactionType  # BUY / SELL / SWITCH_IN / SWITCH_OUT / DIVIDEND_REINVEST
+    transaction_type: (
+        MfTransactionType  # BUY / SELL / SWITCH_IN / SWITCH_OUT / DIVIDEND_REINVEST
+    )
     folio_number: str
     units: float
     nav: float
@@ -107,4 +109,6 @@ class MfHoldingDetailResponse(BaseModel):
     position: Optional[MfHoldingPosition] = None
     transactions: list[MfHoldingTransactionItem] = Field(default_factory=list)
 
-    notes: list[str] = Field(default_factory=list)  # e.g. "No NAV history stored yet — sync NAVs."
+    notes: list[str] = Field(
+        default_factory=list
+    )  # e.g. "No NAV history stored yet — sync NAVs."

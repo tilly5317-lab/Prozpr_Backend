@@ -82,41 +82,20 @@ async def persist_plan_run(
             top_line=s.top_line,
             retirement_note=s.retirement_note,
             cashflow_note=s.cashflow_note,
-            goals=[gb.model_dump() if hasattr(gb, "model_dump") else gb for gb in s.goals],
+            goals=[
+                gb.model_dump() if hasattr(gb, "model_dump") else gb for gb in s.goals
+            ],
             risks=list(s.risks),
             next_steps=list(s.next_steps),
         )
         db.add(plan_summary)
 
     for row in snapshot.annual_cashflow:
-        db.add(CashflowAnnualRow(
-            plan_run_id=run.id,
-            user_id=user_id,
-            fy_end_date=row.fy_end_date,
-            fy_label=row.fy_label,
-            income=float(row.income),
-            income_tax=float(row.income_tax),
-            household_expense=float(row.household_expense),
-            savings_pre_emi=float(row.savings_pre_emi),
-            existing_mortgage_emi=float(row.existing_mortgage_emi),
-            goal_mortgage_emi=float(row.goal_mortgage_emi),
-            savings_post_emi=float(row.savings_post_emi),
-            one_off_inflow=float(row.one_off_inflow),
-            one_off_outflow=float(row.one_off_outflow),
-            corpus_opening=float(row.corpus_opening),
-            monthly_investment=float(row.monthly_investment),
-            investment_returns=float(row.investment_returns),
-            goal_payout=float(row.goal_payout),
-            corpus_closing=float(row.corpus_closing),
-            is_funded=row.is_funded,
-        ))
-
-    if snapshot.monthly_cashflow:
-        for row in snapshot.monthly_cashflow:
-            db.add(CashflowMonthlyRow(
+        db.add(
+            CashflowAnnualRow(
                 plan_run_id=run.id,
                 user_id=user_id,
-                month_end_date=row.month_end_date,
+                fy_end_date=row.fy_end_date,
                 fy_label=row.fy_label,
                 income=float(row.income),
                 income_tax=float(row.income_tax),
@@ -129,12 +108,39 @@ async def persist_plan_run(
                 one_off_outflow=float(row.one_off_outflow),
                 corpus_opening=float(row.corpus_opening),
                 monthly_investment=float(row.monthly_investment),
-                investment_source=row.investment_source,
                 investment_returns=float(row.investment_returns),
                 goal_payout=float(row.goal_payout),
                 corpus_closing=float(row.corpus_closing),
                 is_funded=row.is_funded,
-            ))
+            )
+        )
+
+    if snapshot.monthly_cashflow:
+        for row in snapshot.monthly_cashflow:
+            db.add(
+                CashflowMonthlyRow(
+                    plan_run_id=run.id,
+                    user_id=user_id,
+                    month_end_date=row.month_end_date,
+                    fy_label=row.fy_label,
+                    income=float(row.income),
+                    income_tax=float(row.income_tax),
+                    household_expense=float(row.household_expense),
+                    savings_pre_emi=float(row.savings_pre_emi),
+                    existing_mortgage_emi=float(row.existing_mortgage_emi),
+                    goal_mortgage_emi=float(row.goal_mortgage_emi),
+                    savings_post_emi=float(row.savings_post_emi),
+                    one_off_inflow=float(row.one_off_inflow),
+                    one_off_outflow=float(row.one_off_outflow),
+                    corpus_opening=float(row.corpus_opening),
+                    monthly_investment=float(row.monthly_investment),
+                    investment_source=row.investment_source,
+                    investment_returns=float(row.investment_returns),
+                    goal_payout=float(row.goal_payout),
+                    corpus_closing=float(row.corpus_closing),
+                    is_funded=row.is_funded,
+                )
+            )
 
     await db.commit()
     await db.refresh(run)
@@ -142,7 +148,8 @@ async def persist_plan_run(
 
 
 async def get_latest_plan_run(
-    db: AsyncSession, user_id: uuid.UUID,
+    db: AsyncSession,
+    user_id: uuid.UUID,
 ) -> CashflowPlanRun | None:
     """Return the most recent plan run for a user with all children eagerly loaded."""
     stmt = (

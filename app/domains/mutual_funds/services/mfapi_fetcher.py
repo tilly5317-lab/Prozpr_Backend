@@ -73,7 +73,11 @@ _IDCW_RE = re.compile(r"\b(idcw|dividend|payout|reinvest)\b", re.IGNORECASE)
 
 def _derive_plan_type(scheme_name: str) -> MfPlanType:
     """Infer DIRECT vs REGULAR plan from naming patterns."""
-    return MfPlanType.DIRECT if _DIRECT_RE.search(scheme_name or "") else MfPlanType.REGULAR
+    return (
+        MfPlanType.DIRECT
+        if _DIRECT_RE.search(scheme_name or "")
+        else MfPlanType.REGULAR
+    )
 
 
 def _derive_option_type(scheme_name: str) -> MfOptionType:
@@ -115,7 +119,9 @@ async def _request_json(client: httpx.AsyncClient, url: str) -> object:
             if attempt == MFAPI_MAX_RETRIES:
                 break
             await asyncio.sleep(2 ** (attempt - 1))
-    raise MfapiFetchError(f"mfapi.in request failed for {url}: {last_exc}") from last_exc
+    raise MfapiFetchError(
+        f"mfapi.in request failed for {url}: {last_exc}"
+    ) from last_exc
 
 
 async def fetch_universe(client: httpx.AsyncClient) -> list[UniverseRow]:
@@ -212,7 +218,9 @@ async def fetch_many_scheme_details(
     all_details: list[SchemeDetail] = []
     all_failed: list[str] = []
     for batch_details, batch_failed in fetch_scheme_details_batched(
-        client, scheme_codes, concurrency=concurrency,
+        client,
+        scheme_codes,
+        concurrency=concurrency,
     ):
         all_details.extend(batch_details)
         all_failed.extend(batch_failed)
@@ -270,6 +278,8 @@ async def fetch_scheme_details_batched(
     """
     for batch_codes in _chunked(scheme_codes, batch_size):
         details, failed = await fetch_scheme_details_batch(
-            client, batch_codes, concurrency=concurrency,
+            client,
+            batch_codes,
+            concurrency=concurrency,
         )
         yield details, failed

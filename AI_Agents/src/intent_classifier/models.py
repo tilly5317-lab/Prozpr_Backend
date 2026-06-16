@@ -6,21 +6,21 @@ from pydantic import BaseModel, Field
 
 class Intent(str, Enum):
     ASSET_ALLOCATION = "asset_allocation"
-    GOAL_PLANNING          = "goal_planning"
-    STOCK_ADVICE           = "stock_advice"
-    PORTFOLIO_QUERY        = "portfolio_query"
-    GENERAL_MARKET_QUERY   = "general_market_query"
-    REBALANCING            = "rebalancing"
-    OUT_OF_SCOPE           = "out_of_scope"
+    GOAL_PLANNING = "goal_planning"
+    STOCK_ADVICE = "stock_advice"
+    PORTFOLIO_QUERY = "portfolio_query"
+    GENERAL_MARKET_QUERY = "general_market_query"
+    REBALANCING = "rebalancing"
+    OUT_OF_SCOPE = "out_of_scope"
 
 
 class OutOfScopeSubreason(str, Enum):
-    GIBBERISH              = "gibberish"
-    IDENTITY_OR_META       = "identity_or_meta"
+    GIBBERISH = "gibberish"
+    IDENTITY_OR_META = "identity_or_meta"
     SECURITY_OR_CREDENTIALS = "security_or_credentials"
-    CHAT_SUMMARY           = "chat_summary"
-    OFF_TOPIC              = "off_topic"
-    OTHER                  = "other"
+    CHAT_SUMMARY = "chat_summary"
+    OFF_TOPIC = "off_topic"
+    OTHER = "other"
 
 
 class ConversationMessage(BaseModel):

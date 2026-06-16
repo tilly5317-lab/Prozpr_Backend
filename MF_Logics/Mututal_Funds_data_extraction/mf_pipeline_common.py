@@ -2,6 +2,7 @@
 """
 Shared helpers and pipeline steps for MF API fetch → NAV consolidation.
 """
+
 from __future__ import annotations
 
 import csv
@@ -20,22 +21,22 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 SEED_NAV_DIR = SCRIPT_DIR.parent / "MF_API" / "NAV_level_data"
 
-OUT_NAV_DIR    = SCRIPT_DIR / "NAV_level_data"
-OUT_JSON       = OUT_NAV_DIR / "latest.json"
-OUT_ALL_CSV    = SCRIPT_DIR / "latest_all_mf.csv"
+OUT_NAV_DIR = SCRIPT_DIR / "NAV_level_data"
+OUT_JSON = OUT_NAV_DIR / "latest.json"
+OUT_ALL_CSV = SCRIPT_DIR / "latest_all_mf.csv"
 OUT_ACTIVE_CSV = SCRIPT_DIR / "latest_nav_active.csv"
 OUT_NAV_HISTORY = SCRIPT_DIR / "mf_nav_history.txt"
-LOG_FILE       = OUT_NAV_DIR / "pipeline.log"
+LOG_FILE = OUT_NAV_DIR / "pipeline.log"
 
 # ── Defaults ──────────────────────────────────────────────────────────────
-BASE_URL      = "https://api.mfapi.in"
-MAX_WORKERS   = 12
+BASE_URL = "https://api.mfapi.in"
+MAX_WORKERS = 12
 ACTIVE_MONTHS = 3
 HISTORY_START = "2023-01-01"
 
 # ── HTTP / logging ───────────────────────────────────────────────────────
 _ctx = ssl.create_default_context()
-log  = logging.getLogger("mf_pipeline")
+log = logging.getLogger("mf_pipeline")
 
 
 def _read_body(resp) -> bytes:
@@ -65,7 +66,7 @@ def _get(url: str, timeout: float = 120.0, retries: int = 3) -> Any:
         except (json.JSONDecodeError, http.client.IncompleteRead) as e:
             last_exc = e
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
     raise last_exc  # type: ignore[misc]
 
 
@@ -95,7 +96,7 @@ def _get_array(url: str, timeout: float = 120.0) -> list:
                 raise
         except (json.JSONDecodeError, http.client.IncompleteRead) as e:
             last_exc = e
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
     raise last_exc  # type: ignore[misc]
 
 
@@ -139,21 +140,21 @@ def step1(out: Path, workers: int) -> int:
             return None
         if not isinstance(p, dict) or p.get("status") != "SUCCESS":
             return None
-        m   = p.get("meta") or {}
+        m = p.get("meta") or {}
         pts = p.get("data") or []
         if not pts:
             return None
         pt = pts[0]
         return {
-            "schemeCode":          m.get("scheme_code", c),
-            "schemeName":          m.get("scheme_name"),
-            "fundHouse":           m.get("fund_house"),
-            "schemeType":          m.get("scheme_type"),
-            "schemeCategory":      m.get("scheme_category"),
-            "isinGrowth":          m.get("isin_growth"),
+            "schemeCode": m.get("scheme_code", c),
+            "schemeName": m.get("scheme_name"),
+            "fundHouse": m.get("fund_house"),
+            "schemeType": m.get("scheme_type"),
+            "schemeCategory": m.get("scheme_category"),
+            "isinGrowth": m.get("isin_growth"),
             "isinDivReinvestment": m.get("isin_div_reinvestment"),
-            "nav":                 pt.get("nav"),
-            "date":                pt.get("date"),
+            "nav": pt.get("nav"),
+            "date": pt.get("date"),
         }
 
     rows: list[dict] = []
@@ -195,9 +196,16 @@ def step2(src_json: Path, out_all: Path, out_active: Path, months: int) -> int:
         return cat.split(" - ", 1)[1] if cat and " - " in cat else (cat or "")
 
     all_hdr = [
-        "schemeCode", "schemeName", "fundHouse", "schemeType",
-        "schemeCategory", "isinGrowth", "isinDivReinvestment",
-        "nav", "date", "date_mm_dd_yyyy",
+        "schemeCode",
+        "schemeName",
+        "fundHouse",
+        "schemeType",
+        "schemeCategory",
+        "isinGrowth",
+        "isinDivReinvestment",
+        "nav",
+        "date",
+        "date_mm_dd_yyyy",
     ]
     out_all.parent.mkdir(parents=True, exist_ok=True)
     with open(out_all, "w", encoding="utf-8", newline="") as f:
@@ -209,9 +217,16 @@ def step2(src_json: Path, out_all: Path, out_active: Path, months: int) -> int:
             w.writerow(row)
 
     act_hdr = [
-        "schemeCode", "schemeName", "fundHouse", "schemeType",
-        "schemeCategory", "sub_category", "isinGrowth",
-        "isinDivReinvestment", "nav", "date",
+        "schemeCode",
+        "schemeName",
+        "fundHouse",
+        "schemeType",
+        "schemeCategory",
+        "sub_category",
+        "isinGrowth",
+        "isinDivReinvestment",
+        "nav",
+        "date",
     ]
     active: list[dict] = []
     for r in rows:
@@ -283,8 +298,13 @@ def step3(
                     if not dst.is_file():
                         dst.write_text(
                             json.dumps(
-                                {"meta": old_meta, "status": "SUCCESS", "data": old_data},
-                                ensure_ascii=False, indent=2,
+                                {
+                                    "meta": old_meta,
+                                    "status": "SUCCESS",
+                                    "data": old_data,
+                                },
+                                ensure_ascii=False,
+                                indent=2,
                             ),
                             "utf-8",
                         )
@@ -325,7 +345,8 @@ def step3(
         }
         try:
             (out_dir / f"{code}.json").write_text(
-                json.dumps(final, ensure_ascii=False, indent=2), "utf-8",
+                json.dumps(final, ensure_ascii=False, indent=2),
+                "utf-8",
             )
         except OSError:
             return code, "write_error"
@@ -386,10 +407,15 @@ def step4(nav_dir: Path, out: Path) -> int:
 
             for pt in d.get("data") or []:
                 if isinstance(pt, dict):
-                    w.writerow([
-                        str(sc), isin_g, isin_d,
-                        pt.get("date", ""), pt.get("nav", ""),
-                    ])
+                    w.writerow(
+                        [
+                            str(sc),
+                            isin_g,
+                            isin_d,
+                            pt.get("date", ""),
+                            pt.get("nav", ""),
+                        ]
+                    )
                     n += 1
 
     log.info(f"  Done: {n:,} rows -> {out.name}")

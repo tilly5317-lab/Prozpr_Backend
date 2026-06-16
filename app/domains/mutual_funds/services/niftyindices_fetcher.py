@@ -71,7 +71,9 @@ def iter_date_windows(start: date, end: date, window_years: int = 2):
     """Yield contiguous, non-overlapping (start, end) windows of <= window_years."""
     cur = start
     while cur <= end:
-        win_end = min(date(cur.year + window_years, cur.month, cur.day) - timedelta(days=1), end)
+        win_end = min(
+            date(cur.year + window_years, cur.month, cur.day) - timedelta(days=1), end
+        )
         yield cur, win_end
         cur = win_end + timedelta(days=1)
 
@@ -86,16 +88,21 @@ async def fetch_tri(
     backoff_base: float = 1.0,
 ) -> list[TriRow]:
     """Fetch TRI rows for [start, end], parsed and sorted ascending by date."""
-    cinfo = (
-        "{'name':'%s','startDate':'%s','endDate':'%s','indexName':'%s'}"
-        % (index_name, _fmt(start), _fmt(end), index_name)
+    cinfo = "{'name':'%s','startDate':'%s','endDate':'%s','indexName':'%s'}" % (
+        index_name,
+        _fmt(start),
+        _fmt(end),
+        index_name,
     )
     body = {"cinfo": cinfo}
     last_exc: Optional[Exception] = None
     for attempt in range(1, max_retries + 1):
         try:
             resp = await client.post(
-                NIFTY_TRI_URL, json=body, headers=NIFTY_TRI_HEADERS, timeout=NIFTY_TRI_TIMEOUT
+                NIFTY_TRI_URL,
+                json=body,
+                headers=NIFTY_TRI_HEADERS,
+                timeout=NIFTY_TRI_TIMEOUT,
             )
             if resp.status_code >= 500 or resp.status_code == 429:
                 raise httpx.HTTPStatusError(

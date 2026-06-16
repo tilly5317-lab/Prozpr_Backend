@@ -16,7 +16,9 @@ EXAMPLES_PATH = os.path.join(_DIR, "allocation_examples.json")
 README_PATH = os.path.join(_DIR, "README.md")
 with open(EXAMPLES_PATH, "r", encoding="utf-8") as f:
     _raw_examples = json.load(f)
-ALLOCATION_EXAMPLES = _raw_examples if isinstance(_raw_examples, list) else [_raw_examples]
+ALLOCATION_EXAMPLES = (
+    _raw_examples if isinstance(_raw_examples, list) else [_raw_examples]
+)
 if os.path.isfile(README_PATH):
     with open(README_PATH, "r", encoding="utf-8") as rf:
         ALLOCATION_SCHEME_REFERENCE = rf.read().strip()
@@ -34,6 +36,7 @@ ASSET_CLASS_GUARDRAILS = {
 
 class LLMAllocationOutput(BaseModel):
     """Temporary wrapper to capture both the model and the rationale in one AI call."""
+
     allocation: StrategicAssetAllocation
     rationale: str
 
@@ -62,9 +65,13 @@ def apply_guardrails(allocation_dict: Dict[str, Any]) -> Dict[str, Any]:
     """Clamps numeric fields and ensures sum is 100%."""
     for k, limits in ASSET_CLASS_GUARDRAILS.items():
         if k in allocation_dict and allocation_dict[k] is not None:
-            allocation_dict[k] = max(limits["min"], min(allocation_dict[k], limits["max"]))
+            allocation_dict[k] = max(
+                limits["min"], min(allocation_dict[k], limits["max"])
+            )
 
-    numeric_parts = {k: v for k, v in allocation_dict.items() if isinstance(v, (int, float))}
+    numeric_parts = {
+        k: v for k, v in allocation_dict.items() if isinstance(v, (int, float))
+    }
     total = sum(numeric_parts.values())
     if total > 0:
         for k in numeric_parts:
@@ -87,7 +94,9 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
     return json.loads(text)
 
 
-def derive_strategic_asset_allocation(client: ClientSnapshot) -> Tuple[StrategicAssetAllocation, str]:
+def derive_strategic_asset_allocation(
+    client: ClientSnapshot,
+) -> Tuple[StrategicAssetAllocation, str]:
     """Main entry point: Generates allocation using Anthropic (Claude) with few-shot examples."""
     examples = select_examples(client)
 
@@ -114,7 +123,9 @@ def derive_strategic_asset_allocation(client: ClientSnapshot) -> Tuple[Strategic
     rationale = data.get("rationale") or ""
 
     if isinstance(allocation_data, dict):
-        guarded = apply_guardrails({k: v for k, v in allocation_data.items() if v is not None})
+        guarded = apply_guardrails(
+            {k: v for k, v in allocation_data.items() if v is not None}
+        )
         saa = StrategicAssetAllocation(**guarded)
     else:
         saa = StrategicAssetAllocation()

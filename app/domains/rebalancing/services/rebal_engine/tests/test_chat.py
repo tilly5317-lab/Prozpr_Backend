@@ -52,14 +52,14 @@ def test_register_side_effect_for_rebalancing():
     import app.domains.rebalancing.services.rebal_engine.chat as mod
 
     importlib.reload(mod)
-    assert "rebalancing" in _HANDLERS, (
-        "@register('rebalancing') side-effect missing"
-    )
+    assert "rebalancing" in _HANDLERS, "@register('rebalancing') side-effect missing"
 
 
 def test_handle_returns_chat_handler_result_on_success(monkeypatch):
     from app.domains.rebalancing.services.rebal_engine import chat as rb_chat
-    from app.domains.rebalancing.services.rebal_engine.service import RebalancingRunOutcome
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        RebalancingRunOutcome,
+    )
 
     rec_id = uuid.uuid4()
     fake_outcome = RebalancingRunOutcome(
@@ -77,10 +77,16 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
     )
     monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
 
-    with patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-               new=AsyncMock(return_value="OK plan")), \
-         patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-               new=AsyncMock(return_value=None)):
+    with (
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+            new=AsyncMock(return_value="OK plan"),
+        ),
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
         result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "OK plan"
     assert result.rebalancing_recommendation_id == rec_id
@@ -88,7 +94,9 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
 
 def test_handle_returns_blocking_message(monkeypatch):
     from app.domains.rebalancing.services.rebal_engine import chat as rb_chat
-    from app.domains.rebalancing.services.rebal_engine.service import RebalancingRunOutcome
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        RebalancingRunOutcome,
+    )
 
     blocked = RebalancingRunOutcome(response=None, blocking_message="No DOB")
     monkeypatch.setattr(
@@ -108,7 +116,9 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
     downstream consumers can build payloads without re-running the engine.
     """
     from app.domains.rebalancing.services.rebal_engine import chat as rb_chat
-    from app.domains.rebalancing.services.rebal_engine.service import RebalancingRunOutcome
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        RebalancingRunOutcome,
+    )
 
     fake_response = MagicMock()
     fake = RebalancingRunOutcome(
@@ -117,56 +127,80 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
         recommendation_id=uuid.uuid4(),
     )
     monkeypatch.setattr(
-        rb_chat, "compute_rebalancing_result",
+        rb_chat,
+        "compute_rebalancing_result",
         AsyncMock(return_value=fake),
     )
     monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
 
-    with patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-               new=AsyncMock(return_value="ok")), \
-         patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-               new=AsyncMock(return_value=None)):
+    with (
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+            new=AsyncMock(return_value="ok"),
+        ),
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
         result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.rebalancing_response is fake_response
 
 
 class DetectRebalActionTests(unittest.TestCase):
-
     def test_narrate_mode_for_explanation_question(self):
-        with patch.object(mod, "classify_action",
-                          new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate"))):
-            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("why are you selling X?")))
+        with patch.object(
+            mod,
+            "classify_action",
+            new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate")),
+        ):
+            action = asyncio.run(
+                mod._detect_rebal_action(_agent_run(), _ctx("why are you selling X?"))
+            )
         self.assertEqual(action.mode, "narrate")
 
     def test_educate_mode_for_concept_question(self):
-        with patch.object(mod, "classify_action",
-                          new=AsyncMock(return_value=mod.RebalanceAction(mode="educate"))):
-            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("what is exit load?")))
+        with patch.object(
+            mod,
+            "classify_action",
+            new=AsyncMock(return_value=mod.RebalanceAction(mode="educate")),
+        ):
+            action = asyncio.run(
+                mod._detect_rebal_action(_agent_run(), _ctx("what is exit load?"))
+            )
         self.assertEqual(action.mode, "educate")
 
     def test_recompute_mode_for_explicit_rerun(self):
-        with patch.object(mod, "classify_action",
-                          new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute"))):
-            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("redo the trades")))
+        with patch.object(
+            mod,
+            "classify_action",
+            new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute")),
+        ):
+            action = asyncio.run(
+                mod._detect_rebal_action(_agent_run(), _ctx("redo the trades"))
+            )
         self.assertEqual(action.mode, "recompute")
 
     def test_clarify_mode_carries_question(self):
         ret = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
         with patch.object(mod, "classify_action", new=AsyncMock(return_value=ret)):
-            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("change something")))
+            action = asyncio.run(
+                mod._detect_rebal_action(_agent_run(), _ctx("change something"))
+            )
         self.assertEqual(action.mode, "clarify")
         self.assertEqual(action.clarification_question, "Which fund?")
 
     def test_redirect_mode_carries_reason(self):
         ret = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
         with patch.object(mod, "classify_action", new=AsyncMock(return_value=ret)):
-            action = asyncio.run(mod._detect_rebal_action(_agent_run(), _ctx("keep fund Y")))
+            action = asyncio.run(
+                mod._detect_rebal_action(_agent_run(), _ctx("keep fund Y"))
+            )
         self.assertEqual(action.mode, "redirect")
         self.assertIn("lock", action.redirect_reason)
 
 
 class HandleRoutingTests(unittest.TestCase):
-
     def test_first_turn_runs_engine_and_calls_formatter(self):
         outcome = MagicMock(
             response=MagicMock(),
@@ -174,58 +208,106 @@ class HandleRoutingTests(unittest.TestCase):
             allocation_snapshot_id=uuid.uuid4(),
             recommendation_id=uuid.uuid4(),
         )
-        with patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="tailored")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
+        with (
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="tailored"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
             result = asyncio.run(mod.handle(_ctx("rebalance my portfolio")))
         self.assertEqual(result.text, "tailored")
 
     def test_followup_clarify_bypasses_formatter(self):
-        action = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock()) as fmt:
-            result = asyncio.run(mod.handle(_ctx("change something", last_run=_agent_run())))
+        action = mod.RebalanceAction(
+            mode="clarify", clarification_question="Which fund?"
+        )
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(),
+            ) as fmt,
+        ):
+            result = asyncio.run(
+                mod.handle(_ctx("change something", last_run=_agent_run()))
+            )
         self.assertEqual(result.text, "Which fund?")
         fmt.assert_not_called()
 
     def test_followup_narrate_does_not_re_run_engine(self):
         action = mod.RebalanceAction(mode="narrate")
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock()) as engine, \
-             patch.object(mod, "_rehydrate_response", return_value=MagicMock()), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="explained")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("why?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
+            patch.object(mod, "_rehydrate_response", return_value=MagicMock()),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="explained"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(
+                mod.handle(
+                    _ctx(
+                        "why?",
+                        last_run=_agent_run({"rebalancing_response": {"rows": []}}),
+                    )
+                )
+            )
         self.assertEqual(result.text, "explained")
         engine.assert_not_called()
 
     def test_followup_educate_does_not_re_run_engine(self):
         action = mod.RebalanceAction(mode="educate")
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock()) as engine, \
-             patch.object(mod, "_rehydrate_response", return_value=MagicMock()), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="defined")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("what is exit load?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
+            patch.object(mod, "_rehydrate_response", return_value=MagicMock()),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="defined"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(
+                mod.handle(
+                    _ctx(
+                        "what is exit load?",
+                        last_run=_agent_run({"rebalancing_response": {"rows": []}}),
+                    )
+                )
+            )
         self.assertEqual(result.text, "defined")
         engine.assert_not_called()
 
@@ -238,22 +320,33 @@ class HandleRoutingTests(unittest.TestCase):
             response=MagicMock(),
             blocking_message=None,
             allocation_snapshot_id=None,
-            recommendation_id=None,        # no persist
+            recommendation_id=None,  # no persist
             formatted_text="",
         )
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)) as engine, \
-             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="hypothetical")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("what if my tax rate were 20%?",
-                                                 last_run=_agent_run())))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ) as engine,
+            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="hypothetical"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(
+                mod.handle(_ctx("what if my tax rate were 20%?", last_run=_agent_run()))
+            )
         self.assertEqual(result.text, "hypothetical")
         # Engine called with persist=False
         engine.assert_called_once()
@@ -261,7 +354,9 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertFalse(kwargs.get("persist", True))
         # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
         chat_ctx = kwargs.get("chat_ctx")
-        self.assertIsNotNone(chat_ctx, "compute_rebalancing_result not called with chat_ctx")
+        self.assertIsNotNone(
+            chat_ctx, "compute_rebalancing_result not called with chat_ctx"
+        )
         self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
         # No persist → no recommendation_id, no snapshot_id
         self.assertIsNone(result.rebalancing_recommendation_id)
@@ -280,24 +375,37 @@ class HandleRoutingTests(unittest.TestCase):
             recommendation_id=None,
             formatted_text="",
         )
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)) as engine, \
-             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="hypothetical")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            asyncio.run(mod.handle(_ctx("what if I had ₹2L more?",
-                                         last_run=_agent_run())))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ) as engine,
+            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="hypothetical"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(
+                mod.handle(_ctx("what if I had ₹2L more?", last_run=_agent_run()))
+            )
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("persist", True))
         self.assertTrue(kwargs.get("force_fresh_allocation", False))
 
-    def test_counterfactual_with_tax_only_override_does_not_force_fresh_allocation(self):
+    def test_counterfactual_with_tax_only_override_does_not_force_fresh_allocation(
+        self,
+    ):
         """Tax-only overrides don't change AA's output; cache is OK."""
         action = mod.RebalanceAction(
             mode="counterfactual_explore",
@@ -310,19 +418,30 @@ class HandleRoutingTests(unittest.TestCase):
             recommendation_id=None,
             formatted_text="",
         )
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)) as engine, \
-             patch.object(mod, "upsert_awaiting_save", new=AsyncMock()), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="hypothetical")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            asyncio.run(mod.handle(_ctx("what if my tax rate were 20%?",
-                                         last_run=_agent_run())))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ) as engine,
+            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="hypothetical"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(
+                mod.handle(_ctx("what if my tax rate were 20%?", last_run=_agent_run()))
+            )
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("force_fresh_allocation", False))
 
@@ -337,30 +456,49 @@ class HandleRoutingTests(unittest.TestCase):
             formatted_text="",
         )
         upsert_mock = AsyncMock()
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "_load_last_counterfactual_payload",
-                          new=AsyncMock(return_value={
-                              "overrides": {"effective_tax_rate": 20},
-                              "needs_fresh_aa": False,
-                          })), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)) as engine, \
-             patch.object(mod, "upsert_awaiting_save", new=upsert_mock), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="Saved. Plan locked in.")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(
-                _ctx("save it", last_run=_agent_run(), awaiting_save=True),
-            ))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod,
+                "_load_last_counterfactual_payload",
+                new=AsyncMock(
+                    return_value={
+                        "overrides": {"effective_tax_rate": 20},
+                        "needs_fresh_aa": False,
+                    }
+                ),
+            ),
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ) as engine,
+            patch.object(mod, "upsert_awaiting_save", new=upsert_mock),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="Saved. Plan locked in."),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(
+                mod.handle(
+                    _ctx("save it", last_run=_agent_run(), awaiting_save=True),
+                )
+            )
         kwargs = engine.call_args.kwargs
         self.assertTrue(kwargs.get("persist", False))
         # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
         chat_ctx = kwargs.get("chat_ctx")
-        self.assertIsNotNone(chat_ctx, "compute_rebalancing_result not called with chat_ctx")
+        self.assertIsNotNone(
+            chat_ctx, "compute_rebalancing_result not called with chat_ctx"
+        )
         self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
         self.assertIsNotNone(result.rebalancing_recommendation_id)
         # State machine: awaiting_save reset to False after successful save.
@@ -371,12 +509,17 @@ class HandleRoutingTests(unittest.TestCase):
     def test_save_with_no_prior_counterfactual_responds_gracefully(self):
         """save_last_counterfactual with no recent counterfactual returns guidance."""
         action = mod.RebalanceAction(mode="save_last_counterfactual")
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "_load_last_counterfactual_payload",
-                          new=AsyncMock(return_value=None)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock()) as engine:
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod,
+                "_load_last_counterfactual_payload",
+                new=AsyncMock(return_value=None),
+            ),
+            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
+        ):
             result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
         self.assertIn("no recent 'what if'", result.text)
         engine.assert_not_called()
@@ -386,10 +529,12 @@ class HandleRoutingTests(unittest.TestCase):
             mode="counterfactual_explore",
             overrides={"unknown_key": 1},
         )
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock()) as engine:
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
+        ):
             result = asyncio.run(mod.handle(_ctx("what if?", last_run=_agent_run())))
         self.assertIn("'what if'", result.text)
         engine.assert_not_called()
@@ -402,36 +547,60 @@ class HandleRoutingTests(unittest.TestCase):
             allocation_snapshot_id=uuid.uuid4(),
             recommendation_id=uuid.uuid4(),
         )
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "compute_rebalancing_result",
-                          new=AsyncMock(return_value=outcome)), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(return_value="redone")), \
-             patch("app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                   return_value={}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="redone"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
             result = asyncio.run(mod.handle(_ctx("redo", last_run=_agent_run())))
         self.assertEqual(result.text, "redone")
 
 
 class NarrateFallbackTests(unittest.TestCase):
-
     def test_narrate_returns_degraded_text_when_formatter_and_fallback_both_fail(self):
         from app.domains.ai_engine.answer_formatter import FormatterFailure
+
         action = mod.RebalanceAction(mode="narrate")
         # rehydrate returns a dict (validation drift), so fallback path picks
         # the degraded text. Then formatter raises FormatterFailure, so the
         # degraded text is what the user sees.
-        with patch.object(mod, "_detect_rebal_action",
-                          new=AsyncMock(return_value=action)), \
-             patch.object(mod, "_rehydrate_response", return_value={"rows": []}), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                   new=AsyncMock(side_effect=FormatterFailure("api_down"))), \
-             patch("app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                   new=AsyncMock(return_value=None)):
-            result = asyncio.run(mod.handle(_ctx("why?", last_run=_agent_run({"rebalancing_response": {"rows": []}}))))
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "_rehydrate_response", return_value={"rows": []}),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(side_effect=FormatterFailure("api_down")),
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(
+                mod.handle(
+                    _ctx(
+                        "why?",
+                        last_run=_agent_run({"rebalancing_response": {"rows": []}}),
+                    )
+                )
+            )
         self.assertIn("redo the trades", result.text)
 
 

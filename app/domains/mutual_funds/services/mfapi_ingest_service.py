@@ -217,9 +217,7 @@ async def _existing_scheme_codes(
     return {str(row[0]) for row in result.all()}
 
 
-def _dedup_isin(
-    details: list[SchemeDetail], existing_codes: set[str]
-) -> int:
+def _dedup_isin(details: list[SchemeDetail], existing_codes: set[str]) -> int:
     """Resolve duplicate ISINs across scheme codes in-place. Returns collision count."""
     by_isin: dict[str, list[SchemeDetail]] = defaultdict(list)
     for d in details:
@@ -315,7 +313,10 @@ def _build_nav_rows(
     since_exclusive: Optional[date],
 ) -> list[dict]:
     """Build NAV insert rows for one scheme, optionally filtering old dates."""
-    mf_type = " | ".join(p for p in (detail.scheme_type, detail.scheme_category) if p) or "Unknown"
+    mf_type = (
+        " | ".join(p for p in (detail.scheme_type, detail.scheme_category) if p)
+        or "Unknown"
+    )
     out: list[dict] = []
     for point in detail.navs:
         if since_exclusive is not None and point.nav_date <= since_exclusive:
@@ -344,7 +345,9 @@ async def _insert_navs(
     """Insert NAV rows in chunks and return (inserted, skipped_duplicates, candidates)."""
     candidate_rows: list[dict] = []
     for d in details:
-        since = high_water.get(d.scheme_code) if mode is IngestMode.INCREMENTAL else None
+        since = (
+            high_water.get(d.scheme_code) if mode is IngestMode.INCREMENTAL else None
+        )
         candidate_rows.extend(_build_nav_rows(d, since_exclusive=since))
 
     total_candidates = len(candidate_rows)
@@ -361,7 +364,9 @@ async def _insert_navs(
         if total_chunks > 5 and chunk_idx % 10 == 0:
             logger.info(
                 "  nav insert progress: chunk %d/%d (%d rows so far)",
-                chunk_idx, total_chunks, inserted_total,
+                chunk_idx,
+                total_chunks,
+                inserted_total,
             )
     skipped = total_candidates - inserted_total
     return inserted_total, skipped, total_candidates
@@ -388,7 +393,9 @@ async def ingest_mfapi(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=MFAPI_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=MFAPI_TIMEOUT, follow_redirects=True
+        ) as client:
             if resume_from_last_in_db and not scheme_codes:
                 codes = await _universe_codes_after_last_in_db(client, db)
             else:
@@ -400,7 +407,10 @@ async def ingest_mfapi(
 
             batch_num = 0
             async for details, failed in fetch_scheme_details_batched(
-                client, codes, concurrency=concurrency, batch_size=MFAPI_BATCH_SIZE,
+                client,
+                codes,
+                concurrency=concurrency,
+                batch_size=MFAPI_BATCH_SIZE,
             ):
                 batch_num += 1
                 result.failed_codes.extend(failed)
@@ -411,7 +421,9 @@ async def ingest_mfapi(
 
                 logger.info(
                     "  batch %d: fetched %d scheme details (%d failed) — writing …",
-                    batch_num, len(details), len(failed),
+                    batch_num,
+                    len(details),
+                    len(failed),
                 )
 
                 existing_codes = await _existing_scheme_codes(

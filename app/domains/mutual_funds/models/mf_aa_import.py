@@ -3,14 +3,22 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,13 +37,18 @@ class MfAaImport(Base):
     """
 
     __tablename__ = "mf_aa_imports"
-    __table_args__ = (UniqueConstraint("req_id", "email", name="uq_mf_aa_import_req_email"),)
+    __table_args__ = (
+        UniqueConstraint("req_id", "email", name="uq_mf_aa_import_req_email"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     pan: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     pekrn: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
@@ -48,9 +61,15 @@ class MfAaImport(Base):
     # produced zero transactions.
     cas_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     req_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    investor_first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    investor_middle_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    investor_last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    investor_first_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    investor_middle_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    investor_last_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
     address_line_1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     address_line_2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     address_line_3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -61,12 +80,16 @@ class MfAaImport(Base):
     country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     source_file: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[MfAaImportStatus] = mapped_column(
-        SAEnum(MfAaImportStatus, name="mf_aa_import_status_enum", create_constraint=True),
+        SAEnum(
+            MfAaImportStatus, name="mf_aa_import_status_enum", create_constraint=True
+        ),
         nullable=False,
         default=MfAaImportStatus.RECEIVED,
         index=True,
     )
-    normalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    normalized_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     failure_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -93,15 +116,21 @@ class MfAaSummary(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     aa_import_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mf_aa_imports.id", ondelete="CASCADE"), index=True
+        UUID(as_uuid=True),
+        ForeignKey("mf_aa_imports.id", ondelete="CASCADE"),
+        index=True,
     )
     row_no: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     amc: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     amc_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    asset_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
+    asset_type: Mapped[Optional[str]] = mapped_column(
+        String(30), nullable=True, index=True
+    )
     broker_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     broker_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    closing_balance: Mapped[Optional[float]] = mapped_column(Numeric(18, 3), nullable=True)
+    closing_balance: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
     cost_value: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     decimal_amount: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     decimal_nav: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -136,7 +165,9 @@ class MfAaTransaction(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     aa_import_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mf_aa_imports.id", ondelete="CASCADE"), index=True
+        UUID(as_uuid=True),
+        ForeignKey("mf_aa_imports.id", ondelete="CASCADE"),
+        index=True,
     )
     row_no: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     amc: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -145,7 +176,9 @@ class MfAaTransaction(Base):
     folio: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
     isin: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     posted_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    purchase_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 4), nullable=True)
+    purchase_price: Mapped[Optional[float]] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
     scheme: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     scheme_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     stamp_duty: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
@@ -154,10 +187,14 @@ class MfAaTransaction(Base):
     total_tax: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
     trxn_amount: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     trxn_charge: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
-    trxn_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    trxn_date: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, index=True
+    )
     trxn_desc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     trxn_mode: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-    trxn_type_flag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    trxn_type_flag: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, index=True
+    )
     trxn_units: Mapped[Optional[float]] = mapped_column(Numeric(18, 3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

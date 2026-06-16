@@ -8,7 +8,11 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domains.mutual_funds.models.enums import MfSipFrequency, MfSipStatus, MfStepupFrequency
+from app.domains.mutual_funds.models.enums import (
+    MfSipFrequency,
+    MfSipStatus,
+    MfStepupFrequency,
+)
 
 
 class MfSipMandateCreate(BaseModel):

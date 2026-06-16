@@ -6,7 +6,6 @@ table, no local fallback) and emails them to the support inbox — see
 ``issue_report_service``.
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -120,7 +119,14 @@ async def report_issue(
     # Register the row in the Google Sheet — the sole issue register. There is
     # no local fallback, so any failure must surface as a 503 (ask the user to
     # retry) rather than silently dropping the report.
-    row_args = (created_at, user_name, user_email, source_label, description, screenshot_name)
+    row_args = (
+        created_at,
+        user_name,
+        user_email,
+        source_label,
+        description,
+        screenshot_name,
+    )
     try:
         await asyncio.to_thread(svc.append_to_google_sheet, *row_args)
     except Exception:

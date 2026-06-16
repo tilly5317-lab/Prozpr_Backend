@@ -82,8 +82,12 @@ class GuardrailViolationError(Exception):
 class AllocationOrchestrator:
     def __init__(self, llm_client: LLMClient):
         module_root = Path(__file__).parent
-        self.fund_view_loader = FundViewLoader(module_root.parent / "data" / "fund_view.txt")
-        self._guardrail_rules = self._load_guardrails(module_root / "skills" / "guardrails.md")
+        self.fund_view_loader = FundViewLoader(
+            module_root.parent / "data" / "fund_view.txt"
+        )
+        self._guardrail_rules = self._load_guardrails(
+            module_root / "skills" / "guardrails.md"
+        )
         skills_dir = module_root / "skills"
         self.ideal_skill = SkillExecutor(skills_dir / "ideal_allocation.md", llm_client)
         self.rec_skill = SkillExecutor(skills_dir / "recommendation.md", llm_client)
@@ -131,8 +135,12 @@ class AllocationOrchestrator:
             large_cap=AssetBound(min_pct=large_cap_min, max_pct=large_cap_max),
             mid_cap=AssetBound(min_pct=mid_cap_min, max_pct=mid_cap_max),
             small_cap=AssetBound(min_pct=small_cap_min, max_pct=small_cap_max),
-            debt=AssetBound(min_pct=float(row["debt_min"]), max_pct=float(row["debt_max"])),
-            gold=AssetBound(min_pct=float(row["gold_min"]), max_pct=float(row["gold_max"])),
+            debt=AssetBound(
+                min_pct=float(row["debt_min"]), max_pct=float(row["debt_max"])
+            ),
+            gold=AssetBound(
+                min_pct=float(row["gold_min"]), max_pct=float(row["gold_max"])
+            ),
         )
 
     def _validate(self, allocation: IdealAllocation, bounds: GuardrailBounds) -> bool:
@@ -165,7 +173,9 @@ class AllocationOrchestrator:
             strict_note="",
         )
         ideal = IdealAllocation(**data)
-        print(f"  → Phase B: Calling Claude Haiku... ✓ (tokens: {usage['input_tokens']:,} in / {usage['output_tokens']:,} out)")
+        print(
+            f"  → Phase B: Calling Claude Haiku... ✓ (tokens: {usage['input_tokens']:,} in / {usage['output_tokens']:,} out)"
+        )
 
         # Phase C
         if not self._validate(ideal, bounds):
@@ -187,7 +197,9 @@ class AllocationOrchestrator:
             (getattr(ideal, a).min + getattr(ideal, a).max) / 2
             for a in ["large_cap", "mid_cap", "small_cap", "debt", "gold"]
         )
-        print(f"  → Phase C: Validating against bounds... ✓ (midpoint sum={total:.0f}, all within limits)")
+        print(
+            f"  → Phase C: Validating against bounds... ✓ (midpoint sum={total:.0f}, all within limits)"
+        )
         return ideal, usage
 
     async def run(
@@ -223,11 +235,15 @@ class AllocationOrchestrator:
             fund_view=fund_view,
             client_profile=client_profile.model_dump_json(indent=2),
             ideal_allocation=ideal.model_dump_json(indent=2),
-            current_portfolio=current_portfolio.model_dump_json(indent=2) if current_portfolio else "null",
+            current_portfolio=current_portfolio.model_dump_json(indent=2)
+            if current_portfolio
+            else "null",
             delta=delta.model_dump_json(indent=2) if delta else "null",
         )
         rec = Recommendation(**data6)
-        print(f"  → Calling Claude Haiku... ✓ (tokens: {usage6['input_tokens']:,} in / {usage6['output_tokens']:,} out)")
+        print(
+            f"  → Calling Claude Haiku... ✓ (tokens: {usage6['input_tokens']:,} in / {usage6['output_tokens']:,} out)"
+        )
 
         # Step 7
         result = self.formatter.build(ideal, current_portfolio, delta, rec)

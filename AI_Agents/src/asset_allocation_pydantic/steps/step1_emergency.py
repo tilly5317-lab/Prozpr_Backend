@@ -10,9 +10,15 @@ def run(inp: AllocationInput) -> Step1Output:
         emergency_fund_months = 0
         emergency_fund_amount = 0
     else:
-        key = "primary_income_from_portfolio" if inp.primary_income_from_portfolio else "standard"
+        key = (
+            "primary_income_from_portfolio"
+            if inp.primary_income_from_portfolio
+            else "standard"
+        )
         emergency_fund_months = EMERGENCY_FUND_MONTHS[key]
-        emergency_fund_amount = round_to_100(emergency_fund_months * inp.monthly_household_expense)
+        emergency_fund_amount = round_to_100(
+            emergency_fund_months * inp.monthly_household_expense
+        )
 
     nfa = inp.net_financial_assets
     nfa_carveout_amount = round_to_100(abs(nfa)) if (nfa is not None and nfa < 0) else 0

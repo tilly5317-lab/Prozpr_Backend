@@ -31,9 +31,13 @@ async def test_persist_writes_trades_row_with_source_fk(
     from sqlalchemy import select
     from app.domains.rebalancing.models import RebalancingRecommendation
 
-    rec = (await db_session.execute(
-        select(RebalancingRecommendation).where(RebalancingRecommendation.id == rec_id)
-    )).scalar_one()
+    rec = (
+        await db_session.execute(
+            select(RebalancingRecommendation).where(
+                RebalancingRecommendation.id == rec_id
+            )
+        )
+    ).scalar_one()
     assert rec.recommendation_type == RecommendationType.REBALANCING_TRADES
     assert rec.source_allocation_id == fixture_allocation_row.id
     assert rec.status == RebalancingStatus.pending

@@ -34,7 +34,9 @@ from app.domains.rebalancing.models.rebalancing_warning import (
     RebalancingWarningCode,
 )
 from app.domains.ai_engine.common import ensure_ai_agents_path
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+)
 
 ensure_ai_agents_path()
 
@@ -91,7 +93,9 @@ async def persist_rebalancing_recommendation(
         effective_tax_rate_pct=float(effective_tax_rate),
         total_corpus=_to_decimal(metadata.request_corpus_inr),
         rounding_step=rounding_step,
-        stcg_offset_budget_inr=_to_decimal(stcg_offset_budget) if stcg_offset_budget is not None else None,
+        stcg_offset_budget_inr=_to_decimal(stcg_offset_budget)
+        if stcg_offset_budget is not None
+        else None,
         carryforward_st_loss_inr=_to_decimal(cf_st),
         carryforward_lt_loss_inr=_to_decimal(cf_lt),
         knob_snapshot=knob.model_dump(mode="json"),
@@ -189,11 +193,19 @@ async def persist_rebalancing_recommendation(
                 pass1_realised_ltcg=_to_decimal(row.pass1_realised_ltcg),
                 pass1_sell_st_amount=_to_decimal(row.pass1_sell_st_amount),
                 pass1_realised_stcg=_to_decimal(row.pass1_realised_stcg),
-                stcg_budget_remaining_after_pass1=_to_decimal(row.stcg_budget_remaining_after_pass1),
-                pass1_sell_amount_no_stcg_cap=_to_decimal(row.pass1_sell_amount_no_stcg_cap),
-                pass1_undersell_due_to_stcg_cap=_to_decimal(row.pass1_undersell_due_to_stcg_cap),
+                stcg_budget_remaining_after_pass1=_to_decimal(
+                    row.stcg_budget_remaining_after_pass1
+                ),
+                pass1_sell_amount_no_stcg_cap=_to_decimal(
+                    row.pass1_sell_amount_no_stcg_cap
+                ),
+                pass1_undersell_due_to_stcg_cap=_to_decimal(
+                    row.pass1_undersell_due_to_stcg_cap
+                ),
                 pass1_blocked_stcg_value=_to_decimal(row.pass1_blocked_stcg_value),
-                holding_after_initial_trades=_to_decimal(row.holding_after_initial_trades),
+                holding_after_initial_trades=_to_decimal(
+                    row.holding_after_initial_trades
+                ),
                 stcg_offset_amount=_to_decimal(row.stcg_offset_amount),
                 pass2_sell_amount=_to_decimal(row.pass2_sell_amount),
                 pass2_undersell_amount=_to_decimal(row.pass2_undersell_amount),

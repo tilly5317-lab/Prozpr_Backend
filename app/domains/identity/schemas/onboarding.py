@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -11,7 +10,10 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.domains.profile.schemas.personal import PersonalProfileResponse, PersonalProfileUpdate
+from app.domains.profile.schemas.personal import (
+    PersonalProfileResponse,
+    PersonalProfileUpdate,
+)
 
 
 class OnboardingProfileCreate(PersonalProfileUpdate):

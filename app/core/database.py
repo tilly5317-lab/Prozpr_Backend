@@ -7,7 +7,6 @@ it for ``asyncpg``, and exposes
 ``dispose_engine`` support lifespan management from ``main``.
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +16,12 @@ from typing import AsyncIterator
 from sqlalchemy import JSON, text
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -91,7 +95,9 @@ def _get_engine() -> AsyncEngine:
         url = get_settings().get_database_url()
         is_local = "localhost" in url or "127.0.0.1" in url
         engine_kw: dict = (
-            {"poolclass": NullPool} if is_local else {"pool_pre_ping": True, "pool_recycle": 300}
+            {"poolclass": NullPool}
+            if is_local
+            else {"pool_pre_ping": True, "pool_recycle": 300}
         )
         _engine = create_async_engine(url, **engine_kw)
     return _engine
@@ -135,7 +141,10 @@ async def _connect_with_retry(session: AsyncSession) -> None:
             delay = _CONNECT_BACKOFF_S * attempt
             logger.warning(
                 "DB connect attempt %d/%d failed transiently (%s); retrying in %.1fs",
-                attempt, _CONNECT_RETRIES, exc, delay,
+                attempt,
+                _CONNECT_RETRIES,
+                exc,
+                delay,
             )
             # Drop the half-open connection/transaction before retrying so the
             # next attempt starts clean.
@@ -186,13 +195,19 @@ async def apply_postgres_schema_patches() -> None:
         )
         # ORM/column drift: MfFundMetadata.isin* (see alembic f1a2b3c4d5e6)
         await conn.execute(
-            text("ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin VARCHAR(12)")
+            text(
+                "ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin VARCHAR(12)"
+            )
         )
         await conn.execute(
-            text("ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin_div_reinvest VARCHAR(12)")
+            text(
+                "ALTER TABLE mf_fund_metadata ADD COLUMN IF NOT EXISTS isin_div_reinvest VARCHAR(12)"
+            )
         )
         await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_mf_fund_metadata_isin ON mf_fund_metadata (isin)")
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mf_fund_metadata_isin ON mf_fund_metadata (isin)"
+            )
         )
         await conn.execute(
             text(
@@ -205,7 +220,9 @@ async def apply_postgres_schema_patches() -> None:
         # unindexed, forcing a sequential scan over the full daily-NAV history
         # on every rebalance. Index it so the lookup is an index scan.
         await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_mf_nav_history_isin ON mf_nav_history (isin)")
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mf_nav_history_isin ON mf_nav_history (isin)"
+            )
         )
         # ORM/column drift: IssueReport.source_detail added after the table first shipped.
         await conn.execute(
@@ -216,7 +233,9 @@ async def apply_postgres_schema_patches() -> None:
         # ORM/column drift (alembic b7d4e2f1a9c3): per-goal monthly SIP and the
         # current MF portfolio corpus that feeds the cashflow starting corpus.
         await conn.execute(
-            text("ALTER TABLE goals ADD COLUMN IF NOT EXISTS monthly_contribution NUMERIC(18,2)")
+            text(
+                "ALTER TABLE goals ADD COLUMN IF NOT EXISTS monthly_contribution NUMERIC(18,2)"
+            )
         )
         await conn.execute(
             text(
@@ -258,11 +277,19 @@ async def apply_postgres_schema_patches() -> None:
                 )
             )
         if "present_value_amount" in goal_cols:
-            pv_sources = [c for c in ("goal_value_pv", "target_pv", "amount_needed") if c in goal_cols]
+            pv_sources = [
+                c
+                for c in ("goal_value_pv", "target_pv", "amount_needed")
+                if c in goal_cols
+            ]
             if pv_sources:
-                coalesce = "COALESCE(present_value_amount, " + ", ".join(pv_sources) + ")"
+                coalesce = (
+                    "COALESCE(present_value_amount, " + ", ".join(pv_sources) + ")"
+                )
                 await conn.execute(
-                    text(f"UPDATE goals SET present_value_amount = {coalesce} WHERE present_value_amount IS NULL")
+                    text(
+                        f"UPDATE goals SET present_value_amount = {coalesce} WHERE present_value_amount IS NULL"
+                    )
                 )
         if "goal_value_pv" in goal_cols and "present_value_amount" in goal_cols:
             await conn.execute(

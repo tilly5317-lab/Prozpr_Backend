@@ -18,7 +18,9 @@ from app.domains.mutual_funds.schemas.fund_metadata import (
     MfNavChartPoint,
     MfNavDerivedReturns,
 )
-from app.domains.mutual_funds.services.nav_history_service import get_latest_nav_with_source_fallback
+from app.domains.mutual_funds.services.nav_history_service import (
+    get_latest_nav_with_source_fallback,
+)
 from app.domains.mutual_funds.services.scheme_classification import fill_classification
 
 CHART_LOOKBACK_DAYS = 800
@@ -84,7 +86,11 @@ async def _first_nav(db: AsyncSession, scheme_code: str) -> Optional[MfNavHistor
 
 
 async def _nav_row_count(db: AsyncSession, scheme_code: str) -> int:
-    stmt = select(func.count()).select_from(MfNavHistory).where(MfNavHistory.scheme_code == scheme_code)
+    stmt = (
+        select(func.count())
+        .select_from(MfNavHistory)
+        .where(MfNavHistory.scheme_code == scheme_code)
+    )
     return int((await db.execute(stmt)).scalar() or 0)
 
 
@@ -103,11 +109,15 @@ async def _fetch_chart_rows(
     return list((await db.execute(stmt)).scalars().all())
 
 
-def _downsample_chart(rows: List[MfNavHistory], max_points: int) -> List[MfNavChartPoint]:
+def _downsample_chart(
+    rows: List[MfNavHistory], max_points: int
+) -> List[MfNavChartPoint]:
     if not rows:
         return []
     if len(rows) <= max_points:
-        return [MfNavChartPoint(nav_date=r.nav_date, nav=_to_float(r.nav)) for r in rows]
+        return [
+            MfNavChartPoint(nav_date=r.nav_date, nav=_to_float(r.nav)) for r in rows
+        ]
     step = max(1, math.ceil(len(rows) / max_points))
     sampled = rows[::step]
     last = rows[-1]
@@ -154,12 +164,16 @@ def _f(value: object) -> Optional[float]:
     return float(value) if value is not None else None
 
 
-async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfFundInvestorDetailResponse:
+async def build_investor_detail(
+    db: AsyncSession, metadata_id: uuid.UUID
+) -> MfFundInvestorDetailResponse:
     meta = (
         await db.execute(select(MfFundMetadata).where(MfFundMetadata.id == metadata_id))
     ).scalar_one_or_none()
     if not meta:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund metadata not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund metadata not found"
+        )
 
     rating = (
         await db.execute(
@@ -199,7 +213,9 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
     chart: List[MfNavChartPoint] = []
 
     if not latest:
-        disclaimers.append("No NAV history is stored for this scheme yet. Sync NAV data to see performance.")
+        disclaimers.append(
+            "No NAV history is stored for this scheme yet. Sync NAV data to see performance."
+        )
         return MfFundInvestorDetailResponse(
             metadata_id=meta.id,
             scheme_code=meta.scheme_code,
@@ -268,15 +284,21 @@ async def build_investor_detail(db: AsyncSession, metadata_id: uuid.UUID) -> MfF
                     _to_float(first.nav), _to_float(latest.nav), years_i
                 )
             except ValueError:
-                disclaimers.append("Could not compute since-inception returns from NAV.")
+                disclaimers.append(
+                    "Could not compute since-inception returns from NAV."
+                )
         else:
-            disclaimers.append("Since inception: NAV history is too short for a meaningful trend.")
+            disclaimers.append(
+                "Since inception: NAV history is too short for a meaningful trend."
+            )
 
     chart_from = end_d - timedelta(days=CHART_LOOKBACK_DAYS)
     raw_chart = await _fetch_chart_rows(db, scheme, chart_from)
     chart = _downsample_chart(raw_chart, CHART_MAX_POINTS)
     if not chart:
-        disclaimers.append("Not enough NAV points in the selected window for a performance chart.")
+        disclaimers.append(
+            "Not enough NAV points in the selected window for a performance chart."
+        )
 
     return MfFundInvestorDetailResponse(
         metadata_id=meta.id,

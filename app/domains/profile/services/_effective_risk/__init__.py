@@ -3,7 +3,6 @@
 App-layer persistence and calculation helpers for the user’s effective risk assessment (distinct from the deterministic ``risk_profiling.scoring`` used when building ``AllocationInput`` for ideal allocation).
 """
 
-
 from app.domains.profile.services._effective_risk.calculation import (
     EffectiveRiskComputationInput,
     compute_effective_risk_document,

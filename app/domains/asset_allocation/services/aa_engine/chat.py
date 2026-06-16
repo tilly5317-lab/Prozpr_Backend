@@ -37,7 +37,6 @@ from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
     build_fallback_brief,
-    compose_allocation_chat_reply,
     compute_allocation_result,
 )
 from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
@@ -62,6 +61,7 @@ logger = logging.getLogger(__name__)
 # Action schema (structured output of _detect_action)
 # ---------------------------------------------------------------------------
 
+
 class ChatAction(BaseModel):
     mode: Literal[
         "narrate",
@@ -75,10 +75,10 @@ class ChatAction(BaseModel):
     overrides: Optional[dict[str, Any]] = Field(
         default=None,
         description="For counterfactual_explore. Allowed keys: "
-                    "effective_risk_score, total_corpus, "
-                    "additional_cash_inr, annual_income, "
-                    "monthly_household_expense, emergency_fund_needed, "
-                    "tax_regime.",
+        "effective_risk_score, total_corpus, "
+        "additional_cash_inr, annual_income, "
+        "monthly_household_expense, emergency_fund_needed, "
+        "tax_regime.",
     )
     clarification_question: Optional[str] = Field(
         default=None,
@@ -348,6 +348,7 @@ by the classifier). Per-mode behavior:
 # Public handler
 # ---------------------------------------------------------------------------
 
+
 @register("asset_allocation")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     """Sole entry point for chat turns in this intent family."""
@@ -360,7 +361,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     # Follow-up turn → decide what to do.
     try:
         action = await _detect_action(last_alloc, ctx)
-        action = _coerce_misclassified_redirect_action(ctx.user_question, action, last_alloc)
+        action = _coerce_misclassified_redirect_action(
+            ctx.user_question, action, last_alloc
+        )
     except Exception as exc:
         logger.error(
             "detect_action_failed error_class=%s",
@@ -373,8 +376,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             )
         )
 
-    logger.info("asset_allocation_chat mode=%s overrides=%s",
-                action.mode, action.overrides)
+    logger.info(
+        "asset_allocation_chat mode=%s overrides=%s", action.mode, action.overrides
+    )
     trace_line(f"asset_allocation_chat mode={action.mode}")
 
     return await _dispatch_action(action, last_alloc, ctx)
@@ -384,8 +388,11 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 # Mode dispatcher
 # ---------------------------------------------------------------------------
 
+
 async def _dispatch_action(
-    action: ChatAction, last_alloc: AgentRunRecord, ctx: TurnContext,
+    action: ChatAction,
+    last_alloc: AgentRunRecord,
+    ctx: TurnContext,
 ) -> ChatHandlerResult:
     if action.mode in ("narrate", "educate"):
         try:
@@ -393,7 +400,8 @@ async def _dispatch_action(
         except Exception as exc:
             logger.error(
                 "rehydrate_last_alloc_output_failed mode=%s error_class=%s",
-                action.mode, type(exc).__name__,
+                action.mode,
+                type(exc).__name__,
             )
             return ChatHandlerResult(
                 text=(
@@ -402,7 +410,10 @@ async def _dispatch_action(
                 )
             )
         text = await _format_or_fallback(
-            ctx=ctx, output=output, action_mode=action.mode, spine_mode="full",
+            ctx=ctx,
+            output=output,
+            action_mode=action.mode,
+            spine_mode="full",
         )
         return ChatHandlerResult(text=text)
 
@@ -444,36 +455,32 @@ async def _reply_with_allocation_tables(
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
 
-    Pipeline:
-        1. ``build_fallback_brief`` — deterministic plain-text summary of the
-           engine output (authoritative for numbers).
-        2. ``compose_allocation_chat_reply`` — Haiku takes the brief + the
-           customer's question and produces a tailored answer that answers
-           THE question, not just dumps the brief.
-        3. Fall back to the deterministic brief if Haiku errors / opts out.
+    Routes through the shared answer_formatter (PI voice, Indian money notation,
+    named risk band, reasoning kept out of the reply) — exactly like the
+    narrate/educate follow-ups — with the deterministic ``build_fallback_brief``
+    as the last-resort fallback when the formatter LLM is unavailable. This keeps
+    every allocation reply (first turn, recompute, counterfactual) free of raw
+    rupee figures and raw risk scores.
 
     The previous behaviour of returning the full DB-parity tables markdown
-    moved to the per-row DB writes — chat surfaces a customer-facing answer
-    only.
+    moved to the per-row DB writes — chat surfaces a customer-facing answer only.
     """
     try:
-        brief = build_fallback_brief(output, spine_mode)
+        text = await _format_or_fallback(
+            ctx=ctx,
+            output=output,
+            action_mode=action_mode,
+            spine_mode=spine_mode,
+        )
     except Exception:
-        # Partial engine output (e.g. missing asset_class_breakdown on a stub
-        # run) — surface a minimal acknowledgement rather than crash.
-        logger.exception("build_fallback_brief failed; emitting minimal reply")
-        brief = (
+        # Partial engine output (e.g. missing asset_class_breakdown on a stub run)
+        # can break facts-pack/brief construction — surface a minimal
+        # acknowledgement rather than crash the turn.
+        logger.exception("allocation reply formatting failed; emitting minimal reply")
+        text = (
             "I worked out an allocation for you. Open the allocation tab to "
             "see the per-bucket details."
         )
-    try:
-        tailored = await compose_allocation_chat_reply(
-            ctx.user_question, brief, spine_mode,
-        )
-    except Exception:
-        logger.exception("compose_allocation_chat_reply failed; using brief")
-        tailored = None
-    text = tailored or brief
     if hypothetical:
         text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
     return text
@@ -508,15 +515,29 @@ def _coerce_misclassified_redirect_action(
 
     q = question.lower()
     fund_phrases = (
-        "switch from", "switch to", "which fund", "which scheme",
-        "large-cap fund", "large cap fund", "mid-cap fund", " folio ",
+        "switch from",
+        "switch to",
+        "which fund",
+        "which scheme",
+        "large-cap fund",
+        "large cap fund",
+        "mid-cap fund",
+        " folio ",
     )
     if any(p in q for p in fund_phrases):
         return action
 
     tuning_markers = (
-        "risk", "allocat", "conservative", "aggressive", "equity", "debt",
-        "corpus", "income", "expense", "emergency",
+        "risk",
+        "allocat",
+        "conservative",
+        "aggressive",
+        "equity",
+        "debt",
+        "corpus",
+        "income",
+        "expense",
+        "emergency",
     )
     if not any(m in q for m in tuning_markers):
         return action
@@ -541,7 +562,11 @@ def _coerce_misclassified_redirect_action(
             overrides={"effective_risk_score": target},
         )
     direction = "higher" if re.search(r"more|higher|aggressive", q) else "lower"
-    suggested = min(10.0, round(risk + 1.5, 1)) if direction == "higher" else max(1.0, round(risk - 1.5, 1))
+    suggested = (
+        min(10.0, round(risk + 1.5, 1))
+        if direction == "higher"
+        else max(1.0, round(risk - 1.5, 1))
+    )
     return ChatAction(
         mode="clarify",
         clarification_question=(
@@ -555,10 +580,12 @@ def _coerce_misclassified_redirect_action(
 # Per-mode handlers
 # ---------------------------------------------------------------------------
 
+
 async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
     """Run the engine on a fresh session (or session with no allocation yet)."""
     outcome = await compute_allocation_result(
-        ctx.user_ctx, ctx.user_question,
+        ctx.user_ctx,
+        ctx.user_question,
         db=ctx.db,
         persist_recommendation=ctx.db is not None,
         acting_user_id=ctx.effective_user_id,
@@ -586,7 +613,9 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
 
 
 async def _counterfactual_explore(
-    last_alloc: AgentRunRecord, ctx: TurnContext, overrides: dict[str, Any],
+    last_alloc: AgentRunRecord,
+    ctx: TurnContext,
+    overrides: dict[str, Any],
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical.
 
@@ -600,8 +629,9 @@ async def _counterfactual_explore(
 
     chat_ctx = with_chat_overrides(ctx, overrides)
     outcome = await compute_allocation_result(
-        ctx.user_ctx, ctx.user_question,
-        db=None,                          # NO writes
+        ctx.user_ctx,
+        ctx.user_question,
+        db=None,  # NO writes
         persist_recommendation=False,
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
@@ -612,16 +642,17 @@ async def _counterfactual_explore(
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
     if outcome.result is None:
-        return ChatHandlerResult(
-            text="I couldn't compute that hypothetical right now."
-        )
+        return ChatHandlerResult(text="I couldn't compute that hypothetical right now.")
 
     # Capture overrides for a potential save_last_counterfactual follow-up,
     # and mark this session as awaiting save (cross-turn state machine).
     # Both writes are best-effort — if either fails, the customer can re-state.
     if ctx.db is not None:
         try:
-            from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
+            from app.domains.chat.services.ai_module_telemetry import (
+                record_ai_module_run,
+            )
+
             await record_ai_module_run(
                 ctx.db,
                 user_id=ctx.effective_user_id,
@@ -671,8 +702,9 @@ async def _save_last_counterfactual(
 
     chat_ctx = with_chat_overrides(ctx, overrides)
     outcome = await compute_allocation_result(
-        ctx.user_ctx, ctx.user_question,
-        db=ctx.db,                        # persist
+        ctx.user_ctx,
+        ctx.user_question,
+        db=ctx.db,  # persist
         persist_recommendation=ctx.db is not None,
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
@@ -720,6 +752,7 @@ async def _load_last_counterfactual_overrides(
         return None
     from sqlalchemy import select
     from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
+
     stmt = (
         select(ChatAiModuleRun)
         .where(ChatAiModuleRun.session_id == ctx.session_id)
@@ -747,6 +780,7 @@ async def _load_last_counterfactual_overrides(
 # Override helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_overrides(overrides: dict[str, Any]) -> bool:
     """All override keys must be in the allow-list."""
     return all(k in _ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
@@ -765,29 +799,33 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
     heavy narrative tables that aren't useful for picking a chat mode."""
     if not output_payload:
         return {}
-    alloc = (output_payload.get("allocation_result") or {}) if isinstance(
-        output_payload, dict
-    ) else {}
+    alloc = (
+        (output_payload.get("allocation_result") or {})
+        if isinstance(output_payload, dict)
+        else {}
+    )
     if not alloc:
         return {}
 
     # Bucket allocations: keep only what classification needs.
     slim_buckets = []
     for b in alloc.get("bucket_allocations", []) or []:
-        slim_buckets.append({
-            "bucket": b.get("bucket"),
-            "total_goal_amount": b.get("total_goal_amount"),
-            "allocated_amount": b.get("allocated_amount"),
-            "goals": [
-                {
-                    "name": g.get("goal_name"),
-                    "amount_needed_inr": g.get("amount_needed"),
-                    "horizon_months": g.get("time_to_goal_months"),
-                }
-                for g in (b.get("goals") or [])
-            ],
-            "has_funding_gap": b.get("future_investment") is not None,
-        })
+        slim_buckets.append(
+            {
+                "bucket": b.get("bucket"),
+                "total_goal_amount": b.get("total_goal_amount"),
+                "allocated_amount": b.get("allocated_amount"),
+                "goals": [
+                    {
+                        "name": g.get("goal_name"),
+                        "amount_needed_inr": g.get("amount_needed"),
+                        "horizon_months": g.get("time_to_goal_months"),
+                    }
+                    for g in (b.get("goals") or [])
+                ],
+                "has_funding_gap": b.get("future_investment") is not None,
+            }
+        )
 
     # Top-level percentages from asset_class_breakdown.actual (drop per-bucket
     # detail and planned-vs-actual splits — too heavy for the classifier).
@@ -808,7 +846,8 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
 
 
 async def _detect_action(
-    last_alloc: AgentRunRecord, ctx: TurnContext,
+    last_alloc: AgentRunRecord,
+    ctx: TurnContext,
 ) -> ChatAction:
     """One Haiku call returning a ChatAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_alloc.output_payload)
@@ -816,14 +855,16 @@ async def _detect_action(
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
         logger.info(
             "detect_action_snapshot_truncated original_len=%d budget=%d",
-            len(snapshot_json), _DETECT_SNAPSHOT_BUDGET,
+            len(snapshot_json),
+            _DETECT_SNAPSHOT_BUDGET,
         )
         snapshot_json = snapshot_json[:_DETECT_SNAPSHOT_BUDGET]
 
     history_block = build_detect_history_block(ctx.conversation_history)
     history_section = (
         f"\n\nRecent conversation (oldest → newest):\n{history_block}"
-        if history_block else ""
+        if history_block
+        else ""
     )
     user_block = (
         f"Customer's question: {ctx.user_question}\n\n"
@@ -842,11 +883,13 @@ async def _detect_action(
 # Formatter helpers
 # ---------------------------------------------------------------------------
 
+
 def _profile_dict(ctx: TurnContext) -> dict[str, Any]:
     """Pull the customer's profile fields the formatter cares about."""
     user = ctx.user_ctx
     return {
-        "age": getattr(user, "age", None) or _years_since(getattr(user, "date_of_birth", None)),
+        "age": getattr(user, "age", None)
+        or _years_since(getattr(user, "date_of_birth", None)),
         "first_name": getattr(user, "first_name", None),
         "occupation": getattr(user, "occupation", None),
         "family_status": getattr(user, "family_status", None),
@@ -858,6 +901,7 @@ def _years_since(dob: Any) -> int | None:
     if dob is None:
         return None
     from datetime import date
+
     today = date.today()
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
@@ -869,6 +913,7 @@ def _rehydrate_last_alloc_output(last_alloc: AgentRunRecord) -> Any:
     output to feed `build_aa_facts_pack` and the fallback brief.
     """
     from asset_allocation_pydantic.models import GoalAllocationOutput  # type: ignore[import-not-found]
+
     payload = (last_alloc.output_payload or {}).get("allocation_result") or {}
     return GoalAllocationOutput.model_validate(payload)
 

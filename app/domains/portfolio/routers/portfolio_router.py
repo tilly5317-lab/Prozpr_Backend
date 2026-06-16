@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -17,9 +16,19 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.asset_allocation.models.run import AssetAllocationRun
 from app.domains.mutual_funds.models.enums import PortfolioSnapshotKind
-from app.domains.mutual_funds.models.mf_allocation_snapshot import PortfolioAllocationSnapshot
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
-from app.domains.ingestion.schemas.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
+from app.domains.mutual_funds.models.mf_allocation_snapshot import (
+    PortfolioAllocationSnapshot,
+)
+from app.domains.portfolio.models.portfolio import (
+    Portfolio,
+    PortfolioAllocation,
+    PortfolioHistory,
+    PortfolioHolding,
+)
+from app.domains.ingestion.schemas.finvu import (
+    FinvuPortfolioSyncRequest,
+    FinvuPortfolioSyncResponse,
+)
 from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
 )
@@ -37,8 +46,12 @@ from app.domains.portfolio.schemas.portfolio import (
     RecommendedPlanSnapshotResponse,
     TwrSeriesResponse,
 )
-from app.domains.ingestion.services.finvu_portfolio_sync import apply_finvu_bucket_snapshot
-from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk
+from app.domains.ingestion.services.finvu_portfolio_sync import (
+    apply_finvu_bucket_snapshot,
+)
+from app.domains.profile.services._effective_risk import (
+    maybe_recalculate_effective_risk,
+)
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
     revalue_primary_portfolio_at_latest_nav,
@@ -132,7 +145,9 @@ def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingRespon
     sebi_sub = md.sub_category if md else None
     asset_class = _holding_asset_class(holding)
     base = PortfolioHoldingResponse.model_validate(holding)
-    return base.model_copy(update={"asset_class": asset_class, "sub_category": sebi_sub})
+    return base.model_copy(
+        update={"asset_class": asset_class, "sub_category": sebi_sub}
+    )
 
 
 # Canonical legend order for the current-allocation donut.
@@ -199,7 +214,9 @@ async def get_portfolio(
         select(Portfolio)
         .options(
             selectinload(Portfolio.allocations),
-            selectinload(Portfolio.holdings).selectinload(PortfolioHolding.fund_metadata),
+            selectinload(Portfolio.holdings).selectinload(
+                PortfolioHolding.fund_metadata
+            ),
         )
         .where(Portfolio.user_id == current_user.id, Portfolio.is_primary == True)
     )
@@ -232,7 +249,9 @@ async def update_allocations(
     portfolio = await get_or_create_primary_portfolio(db, current_user.id)
 
     await db.execute(
-        delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id == portfolio.id)
+        delete(PortfolioAllocation).where(
+            PortfolioAllocation.portfolio_id == portfolio.id
+        )
     )
 
     allocations = []
@@ -253,7 +272,9 @@ async def update_allocations(
     await db.commit()
     for a in allocations:
         await db.refresh(a)
-    await maybe_recalculate_effective_risk(db, current_user.id, "portfolio_allocation_update")
+    await maybe_recalculate_effective_risk(
+        db, current_user.id, "portfolio_allocation_update"
+    )
     await db.commit()
     return [PortfolioAllocationResponse.model_validate(a) for a in allocations]
 
@@ -265,9 +286,13 @@ async def get_allocations(
 ):
     portfolio = await get_or_create_primary_portfolio(db, current_user.id)
     result = await db.execute(
-        select(PortfolioAllocation).where(PortfolioAllocation.portfolio_id == portfolio.id)
+        select(PortfolioAllocation).where(
+            PortfolioAllocation.portfolio_id == portfolio.id
+        )
     )
-    return [PortfolioAllocationResponse.model_validate(a) for a in result.scalars().all()]
+    return [
+        PortfolioAllocationResponse.model_validate(a) for a in result.scalars().all()
+    ]
 
 
 @router.get("/holdings", response_model=list[PortfolioHoldingResponse])
@@ -430,7 +455,9 @@ async def build_networth_history(
     """
     running = await has_running_job(db, current_user.id)
     if running is not None:
-        return _job_status(running, has_history=await _has_networth_history(db, current_user.id))
+        return _job_status(
+            running, has_history=await _has_networth_history(db, current_user.id)
+        )
 
     job = await create_job(db, current_user.id)
     background.add_task(run_networth_backfill, current_user.id, job.id)

@@ -141,7 +141,9 @@ def _build_response_with_subgroup(holding_inr: float):
 
 
 def test_facts_pack_is_a_plain_dict():
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_min_response())
     assert isinstance(pack, dict)
@@ -149,7 +151,9 @@ def test_facts_pack_is_a_plain_dict():
 
 def test_total_portfolio_inr_sums_current_holding():
     """total_portfolio_inr must be derived from subgroup current_holding_inr, not trade volume."""
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_response_with_subgroup(1_000_000))
     assert pack["total_portfolio_inr"] == 1_000_000
@@ -157,7 +161,9 @@ def test_total_portfolio_inr_sums_current_holding():
 
 def test_rebal_facts_pack_zero_trades_yields_zero_trade_count():
     """Empty rows → trade_count must be exactly 0."""
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_min_response())
     assert pack["trade_count"] == 0
@@ -258,13 +264,19 @@ def _build_response_with_funds(funds: list):
         rows=list(sg.actions),
         subgroups=[sg],
         totals=RebalancingTotals(
-            total_buy_inr=Decimal(0), total_sell_inr=Decimal(0),
-            net_cash_flow_inr=Decimal(0), total_stcg_realised=Decimal(0),
-            total_ltcg_realised=Decimal(0), total_stcg_net_off=Decimal(0),
-            total_tax_estimate_inr=Decimal(0), total_exit_load_inr=Decimal(0),
+            total_buy_inr=Decimal(0),
+            total_sell_inr=Decimal(0),
+            net_cash_flow_inr=Decimal(0),
+            total_stcg_realised=Decimal(0),
+            total_ltcg_realised=Decimal(0),
+            total_stcg_net_off=Decimal(0),
+            total_tax_estimate_inr=Decimal(0),
+            total_exit_load_inr=Decimal(0),
             unrebalanced_remainder_inr=Decimal(0),
-            rows_count=len(funds), funds_to_buy_count=0,
-            funds_to_sell_count=0, funds_to_exit_count=0,
+            rows_count=len(funds),
+            funds_to_buy_count=0,
+            funds_to_sell_count=0,
+            funds_to_exit_count=0,
             funds_held_count=len(funds),
         ),
         metadata=RebalancingRunMetadata(
@@ -272,11 +284,15 @@ def _build_response_with_funds(funds: list):
             engine_version="test-1.0.0",
             request_corpus_inr=Decimal(0),
             knob_snapshot=KnobSnapshot(
-                multi_fund_cap_pct=20.0, others_fund_cap_pct=10.0,
-                rebalance_min_change_pct=0.10, exit_floor_rating=5,
+                multi_fund_cap_pct=20.0,
+                others_fund_cap_pct=10.0,
+                rebalance_min_change_pct=0.10,
+                exit_floor_rating=5,
                 ltcg_annual_exemption_inr=Decimal("125000"),
-                stcg_rate_equity_pct=20.0, ltcg_rate_equity_pct=12.5,
-                st_threshold_months_equity=12, st_threshold_months_debt=24,
+                stcg_rate_equity_pct=20.0,
+                ltcg_rate_equity_pct=12.5,
+                st_threshold_months_equity=12,
+                st_threshold_months_debt=24,
                 multi_fund_cap_subgroups=[],
             ),
             request_id=uuid.uuid4(),
@@ -286,12 +302,16 @@ def _build_response_with_funds(funds: list):
 
 
 def test_fund_actions_includes_one_entry_per_fund():
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
-    response = _build_response_with_funds([
-        {"name": "HDFC Top 100", "present": 500_000, "sell": 100_000},
-        {"name": "ICICI Bluechip", "present": 800_000, "buy": 50_000},
-    ])
+    response = _build_response_with_funds(
+        [
+            {"name": "HDFC Top 100", "present": 500_000, "sell": 100_000},
+            {"name": "ICICI Bluechip", "present": 800_000, "buy": 50_000},
+        ]
+    )
     pack = build_rebal_facts_pack(response)
     actions = pack["fund_actions"]
     assert len(actions) == 2
@@ -330,11 +350,17 @@ def test_fund_actions_caps_at_limit_and_signals_overflow():
 
 
 def test_fund_actions_omits_more_holdings_count_when_under_cap():
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
-    pack = build_rebal_facts_pack(_build_response_with_funds([
-        {"name": "Solo Fund", "present": 100_000},
-    ]))
+    pack = build_rebal_facts_pack(
+        _build_response_with_funds(
+            [
+                {"name": "Solo Fund", "present": 100_000},
+            ]
+        )
+    )
     assert "more_holdings_count" not in pack
     assert len(pack["fund_actions"]) == 1
 
@@ -345,7 +371,9 @@ def test_facts_pack_omits_isin():
 
     Fund names ARE allowed via ``fund_actions`` — see fund_actions tests below.
     """
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_min_response())
     blob = json.dumps(pack).lower()
@@ -362,7 +390,9 @@ def test_facts_pack_has_indian_siblings_for_every_inr_field():
     assert a sibling key with the same prefix ending in ``_indian`` exists
     inside the same dict.
     """
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_response_with_subgroup(1_000_000))
 
@@ -383,7 +413,9 @@ def test_facts_pack_has_indian_siblings_for_every_inr_field():
 
 
 def test_facts_pack_under_token_budget():
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_min_response())
     assert len(json.dumps(pack)) < 6000
@@ -419,31 +451,55 @@ def _build_alloc_output_two_buckets():
     planned = AssetClassSplitBlock(
         per_bucket=[
             BucketAssetClassSplit(
-                bucket="short_term", equity=300_000, debt=1_200_000, others=0,
-                equity_pct=20.0, debt_pct=80.0, others_pct=0.0,
+                bucket="short_term",
+                equity=300_000,
+                debt=1_200_000,
+                others=0,
+                equity_pct=20.0,
+                debt_pct=80.0,
+                others_pct=0.0,
             ),
             BucketAssetClassSplit(
-                bucket="long_term", equity=15_000_000, debt=4_000_000, others=1_000_000,
-                equity_pct=75.0, debt_pct=20.0, others_pct=5.0,
+                bucket="long_term",
+                equity=15_000_000,
+                debt=4_000_000,
+                others=1_000_000,
+                equity_pct=75.0,
+                debt_pct=20.0,
+                others_pct=5.0,
             ),
         ],
-        equity_total=15_300_000, debt_total=5_200_000, others_total=1_000_000,
-        equity_total_pct=71.0, debt_total_pct=24.2, others_total_pct=4.7,
+        equity_total=15_300_000,
+        debt_total=5_200_000,
+        others_total=1_000_000,
+        equity_total_pct=71.0,
+        debt_total_pct=24.2,
+        others_total_pct=4.7,
     )
     return GoalAllocationOutput(
         client_summary=ClientSummary(
-            age=40, occupation=None, effective_risk_score=6.0,
-            total_corpus=21_500_000, goals=[short_goal, long_goal],
+            age=40,
+            occupation=None,
+            effective_risk_score=6.0,
+            total_corpus=21_500_000,
+            goals=[short_goal, long_goal],
         ),
         bucket_allocations=[
             BucketAllocation(
-                bucket="short_term", goals=[short_goal],
-                total_goal_amount=1_500_000, allocated_amount=1_500_000,
-                subgroup_amounts={"short_debt": 1_200_000, "low_beta_equities": 300_000},
+                bucket="short_term",
+                goals=[short_goal],
+                total_goal_amount=1_500_000,
+                allocated_amount=1_500_000,
+                subgroup_amounts={
+                    "short_debt": 1_200_000,
+                    "low_beta_equities": 300_000,
+                },
             ),
             BucketAllocation(
-                bucket="long_term", goals=[long_goal],
-                total_goal_amount=20_000_000, allocated_amount=20_000_000,
+                bucket="long_term",
+                goals=[long_goal],
+                total_goal_amount=20_000_000,
+                allocated_amount=20_000_000,
                 subgroup_amounts={
                     "low_beta_equities": 7_500_000,
                     "medium_beta_equities": 7_500_000,
@@ -465,7 +521,9 @@ def _build_alloc_output_two_buckets():
 
 
 def test_build_goal_buckets_block_shape():
-    from app.domains.rebalancing.services.rebal_engine.service import build_goal_buckets_block
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_goal_buckets_block,
+    )
 
     block = build_goal_buckets_block(_build_alloc_output_two_buckets())
     assert isinstance(block, list)
@@ -496,16 +554,22 @@ def test_facts_pack_includes_goal_buckets_when_provided():
 
 
 def test_facts_pack_omits_goal_buckets_when_none():
-    from app.domains.rebalancing.services.rebal_engine.service import build_rebal_facts_pack
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
 
     pack = build_rebal_facts_pack(_build_min_response())
     assert "goal_buckets" not in pack
 
 
 def test_fallback_rebal_brief_is_non_empty():
-    from app.domains.rebalancing.services.rebal_engine.formatter import build_fallback_rebal_brief
+    from app.domains.rebalancing.services.rebal_engine.formatter import (
+        build_fallback_rebal_brief,
+    )
 
-    text = build_fallback_rebal_brief(_build_min_response(), used_cached_allocation=False)
+    text = build_fallback_rebal_brief(
+        _build_min_response(), used_cached_allocation=False
+    )
     assert isinstance(text, str)
     assert len(text.strip()) > 0
 
@@ -645,7 +709,9 @@ async def test_allocation_block_propagates(
     fixture_user_with_holdings,
 ):
     """Allocation returns blocking_message → service returns the same."""
-    from app.domains.asset_allocation.services.aa_engine.service import AllocationRunOutcome
+    from app.domains.asset_allocation.services.aa_engine.service import (
+        AllocationRunOutcome,
+    )
     from app.domains.rebalancing.services.rebal_engine.service import (
         compute_rebalancing_result,
     )
@@ -695,9 +761,13 @@ async def test_persists_trades_row_on_success(
             chat_session_id=None,
         )
     assert outcome.rebalancing_run_id is not None
-    run = (await db_session.execute(
-        select(RebalancingRun).where(RebalancingRun.id == outcome.rebalancing_run_id)
-    )).scalar_one()
+    run = (
+        await db_session.execute(
+            select(RebalancingRun).where(
+                RebalancingRun.id == outcome.rebalancing_run_id
+            )
+        )
+    ).scalar_one()
     assert run.used_cached_allocation is False
     # Chart picker has been removed from the service (Plan 2 Task 8); the engine
     # response is now passed through to the brain for central chart selection.

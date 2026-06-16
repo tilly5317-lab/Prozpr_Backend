@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -34,7 +33,11 @@ class PortfolioAllocationSnapshot(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     snapshot_kind: Mapped[PortfolioSnapshotKind] = mapped_column(
-        SAEnum(PortfolioSnapshotKind, name="portfolio_snapshot_kind_enum", create_constraint=True),
+        SAEnum(
+            PortfolioSnapshotKind,
+            name="portfolio_snapshot_kind_enum",
+            create_constraint=True,
+        ),
         nullable=False,
     )
     allocation: Mapped[dict] = mapped_column(

@@ -42,6 +42,7 @@ DEFAULT_GOAL_INFLATION = 0.07  # 7%, or later load from env
 # Safe cleanup: finally block ensures session closes even on errors
 # Return ID: Useful for linking related records or generating URLs
 
+
 def save_client_to_db(snapshot: ClientSnapshot) -> int:
     session = SessionLocal()
     try:
@@ -60,14 +61,18 @@ def save_client_to_db(snapshot: ClientSnapshot) -> int:
     finally:
         session.close()
 
+
 # Purpose: Retrieve all clients, newest first
 # Ordered results: Most recent clients appear first
 # Returns ORM objects: Need to deserialize payload_json to get full ClientSnapshot
 
+
 def load_all_clients() -> List[ClientRecord]:
     session = SessionLocal()
     try:
-        return session.query(ClientRecord).order_by(ClientRecord.created_at.desc()).all()
+        return (
+            session.query(ClientRecord).order_by(ClientRecord.created_at.desc()).all()
+        )
     finally:
         session.close()
 
@@ -83,6 +88,7 @@ def load_client_by_id(client_id: int) -> Optional[ClientRecord]:
 # =========================
 # Cash flow & balance sheet
 # =========================
+
 
 # Generate a financial snapshot at a point in time
 def generate_balance_sheet(snapshot: ClientSnapshot) -> Dict:
@@ -116,10 +122,13 @@ def generate_balance_sheet(snapshot: ClientSnapshot) -> Dict:
 # This is the most complex function - it transforms a flat dictionary (from conversation state) into a structured ClientSnapshot.
 # Purpose: Convert conversational data into a validated domain model
 
-def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested ClientSnapshot object
+
+def build_snapshot_from_state(
+    state: Dict,
+) -> ClientSnapshot:  # Output: Nested ClientSnapshot object
     # Build goals_list from flat state
     goals_list: List[Goal] = []
-    for raw_goal in (state.get("goals") or []):
+    for raw_goal in state.get("goals") or []:
         g = Goal(
             description=raw_goal["description"],
             target_year=raw_goal["target_year"],
@@ -128,7 +137,7 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
             inflation_rate=raw_goal.get("inflation_rate") or DEFAULT_GOAL_INFLATION,
         )
         goals_list.append(g)
-  # Provides default for required client_name field. Other fields can be None
+    # Provides default for required client_name field. Other fields can be None
     background = ClientBackground(
         client_name=state.get("background.client_name", "Unknown client"),
         occupation=state.get("background.occupation"),
@@ -149,7 +158,7 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         income_requirement=state.get("return_objective.income_requirement"),
         currency=state.get("return_objective.currency") or "INR",
     )
-   
+
     # Straightforward mapping from flat keys
     rt = RiskTolerance(
         overall_risk_tolerance=state.get("risk_tolerance.overall_risk_tolerance"),
@@ -159,8 +168,8 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         willingness_drivers=state.get("risk_tolerance.willingness_drivers"),
     )
 
-    #Build FinancialNeeds (with calculated investible assets). Calculated Field: investible_assets is derived from sum of liquid holdings
-    # Single goal → is_multi_stage=False, Multiple goals → is_multi_stage=True, Horizon calculated from furthest goal year 
+    # Build FinancialNeeds (with calculated investible assets). Calculated Field: investible_assets is derived from sum of liquid holdings
+    # Single goal → is_multi_stage=False, Multiple goals → is_multi_stage=True, Horizon calculated from furthest goal year
     fn = FinancialNeeds(
         investible_assets=(
             (state.get("total_mutual_funds") or 0)
@@ -174,7 +183,9 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         expected_inflows=state.get("financial_needs.expected_inflows"),
         regular_outflows=state.get("financial_needs.regular_outflows"),
         planned_large_outflows=state.get("financial_needs.planned_large_outflows"),
-        emergency_fund_requirement=state.get("financial_needs.emergency_fund_requirement"),
+        emergency_fund_requirement=state.get(
+            "financial_needs.emergency_fund_requirement"
+        ),
         liquidity_timeframe=state.get("financial_needs.liquidity_timeframe"),
     )
 
@@ -188,7 +199,11 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
     th = TimeHorizon(
         is_multi_stage=len(goals_list) > 1,
         total_horizon_years=total_h,
-        stages_description="; ".join([f"{g.description} by {g.target_year}" for g in goals_list]) if goals_list else None,
+        stages_description="; ".join(
+            [f"{g.description} by {g.target_year}" for g in goals_list]
+        )
+        if goals_list
+        else None,
     )
 
     # Build TaxProfile (with percentage conversion)
@@ -234,7 +249,6 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         goals_alignment_assessment=None,
         existing_positions_raw=state.get("existing_positions_raw"),
         existing_positions=None,
-
         # Projection assumptions
         current_fy=state.get("current_fy") or current_year,
         income_growth_rate=state.get("income_growth_rate") or 0.0,
@@ -243,13 +257,11 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         tax_rate=(state.get("overall_tax_rate") or 0.0) / 100.0
         if state.get("overall_tax_rate") is not None
         else None,
-
         # Cash-flow base
         annual_income=state.get("annual_income"),
         annual_expenses=state.get("annual_expenses"),
         one_off_future_expenses=state.get("one_off_future_expenses") or [],
         one_off_future_inflows=state.get("one_off_future_inflows") or [],
-
         # Balance-sheet
         total_mutual_funds=state.get("total_mutual_funds"),
         total_equities=state.get("total_equities"),
@@ -257,7 +269,6 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
         total_cash_bank=state.get("total_cash_bank"),
         total_liabilities=state.get("total_liabilities"),
         properties_value=state.get("properties_value"),
-
         # Mortgage
         mortgage_balance=state.get("mortgage_balance"),
         mortgage_emi=state.get("mortgage_emi"),
@@ -272,7 +283,7 @@ def build_snapshot_from_state(state: Dict) -> ClientSnapshot:  #Output: Nested C
     snapshot.profile_summary = explanations["profile_summary"]
     snapshot.risk_return_assessment = explanations["risk_return_assessment"]
     snapshot.goals_alignment_assessment = explanations["goals_alignment_assessment"]
-    
+
     # LLM-based asset allocation with guardrails
     try:
         saa, rationale = derive_strategic_asset_allocation(snapshot)

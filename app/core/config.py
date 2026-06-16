@@ -7,7 +7,6 @@ asset allocation, risk profiling, portfolio query) resolved with sensible fallba
 ``get_settings`` is cached so repeated access does not re-parse the environment.
 """
 
-
 from __future__ import annotations
 
 import os
@@ -93,11 +92,15 @@ def _database_url_from_postgres_env() -> str | None:
     host = (_getenv("POSTGRES_HOST") or _getenv("DB_HOST") or "").strip()
     if not host:
         return None
-    user = (_getenv("POSTGRES_USER") or _getenv("DB_USER") or "postgres").strip() or "postgres"
+    user = (
+        _getenv("POSTGRES_USER") or _getenv("DB_USER") or "postgres"
+    ).strip() or "postgres"
     password = _getenv("POSTGRES_PASSWORD", _getenv("DB_PASSWORD"))
     if password is None:
         password = ""
-    database = (_getenv("POSTGRES_DB") or _getenv("DB_NAME") or "postgres").strip() or "postgres"
+    database = (
+        _getenv("POSTGRES_DB") or _getenv("DB_NAME") or "postgres"
+    ).strip() or "postgres"
     port_s = (_getenv("POSTGRES_PORT") or _getenv("DB_PORT") or "5432").strip()
     try:
         port = int(port_s)
@@ -122,7 +125,14 @@ def _strip_pgbouncer_from_url(url: str) -> str:
     qs.pop("pgbouncer", None)
     new_query = urlencode(qs, doseq=True)
     return urlunparse(
-        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
     )
 
 
@@ -141,7 +151,14 @@ def _normalize_asyncpg_ssl_query(url: str) -> str:
             qs["ssl"] = ["disable"]
     new_query = urlencode(qs, doseq=True)
     return urlunparse(
-        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
     )
 
 
@@ -158,7 +175,9 @@ def _parse_cors_origins_env() -> tuple[list[str], bool]:
     ``0.0.0.0/0`` is not a browser Origin (it is a firewall CIDR); we treat it like ``*``
     and use ``allow_origin_regex`` in FastAPI so ``allow_credentials=True`` still works.
     """
-    raw = _strip_wrapping_quotes(_getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS) or "")
+    raw = _strip_wrapping_quotes(
+        _getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS) or ""
+    )
     token = raw.strip().lower()
     if token in ("*", "0.0.0.0/0", "any"):
         return [], True
@@ -237,6 +256,7 @@ class Settings:
         if secret:
             raise RuntimeError("JWT_SECRET must be at least 32 characters")
         import logging
+
         logging.getLogger(__name__).warning(
             "JWT_SECRET not set: using dev default. Set JWT_SECRET in .env for production."
         )
@@ -323,7 +343,9 @@ class Settings:
     @staticmethod
     def get_anthropic_goal_planning_key() -> str | None:
         """Goal planning LangGraph agent + Haiku-based NL extractor."""
-        return Settings._anthropic_key("ANTHROPIC_GOAL_PLANNING_API_KEY", "ANTHROPIC_API_KEY")
+        return Settings._anthropic_key(
+            "ANTHROPIC_GOAL_PLANNING_API_KEY", "ANTHROPIC_API_KEY"
+        )
 
     @staticmethod
     def mfapi_scheduler_enabled() -> bool:

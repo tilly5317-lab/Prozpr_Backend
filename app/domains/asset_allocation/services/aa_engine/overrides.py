@@ -14,19 +14,22 @@ if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 
 
-_ALLOWED_OVERRIDE_KEYS = frozenset({
-    "effective_risk_score",
-    "total_corpus",
-    "additional_cash_inr",
-    "annual_income",
-    "monthly_household_expense",
-    "emergency_fund_needed",
-    "tax_regime",
-})
+_ALLOWED_OVERRIDE_KEYS = frozenset(
+    {
+        "effective_risk_score",
+        "total_corpus",
+        "additional_cash_inr",
+        "annual_income",
+        "monthly_household_expense",
+        "emergency_fund_needed",
+        "tax_regime",
+    }
+)
 
 
 def with_chat_overrides(
-    ctx: TurnContext, overrides: dict[str, Any] | None,
+    ctx: TurnContext,
+    overrides: dict[str, Any] | None,
 ) -> TurnContext:
     """Return a new TurnContext with chat_overrides set. The original is unchanged."""
     return dataclasses.replace(ctx, chat_overrides=overrides or None)

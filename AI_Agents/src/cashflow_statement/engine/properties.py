@@ -1,4 +1,5 @@
 """Stage 4: build goal-property outcomes (FV, mortgage)."""
+
 from __future__ import annotations
 from datetime import date
 
@@ -21,7 +22,11 @@ def build_goal_properties(
         # Day-precise convention: inflate to EOMONTH(goal_date), symmetric with the
         # PV-discount in goals_table._fund_today_pv.
         years_to_goal = (eomonth(p.goal_date, 0) - ctx.latest_update_date).days / 365
-        inflation = p.inflation_annual if p.inflation_annual is not None else ctx.inflation_property
+        inflation = (
+            p.inflation_annual
+            if p.inflation_annual is not None
+            else ctx.inflation_property
+        )
 
         # Target FV (spec calc #7)
         if p.target_fv is not None:
@@ -39,12 +44,18 @@ def build_goal_properties(
             goal_value_pv = float(target_fv) / ((1 + inflation) ** years_to_goal)
 
         if not p.is_downpayment_only:
-            outcomes.append(GoalPropertyOutcome(
-                name=p.name, target_fv=target_fv, corpus_required_fv=target_fv,
-                mortgage_amount=0, amortization=None,
-                goal_date=p.goal_date, goal_value_pv=goal_value_pv,
-                inflation_used=inflation,
-            ))
+            outcomes.append(
+                GoalPropertyOutcome(
+                    name=p.name,
+                    target_fv=target_fv,
+                    corpus_required_fv=target_fv,
+                    mortgage_amount=0,
+                    amortization=None,
+                    goal_date=p.goal_date,
+                    goal_value_pv=goal_value_pv,
+                    inflation_used=inflation,
+                )
+            )
             continue
 
         # Mortgage path: resolve downpayment.
@@ -53,7 +64,9 @@ def build_goal_properties(
         if p.downpayment_pct is not None:
             upfront_fv = _round_thousand(target_fv * p.downpayment_pct)
         else:
-            upfront_fv = _round_thousand(inflate(p.upfront_amount, inflation, years_to_goal))
+            upfront_fv = _round_thousand(
+                inflate(p.upfront_amount, inflation, years_to_goal)
+            )
 
         if upfront_fv > target_fv:
             warnings.append(
@@ -91,16 +104,18 @@ def build_goal_properties(
             horizon_end=horizon_end,
         )
 
-        outcomes.append(GoalPropertyOutcome(
-            name=p.name,
-            target_fv=target_fv,
-            corpus_required_fv=upfront_fv,
-            mortgage_amount=mortgage_amount,
-            amortization=amortization,
-            goal_date=p.goal_date,
-            goal_value_pv=goal_value_pv,
-            inflation_used=inflation,
-        ))
+        outcomes.append(
+            GoalPropertyOutcome(
+                name=p.name,
+                target_fv=target_fv,
+                corpus_required_fv=upfront_fv,
+                mortgage_amount=mortgage_amount,
+                amortization=amortization,
+                goal_date=p.goal_date,
+                goal_value_pv=goal_value_pv,
+                inflation_used=inflation,
+            )
+        )
     return outcomes
 
 
@@ -139,20 +154,22 @@ def build_goal_property_details(
             emi = None
             total_interest = None
             payoff_date = None
-        details.append(GoalPropertyDetail(
-            name=outcome.name,
-            target_pv=outcome.goal_value_pv,
-            target_fv=outcome.target_fv,
-            corpus_required_fv=outcome.corpus_required_fv,
-            is_downpayment_only=src.is_downpayment_only,
-            upfront_amount=src.upfront_amount,
-            downpayment_pct=src.downpayment_pct,
-            mortgage_amount=outcome.mortgage_amount,
-            mortgage_tenure_years=tenure_used,
-            mortgage_interest_annual=interest_used,
-            mortgage_emi_monthly=emi,
-            mortgage_total_interest=total_interest,
-            mortgage_payoff_date=payoff_date,
-            goal_date=src.goal_date,
-        ))
+        details.append(
+            GoalPropertyDetail(
+                name=outcome.name,
+                target_pv=outcome.goal_value_pv,
+                target_fv=outcome.target_fv,
+                corpus_required_fv=outcome.corpus_required_fv,
+                is_downpayment_only=src.is_downpayment_only,
+                upfront_amount=src.upfront_amount,
+                downpayment_pct=src.downpayment_pct,
+                mortgage_amount=outcome.mortgage_amount,
+                mortgage_tenure_years=tenure_used,
+                mortgage_interest_annual=interest_used,
+                mortgage_emi_monthly=emi,
+                mortgage_total_interest=total_interest,
+                mortgage_payoff_date=payoff_date,
+                goal_date=src.goal_date,
+            )
+        )
     return details

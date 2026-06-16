@@ -3,14 +3,21 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,8 +38,12 @@ class TaxProfile(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
     )
 
-    income_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
-    capital_gains_tax_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    income_tax_rate: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    capital_gains_tax_rate: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     tax_regime: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)

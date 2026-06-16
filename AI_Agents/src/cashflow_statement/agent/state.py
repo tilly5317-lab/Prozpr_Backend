@@ -1,4 +1,5 @@
 """Agent working memory — persists across turns via LangGraph checkpointer."""
+
 from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal, TypedDict
@@ -8,9 +9,17 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from cashflow_statement.models import (
-    GoalPlanningInput, GoalPlanningOutput, OneOffEvent,
-    OverrideSpec, GoalMutation, CustomGoal, GoalProperty, Lever,
-    TurnAction, ExtractedFinancialEvent, PlanSummary,
+    GoalPlanningInput,
+    GoalPlanningOutput,
+    OneOffEvent,
+    OverrideSpec,
+    GoalMutation,
+    CustomGoal,
+    GoalProperty,
+    Lever,
+    TurnAction,
+    ExtractedFinancialEvent,
+    PlanSummary,
 )
 
 

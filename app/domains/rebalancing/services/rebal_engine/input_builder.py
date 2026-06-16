@@ -83,15 +83,18 @@ def _held_subgroup(meta: MfFundMetadata | None) -> str:
 
 
 async def _latest_nav_by_isin(
-    db: AsyncSession, isins: set[str],
+    db: AsyncSession,
+    isins: set[str],
 ) -> dict[str, Decimal]:
     if not isins:
         return {}
-    rows = (await db.execute(
-        select(MfNavHistory.isin, MfNavHistory.nav, MfNavHistory.nav_date)
-        .where(MfNavHistory.isin.in_(isins))
-        .order_by(MfNavHistory.isin, MfNavHistory.nav_date.desc())
-    )).all()
+    rows = (
+        await db.execute(
+            select(MfNavHistory.isin, MfNavHistory.nav, MfNavHistory.nav_date)
+            .where(MfNavHistory.isin.in_(isins))
+            .order_by(MfNavHistory.isin, MfNavHistory.nav_date.desc())
+        )
+    ).all()
     out: dict[str, Decimal] = {}
     for isin, nav, _date in rows:
         out.setdefault(isin, Decimal(str(nav)))
@@ -99,17 +102,20 @@ async def _latest_nav_by_isin(
 
 
 async def _metadata_by_isin(
-    db: AsyncSession, isins: set[str],
+    db: AsyncSession,
+    isins: set[str],
 ) -> dict[str, MfFundMetadata]:
     if not isins:
         return {}
-    rows = (await db.execute(
-        select(MfFundMetadata, MfNavHistory.isin)
-        .join(MfNavHistory, MfNavHistory.scheme_code == MfFundMetadata.scheme_code)
-        .options(selectinload(MfFundMetadata.rating))
-        .where(MfNavHistory.isin.in_(isins))
-        .distinct()
-    )).all()
+    rows = (
+        await db.execute(
+            select(MfFundMetadata, MfNavHistory.isin)
+            .join(MfNavHistory, MfNavHistory.scheme_code == MfFundMetadata.scheme_code)
+            .options(selectinload(MfFundMetadata.rating))
+            .where(MfNavHistory.isin.in_(isins))
+            .distinct()
+        )
+    ).all()
     return {isin: meta for meta, isin in rows}
 
 
@@ -223,9 +229,7 @@ async def build_rebalancing_input_for_user(
     ranking = get_fund_ranking()
     force_exit_isins = get_force_exit_isins()
     rejection_reasons = get_rejection_reasons()
-    recommended_isins: set[str] = {
-        rr.isin for rows in ranking.values() for rr in rows
-    }
+    recommended_isins: set[str] = {rr.isin for rows in ranking.values() for rr in rows}
 
     # 4. Bulk-fetch NAV + metadata for everything we need.
     held_isins = set(held_by_isin)
@@ -261,17 +265,19 @@ async def build_rebalancing_input_for_user(
             meta = meta_by_isin.get(rr.isin)
             asset_class = _rating_field(meta, "asset_class") or "equity"
 
-            rows.append(_build_row(
-                rank_row=rr,
-                held_entry=held,
-                target_amount_pre_cap=rank1_target if rr.rank == 1 else Decimal(0),
-                current_nav=current_nav,
-                asset_class=asset_class,
-                is_recommended=True,
-                fund_rating=_DEFAULT_FUND_RATING,
-                asof=asof,
-                selection_reason=rr.selection_reason or None,
-            ))
+            rows.append(
+                _build_row(
+                    rank_row=rr,
+                    held_entry=held,
+                    target_amount_pre_cap=rank1_target if rr.rank == 1 else Decimal(0),
+                    current_nav=current_nav,
+                    asset_class=asset_class,
+                    is_recommended=True,
+                    fund_rating=_DEFAULT_FUND_RATING,
+                    asof=asof,
+                    selection_reason=rr.selection_reason or None,
+                )
+            )
             seen_isins.add(rr.isin)
             if rr.rank == 1 and rank1_target > 0:
                 subgroups_applied_rank1.add(subgroup)
@@ -299,16 +305,18 @@ async def build_rebalancing_input_for_user(
                 isin=isin,
                 fund_name=(meta.scheme_name or isin) if meta else isin,
             )
-            rows.append(_build_row(
-                rank_row=rr,
-                held_entry=held,
-                target_amount_pre_cap=rank1_target,
-                current_nav=current_nav,
-                asset_class=asset_class,
-                is_recommended=True,
-                fund_rating=_DEFAULT_FUND_RATING,
-                asof=asof,
-            ))
+            rows.append(
+                _build_row(
+                    rank_row=rr,
+                    held_entry=held,
+                    target_amount_pre_cap=rank1_target,
+                    current_nav=current_nav,
+                    asset_class=asset_class,
+                    is_recommended=True,
+                    fund_rating=_DEFAULT_FUND_RATING,
+                    asof=asof,
+                )
+            )
             seen_isins.add(isin)
             subgroups_applied_rank1.add(subgroup)
             break
@@ -334,25 +342,29 @@ async def build_rebalancing_input_for_user(
         asset_class = _rating_field(meta, "asset_class") or "equity"
         bad_subgroup = _held_subgroup(meta)
         bad_sub_category = (meta.sub_category if meta else "unknown") or "unknown"
-        bad_fund_name = (meta.scheme_name if meta else entry.scheme_code) or entry.scheme_code
+        bad_fund_name = (
+            meta.scheme_name if meta else entry.scheme_code
+        ) or entry.scheme_code
 
         if isin in force_exit_isins:
-            rows.append(_build_row(
-                rank_row=None,
-                held_entry=entry,
-                target_amount_pre_cap=Decimal(0),
-                current_nav=current_nav,
-                asset_class=asset_class,
-                is_recommended=False,
-                fund_rating=_DEFAULT_FUND_RATING,
-                asof=asof,
-                bad_subgroup=bad_subgroup,
-                bad_sub_category=bad_sub_category,
-                bad_fund_name=bad_fund_name,
-                bad_isin=isin,
-                bad_rank=FORCE_EXIT_RANK,
-                rejection_reason=rejection_reasons.get(isin),
-            ))
+            rows.append(
+                _build_row(
+                    rank_row=None,
+                    held_entry=entry,
+                    target_amount_pre_cap=Decimal(0),
+                    current_nav=current_nav,
+                    asset_class=asset_class,
+                    is_recommended=False,
+                    fund_rating=_DEFAULT_FUND_RATING,
+                    asof=asof,
+                    bad_subgroup=bad_subgroup,
+                    bad_sub_category=bad_sub_category,
+                    bad_fund_name=bad_fund_name,
+                    bad_isin=isin,
+                    bad_rank=FORCE_EXIT_RANK,
+                    rejection_reason=rejection_reasons.get(isin),
+                )
+            )
             force_exit_count += 1
         else:
             # NEUTRAL: target = ST value (the locked minimum). diff =
@@ -371,22 +383,24 @@ async def build_rebalancing_input_for_user(
                 current_nav=current_nav,
                 as_of=asof,
             )
-            rows.append(_build_row(
-                rank_row=None,
-                held_entry=entry,
-                target_amount_pre_cap=split.st_value_inr,
-                current_nav=current_nav,
-                asset_class=asset_class,
-                is_recommended=False,
-                fund_rating=_DEFAULT_FUND_RATING,
-                asof=asof,
-                bad_subgroup=bad_subgroup,
-                bad_sub_category=bad_sub_category,
-                bad_fund_name=bad_fund_name,
-                bad_isin=isin,
-                bad_rank=0,
-                rejection_reason=rejection_reasons.get(isin),
-            ))
+            rows.append(
+                _build_row(
+                    rank_row=None,
+                    held_entry=entry,
+                    target_amount_pre_cap=split.st_value_inr,
+                    current_nav=current_nav,
+                    asset_class=asset_class,
+                    is_recommended=False,
+                    fund_rating=_DEFAULT_FUND_RATING,
+                    asof=asof,
+                    bad_subgroup=bad_subgroup,
+                    bad_sub_category=bad_sub_category,
+                    bad_fund_name=bad_fund_name,
+                    bad_isin=isin,
+                    bad_rank=0,
+                    rejection_reason=rejection_reasons.get(isin),
+                )
+            )
             neutral_count += 1
 
     # 7. Total corpus = sum of held market values. Snap down to a multiple of
@@ -404,15 +418,17 @@ async def build_rebalancing_input_for_user(
     #     what's actually held (a rebalance, not a fresh cash deployment). Non-MF
     #     equity ("stocks") and ELSS default to 0 — no holdings breakdown wired yet.
     practical_input, _paa_debug = build_practical_allocation_input_for_user(ctx)
-    practical_input = practical_input.model_copy(update={
-        "total_corpus": float(total_corpus),
-        "mf_corpus": float(total_corpus),
-    })
+    practical_input = practical_input.model_copy(
+        update={
+            "total_corpus": float(total_corpus),
+            "mf_corpus": float(total_corpus),
+        }
+    )
 
     # 8. Tax inputs. Query directly — relationship may not be eager-loaded.
-    tax_profile = (await db.execute(
-        select(TaxProfile).where(TaxProfile.user_id == user.id)
-    )).scalar_one_or_none()
+    tax_profile = (
+        await db.execute(select(TaxProfile).where(TaxProfile.user_id == user.id))
+    ).scalar_one_or_none()
     tax_inputs = _resolve_tax_inputs(tax_profile)
 
     # 8b. Optional counterfactual-explore overrides — read from ctx.chat_overrides.
@@ -425,13 +441,15 @@ async def build_rebalancing_input_for_user(
         practical_allocation_input=practical_input,
         tax_regime=tax_inputs["tax_regime"],
         effective_tax_rate_pct=(
-            float(tax_rate_override) if tax_rate_override is not None
+            float(tax_rate_override)
+            if tax_rate_override is not None
             else tax_inputs["effective_tax_rate_pct"]
         ),
         rounding_step=_ROUNDING_STEP,
         stcg_offset_budget_inr=(
             Decimal(str(stcg_budget_override))
-            if stcg_budget_override is not None else None
+            if stcg_budget_override is not None
+            else None
         ),
         carryforward_st_loss_inr=(
             Decimal(str(carryforward_st_override))

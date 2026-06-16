@@ -8,13 +8,18 @@ class Goal(BaseModel):
     amount_needed: float = Field(..., gt=0)
     goal_priority: Literal["negotiable", "non_negotiable"]
     investment_goal: Literal[
-        "wealth_creation", "retirement", "intergenerational_transfer",
-        "education", "home_purchase", "other"
+        "wealth_creation",
+        "retirement",
+        "intergenerational_transfer",
+        "education",
+        "home_purchase",
+        "other",
     ] = "wealth_creation"
 
 
 class MultiAssetFundComposition(BaseModel):
     """Internal equity/debt/others breakdown of the multi-asset fund used in long-term allocation."""
+
     equity_pct: float = Field(..., ge=0, le=100)
     debt_pct: float = Field(..., ge=0, le=100)
     others_pct: float = Field(..., ge=0, le=100)
@@ -52,9 +57,13 @@ class AllocationInput(BaseModel):
     primary_income_from_portfolio: bool = False
     effective_tax_rate: float = Field(..., ge=0.0, le=100.0)  # percentage 0–100
     goals: List[Goal] = []
-    market_commentary: MarketCommentaryScores = Field(default_factory=MarketCommentaryScores)
+    market_commentary: MarketCommentaryScores = Field(
+        default_factory=MarketCommentaryScores
+    )
     multi_asset_composition: MultiAssetFundComposition = Field(
-        default_factory=lambda: MultiAssetFundComposition(equity_pct=65.0, debt_pct=25.0, others_pct=10.0)
+        default_factory=lambda: MultiAssetFundComposition(
+            equity_pct=65.0, debt_pct=25.0, others_pct=10.0
+        )
     )
 
     # ── From risk_profiling internals (optional) ─────────────────────────────
@@ -66,8 +75,11 @@ class AllocationInput(BaseModel):
 
 # ── Output models ─────────────────────────────────────────────────────────────
 
+
 class BucketShortfall(BaseModel):
-    bucket: Optional[Literal["emergency", "short_term", "medium_term", "long_term"]] = None
+    bucket: Optional[Literal["emergency", "short_term", "medium_term", "long_term"]] = (
+        None
+    )
     shortfall_amount: float = Field(default=0.0, ge=0)
     message: Optional[str] = None
 
@@ -132,11 +144,23 @@ def _normalise_shortfall(v: Any) -> Any:
         # {'flag': True/False, ...}
         if "flag" in v:
             amount = float(v.get("shortfall_amount", 0.0))
-            return {"shortfall_amount": amount, "bucket": v.get("bucket"), "message": v.get("message")} if amount > 0 else None
+            return (
+                {
+                    "shortfall_amount": amount,
+                    "bucket": v.get("bucket"),
+                    "message": v.get("message"),
+                }
+                if amount > 0
+                else None
+            )
         # Any dict — find first positive numeric value
         for val in v.values():
             if isinstance(val, (int, float)) and val > 0:
-                return {"shortfall_amount": float(val), "bucket": v.get("bucket"), "message": v.get("message")}
+                return {
+                    "shortfall_amount": float(val),
+                    "bucket": v.get("bucket"),
+                    "message": v.get("message"),
+                }
         return None
     return v
 

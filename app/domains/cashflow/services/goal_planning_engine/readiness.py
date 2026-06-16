@@ -86,47 +86,79 @@ def cash_and_assets_value(user: Any) -> Optional[float]:
 # Order here drives the order the fields appear in the unlock form.
 REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     FieldSpec(
-        "date_of_birth", "Date of birth", "About you", "date", None,
+        "date_of_birth",
+        "Date of birth",
+        "About you",
+        "date",
+        None,
         lambda u: getattr(u, "date_of_birth", None),
         help="Used to compute your current age and project the plan over your lifetime.",
     ),
     # Assumed lifespan is no longer asked of the user — the engine plans every
     # user to age 100 (see input_builder), so it is intentionally NOT a field here.
     FieldSpec(
-        "retirement_age", "Planned retirement age", "Retirement", "int", "years",
+        "retirement_age",
+        "Planned retirement age",
+        "Retirement",
+        "int",
+        "years",
         _retirement_age,
         help="The age you plan to stop earning a salary.",
     ),
     FieldSpec(
-        "annual_income", "Annual income", "Income & expenses", "money", "₹ / year",
+        "annual_income",
+        "Annual income",
+        "Income & expenses",
+        "money",
+        "₹ / year",
         _pfp_get("annual_income"),
         help="Total pre-tax income across the household per year.",
     ),
     FieldSpec(
-        "monthly_household_expense", "Monthly household expense", "Income & expenses", "money", "₹ / month",
+        "monthly_household_expense",
+        "Monthly household expense",
+        "Income & expenses",
+        "money",
+        "₹ / month",
         _pfp_get("monthly_household_expense"),
         help="Average monthly spend, excluding loan EMIs.",
     ),
     FieldSpec(
-        "effective_tax_rate", "Effective tax rate", "Income & expenses", "percent", "%",
+        "effective_tax_rate",
+        "Effective tax rate",
+        "Income & expenses",
+        "percent",
+        "%",
         effective_tax_rate_value,
         help="Blended post-deduction tax rate applied to income and returns. Optional — a standard rate is assumed if left blank.",
         optional=True,
     ),
     FieldSpec(
-        "current_portfolio_corpus", "Current portfolio corpus", "Assets & liabilities", "money", "₹",
+        "current_portfolio_corpus",
+        "Current portfolio corpus",
+        "Assets & liabilities",
+        "money",
+        "₹",
         _pfp_get("current_portfolio_corpus"),
         help="Your current mutual-fund portfolio value — prefilled from your CAMS statement / portfolio page. Added to your cash & assets as the starting corpus. When a portfolio is linked, your live portfolio value is used automatically.",
         optional=True,
     ),
     FieldSpec(
-        "financial_assets", "Cash & assets", "Assets & liabilities", "money", "₹",
+        "financial_assets",
+        "Cash & assets",
+        "Assets & liabilities",
+        "money",
+        "₹",
         cash_and_assets_value,
         help="Your total cash, liquid savings and other assets (gold, FDs, unlisted shares, etc.), synced from your financial profile. Excludes your mutual-fund portfolio corpus (above). Optional — treated as ₹0 if left blank.",
         optional=True,
     ),
     FieldSpec(
-        "financial_liabilities_excl_mortgage", "Liabilities (excl. mortgage)", "Assets & liabilities", "money", "₹",
+        "financial_liabilities_excl_mortgage",
+        "Liabilities (excl. mortgage)",
+        "Assets & liabilities",
+        "money",
+        "₹",
         _pfp_get("financial_liabilities_excl_mortgage"),
         help="Outstanding debts other than your home loan. Optional — treated as ₹0 if left blank.",
         optional=True,
@@ -155,17 +187,19 @@ def evaluate_cashflow_readiness(user: Any) -> Dict[str, Any]:
         present = raw is not None
         if not present and not spec.optional:
             missing.append(spec.key)
-        fields.append({
-            "key": spec.key,
-            "label": spec.label,
-            "group": spec.group,
-            "kind": spec.kind,
-            "unit": spec.unit,
-            "help": spec.help,
-            "optional": spec.optional,
-            "present": present,
-            "value": _serialize_value(spec, raw),
-        })
+        fields.append(
+            {
+                "key": spec.key,
+                "label": spec.label,
+                "group": spec.group,
+                "kind": spec.kind,
+                "unit": spec.unit,
+                "help": spec.help,
+                "optional": spec.optional,
+                "present": present,
+                "value": _serialize_value(spec, raw),
+            }
+        )
     return {"ready": len(missing) == 0, "missing": missing, "fields": fields}
 
 

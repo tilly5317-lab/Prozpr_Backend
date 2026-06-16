@@ -19,11 +19,26 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("chat_ai_module_runs", sa.Column("formatter_invoked", sa.Boolean(), nullable=True))
-    op.add_column("chat_ai_module_runs", sa.Column("formatter_succeeded", sa.Boolean(), nullable=True))
-    op.add_column("chat_ai_module_runs", sa.Column("formatter_latency_ms", sa.Integer(), nullable=True))
-    op.add_column("chat_ai_module_runs", sa.Column("formatter_error_class", sa.String(length=128), nullable=True))
-    op.add_column("chat_ai_module_runs", sa.Column("action_mode", sa.String(length=64), nullable=True))
+    op.add_column(
+        "chat_ai_module_runs",
+        sa.Column("formatter_invoked", sa.Boolean(), nullable=True),
+    )
+    op.add_column(
+        "chat_ai_module_runs",
+        sa.Column("formatter_succeeded", sa.Boolean(), nullable=True),
+    )
+    op.add_column(
+        "chat_ai_module_runs",
+        sa.Column("formatter_latency_ms", sa.Integer(), nullable=True),
+    )
+    op.add_column(
+        "chat_ai_module_runs",
+        sa.Column("formatter_error_class", sa.String(length=128), nullable=True),
+    )
+    op.add_column(
+        "chat_ai_module_runs",
+        sa.Column("action_mode", sa.String(length=64), nullable=True),
+    )
 
 
 def downgrade() -> None:

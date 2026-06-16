@@ -13,7 +13,9 @@ from __future__ import annotations
 import re
 
 from app.domains.rebalancing.services.rebal_engine.chat import _DETECT_REBAL_SYSTEM
-from app.domains.rebalancing.services.rebal_engine.overrides import _REBAL_ALLOWED_OVERRIDE_KEYS
+from app.domains.rebalancing.services.rebal_engine.overrides import (
+    _REBAL_ALLOWED_OVERRIDE_KEYS,
+)
 
 
 def test_rebal_override_keys_in_prompt_match_code() -> None:
@@ -33,7 +35,9 @@ def test_rebal_override_keys_in_prompt_match_code() -> None:
     )
     block = match.group(0)
     # Each key is on its own indented line: "    key_name: <range/type>"
-    prompt_keys = set(re.findall(r"^\s+(\w+):\s+(?:number|true|false)", block, re.MULTILINE))
+    prompt_keys = set(
+        re.findall(r"^\s+(\w+):\s+(?:number|true|false)", block, re.MULTILINE)
+    )
     code_keys = set(_REBAL_ALLOWED_OVERRIDE_KEYS)
     assert prompt_keys == code_keys, (
         f"Override key drift between _DETECT_REBAL_SYSTEM prompt and "

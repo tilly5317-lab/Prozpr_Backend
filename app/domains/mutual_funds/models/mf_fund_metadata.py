@@ -8,7 +8,6 @@ breakdowns, and other curated/dynamic data live alongside this row in
 are not persisted here; they are derived from ``mf_nav_history``.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -39,7 +38,9 @@ class MfFundMetadata(Base):
     """One row per AMFI scheme; static, source-fed fields only."""
 
     __tablename__ = "mf_fund_metadata"
-    __table_args__ = (UniqueConstraint("scheme_code", name="uq_mf_fund_metadata_scheme_code"),)
+    __table_args__ = (
+        UniqueConstraint("scheme_code", name="uq_mf_fund_metadata_scheme_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -52,18 +53,25 @@ class MfFundMetadata(Base):
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     sub_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     plan_type: Mapped[MfPlanType] = mapped_column(
-        SAEnum(MfPlanType, name="mf_plan_type_enum", create_constraint=True), nullable=False
+        SAEnum(MfPlanType, name="mf_plan_type_enum", create_constraint=True),
+        nullable=False,
     )
     option_type: Mapped[MfOptionType] = mapped_column(
-        SAEnum(MfOptionType, name="mf_option_type_enum", create_constraint=True), nullable=False
+        SAEnum(MfOptionType, name="mf_option_type_enum", create_constraint=True),
+        nullable=False,
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     nav_rows: Mapped[List["MfNavHistory"]] = relationship(back_populates="fund_meta")

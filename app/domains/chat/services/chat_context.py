@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -36,7 +35,4 @@ async def load_conversation_history(
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
     rows.reverse()  # chronological so prompts read naturally
-    return [
-        {"role": msg.role.value, "content": msg.content}
-        for msg in rows
-    ]
+    return [{"role": msg.role.value, "content": msg.content} for msg in rows]

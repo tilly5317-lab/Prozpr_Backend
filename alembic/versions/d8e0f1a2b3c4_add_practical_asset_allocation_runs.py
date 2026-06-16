@@ -55,19 +55,43 @@ def upgrade() -> None:
             server_default=sa.false(),
         ),
         # recommended asset-class roll-up
-        sa.Column("equity_total", sa.Numeric(18, 2), nullable=False, server_default="0"),
+        sa.Column(
+            "equity_total", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
         sa.Column("debt_total", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("others_total", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("equity_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"),
-        sa.Column("debt_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"),
-        sa.Column("others_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"),
+        sa.Column(
+            "others_total", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "equity_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "debt_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "others_total_pct", sa.Numeric(7, 2), nullable=False, server_default="0"
+        ),
         # practical-only corpus breakdown
         sa.Column("mf_corpus", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("non_mf_equity_input", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("non_mf_equity_actual", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("excess_direct_stocks", sa.Numeric(18, 2), nullable=False, server_default="0"),
+        sa.Column(
+            "non_mf_equity_input", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "non_mf_equity_actual",
+            sa.Numeric(18, 2),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "excess_direct_stocks",
+            sa.Numeric(18, 2),
+            nullable=False,
+            server_default="0",
+        ),
         sa.Column("elss_corpus", sa.Numeric(18, 2), nullable=False, server_default="0"),
-        sa.Column("rebalancing_corpus", sa.Numeric(18, 2), nullable=False, server_default="0"),
+        sa.Column(
+            "rebalancing_corpus", sa.Numeric(18, 2), nullable=False, server_default="0"
+        ),
         sa.Column(
             "max_non_mf_equity_pct_computed",
             sa.Numeric(6, 4),

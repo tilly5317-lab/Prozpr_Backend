@@ -52,6 +52,7 @@ from asset_allocation_pydantic.models import (  # type: ignore[import-not-found]
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _subgroups_for_bucket(
     breakdown: Optional[SubgroupBreakdown], kind: str, bucket: str
 ) -> dict[str, tuple[float, float]]:
@@ -127,6 +128,7 @@ def _bucket_subgroup_rows(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 async def persist_asset_allocation_run(
     db: AsyncSession,

@@ -8,6 +8,7 @@ keep the test offline. Verifies the handler:
 - returns the fallback text + an apology when DOB is missing
 - returns an apology when financial profile is missing
 """
+
 from __future__ import annotations
 
 import uuid
@@ -24,7 +25,9 @@ def _stub_dependencies(monkeypatch):
         GoalPlanningServiceOutcome,
     )
 
-    async def fake_compute(*, user, user_question, chat_session_id, anchor_date, db=None):
+    async def fake_compute(
+        *, user, user_question, chat_session_id, anchor_date, db=None
+    ):
         if getattr(user, "date_of_birth", None) is None:
             raise ValueError("missing_date_of_birth")
         if getattr(user, "personal_finance_profile", None) is None:
@@ -72,7 +75,8 @@ async def test_missing_dob_returns_apology_text():
     from app.domains.cashflow.services.goal_planning_engine import chat as _gp_chat  # noqa: F401
 
     user = SimpleNamespace(
-        date_of_birth=None, first_name=None,
+        date_of_birth=None,
+        first_name=None,
         personal_finance_profile=SimpleNamespace(annual_income=1_000_000),
     )
     result = await dispatch_chat("goal_planning", _ctx(user))

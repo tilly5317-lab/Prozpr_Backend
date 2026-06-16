@@ -3,9 +3,9 @@ from typing import Literal
 
 InteractionType = Literal["profile_update", "market_commentary"]
 
+
 def classify_message_intent(
-    latest_user_message: str,
-    conv_state_snapshot: dict
+    latest_user_message: str, conv_state_snapshot: dict
 ) -> InteractionType:
     """
     Very simple initial classifier.
@@ -15,11 +15,27 @@ def classify_message_intent(
 
     # Keywords that usually mean profile changes:
     profile_keywords = [
-        "salary", "income", "lost my job", "new job", "bonus", "inheritance",
-        "bought a house", "sold my house", "loan", "liability", "mortgage",
-        "goal", "change my goal", "retirement age", "risk tolerance",
-        "i can take more risk", "i want less risk", "time horizon",
-        "emergency fund", "expense", "cash flow"
+        "salary",
+        "income",
+        "lost my job",
+        "new job",
+        "bonus",
+        "inheritance",
+        "bought a house",
+        "sold my house",
+        "loan",
+        "liability",
+        "mortgage",
+        "goal",
+        "change my goal",
+        "retirement age",
+        "risk tolerance",
+        "i can take more risk",
+        "i want less risk",
+        "time horizon",
+        "emergency fund",
+        "expense",
+        "cash flow",
     ]
 
     for kw in profile_keywords:

@@ -68,13 +68,16 @@ class _LLMOutput(BaseModel):
     unknown intent string, which avoids silently falling back to OpenAI on
     typos / hallucinated categories.
     """
+
     intent: _IntentLiteral = Field(description="The classified intent category.")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0.")
     is_follow_up: bool = Field(
         default=False,
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
     )
-    reasoning: str = Field(description="One or two sentences explaining why this intent was chosen.")
+    reasoning: str = Field(
+        description="One or two sentences explaining why this intent was chosen."
+    )
     out_of_scope_subreason: Optional[_OutOfScopeSubreasonLiteral] = Field(
         default=None,
         description=(
@@ -175,9 +178,15 @@ class IntentClassifier:
         messages = [
             # cache_control marks the static system prompt for Anthropic's server-side
             # prompt caching — after the first call, this block costs ~10% of normal rate.
-            SystemMessage(content=[
-                {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
-            ]),
+            SystemMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            ),
             HumanMessage(content=_build_user_turn(input)),
         ]
 

@@ -3,6 +3,7 @@
 All types here cross the engine↔agent boundary or are part of the public API
 exported from cashflow_statement/__init__.py.
 """
+
 from __future__ import annotations
 from datetime import date, datetime
 from enum import Enum
@@ -35,7 +36,8 @@ class Assumptions(BaseModel):
 class ClientProfile(BaseModel):
     annual_income: float
     effective_tax_rate: float = Field(
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description=(
             "Average post-deduction blended income-tax rate, applied as "
             "`gross_income × effective_tax_rate`. Typical: 0.10–0.25 salaried, "
@@ -73,6 +75,7 @@ class CurrentProperty(BaseModel):
     When `has_mortgage=True`, both `mortgage_emi` and `mortgage_end_date` are required.
     The engine projects EMI outflows from today through `mortgage_end_date` per FY.
     """
+
     name: str
     property_value: float | None = Field(
         default=None,
@@ -92,7 +95,8 @@ class CurrentProperty(BaseModel):
     def _validate_mortgage_fields(self) -> "CurrentProperty":
         if self.has_mortgage:
             missing = [
-                f for f in ("mortgage_emi", "mortgage_end_date")
+                f
+                for f in ("mortgage_emi", "mortgage_end_date")
                 if getattr(self, f) is None
             ]
             if missing:
@@ -117,8 +121,12 @@ class GoalProperty(BaseModel):
     )
     goal_date: date
     inflation_annual: float | None = Field(default=None, ge=0.0, le=1.0)
-    mortgage_tenure_years: int | None = None  # falls back to assumptions.default_mortgage_tenure_years
-    mortgage_interest_annual: float | None = Field(default=None, ge=0.0, le=1.0)  # falls back to assumptions.default_mortgage_interest_annual
+    mortgage_tenure_years: int | None = (
+        None  # falls back to assumptions.default_mortgage_tenure_years
+    )
+    mortgage_interest_annual: float | None = Field(
+        default=None, ge=0.0, le=1.0
+    )  # falls back to assumptions.default_mortgage_interest_annual
 
     @model_validator(mode="after")
     def _validate_goal_property(self) -> "GoalProperty":
@@ -126,7 +134,9 @@ class GoalProperty(BaseModel):
             raise ValueError("provide target_pv or target_fv (or both)")
         if self.is_downpayment_only:
             # XOR: exactly one of (upfront_amount, downpayment_pct) must be set
-            both_set = self.upfront_amount is not None and self.downpayment_pct is not None
+            both_set = (
+                self.upfront_amount is not None and self.downpayment_pct is not None
+            )
             neither_set = self.upfront_amount is None and self.downpayment_pct is None
             if both_set:
                 raise ValueError(
@@ -136,7 +146,9 @@ class GoalProperty(BaseModel):
                 raise ValueError(
                     "upfront_amount or downpayment_pct required when is_downpayment_only=True"
                 )
-            if self.downpayment_pct is not None and not (0.0 <= self.downpayment_pct <= 1.0):
+            if self.downpayment_pct is not None and not (
+                0.0 <= self.downpayment_pct <= 1.0
+            ):
                 raise ValueError("downpayment_pct must be between 0.0 and 1.0")
         return self
 
@@ -158,7 +170,8 @@ class CustomGoal(BaseModel):
     goal_date: date
     inflation_rate_override: float | None = Field(
         default=None,
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description=(
             "Per-goal inflation rate override. When None, the engine falls back to "
             "the rate from `Assumptions` keyed by `goal_type` "
@@ -211,7 +224,9 @@ class GoalPlanningInput(BaseModel):
         normalized = [n.casefold() for n in names]
         dupes = {n for n in normalized if normalized.count(n) > 1}
         if dupes:
-            raise ValueError(f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}")
+            raise ValueError(
+                f"Duplicate names across inputs (case-insensitive): {sorted(dupes)}"
+            )
         return self
 
 
@@ -229,40 +244,45 @@ class HeadlineStatus(BaseModel):
     — surface only when the customer explicitly asks "can I fund this from
     today's corpus alone?".
     """
+
     years_to_last_goal: int
     last_goal_date: date
     last_fy_end_date: date
     number_of_goals: int
     corpus_today: float
     total_corpus_required_today: float  # PV today of all goals combined
-    surplus_or_shortfall_today: float   # PV-view "as-of-today": corpus_today − total_corpus_required_today
-    corpus_closing: float               # corpus at end of projection horizon
-    is_feasible: bool                   # Canonical: all(goal.is_funded) AND corpus_closing >= 0
-    total_shortfall_fv: float           # sum of per-goal shortfalls (FV)
-    total_funded_amount: float          # sum of per-goal funded amounts
+    surplus_or_shortfall_today: (
+        float  # PV-view "as-of-today": corpus_today − total_corpus_required_today
+    )
+    corpus_closing: float  # corpus at end of projection horizon
+    is_feasible: bool  # Canonical: all(goal.is_funded) AND corpus_closing >= 0
+    total_shortfall_fv: float  # sum of per-goal shortfalls (FV)
+    total_funded_amount: float  # sum of per-goal funded amounts
 
 
 class RetirementSnapshot(BaseModel):
-    retirement_date_computed: date                 # DOB + retirement_age (natural)
-    retirement_date: date                          # the one actually used (= override if set, else computed)
+    retirement_date_computed: date  # DOB + retirement_age (natural)
+    retirement_date: date  # the one actually used (= override if set, else computed)
     years_to_retirement: float
-    annual_household_expense_today: float          # PV (= monthly_household_expense × 12)
+    annual_household_expense_today: float  # PV (= monthly_household_expense × 12)
     annual_household_expense_at_retirement: float  # FV at retirement_date
     post_retirement_years: int
     real_roi_annual: float
-    corpus_required_computed: float                # FV at retirement_date
-    corpus_required_user_override: float | None    # FV (inflated from user PV input)
-    corpus_required_used: float                    # FV (whichever of the above is in effect)
-    corpus_required_pv_today: float                # PV in today's ₹ (back-discounted from `_used`)
+    corpus_required_computed: float  # FV at retirement_date
+    corpus_required_user_override: float | None  # FV (inflated from user PV input)
+    corpus_required_used: float  # FV (whichever of the above is in effect)
+    corpus_required_pv_today: float  # PV in today's ₹ (back-discounted from `_used`)
 
 
 class GoalFundingStatus(BaseModel):
     name: str
     goal_type: GoalType
     goal_date: date
-    goal_value_pv: float        # full goal value in today's ₹
-    goal_value_fv: float        # full goal value at goal_date (inflated)
-    corpus_required_fv: float   # corpus drain at goal_date (= goal_value_fv unless mortgaged property)
+    goal_value_pv: float  # full goal value in today's ₹
+    goal_value_fv: float  # full goal value at goal_date (inflated)
+    corpus_required_fv: (
+        float  # corpus drain at goal_date (= goal_value_fv unless mortgaged property)
+    )
     investment_required_pv: float
     funded_amount: float
     is_funded: bool
@@ -293,6 +313,7 @@ class AnnualCashflowRow(BaseModel):
       corpus_closing == corpus_opening + monthly_investment + investment_returns
                    + one_off_inflow - goal_payout - one_off_outflow
     """
+
     fy_end_date: date
     fy_label: str
     # --- P&L side ----------------------------------------------------------
@@ -327,6 +348,7 @@ class MonthlyCashflowRow(BaseModel):
       corpus_closing == corpus_opening + monthly_investment + investment_returns
                    + one_off_inflow - goal_payout - one_off_outflow
     """
+
     month_end_date: date
     fy_label: str
     # --- P&L side (from project_cashflow) -----------------------------------
@@ -347,7 +369,9 @@ class MonthlyCashflowRow(BaseModel):
         "user_sip", "user_sip_capped", "savings_sip_fraction", "withdrawal", "zero"
     ] = "zero"
     investment_returns: float = 0.0
-    goal_payout: float = 0.0  # Goal payouts ONLY (one-off outflows live in one_off_outflow).
+    goal_payout: float = (
+        0.0  # Goal payouts ONLY (one-off outflows live in one_off_outflow).
+    )
     corpus_closing: float = 0.0
     is_funded: bool = True
 
@@ -365,19 +389,20 @@ class FundFlowSummary(BaseModel):
     The goal-funding-status fields mirror HeadlineStatus so consumers of
     FundFlowSummary get the PV view without a second model.
     """
+
     # --- Horizon bridge -----------------------------------------------------
     corpus_opening: float
-    total_investments: float    # signed sum of monthly_investment (negative = withdrawal)
+    total_investments: float  # signed sum of monthly_investment (negative = withdrawal)
     total_roi: float
-    total_one_off_in: float     # positive magnitude
-    total_one_off_out: float    # positive magnitude
-    total_goals_paid: float     # positive magnitude
+    total_one_off_in: float  # positive magnitude
+    total_one_off_out: float  # positive magnitude
+    total_goals_paid: float  # positive magnitude
     corpus_closing: float
 
     # --- Goal funding status (present-value view; mirrors HeadlineStatus) ---
-    corpus_today: float           # = corpus_opening; kept as its own field for clarity
-    total_corpus_required_today: float          # PV today of all goals
-    surplus_or_shortfall_today: float           # corpus_today - total_corpus_required_today
+    corpus_today: float  # = corpus_opening; kept as its own field for clarity
+    total_corpus_required_today: float  # PV today of all goals
+    surplus_or_shortfall_today: float  # corpus_today - total_corpus_required_today
 
 
 class ValidationIssue(BaseModel):
@@ -388,6 +413,7 @@ class ValidationIssue(BaseModel):
 
 class GoalBullet(BaseModel):
     """One per goal — the LLM verdict line a customer-facing UI / chat can show as-is."""
+
     name: str
     verdict: Literal["funded", "partially_funded", "unfunded"]
     headline_amount: str = Field(
@@ -406,6 +432,7 @@ class PlanSummary(BaseModel):
     already in Indian notation (₹X.XX lakh / crore) so the consumer never has to
     convert and can quote the strings verbatim.
     """
+
     top_line: str = Field(
         description="1-2 sentence overall verdict — funded vs shortfall, biggest driver.",
     )
@@ -507,6 +534,7 @@ class Lever(BaseModel):
 
 class TurnAction(BaseModel):
     """Audit log entry: which tool was called this turn, with what args, and the summary it returned."""
+
     tool_name: str
     arguments: dict[str, Any] = {}
     summary: str
@@ -514,16 +542,21 @@ class TurnAction(BaseModel):
 
 class GoalPropertyDetail(BaseModel):
     """Public-facing property goal details (lifts info from internal GoalPropertyOutcome)."""
+
     name: str
     target_pv: float
     target_fv: float
-    corpus_required_fv: float                 # what gets paid at goal_date (= upfront FV if mortgage, else target FV)
+    corpus_required_fv: (
+        float  # what gets paid at goal_date (= upfront FV if mortgage, else target FV)
+    )
     is_downpayment_only: bool
-    upfront_amount: float | None = None      # user PV input (None if downpayment_pct used)
-    downpayment_pct: float | None = None     # user fraction input (None if upfront_amount used)
-    mortgage_amount: float                  # 0 if cash purchase
-    mortgage_tenure_years: int               # resolved (user override or assumption default)
-    mortgage_interest_annual: float          # resolved (user override or assumption default)
+    upfront_amount: float | None = None  # user PV input (None if downpayment_pct used)
+    downpayment_pct: float | None = (
+        None  # user fraction input (None if upfront_amount used)
+    )
+    mortgage_amount: float  # 0 if cash purchase
+    mortgage_tenure_years: int  # resolved (user override or assumption default)
+    mortgage_interest_annual: float  # resolved (user override or assumption default)
     mortgage_emi_monthly: float | None = None
     mortgage_total_interest: float | None = None
     mortgage_payoff_date: date | None = None
@@ -591,6 +624,7 @@ class GoalPlanningResponse(BaseModel):
 
 class GoalPlanningRequest(BaseModel):
     """What the responder passes in. (Used by agent refactor; kept here for type completeness now.)"""
+
     user_question: str
     baseline_input: GoalPlanningInput
     chat_session_id: str
@@ -602,9 +636,12 @@ class GoalPlanningSnapshot(GoalPlanningOutput):
     """Agent return = engine output + per-turn metadata.
     Inherits all fields of GoalPlanningOutput and adds turn-level info.
     """
+
     extracted_events_this_turn: list[ExtractedFinancialEvent] = []
     actions_taken_this_turn: list[TurnAction] = []
     levers: list[Lever] = []
     validation_issues: list[ValidationIssue] = []
     error_log: list[str] = []
-    summary: PlanSummary | None = None  # LLM narrative, written by the agent's finalize node
+    summary: PlanSummary | None = (
+        None  # LLM narrative, written by the agent's finalize node
+    )

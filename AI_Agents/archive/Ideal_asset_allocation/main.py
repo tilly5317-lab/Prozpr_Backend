@@ -109,7 +109,7 @@ def _extract_json(text: str) -> dict:
 
     match = re.search(r"\{", raw)
     if match:
-        obj, _ = json.JSONDecoder().raw_decode(raw[match.start():])
+        obj, _ = json.JSONDecoder().raw_decode(raw[match.start() :])
         return obj
 
     raise json.JSONDecodeError("No JSON object found in LLM response", raw, 0)
@@ -147,11 +147,13 @@ def _make_step(prompt, step_name: str = "unknown", state_slicer=None, llm=None):
                 time.sleep(1.0 * (attempt + 1))
         assert last_err is not None
         raise last_err
+
     return RunnableLambda(_run)
 
 
 def _make_step5(prompt, step_name: str = "step5", state_slicer=None):
     """Same as _make_step but uses the higher token-limit LLM for Step 5."""
+
     def _run(state: dict):
         slim = state_slicer(state) if state_slicer else state
         messages = prompt.format_messages(state_json=_serialize(slim))
@@ -174,17 +176,36 @@ def _make_step5(prompt, step_name: str = "step5", state_slicer=None):
                 time.sleep(1.0 * (attempt + 1))
         assert last_err is not None
         raise last_err
+
     return RunnableLambda(_run)
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 asset_allocation_chain = (
-    RunnablePassthrough.assign(step1_carve_outs   = _make_step(step1_prompt,  "step1_carve_outs",                    llm=_llm_step1))
-  | RunnablePassthrough.assign(step2_asset_class  = _make_step(step2_prompt,  "step2_asset_class",  _slim_for_step2, llm=_llm_step2))
-  | RunnablePassthrough.assign(step3_subgroups    = _make_step(step3_prompt,  "step3_subgroups",    _slim_for_step3, llm=_llm_step3))
-  | RunnablePassthrough.assign(step4_validation   = _make_step(step4_prompt,  "step4_validation",   _slim_for_step4, llm=_llm_step4))
-  | RunnablePassthrough.assign(step5_presentation = _make_step5(step5_prompt, "step5_presentation", _slim_for_step5))
+    RunnablePassthrough.assign(
+        step1_carve_outs=_make_step(step1_prompt, "step1_carve_outs", llm=_llm_step1)
+    )
+    | RunnablePassthrough.assign(
+        step2_asset_class=_make_step(
+            step2_prompt, "step2_asset_class", _slim_for_step2, llm=_llm_step2
+        )
+    )
+    | RunnablePassthrough.assign(
+        step3_subgroups=_make_step(
+            step3_prompt, "step3_subgroups", _slim_for_step3, llm=_llm_step3
+        )
+    )
+    | RunnablePassthrough.assign(
+        step4_validation=_make_step(
+            step4_prompt, "step4_validation", _slim_for_step4, llm=_llm_step4
+        )
+    )
+    | RunnablePassthrough.assign(
+        step5_presentation=_make_step5(
+            step5_prompt, "step5_presentation", _slim_for_step5
+        )
+    )
 )
 
 

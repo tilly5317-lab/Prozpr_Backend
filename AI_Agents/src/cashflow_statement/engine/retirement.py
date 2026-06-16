@@ -1,4 +1,5 @@
 """Stage 2a: compute RetirementSnapshot."""
+
 from __future__ import annotations
 from datetime import date
 
@@ -64,20 +65,32 @@ def compute_retirement_snapshot(
     )
 
     annual_expense_fv = _round_thousand(
-        inflate(ctx.annual_household_expense, ctx.inflation_household_expense, inflation_years)
+        inflate(
+            ctx.annual_household_expense,
+            ctx.inflation_household_expense,
+            inflation_years,
+        )
     )
 
-    real_annual = real_rate(ctx.retired_portfolio_roi_annual, ctx.inflation_post_retirement)
+    real_annual = real_rate(
+        ctx.retired_portfolio_roi_annual, ctx.inflation_post_retirement
+    )
 
-    corpus_computed = _round_thousand(retirement_corpus_pv(
-        annual_expense_fv=annual_expense_fv,
-        post_retirement_years=post_retirement_years,
-        real_roi_annual=real_annual,
-    ))
+    corpus_computed = _round_thousand(
+        retirement_corpus_pv(
+            annual_expense_fv=annual_expense_fv,
+            post_retirement_years=post_retirement_years,
+            real_roi_annual=real_annual,
+        )
+    )
 
     if inp.retirement_corpus_pv_today_override is not None:
         corpus_user_fv = _round_thousand(
-            inflate(inp.retirement_corpus_pv_today_override, ctx.inflation_household_expense, inflation_years)
+            inflate(
+                inp.retirement_corpus_pv_today_override,
+                ctx.inflation_household_expense,
+                inflation_years,
+            )
         )
         corpus_used = corpus_user_fv
     else:
@@ -91,7 +104,9 @@ def compute_retirement_snapshot(
     elif inflation_years == 0:
         corpus_pv_today = corpus_used
     else:
-        corpus_pv_today = corpus_used / (1 + ctx.inflation_household_expense) ** inflation_years
+        corpus_pv_today = (
+            corpus_used / (1 + ctx.inflation_household_expense) ** inflation_years
+        )
 
     return RetirementSnapshot(
         retirement_date_computed=retirement_date_computed,

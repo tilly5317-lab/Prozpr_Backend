@@ -16,11 +16,17 @@ from app.domains.rebalancing.services.rebal_engine.holdings_ledger import (
 
 @pytest.mark.asyncio
 async def test_buy_only_yields_one_entry(
-    db_session, fixture_user, fixture_buy_txn_factory, fixture_nav_isin_factory,
+    db_session,
+    fixture_user,
+    fixture_buy_txn_factory,
+    fixture_nav_isin_factory,
 ):
     await fixture_buy_txn_factory(
-        user=fixture_user, scheme_code="100001",
-        units=Decimal("10"), nav=Decimal("50"), txn_date=date(2025, 1, 1),
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("10"),
+        nav=Decimal("50"),
+        txn_date=date(2025, 1, 1),
     )
     await fixture_nav_isin_factory(scheme_code="100001", isin="INF000000001")
 
@@ -40,14 +46,33 @@ async def test_buy_only_yields_one_entry(
 
 @pytest.mark.asyncio
 async def test_sell_consumes_oldest_lot_fifo(
-    db_session, fixture_user, fixture_buy_txn_factory, fixture_sell_txn_factory, fixture_nav_isin_factory,
+    db_session,
+    fixture_user,
+    fixture_buy_txn_factory,
+    fixture_sell_txn_factory,
+    fixture_nav_isin_factory,
 ):
-    await fixture_buy_txn_factory(user=fixture_user, scheme_code="100001",
-                                  units=Decimal("10"), nav=Decimal("50"), txn_date=date(2025, 1, 1))
-    await fixture_buy_txn_factory(user=fixture_user, scheme_code="100001",
-                                  units=Decimal("5"), nav=Decimal("60"), txn_date=date(2025, 6, 1))
-    await fixture_sell_txn_factory(user=fixture_user, scheme_code="100001",
-                                   units=Decimal("8"), nav=Decimal("70"), txn_date=date(2025, 9, 1))
+    await fixture_buy_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("10"),
+        nav=Decimal("50"),
+        txn_date=date(2025, 1, 1),
+    )
+    await fixture_buy_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("5"),
+        nav=Decimal("60"),
+        txn_date=date(2025, 6, 1),
+    )
+    await fixture_sell_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("8"),
+        nav=Decimal("70"),
+        txn_date=date(2025, 9, 1),
+    )
     await fixture_nav_isin_factory(scheme_code="100001", isin="INF000000001")
 
     ledger = await build_holdings_ledger(db_session, user_id=fixture_user.id)
@@ -64,12 +89,26 @@ async def test_sell_consumes_oldest_lot_fifo(
 
 @pytest.mark.asyncio
 async def test_fully_sold_position_dropped(
-    db_session, fixture_user, fixture_buy_txn_factory, fixture_sell_txn_factory, fixture_nav_isin_factory,
+    db_session,
+    fixture_user,
+    fixture_buy_txn_factory,
+    fixture_sell_txn_factory,
+    fixture_nav_isin_factory,
 ):
-    await fixture_buy_txn_factory(user=fixture_user, scheme_code="100001",
-                                  units=Decimal("10"), nav=Decimal("50"), txn_date=date(2025, 1, 1))
-    await fixture_sell_txn_factory(user=fixture_user, scheme_code="100001",
-                                   units=Decimal("10"), nav=Decimal("60"), txn_date=date(2025, 6, 1))
+    await fixture_buy_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("10"),
+        nav=Decimal("50"),
+        txn_date=date(2025, 1, 1),
+    )
+    await fixture_sell_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("10"),
+        nav=Decimal("60"),
+        txn_date=date(2025, 6, 1),
+    )
     await fixture_nav_isin_factory(scheme_code="100001", isin="INF000000001")
 
     ledger = await build_holdings_ledger(db_session, user_id=fixture_user.id)
@@ -78,15 +117,34 @@ async def test_fully_sold_position_dropped(
 
 @pytest.mark.asyncio
 async def test_sell_consuming_partial_first_lot_then_into_second(
-    db_session, fixture_user, fixture_buy_txn_factory, fixture_sell_txn_factory, fixture_nav_isin_factory,
+    db_session,
+    fixture_user,
+    fixture_buy_txn_factory,
+    fixture_sell_txn_factory,
+    fixture_nav_isin_factory,
 ):
     """Sell of 12 units against lots of 10 + 5 leaves 3 in the second lot."""
-    await fixture_buy_txn_factory(user=fixture_user, scheme_code="100001",
-                                  units=Decimal("10"), nav=Decimal("50"), txn_date=date(2025, 1, 1))
-    await fixture_buy_txn_factory(user=fixture_user, scheme_code="100001",
-                                  units=Decimal("5"), nav=Decimal("60"), txn_date=date(2025, 6, 1))
-    await fixture_sell_txn_factory(user=fixture_user, scheme_code="100001",
-                                   units=Decimal("12"), nav=Decimal("70"), txn_date=date(2025, 9, 1))
+    await fixture_buy_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("10"),
+        nav=Decimal("50"),
+        txn_date=date(2025, 1, 1),
+    )
+    await fixture_buy_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("5"),
+        nav=Decimal("60"),
+        txn_date=date(2025, 6, 1),
+    )
+    await fixture_sell_txn_factory(
+        user=fixture_user,
+        scheme_code="100001",
+        units=Decimal("12"),
+        nav=Decimal("70"),
+        txn_date=date(2025, 9, 1),
+    )
     await fixture_nav_isin_factory(scheme_code="100001", isin="INF000000001")
 
     ledger = await build_holdings_ledger(db_session, user_id=fixture_user.id)

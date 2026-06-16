@@ -3,28 +3,50 @@
 Bridge code imports from here only. Internal types (RunContext, MortgageSchedule, etc.)
 live in engine/_types.py and are NOT exported.
 """
+
 from .engine import compute_full_projection, validate_input_only, ENGINE_VERSION
 from .models import (
     # Inputs
-    GoalPlanningInput, Assumptions, ClientProfile, RetirementInput,
-    CurrentProperty, GoalProperty, CustomGoal, OneOffEvent,
+    GoalPlanningInput,
+    Assumptions,
+    ClientProfile,
+    RetirementInput,
+    CurrentProperty,
+    GoalProperty,
+    CustomGoal,
+    OneOffEvent,
     # Outputs
-    GoalPlanningOutput, GoalPlanningResponse,
-    HeadlineStatus, RetirementSnapshot, FundFlowSummary,
-    GoalFundingStatus, OneOffFundingStatus,
-    AnnualCashflowRow, MonthlyCashflowRow,
+    GoalPlanningOutput,
+    GoalPlanningResponse,
+    HeadlineStatus,
+    RetirementSnapshot,
+    FundFlowSummary,
+    GoalFundingStatus,
+    OneOffFundingStatus,
+    AnnualCashflowRow,
+    MonthlyCashflowRow,
     ValidationIssue,
     # v2 types
-    GoalPlanningRequest, GoalPlanningSnapshot,
+    GoalPlanningRequest,
+    GoalPlanningSnapshot,
     GoalPropertyDetail,
     TurnAction,
     # Agent types
-    OverrideSpec, NumericOverride, RateOverride,
-    GoalMutation, LeverAction, Lever,
-    ExtractedFinancialEvent, ExtractedGoal, ExtractedProperty,
-    ExtractedCashflow, ExtractedMutation, ExtractionError,
+    OverrideSpec,
+    NumericOverride,
+    RateOverride,
+    GoalMutation,
+    LeverAction,
+    Lever,
+    ExtractedFinancialEvent,
+    ExtractedGoal,
+    ExtractedProperty,
+    ExtractedCashflow,
+    ExtractedMutation,
+    ExtractionError,
     # Summary
-    PlanSummary, GoalBullet,
+    PlanSummary,
+    GoalBullet,
     # Enums
     GoalType,
 )
@@ -35,6 +57,7 @@ def __getattr__(name: str):
     """Lazy-load the agent submodule (requires langgraph) only when accessed."""
     if name in ("cashflow_statement_graph", "run_cashflow_statement"):
         from .agent import cashflow_statement_graph, run_cashflow_statement
+
         globals()["cashflow_statement_graph"] = cashflow_statement_graph
         globals()["run_cashflow_statement"] = run_cashflow_statement
         return globals()[name]
@@ -42,22 +65,47 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    "compute_full_projection", "validate_input_only", "ENGINE_VERSION",
-    "cashflow_statement_graph", "run_cashflow_statement",
-    "GoalPlanningInput", "Assumptions", "ClientProfile", "RetirementInput",
-    "CurrentProperty", "GoalProperty", "CustomGoal", "OneOffEvent",
-    "GoalPlanningOutput", "GoalPlanningResponse",
-    "HeadlineStatus", "RetirementSnapshot", "FundFlowSummary",
-    "GoalFundingStatus", "OneOffFundingStatus",
-    "AnnualCashflowRow", "MonthlyCashflowRow",
+    "compute_full_projection",
+    "validate_input_only",
+    "ENGINE_VERSION",
+    "cashflow_statement_graph",
+    "run_cashflow_statement",
+    "GoalPlanningInput",
+    "Assumptions",
+    "ClientProfile",
+    "RetirementInput",
+    "CurrentProperty",
+    "GoalProperty",
+    "CustomGoal",
+    "OneOffEvent",
+    "GoalPlanningOutput",
+    "GoalPlanningResponse",
+    "HeadlineStatus",
+    "RetirementSnapshot",
+    "FundFlowSummary",
+    "GoalFundingStatus",
+    "OneOffFundingStatus",
+    "AnnualCashflowRow",
+    "MonthlyCashflowRow",
     "ValidationIssue",
-    "GoalPlanningRequest", "GoalPlanningSnapshot",
+    "GoalPlanningRequest",
+    "GoalPlanningSnapshot",
     "GoalPropertyDetail",
     "TurnAction",
-    "OverrideSpec", "NumericOverride", "RateOverride",
-    "GoalMutation", "LeverAction", "Lever",
-    "ExtractedFinancialEvent", "ExtractedGoal", "ExtractedProperty",
-    "ExtractedCashflow", "ExtractedMutation", "ExtractionError",
-    "PlanSummary", "GoalBullet", "summarize_plan",
+    "OverrideSpec",
+    "NumericOverride",
+    "RateOverride",
+    "GoalMutation",
+    "LeverAction",
+    "Lever",
+    "ExtractedFinancialEvent",
+    "ExtractedGoal",
+    "ExtractedProperty",
+    "ExtractedCashflow",
+    "ExtractedMutation",
+    "ExtractionError",
+    "PlanSummary",
+    "GoalBullet",
+    "summarize_plan",
     "GoalType",
 ]

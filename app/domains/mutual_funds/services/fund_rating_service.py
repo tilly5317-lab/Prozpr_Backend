@@ -18,13 +18,19 @@ async def get_rating(db: AsyncSession, rating_id: uuid.UUID) -> MfFundRating:
         await db.execute(select(MfFundRating).where(MfFundRating.id == rating_id))
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fund rating not found"
+        )
     return row
 
 
-async def get_rating_by_scheme_code(db: AsyncSession, scheme_code: str) -> Optional[MfFundRating]:
+async def get_rating_by_scheme_code(
+    db: AsyncSession, scheme_code: str
+) -> Optional[MfFundRating]:
     return (
-        await db.execute(select(MfFundRating).where(MfFundRating.scheme_code == scheme_code))
+        await db.execute(
+            select(MfFundRating).where(MfFundRating.scheme_code == scheme_code)
+        )
     ).scalar_one_or_none()
 
 
@@ -37,7 +43,9 @@ async def get_rating_by_isin(db: AsyncSession, isin: str) -> Optional[MfFundRati
 async def create_rating(db: AsyncSession, payload: MfFundRatingCreate) -> MfFundRating:
     meta = (
         await db.execute(
-            select(MfFundMetadata).where(MfFundMetadata.scheme_code == payload.scheme_code)
+            select(MfFundMetadata).where(
+                MfFundMetadata.scheme_code == payload.scheme_code
+            )
         )
     ).scalar_one_or_none()
     if not meta:

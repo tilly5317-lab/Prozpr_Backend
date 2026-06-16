@@ -8,6 +8,7 @@ per-case, and asserts against a caller-supplied threshold.
 Designed for deterministic graders. LLM-as-judge / rubric graders are out of
 scope (see design spec 2026-05-02-shared-eval-harness-design.md).
 """
+
 from __future__ import annotations
 
 import unittest

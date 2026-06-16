@@ -35,10 +35,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import _get_session_factory
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
 from app.domains.mutual_funds.models.enums import MfTransactionType
-from app.domains.mutual_funds.services.nav_history_service import ensure_nav_history_for_chart
+from app.domains.mutual_funds.services.nav_history_service import (
+    ensure_nav_history_for_chart,
+)
 from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
-from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
-from app.domains.portfolio.services.portfolio_service import revalue_primary_portfolio_at_latest_nav
+from app.domains.portfolio.models.user_portfolio_nav_history import (
+    UserPortfolioNavHistory,
+)
+from app.domains.portfolio.services.portfolio_service import (
+    revalue_primary_portfolio_at_latest_nav,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +90,13 @@ async def compute_user_networth_history(
             await db.execute(
                 select(MfTransaction)
                 .where(MfTransaction.user_id == user_id)
-                .order_by(MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc())
+                .order_by(
+                    MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc()
+                )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not txns:
         return 0
@@ -179,7 +189,9 @@ async def compute_user_networth_history(
     while day <= today:
         total = round(value_by_day.get(day, 0.0), 2)
         invested = round(invested_by_day.get(day, 0.0), 2)
-        gain_pct = round((total - invested) / invested * 100, 4) if invested > 0 else 0.0
+        gain_pct = (
+            round((total - invested) / invested * 100, 4) if invested > 0 else 0.0
+        )
         rows.append(
             UserPortfolioNavHistory(
                 id=uuid.uuid4(),
@@ -194,7 +206,9 @@ async def compute_user_networth_history(
 
     # Replace any prior (synthetic or stale) series for this user.
     await db.execute(
-        delete(UserPortfolioNavHistory).where(UserPortfolioNavHistory.user_id == user_id)
+        delete(UserPortfolioNavHistory).where(
+            UserPortfolioNavHistory.user_id == user_id
+        )
     )
     for start in range(0, len(rows), 1000):
         db.add_all(rows[start : start + 1000])
@@ -229,7 +243,9 @@ async def get_latest_job(
     ).scalar_one_or_none()
 
 
-async def has_running_job(db: AsyncSession, user_id: uuid.UUID) -> Optional[PortfolioNetworthJob]:
+async def has_running_job(
+    db: AsyncSession, user_id: uuid.UUID
+) -> Optional[PortfolioNetworthJob]:
     return (
         await db.execute(
             select(PortfolioNetworthJob)
@@ -246,7 +262,9 @@ async def has_running_job(db: AsyncSession, user_id: uuid.UUID) -> Optional[Port
 async def _update_job(db: AsyncSession, job_id: uuid.UUID, **fields: object) -> None:
     fields["updated_at"] = func.now()
     await db.execute(
-        update(PortfolioNetworthJob).where(PortfolioNetworthJob.id == job_id).values(**fields)
+        update(PortfolioNetworthJob)
+        .where(PortfolioNetworthJob.id == job_id)
+        .values(**fields)
     )
     await db.commit()
 
@@ -273,7 +291,10 @@ async def run_networth_backfill(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
             txns = list(
                 (
                     await db.execute(
-                        select(MfTransaction.scheme_code, func.min(MfTransaction.transaction_date))
+                        select(
+                            MfTransaction.scheme_code,
+                            func.min(MfTransaction.transaction_date),
+                        )
                         .where(MfTransaction.user_id == user_id)
                         .group_by(MfTransaction.scheme_code)
                     )
@@ -407,9 +428,13 @@ async def compute_networth_as_of(
                     MfTransaction.user_id == user_id,
                     MfTransaction.transaction_date <= as_of,
                 )
-                .order_by(MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc())
+                .order_by(
+                    MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc()
+                )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not txns:
         return None
@@ -656,8 +681,10 @@ async def _refresh_held_fund_navs(db: AsyncSession) -> None:
         )
 
         held_rows = (
-            await db.execute(select(MfTransaction.scheme_code).distinct())
-        ).scalars().all()
+            (await db.execute(select(MfTransaction.scheme_code).distinct()))
+            .scalars()
+            .all()
+        )
         held = {str(c).strip() for c in held_rows if c and str(c).strip()}
         if not held:
             return
@@ -669,7 +696,8 @@ async def _refresh_held_fund_navs(db: AsyncSession) -> None:
         to_refresh = [c for c in stale_codes if c in held]
         if not to_refresh:
             logger.info(
-                "networth daily job: all %d held funds already have today's NAV", len(held)
+                "networth daily job: all %d held funds already have today's NAV",
+                len(held),
             )
             return
         logger.info(
@@ -681,7 +709,9 @@ async def _refresh_held_fund_navs(db: AsyncSession) -> None:
             db, mode=IngestMode.INCREMENTAL, scheme_codes=to_refresh, concurrency=8
         )
     except Exception:  # noqa: BLE001 — NAV refresh is best-effort
-        logger.exception("networth daily job: held-fund NAV refresh failed (continuing)")
+        logger.exception(
+            "networth daily job: held-fund NAV refresh failed (continuing)"
+        )
         try:
             await db.rollback()
         except Exception:  # noqa: BLE001
@@ -713,9 +743,9 @@ async def run_daily_networth_job() -> None:
                 await _refresh_held_fund_navs(db)
 
                 user_ids = list(
-                    (
-                        await db.execute(select(MfTransaction.user_id).distinct())
-                    ).scalars().all()
+                    (await db.execute(select(MfTransaction.user_id).distinct()))
+                    .scalars()
+                    .all()
                 )
                 done = 0
                 for user_id in user_ids:
@@ -725,7 +755,9 @@ async def run_daily_networth_job() -> None:
                         ):
                             done += 1
                     except Exception:  # noqa: BLE001 — never let one user block the rest
-                        logger.exception("networth daily job: failed for user %s", user_id)
+                        logger.exception(
+                            "networth daily job: failed for user %s", user_id
+                        )
                         try:
                             await db.rollback()
                         except Exception:  # noqa: BLE001
@@ -742,7 +774,8 @@ async def run_daily_networth_job() -> None:
                     )
                 except SQLAlchemyError:
                     logger.warning(
-                        "networth daily job: failed to release advisory lock", exc_info=True
+                        "networth daily job: failed to release advisory lock",
+                        exc_info=True,
                     )
     except SQLAlchemyError:
         logger.warning(

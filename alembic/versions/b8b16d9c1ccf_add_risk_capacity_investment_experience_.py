@@ -4,12 +4,12 @@ Revision ID: b8b16d9c1ccf
 Revises: 998b6998b6aa
 Create Date: 2026-03-21 11:38:00.854219
 """
+
 from typing import Sequence, Union
 
 
-
-revision: str = 'b8b16d9c1ccf'
-down_revision: Union[str, None] = '998b6998b6aa'
+revision: str = "b8b16d9c1ccf"
+down_revision: Union[str, None] = "998b6998b6aa"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

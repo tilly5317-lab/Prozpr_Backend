@@ -5,7 +5,6 @@ rows; detail endpoint eager-loads totals, subgroup summaries, trades, and
 warnings so the UI gets one round-trip per run.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -19,7 +18,10 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
-from app.domains.rebalancing.models.rebalancing_run import RebalancingRun, RebalancingRunStatus
+from app.domains.rebalancing.models.rebalancing_run import (
+    RebalancingRun,
+    RebalancingRunStatus,
+)
 from app.domains.rebalancing.schemas import (
     RebalancingReadinessField,
     RebalancingReadinessResponse,
@@ -69,7 +71,9 @@ async def get_readiness(
 
     has_holdings = (
         await db.execute(
-            select(MfTransaction.id).where(MfTransaction.user_id == current_user.id).limit(1)
+            select(MfTransaction.id)
+            .where(MfTransaction.user_id == current_user.id)
+            .limit(1)
         )
     ).first() is not None
 
@@ -130,12 +134,9 @@ async def update_status(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = (
-        select(RebalancingRun)
-        .where(
-            RebalancingRun.id == run_id,
-            RebalancingRun.user_id == current_user.id,
-        )
+    stmt = select(RebalancingRun).where(
+        RebalancingRun.id == run_id,
+        RebalancingRun.user_id == current_user.id,
     )
     run = (await db.execute(stmt)).scalar_one_or_none()
     if run is None:

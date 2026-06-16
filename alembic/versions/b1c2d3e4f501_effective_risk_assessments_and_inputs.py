@@ -17,12 +17,26 @@ depends_on: Union[str, tuple[str, ...], None] = None
 def upgrade() -> None:
     op.create_table(
         "effective_risk_assessments",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column(
+            "id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False
+        ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("step_name", sa.String(64), nullable=False, server_default="risk_profile"),
+        sa.Column(
+            "step_name", sa.String(64), nullable=False, server_default="risk_profile"
+        ),
         sa.Column("payload", postgresql.JSONB, nullable=False),
-        sa.Column("calculations", postgresql.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("output", postgresql.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "calculations",
+            postgresql.JSONB,
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+        sa.Column(
+            "output",
+            postgresql.JSONB,
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
         sa.Column("effective_risk_score", sa.Numeric(7, 4), nullable=True),
         sa.Column("risk_capacity_score", sa.Numeric(7, 4), nullable=True),
         sa.Column("risk_willingness", sa.Numeric(7, 4), nullable=True),
@@ -66,5 +80,7 @@ def downgrade() -> None:
     op.drop_column("investment_profiles", "annual_mortgage_payment")
     op.drop_column("risk_profiles", "occupation_type")
     op.drop_column("risk_profiles", "risk_willingness")
-    op.drop_index("ix_effective_risk_assessments_user_id", table_name="effective_risk_assessments")
+    op.drop_index(
+        "ix_effective_risk_assessments_user_id", table_name="effective_risk_assessments"
+    )
     op.drop_table("effective_risk_assessments")

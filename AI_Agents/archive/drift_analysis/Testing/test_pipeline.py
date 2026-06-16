@@ -40,8 +40,19 @@ def minimal_input() -> AllocationInput:
         primary_income_from_portfolio=False,
         effective_tax_rate=15.0,
         goals=[
-            Goal(goal_name="Car", time_to_goal_months=18, amount_needed=300_000, goal_priority="negotiable"),
-            Goal(goal_name="Retirement", time_to_goal_months=240, amount_needed=400_000, goal_priority="non_negotiable", investment_goal="retirement"),
+            Goal(
+                goal_name="Car",
+                time_to_goal_months=18,
+                amount_needed=300_000,
+                goal_priority="negotiable",
+            ),
+            Goal(
+                goal_name="Retirement",
+                time_to_goal_months=240,
+                amount_needed=400_000,
+                goal_priority="non_negotiable",
+                investment_goal="retirement",
+            ),
         ],
         net_financial_assets=500_000,
     )
@@ -61,7 +72,13 @@ def high_risk_input() -> AllocationInput:
         tax_regime="new",
         effective_tax_rate=30.0,
         goals=[
-            Goal(goal_name="Wealth", time_to_goal_months=300, amount_needed=4_000_000, goal_priority="non_negotiable", investment_goal="wealth_creation"),
+            Goal(
+                goal_name="Wealth",
+                time_to_goal_months=300,
+                amount_needed=4_000_000,
+                goal_priority="non_negotiable",
+                investment_goal="wealth_creation",
+            ),
         ],
         net_financial_assets=2_000_000,
     )
@@ -81,9 +98,26 @@ def low_tax_input() -> AllocationInput:
         tax_regime="new",
         effective_tax_rate=10.0,
         goals=[
-            Goal(goal_name="Laptop", time_to_goal_months=12, amount_needed=100_000, goal_priority="negotiable"),
-            Goal(goal_name="House downpayment", time_to_goal_months=36, amount_needed=600_000, goal_priority="non_negotiable", investment_goal="home_purchase"),
-            Goal(goal_name="Retirement", time_to_goal_months=240, amount_needed=500_000, goal_priority="non_negotiable", investment_goal="retirement"),
+            Goal(
+                goal_name="Laptop",
+                time_to_goal_months=12,
+                amount_needed=100_000,
+                goal_priority="negotiable",
+            ),
+            Goal(
+                goal_name="House downpayment",
+                time_to_goal_months=36,
+                amount_needed=600_000,
+                goal_priority="non_negotiable",
+                investment_goal="home_purchase",
+            ),
+            Goal(
+                goal_name="Retirement",
+                time_to_goal_months=240,
+                amount_needed=500_000,
+                goal_priority="non_negotiable",
+                investment_goal="retirement",
+            ),
         ],
         net_financial_assets=300_000,
     )
@@ -104,7 +138,13 @@ def old_regime_input() -> AllocationInput:
         section_80c_utilized=50_000.0,
         effective_tax_rate=25.0,
         goals=[
-            Goal(goal_name="Retirement", time_to_goal_months=180, amount_needed=2_000_000, goal_priority="non_negotiable", investment_goal="retirement"),
+            Goal(
+                goal_name="Retirement",
+                time_to_goal_months=180,
+                amount_needed=2_000_000,
+                goal_priority="non_negotiable",
+                investment_goal="retirement",
+            ),
         ],
         net_financial_assets=1_000_000,
     )
@@ -177,19 +217,23 @@ def _recommended_holdings_from(ideal: GoalAllocationOutput) -> list[ActualHoldin
         fm = FUND_MAPPING.get(row.subgroup)
         if fm is None:
             continue
-        holdings.append(ActualHolding(
-            scheme_code=fm.asset_subgroup,
-            scheme_name=fm.recommended_fund,
-            isin=fm.isin,
-            asset_class=fm.asset_class,
-            asset_subgroup=row.subgroup,
-            current_value=row.total,
-            invested_amount=row.total,
-        ))
+        holdings.append(
+            ActualHolding(
+                scheme_code=fm.asset_subgroup,
+                scheme_name=fm.recommended_fund,
+                isin=fm.isin,
+                asset_class=fm.asset_class,
+                asset_subgroup=row.subgroup,
+                current_value=row.total,
+                invested_amount=row.total,
+            )
+        )
     return holdings
 
 
-def _scale_holdings(holdings: list[ActualHolding], factor: float) -> list[ActualHolding]:
+def _scale_holdings(
+    holdings: list[ActualHolding], factor: float
+) -> list[ActualHolding]:
     """Return a copy of holdings with current_value scaled by *factor*."""
     return [
         ActualHolding(
@@ -213,18 +257,22 @@ class TestPerfectMatch:
 
     def _assert_zero_drift(self, ideal: GoalAllocationOutput) -> None:
         holdings = _recommended_holdings_from(ideal)
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=holdings)
+        )
 
         assert out.total_ideal_value == pytest.approx(ideal.grand_total, abs=1)
         actual_sum = sum(h.current_value for h in holdings)
         assert out.total_actual_value == pytest.approx(actual_sum, abs=1)
 
         for ac in out.asset_classes:
-            assert ac.drift_amount == pytest.approx(0.0, abs=1), \
+            assert ac.drift_amount == pytest.approx(0.0, abs=1), (
                 f"Expected zero drift for {ac.asset_class}, got {ac.drift_amount}"
+            )
             for sg in ac.subgroups:
-                assert sg.drift_amount == pytest.approx(0.0, abs=1), \
+                assert sg.drift_amount == pytest.approx(0.0, abs=1), (
                     f"Expected zero drift for subgroup {sg.subgroup}, got {sg.drift_amount}"
+                )
 
     def test_minimal_profile(self, minimal_allocation):
         self._assert_zero_drift(minimal_allocation)
@@ -252,15 +300,18 @@ class TestOverweight:
         base_holdings = _recommended_holdings_from(ideal)
         overweight_holdings = _scale_holdings(base_holdings, 1.2)
 
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=overweight_holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=overweight_holdings)
+        )
 
         total_expected_drift = pytest.approx(ideal.grand_total * 0.2, rel=0.02)
         actual_drift = out.total_actual_value - out.total_ideal_value
         assert actual_drift == total_expected_drift
 
         for ac in out.asset_classes:
-            assert ac.drift_amount > 0, \
+            assert ac.drift_amount > 0, (
                 f"{ac.asset_class} should be overweight but drift_amount={ac.drift_amount}"
+            )
 
     def test_minimal_overweight(self, minimal_allocation):
         self._assert_overweight(minimal_allocation)
@@ -288,11 +339,14 @@ class TestUnderweight:
         base_holdings = _recommended_holdings_from(ideal)
         underweight_holdings = _scale_holdings(base_holdings, 0.7)
 
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=underweight_holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=underweight_holdings)
+        )
 
         for ac in out.asset_classes:
-            assert ac.drift_amount < 0, \
+            assert ac.drift_amount < 0, (
                 f"{ac.asset_class} should be underweight but drift_amount={ac.drift_amount}"
+            )
 
     def test_minimal_underweight(self, minimal_allocation):
         self._assert_underweight(minimal_allocation)
@@ -369,7 +423,9 @@ class TestNonRecommendedFunds:
             current_value=target_row.total,
             invested_amount=target_row.total,
         )
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=[different_holding]))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=[different_holding])
+        )
 
         # Find the subgroup in drift output
         sg_drift = None
@@ -380,7 +436,9 @@ class TestNonRecommendedFunds:
                     break
 
         assert sg_drift is not None, f"subgroup {subgroup} not found in output"
-        assert sg_drift.drift_amount == pytest.approx(0.0, abs=1)  # subgroup total is the same
+        assert sg_drift.drift_amount == pytest.approx(
+            0.0, abs=1
+        )  # subgroup total is the same
 
         rec = next(f for f in sg_drift.funds if f.is_recommended)
         non_rec = next(f for f in sg_drift.funds if not f.is_recommended)
@@ -427,10 +485,15 @@ class TestMultiFolioAggregation:
                 invested_amount=half,
             ),
         ]
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=holdings)
+        )
 
         sg_drift = next(
-            sg for ac in out.asset_classes for sg in ac.subgroups if sg.subgroup == subgroup
+            sg
+            for ac in out.asset_classes
+            for sg in ac.subgroups
+            if sg.subgroup == subgroup
         )
         # Even though it came from two holdings, there should be just one fund entry
         assert len(sg_drift.funds) == 1
@@ -456,15 +519,16 @@ class TestUnmappedSubgroup:
                 invested_amount=50_000,
             ),
         ]
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=holdings)
+        )
 
-        others_ac = next((ac for ac in out.asset_classes if ac.asset_class == "others"), None)
+        others_ac = next(
+            (ac for ac in out.asset_classes if ac.asset_class == "others"), None
+        )
         assert others_ac is not None
         # The exotic fund's value must appear somewhere inside "others"
-        assert any(
-            sg.actual_amount >= 50_000
-            for sg in others_ac.subgroups
-        )
+        assert any(sg.actual_amount >= 50_000 for sg in others_ac.subgroups)
 
 
 # ── Test: drift_pct uses total_ideal_value as denominator ─────────────────────
@@ -491,8 +555,9 @@ class TestDriftPctCalculation:
         for ac in out.asset_classes:
             if out.total_ideal_value > 0:
                 expected_pct = round(ac.drift_amount / out.total_ideal_value * 100, 2)
-                assert ac.drift_pct == pytest.approx(expected_pct, abs=0.01), \
+                assert ac.drift_pct == pytest.approx(expected_pct, abs=0.01), (
                     f"{ac.asset_class}: expected drift_pct={expected_pct}, got {ac.drift_pct}"
+                )
 
 
 # ── Test: display_name resolution ─────────────────────────────────────────────
@@ -518,8 +583,10 @@ class TestDisplayNames:
         """arbitrage_plus_income subgroup should have display_name 'Arbitrage Income'."""
         ideal = low_tax_allocation
         # Check only if this subgroup is present in the allocation
-        has_arb = any(r.subgroup == "arbitrage_plus_income" and r.total > 0
-                      for r in ideal.aggregated_subgroups)
+        has_arb = any(
+            r.subgroup == "arbitrage_plus_income" and r.total > 0
+            for r in ideal.aggregated_subgroups
+        )
         if not has_arb:
             pytest.skip("arbitrage_plus_income not allocated in low_tax profile")
 
@@ -553,17 +620,21 @@ class TestAggregationInvariants:
             )
             holdings = holdings + [extra]
 
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=holdings)
+        )
 
         for ac in out.asset_classes:
             sg_drift_sum = sum(sg.drift_amount for sg in ac.subgroups)
-            assert sg_drift_sum == pytest.approx(ac.drift_amount, abs=1), \
+            assert sg_drift_sum == pytest.approx(ac.drift_amount, abs=1), (
                 f"{ac.asset_class}: sum(subgroup drifts)={sg_drift_sum} != ac.drift={ac.drift_amount}"
+            )
 
             for sg in ac.subgroups:
                 fund_drift_sum = sum(f.drift_amount for f in sg.funds)
-                assert fund_drift_sum == pytest.approx(sg.drift_amount, abs=1), \
+                assert fund_drift_sum == pytest.approx(sg.drift_amount, abs=1), (
                     f"{sg.subgroup}: sum(fund drifts)={fund_drift_sum} != sg.drift={sg.drift_amount}"
+                )
 
     def test_minimal_aggregation(self, minimal_allocation):
         self._assert_aggregation(minimal_allocation)
@@ -589,7 +660,9 @@ class TestOutputStructure:
 
     def _assert_structure(self, ideal: GoalAllocationOutput) -> None:
         holdings = _recommended_holdings_from(ideal)
-        out = compute_drift(DriftInput(ideal_allocation=ideal, actual_holdings=holdings))
+        out = compute_drift(
+            DriftInput(ideal_allocation=ideal, actual_holdings=holdings)
+        )
 
         assert out.total_ideal_value >= 0
         assert out.total_actual_value >= 0

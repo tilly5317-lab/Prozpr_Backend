@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
 from common import format_inr_indian
+from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
 
 from ..models import (
     AggregatedSubgroupRow,
@@ -87,18 +88,25 @@ def default_goal_rationale(bucket: str, goal: Goal) -> str:
     return ""
 
 
-_SYSTEM_PROMPT = """You write short, plain-language explanations for a personal finance plan.
-Rules:
-- Use 'you' and 'your'. Talk directly to the person.
-- 1 to 3 short sentences per item.
-- NO jargon. Forbidden words: alpha, beta, duration, NAV, asset class, volatility, liquidity, corpus, portfolio rebalancing.
-- Explain the WHY, not the numbers.
-- Money: every rupee field in the input payload has a sibling `_indian` string already formatted in Indian notation (e.g., `amount_needed: 1000000` paired with `amount_needed_indian: "₹10 lakh"`). When you mention a money amount, COPY the matching `_indian` string verbatim. NEVER compute the lakh/crore conversion yourself. NEVER say 'million' or 'billion'.
-- Emergency bucket: why the safety cushion and how many months it covers.
-- For short_term / medium_term / long_term, write ONE rationale PER goal in the bucket (keyed by that goal's name). Each must reference the specific goal by name, its time horizon, and why the chosen mix fits that horizon and goal type (education, retirement, home, etc.).
-- Future investment messages (if any): EXACTLY ONE sentence, maximum 25 words. Name at least one specific goal from that bucket by its goal_name. The message MUST: (a) make clear this picture is based on the person's current investments / corpus today, and (b) encourage them to keep up their regular monthly investments to reach the goal. Do NOT list alternative levers (no 'extend the horizon', no 'trim a negotiable goal', no 'or' choices) — the only ask is to keep investing regularly. Do NOT use the words 'shortfall', 'deficit', 'lack', or 'not enough'. Do NOT invent monthly investment amounts or SIP figures (we don't have those numbers in the data). The one-sentence constraint overrides the general 1-3 sentence rule for these messages.
-- For ``goal_rationales``, the inner dict for short_term / medium_term / long_term must be keyed by each goal's ``goal_name`` (one entry per goal in that bucket). For ``future_investment_messages``, keys are bucket names (short_term / medium_term / long_term) — emergency does not appear in future-investment messages.
-"""
+_RATIONALE_BODY = (
+    "You write short, plain-language explanations attached to a personal finance plan.\n"
+    "- Use 'you'/'your'; 1 to 3 short sentences per item. Explain the WHY, not the numbers.\n"
+    "- Avoid these words entirely: alpha, beta, duration, NAV, asset class, volatility, liquidity, "
+    "corpus, portfolio rebalancing.\n"
+    "- Emergency bucket: why the safety cushion and how many months it covers.\n"
+    "- For short_term / medium_term / long_term, write ONE rationale PER goal (keyed by goal_name), "
+    "referencing the goal by name, its time horizon, and why the chosen mix fits that horizon and "
+    "goal type (education, retirement, home, etc.).\n"
+    "- Future-investment messages: EXACTLY ONE sentence, max 25 words, naming a specific goal; make "
+    "clear the picture is based on current investments/corpus today and encourage keeping up regular "
+    "monthly investing. Do NOT use 'shortfall'/'deficit'/'lack'/'not enough'; do NOT invent SIP "
+    "amounts; do NOT list alternative levers. This overrides the 1-3 sentence rule.\n"
+    "- For goal_rationales the inner dict (short/medium/long_term) is keyed by each goal's goal_name; "
+    "future_investment_messages keys are bucket names (emergency excluded)."
+)
+_SYSTEM_PROMPT = build_system_prompt(
+    _RATIONALE_BODY, format_profile="plain", question_aware=False
+)
 
 
 class RationaleResponse(BaseModel):
@@ -147,7 +155,9 @@ def apply_rationales(
         per_goal_from_llm = rationales.goal_rationales.get(b.bucket, {}) or {}
         attached: Dict[str, str] = {}
         for g in b.goals:
-            msg = per_goal_from_llm.get(g.goal_name) or default_goal_rationale(b.bucket, g)
+            msg = per_goal_from_llm.get(g.goal_name) or default_goal_rationale(
+                b.bucket, g
+            )
             if msg:
                 attached[g.goal_name] = msg
         b.goal_rationales = attached
@@ -173,6 +183,7 @@ def _build_user_payload(
     rupee numbers itself — Haiku frequently drops an order of magnitude when
     asked to do the conversion at inference time.
     """
+
     def _goal_entry(g: Goal) -> Dict[str, Any]:
         return {
             "goal_name": g.goal_name,
@@ -187,7 +198,9 @@ def _build_user_payload(
         if fi is None:
             return None
         d = fi.model_dump()
-        d["future_investment_amount_indian"] = format_inr_indian(fi.future_investment_amount)
+        d["future_investment_amount_indian"] = format_inr_indian(
+            fi.future_investment_amount
+        )
         return d
 
     client_dict = client_summary.model_dump()

@@ -11,7 +11,12 @@ from typing import Optional
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.mutual_funds.models import MfFundMetadata, MfNavHistory, MfTransaction, UserMfLatestSnapshot
+from app.domains.mutual_funds.models import (
+    MfFundMetadata,
+    MfNavHistory,
+    MfTransaction,
+    UserMfLatestSnapshot,
+)
 from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.investor_detail_service import _cagr_pct
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
@@ -87,29 +92,41 @@ async def _latest_nav_row(db: AsyncSession, scheme_code: str) -> Optional[MfNavH
     ).scalar_one_or_none()
 
 
-async def _nav_on_or_before(db: AsyncSession, scheme_code: str, target: date) -> Optional[MfNavHistory]:
+async def _nav_on_or_before(
+    db: AsyncSession, scheme_code: str, target: date
+) -> Optional[MfNavHistory]:
     return (
         await db.execute(
             select(MfNavHistory)
-            .where(MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date <= target)
+            .where(
+                MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date <= target
+            )
             .order_by(MfNavHistory.nav_date.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
 
 
-async def _nav_on_date(db: AsyncSession, scheme_code: str, target: date) -> Optional[MfNavHistory]:
+async def _nav_on_date(
+    db: AsyncSession, scheme_code: str, target: date
+) -> Optional[MfNavHistory]:
     return (
         await db.execute(
             select(MfNavHistory)
-            .where(MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date == target)
+            .where(
+                MfNavHistory.scheme_code == scheme_code, MfNavHistory.nav_date == target
+            )
             .limit(1)
         )
     ).scalar_one_or_none()
 
 
 async def _nav_by_walking_back(
-    db: AsyncSession, scheme_code: str, anchor: date, *, max_lookback_days: int = _MAX_NAV_LOOKBACK_DAYS
+    db: AsyncSession,
+    scheme_code: str,
+    anchor: date,
+    *,
+    max_lookback_days: int = _MAX_NAV_LOOKBACK_DAYS,
 ) -> Optional[MfNavHistory]:
     """Find nearest active NAV at/behind anchor by walking day-wise backwards."""
     for days_back in range(max_lookback_days + 1):
@@ -120,7 +137,10 @@ async def _nav_by_walking_back(
 
 
 async def rebuild_user_latest_snapshot(
-    db: AsyncSession, user_id: uuid.UUID, *, _commit: bool = True,
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    _commit: bool = True,
 ) -> int:
     txns = list(
         (
@@ -129,14 +149,18 @@ async def rebuild_user_latest_snapshot(
                 .where(MfTransaction.user_id == user_id)
                 .order_by(MfTransaction.transaction_date.asc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     by_scheme: dict[str, list[MfTransaction]] = {}
     for txn in txns:
         by_scheme.setdefault(txn.scheme_code, []).append(txn)
 
-    await db.execute(delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id))
+    await db.execute(
+        delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id)
+    )
 
     rows: list[UserMfLatestSnapshot] = []
     total_current_value = 0.0
@@ -165,12 +189,18 @@ async def rebuild_user_latest_snapshot(
             continue
 
         meta = (
-            await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == scheme_code))
+            await db.execute(
+                select(MfFundMetadata).where(MfFundMetadata.scheme_code == scheme_code)
+            )
         ).scalar_one_or_none()
         # Subgroup is classified live from the SEBI sub_category (centralised in
         # scheme_classification). The old MfFundRating.asset_subgroup column was
         # never populated, so reading it left every fund's sub_group empty.
-        _, live_subgroup = classify_holding(meta.sub_category, meta.scheme_name) if meta else (None, None)
+        _, live_subgroup = (
+            classify_holding(meta.sub_category, meta.scheme_name)
+            if meta
+            else (None, None)
+        )
         # Start from today and walk back to the latest active NAV date.
         nav = await _nav_by_walking_back(db, scheme_code, date.today())
         if nav is None:
@@ -189,17 +219,33 @@ async def rebuild_user_latest_snapshot(
 
         one_y = three_y = five_y = None
         if nav:
-            nav_1y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365))
-            nav_3y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365 * 3))
-            nav_5y = await _nav_by_walking_back(db, scheme_code, nav.nav_date - timedelta(days=365 * 5))
+            nav_1y = await _nav_by_walking_back(
+                db, scheme_code, nav.nav_date - timedelta(days=365)
+            )
+            nav_3y = await _nav_by_walking_back(
+                db, scheme_code, nav.nav_date - timedelta(days=365 * 3)
+            )
+            nav_5y = await _nav_by_walking_back(
+                db, scheme_code, nav.nav_date - timedelta(days=365 * 5)
+            )
             if nav_1y is None:
-                nav_1y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365))
+                nav_1y = await _nav_on_or_before(
+                    db, scheme_code, nav.nav_date - timedelta(days=365)
+                )
             if nav_3y is None:
-                nav_3y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 3))
+                nav_3y = await _nav_on_or_before(
+                    db, scheme_code, nav.nav_date - timedelta(days=365 * 3)
+                )
             if nav_5y is None:
-                nav_5y = await _nav_on_or_before(db, scheme_code, nav.nav_date - timedelta(days=365 * 5))
+                nav_5y = await _nav_on_or_before(
+                    db, scheme_code, nav.nav_date - timedelta(days=365 * 5)
+                )
             if nav_1y:
-                one_y = ((_f(nav.nav) / _f(nav_1y.nav)) - 1.0) * 100.0 if _f(nav_1y.nav) > 0 else None
+                one_y = (
+                    ((_f(nav.nav) / _f(nav_1y.nav)) - 1.0) * 100.0
+                    if _f(nav_1y.nav) > 0
+                    else None
+                )
             if nav_3y:
                 three_y = _cagr_pct(_f(nav_3y.nav), _f(nav.nav), 3.0)
             if nav_5y:
@@ -209,10 +255,13 @@ async def rebuild_user_latest_snapshot(
             user_id=user_id,
             scheme_code=scheme_code,
             isin=(meta.isin if meta else None) or (items[-1].isin if items else None),
-            fund_name=(meta.scheme_name if meta else None) or (items[-1].fund_name if items else None),
+            fund_name=(meta.scheme_name if meta else None)
+            or (items[-1].fund_name if items else None),
             amc_name=meta.amc_name if meta else None,
-            category=(meta.category if meta else None) or (items[-1].category if items else None),
-            sub_category=(meta.sub_category if meta else None) or (items[-1].sub_category if items else None),
+            category=(meta.category if meta else None)
+            or (items[-1].category if items else None),
+            sub_category=(meta.sub_category if meta else None)
+            or (items[-1].sub_category if items else None),
             sub_group=live_subgroup or (items[-1].sub_group if items else None),
             invested_amount=round(invested, 2),
             current_units=round(units, 4),
@@ -262,11 +311,7 @@ async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]
         tuple[int, int]: (users_processed, total_snapshot_rows_written)
     """
     user_ids = list(
-        (
-            await db.execute(
-                select(MfTransaction.user_id).distinct()
-            )
-        ).scalars().all()
+        (await db.execute(select(MfTransaction.user_id).distinct())).scalars().all()
     )
     users_processed = 0
     total_rows = 0

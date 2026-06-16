@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import uuid

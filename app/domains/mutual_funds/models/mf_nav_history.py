@@ -3,14 +3,21 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,7 +28,9 @@ class MfNavHistory(Base):
     """Daily NAV feed; FK to metadata so scheme_code is validated."""
 
     __tablename__ = "mf_nav_history"
-    __table_args__ = (UniqueConstraint("scheme_code", "nav_date", name="uq_mf_nav_scheme_date"),)
+    __table_args__ = (
+        UniqueConstraint("scheme_code", "nav_date", name="uq_mf_nav_scheme_date"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

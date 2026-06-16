@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -32,9 +31,15 @@ class Portfolio(Base):
     )
 
     name: Mapped[str] = mapped_column(String(255), default="Primary", nullable=False)
-    total_value: Mapped[float] = mapped_column(Numeric(15, 2), default=0, nullable=False)
-    total_invested: Mapped[float] = mapped_column(Numeric(15, 2), default=0, nullable=False)
-    total_gain_percentage: Mapped[Optional[float]] = mapped_column(Numeric(7, 2), nullable=True)
+    total_value: Mapped[float] = mapped_column(
+        Numeric(15, 2), default=0, nullable=False
+    )
+    total_invested: Mapped[float] = mapped_column(
+        Numeric(15, 2), default=0, nullable=False
+    )
+    total_gain_percentage: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 2), nullable=True
+    )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -75,7 +80,9 @@ class PortfolioAllocation(Base):
     asset_class: Mapped[str] = mapped_column(String(100), nullable=False)
     allocation_percentage: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    performance_percentage: Mapped[Optional[float]] = mapped_column(Numeric(7, 2), nullable=True)
+    performance_percentage: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -102,9 +109,13 @@ class PortfolioHolding(Base):
     ticker_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     quantity: Mapped[Optional[float]] = mapped_column(Numeric(15, 4), nullable=True)
     average_cost: Mapped[Optional[float]] = mapped_column(Numeric(15, 4), nullable=True)
-    current_price: Mapped[Optional[float]] = mapped_column(Numeric(15, 4), nullable=True)
+    current_price: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 4), nullable=True
+    )
     current_value: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    allocation_percentage: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    allocation_percentage: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     exchange: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     expense_ratio: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
     return_1y: Mapped[Optional[float]] = mapped_column(Numeric(7, 2), nullable=True)

@@ -35,8 +35,12 @@ def upgrade() -> None:
             sa.ForeignKey("portfolios.id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column("input_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("output_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "input_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "output_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("total_investable_amount", sa.Numeric(18, 2), nullable=False),
         sa.Column("equity_amount", sa.Numeric(18, 2), nullable=False),
         sa.Column("debt_amount", sa.Numeric(18, 2), nullable=False),
@@ -44,7 +48,9 @@ def upgrade() -> None:
         sa.Column("equity_pct", sa.Numeric(7, 2), nullable=False),
         sa.Column("debt_pct", sa.Numeric(7, 2), nullable=False),
         sa.Column("others_pct", sa.Numeric(7, 2), nullable=False),
-        sa.Column("suggested_funds", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "suggested_funds", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("suggested_funds_total_amount", sa.Numeric(18, 2), nullable=False),
         sa.Column(
             "chat_session_id",
@@ -52,7 +58,12 @@ def upgrade() -> None:
             sa.ForeignKey("chat_sessions.id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index(
         "ix_goal_allocation_recommendations_user_id",
@@ -75,7 +86,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DO $$ BEGIN CREATE TYPE goal_type_enum AS ENUM ('RETIREMENT','CHILD_EDUCATION','HOME_PURCHASE','VEHICLE','WEDDING','TRAVEL','EMERGENCY_FUND','WEALTH_CREATION','OTHER'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute(
+        "DO $$ BEGIN CREATE TYPE goal_type_enum AS ENUM ('RETIREMENT','CHILD_EDUCATION','HOME_PURCHASE','VEHICLE','WEDDING','TRAVEL','EMERGENCY_FUND','WEALTH_CREATION','OTHER'); EXCEPTION WHEN duplicate_object THEN null; END $$;"
+    )
     op.add_column(
         "goals",
         sa.Column(

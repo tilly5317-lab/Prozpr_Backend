@@ -1,4 +1,4 @@
-﻿"""Fintech schema: goals v2, MF ledger, other_investments, stocks, net worth views.
+"""Fintech schema: goals v2, MF ledger, other_investments, stocks, net worth views.
 
 Revision ID: e4f8a2b1c901
 Revises: d2e91b8f7a11
@@ -65,7 +65,9 @@ def upgrade() -> None:
         "user_investment_list_kind_enum", ["ILLIQUID_EXIT", "STCG", "RESTRICTED"]
     )
     _create_enum("portfolio_snapshot_kind_enum", ["IDEAL", "SUGGESTED", "ACTUAL"])
-    _create_enum("other_investment_status_enum", ["ACTIVE", "MATURED", "WITHDRAWN", "CLOSED"])
+    _create_enum(
+        "other_investment_status_enum", ["ACTIVE", "MATURED", "WITHDRAWN", "CLOSED"]
+    )
     _create_enum("stock_transaction_type_enum", ["BUY", "SELL"])
 
     # â”€â”€ MF core â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -77,8 +79,16 @@ def upgrade() -> None:
         sa.Column("amc_name", sa.String(100), nullable=False),
         sa.Column("category", sa.String(50), nullable=False),
         sa.Column("sub_category", sa.String(100), nullable=True),
-        sa.Column("plan_type", postgresql.ENUM(name="mf_plan_type_enum", create_type=False), nullable=False),
-        sa.Column("option_type", postgresql.ENUM(name="mf_option_type_enum", create_type=False), nullable=False),
+        sa.Column(
+            "plan_type",
+            postgresql.ENUM(name="mf_plan_type_enum", create_type=False),
+            nullable=False,
+        ),
+        sa.Column(
+            "option_type",
+            postgresql.ENUM(name="mf_option_type_enum", create_type=False),
+            nullable=False,
+        ),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("risk_rating_sebi", sa.String(50), nullable=True),
         sa.Column("asset_class_sebi", sa.String(100), nullable=True),
@@ -109,90 +119,206 @@ def upgrade() -> None:
         sa.Column("returns_3y_pct", sa.Numeric(8, 4), nullable=True),
         sa.Column("returns_5y_pct", sa.Numeric(8, 4), nullable=True),
         sa.Column("returns_10y_pct", sa.Numeric(8, 4), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("scheme_code", name="uq_mf_fund_metadata_scheme_code"),
     )
-    op.execute("ALTER TABLE mf_fund_metadata ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE mf_fund_metadata ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
     _add_updated_at_trigger("mf_fund_metadata")
 
     op.create_table(
         "mf_nav_history",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("scheme_code", sa.String(20), sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "scheme_code",
+            sa.String(20),
+            sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("isin", sa.String(20), nullable=True),
         sa.Column("scheme_name", sa.String(200), nullable=False),
         sa.Column("mf_type", sa.String(200), nullable=False),
         sa.Column("nav", sa.Numeric(12, 4), nullable=False),
         sa.Column("nav_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("scheme_code", "nav_date", name="uq_mf_nav_scheme_date"),
     )
     op.create_index("ix_mf_nav_history_scheme_code", "mf_nav_history", ["scheme_code"])
     op.create_index("ix_mf_nav_history_nav_date", "mf_nav_history", ["nav_date"])
-    op.execute("ALTER TABLE mf_nav_history ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE mf_nav_history ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     op.create_table(
         "mf_sip_mandates",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("scheme_code", sa.String(20), sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "scheme_code",
+            sa.String(20),
+            sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("folio_number", sa.String(30), nullable=True),
         sa.Column("sip_amount", sa.Numeric(15, 2), nullable=False),
-        sa.Column("frequency", postgresql.ENUM(name="mf_sip_frequency_enum", create_type=False), nullable=False, server_default="MONTHLY"),
+        sa.Column(
+            "frequency",
+            postgresql.ENUM(name="mf_sip_frequency_enum", create_type=False),
+            nullable=False,
+            server_default="MONTHLY",
+        ),
         sa.Column("debit_day", sa.Integer(), nullable=False),
         sa.Column("start_date", sa.Date(), nullable=False),
         sa.Column("end_date", sa.Date(), nullable=True),
         sa.Column("stepup_amount", sa.Numeric(15, 2), nullable=True),
         sa.Column("stepup_percentage", sa.Numeric(5, 2), nullable=True),
-        sa.Column("stepup_frequency", postgresql.ENUM(name="mf_stepup_frequency_enum", create_type=False), nullable=True),
-        sa.Column("status", postgresql.ENUM(name="mf_sip_status_enum", create_type=False), nullable=False, server_default="ACTIVE"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("debit_day >= 1 AND debit_day <= 28", name="ck_mf_sip_debit_day"),
+        sa.Column(
+            "stepup_frequency",
+            postgresql.ENUM(name="mf_stepup_frequency_enum", create_type=False),
+            nullable=True,
+        ),
+        sa.Column(
+            "status",
+            postgresql.ENUM(name="mf_sip_status_enum", create_type=False),
+            nullable=False,
+            server_default="ACTIVE",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "debit_day >= 1 AND debit_day <= 28", name="ck_mf_sip_debit_day"
+        ),
         sa.CheckConstraint("sip_amount > 0", name="ck_mf_sip_amount_positive"),
     )
     op.create_index("ix_mf_sip_mandates_user_id", "mf_sip_mandates", ["user_id"])
-    op.execute("ALTER TABLE mf_sip_mandates ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE mf_sip_mandates ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
     _add_updated_at_trigger("mf_sip_mandates")
 
     op.create_table(
         "mf_transactions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("scheme_code", sa.String(20), sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="RESTRICT"), nullable=False),
-        sa.Column("sip_mandate_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("mf_sip_mandates.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "scheme_code",
+            sa.String(20),
+            sa.ForeignKey("mf_fund_metadata.scheme_code", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "sip_mandate_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("mf_sip_mandates.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("folio_number", sa.String(30), nullable=False),
-        sa.Column("transaction_type", postgresql.ENUM(name="mf_transaction_type_enum", create_type=False), nullable=False),
+        sa.Column(
+            "transaction_type",
+            postgresql.ENUM(name="mf_transaction_type_enum", create_type=False),
+            nullable=False,
+        ),
         sa.Column("transaction_date", sa.Date(), nullable=False),
         sa.Column("units", sa.Numeric(18, 4), nullable=False),
         sa.Column("nav", sa.Numeric(12, 4), nullable=False),
         sa.Column("amount", sa.Numeric(15, 2), nullable=False),
-        sa.Column("stamp_duty", sa.Numeric(10, 2), nullable=True, server_default="0.00"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "stamp_duty", sa.Numeric(10, 2), nullable=True, server_default="0.00"
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_mf_transactions_user_id", "mf_transactions", ["user_id"])
-    op.create_index("ix_mf_transactions_scheme_code", "mf_transactions", ["scheme_code"])
-    op.create_index("ix_mf_transactions_transaction_date", "mf_transactions", ["transaction_date"])
-    op.execute("ALTER TABLE mf_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_mf_transactions_scheme_code", "mf_transactions", ["scheme_code"]
+    )
+    op.create_index(
+        "ix_mf_transactions_transaction_date", "mf_transactions", ["transaction_date"]
+    )
+    op.execute(
+        "ALTER TABLE mf_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     # â”€â”€ Other investments + migrate other_assets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     op.create_table(
         "other_investments",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("investment_type", sa.String(50), nullable=False),
         sa.Column("investment_name", sa.String(200), nullable=False),
         sa.Column("present_value", sa.Numeric(15, 2), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
         sa.Column("maturity_date", sa.Date(), nullable=True),
-        sa.Column("status", postgresql.ENUM(name="other_investment_status_enum", create_type=False), nullable=False, server_default="ACTIVE"),
+        sa.Column(
+            "status",
+            postgresql.ENUM(name="other_investment_status_enum", create_type=False),
+            nullable=False,
+            server_default="ACTIVE",
+        ),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_other_investments_user_id", "other_investments", ["user_id"])
-    op.execute("ALTER TABLE other_investments ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE other_investments ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
     _add_updated_at_trigger("other_investments")
 
     if insp.has_table("other_assets"):
@@ -226,71 +352,181 @@ def upgrade() -> None:
         sa.Column("symbol", sa.String(50), nullable=False),
         sa.Column("company_name", sa.String(200), nullable=False),
         sa.Column("exchange", sa.String(20), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("symbol", name="uq_company_metadata_symbol"),
     )
     op.create_index("ix_company_metadata_symbol", "company_metadata", ["symbol"])
-    op.execute("ALTER TABLE company_metadata ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.execute(
+        "ALTER TABLE company_metadata ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
     _add_updated_at_trigger("company_metadata")
 
     op.create_table(
         "stock_price_history",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("symbol", sa.String(50), sa.ForeignKey("company_metadata.symbol", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "symbol",
+            sa.String(50),
+            sa.ForeignKey("company_metadata.symbol", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("price_date", sa.Date(), nullable=False),
         sa.Column("close_price", sa.Numeric(15, 4), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("symbol", "price_date", name="uq_stock_price_symbol_date"),
     )
-    op.create_index("ix_stock_price_history_price_date", "stock_price_history", ["price_date"])
-    op.execute("ALTER TABLE stock_price_history ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_stock_price_history_price_date", "stock_price_history", ["price_date"]
+    )
+    op.execute(
+        "ALTER TABLE stock_price_history ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     op.create_table(
         "stock_transactions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("symbol", sa.String(50), sa.ForeignKey("company_metadata.symbol", ondelete="RESTRICT"), nullable=False),
-        sa.Column("transaction_type", postgresql.ENUM(name="stock_transaction_type_enum", create_type=False), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "symbol",
+            sa.String(50),
+            sa.ForeignKey("company_metadata.symbol", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "transaction_type",
+            postgresql.ENUM(name="stock_transaction_type_enum", create_type=False),
+            nullable=False,
+        ),
         sa.Column("transaction_date", sa.Date(), nullable=False),
         sa.Column("quantity", sa.Numeric(18, 4), nullable=False),
         sa.Column("price", sa.Numeric(15, 4), nullable=False),
         sa.Column("amount", sa.Numeric(15, 2), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_stock_transactions_user_id", "stock_transactions", ["user_id"])
-    op.create_index("ix_stock_transactions_transaction_date", "stock_transactions", ["transaction_date"])
-    op.execute("ALTER TABLE stock_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_stock_transactions_transaction_date",
+        "stock_transactions",
+        ["transaction_date"],
+    )
+    op.execute(
+        "ALTER TABLE stock_transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     # â”€â”€ Client portfolio snapshots & compliance lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     op.create_table(
         "user_investment_lists",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("list_kind", postgresql.ENUM(name="user_investment_list_kind_enum", create_type=False), nullable=False),
-        sa.Column("entries", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'[]'::jsonb")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.UniqueConstraint("user_id", "list_kind", name="uq_user_investment_list_kind"),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "list_kind",
+            postgresql.ENUM(name="user_investment_list_kind_enum", create_type=False),
+            nullable=False,
+        ),
+        sa.Column(
+            "entries",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'[]'::jsonb"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.UniqueConstraint(
+            "user_id", "list_kind", name="uq_user_investment_list_kind"
+        ),
     )
-    op.create_index("ix_user_investment_lists_user_id", "user_investment_lists", ["user_id"])
-    op.execute("ALTER TABLE user_investment_lists ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_user_investment_lists_user_id", "user_investment_lists", ["user_id"]
+    )
+    op.execute(
+        "ALTER TABLE user_investment_lists ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
     _add_updated_at_trigger("user_investment_lists")
 
     op.create_table(
         "portfolio_allocation_snapshots",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("snapshot_kind", postgresql.ENUM(name="portfolio_snapshot_kind_enum", create_type=False), nullable=False),
-        sa.Column("allocation", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("effective_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "snapshot_kind",
+            postgresql.ENUM(name="portfolio_snapshot_kind_enum", create_type=False),
+            nullable=False,
+        ),
+        sa.Column(
+            "allocation", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "effective_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("source", sa.String(100), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
-    op.create_index("ix_portfolio_alloc_snap_user", "portfolio_allocation_snapshots", ["user_id"])
-    op.create_index("ix_portfolio_alloc_snap_effective", "portfolio_allocation_snapshots", ["effective_at"])
-    op.execute("ALTER TABLE portfolio_allocation_snapshots ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    op.create_index(
+        "ix_portfolio_alloc_snap_user", "portfolio_allocation_snapshots", ["user_id"]
+    )
+    op.create_index(
+        "ix_portfolio_alloc_snap_effective",
+        "portfolio_allocation_snapshots",
+        ["effective_at"],
+    )
+    op.execute(
+        "ALTER TABLE portfolio_allocation_snapshots ALTER COLUMN id SET DEFAULT gen_random_uuid();"
+    )
 
     # â”€â”€ Goals: rename + reshape â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     insp = sa.inspect(conn)
@@ -304,19 +540,59 @@ def upgrade() -> None:
         op.create_table(
             "goals",
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+            sa.Column(
+                "user_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
             sa.Column("goal_name", sa.String(100), nullable=False),
-            sa.Column("goal_type", postgresql.ENUM(name="goal_type_enum", create_type=False), nullable=False, server_default="OTHER"),
+            sa.Column(
+                "goal_type",
+                postgresql.ENUM(name="goal_type_enum", create_type=False),
+                nullable=False,
+                server_default="OTHER",
+            ),
             sa.Column("present_value_amount", sa.Numeric(15, 2), nullable=False),
-            sa.Column("inflation_rate", sa.Numeric(5, 2), nullable=False, server_default="6.00"),
+            sa.Column(
+                "inflation_rate",
+                sa.Numeric(5, 2),
+                nullable=False,
+                server_default="6.00",
+            ),
             sa.Column("target_date", sa.Date(), nullable=False),
-            sa.Column("priority", postgresql.ENUM(name="goal_priority_enum_v2", create_type=False), nullable=False, server_default="PRIMARY"),
-            sa.Column("status", postgresql.ENUM(name="goal_status_enum_v2", create_type=False), nullable=False, server_default="ACTIVE"),
+            sa.Column(
+                "priority",
+                postgresql.ENUM(name="goal_priority_enum_v2", create_type=False),
+                nullable=False,
+                server_default="PRIMARY",
+            ),
+            sa.Column(
+                "status",
+                postgresql.ENUM(name="goal_status_enum_v2", create_type=False),
+                nullable=False,
+                server_default="ACTIVE",
+            ),
             sa.Column("notes", sa.Text(), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.CheckConstraint("present_value_amount > 0", name="ck_goals_present_value_positive"),
-            sa.CheckConstraint("inflation_rate >= 0 AND inflation_rate <= 50", name="ck_goals_inflation_range"),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.CheckConstraint(
+                "present_value_amount > 0", name="ck_goals_present_value_positive"
+            ),
+            sa.CheckConstraint(
+                "inflation_rate >= 0 AND inflation_rate <= 50",
+                name="ck_goals_inflation_range",
+            ),
         )
         op.create_index("ix_goals_user_id", "goals", ["user_id"])
         op.execute("ALTER TABLE goals ALTER COLUMN id SET DEFAULT gen_random_uuid();")
@@ -514,7 +790,9 @@ def downgrade() -> None:
 
 def _create_enum(name: str, values: list[str]) -> None:
     quoted = ", ".join("'" + v.replace("'", "''") + "'" for v in values)
-    op.execute(f"DO $$ BEGIN CREATE TYPE {name} AS ENUM ({quoted}); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute(
+        f"DO $$ BEGIN CREATE TYPE {name} AS ENUM ({quoted}); EXCEPTION WHEN duplicate_object THEN null; END $$;"
+    )
 
 
 def _add_updated_at_trigger(table: str) -> None:
@@ -548,7 +826,9 @@ def _migrate_legacy_goals_table(conn) -> None:
             type_=sa.String(100),
         )
     if "target_amount" in cols and "present_value_amount" not in cols:
-        op.alter_column("goals", "target_amount", new_column_name="present_value_amount")
+        op.alter_column(
+            "goals", "target_amount", new_column_name="present_value_amount"
+        )
 
     if "goal_type" not in cols:
         op.add_column(
@@ -566,9 +846,13 @@ def _migrate_legacy_goals_table(conn) -> None:
     if "inflation_rate" not in cols:
         op.add_column(
             "goals",
-            sa.Column("inflation_rate", sa.Numeric(5, 2), server_default="6.00", nullable=True),
+            sa.Column(
+                "inflation_rate", sa.Numeric(5, 2), server_default="6.00", nullable=True
+            ),
         )
-        op.execute("UPDATE goals SET inflation_rate = 6.00 WHERE inflation_rate IS NULL;")
+        op.execute(
+            "UPDATE goals SET inflation_rate = 6.00 WHERE inflation_rate IS NULL;"
+        )
         op.alter_column("goals", "inflation_rate", nullable=False)
 
     if "notes" not in cols:
@@ -580,7 +864,9 @@ def _migrate_legacy_goals_table(conn) -> None:
             "UPDATE goals SET notes = COALESCE(notes, description) WHERE description IS NOT NULL;"
         )
 
-    op.execute("UPDATE goals SET target_date = DATE '2099-12-31' WHERE target_date IS NULL;")
+    op.execute(
+        "UPDATE goals SET target_date = DATE '2099-12-31' WHERE target_date IS NULL;"
+    )
     op.alter_column("goals", "target_date", existing_type=sa.Date(), nullable=False)
 
     op.execute(
@@ -594,7 +880,9 @@ def _migrate_legacy_goals_table(conn) -> None:
     if "priority" in cols:
         pri_col = next(c for c in insp.get_columns("goals") if c["name"] == "priority")
         if "goal_priority_enum_v2" not in str(pri_col["type"]):
-            op.add_column("goals", sa.Column("priority_new", sa.String(20), nullable=True))
+            op.add_column(
+                "goals", sa.Column("priority_new", sa.String(20), nullable=True)
+            )
             op.execute(
                 """
                 UPDATE goals SET priority_new = CASE
@@ -605,7 +893,10 @@ def _migrate_legacy_goals_table(conn) -> None:
             )
             op.drop_column("goals", "priority")
             op.alter_column(
-                "goals", "priority_new", new_column_name="priority", existing_type=sa.String(20)
+                "goals",
+                "priority_new",
+                new_column_name="priority",
+                existing_type=sa.String(20),
             )
             op.execute(
                 "ALTER TABLE goals ALTER COLUMN priority TYPE goal_priority_enum_v2 "
@@ -617,7 +908,9 @@ def _migrate_legacy_goals_table(conn) -> None:
         status_col = next(c for c in insp.get_columns("goals") if c["name"] == "status")
         type_str = str(status_col["type"])
         if "goal_status_enum_v2" not in type_str:
-            op.add_column("goals", sa.Column("status_new", sa.String(30), nullable=True))
+            op.add_column(
+                "goals", sa.Column("status_new", sa.String(30), nullable=True)
+            )
             op.execute(
                 """
                 UPDATE goals SET status_new = CASE
@@ -629,7 +922,12 @@ def _migrate_legacy_goals_table(conn) -> None:
                 """
             )
             op.drop_column("goals", "status")
-            op.alter_column("goals", "status_new", new_column_name="status", existing_type=sa.String(30))
+            op.alter_column(
+                "goals",
+                "status_new",
+                new_column_name="status",
+                existing_type=sa.String(30),
+            )
             op.execute(
                 "ALTER TABLE goals ALTER COLUMN status TYPE goal_status_enum_v2 USING status::goal_status_enum_v2;"
             )
@@ -655,7 +953,9 @@ def _migrate_legacy_goals_table(conn) -> None:
         )
     if "ck_goals_inflation_range" not in chk:
         op.create_check_constraint(
-            "ck_goals_inflation_range", "goals", "inflation_rate >= 0 AND inflation_rate <= 50"
+            "ck_goals_inflation_range",
+            "goals",
+            "inflation_rate >= 0 AND inflation_rate <= 50",
         )
 
     op.execute("DROP TYPE IF EXISTS goal_priority_enum CASCADE;")

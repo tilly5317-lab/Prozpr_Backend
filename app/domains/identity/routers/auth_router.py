@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -38,7 +37,9 @@ def _mid(lo: object, hi: object) -> float | None:
     return sum(vals) / len(vals) if vals else None
 
 
-def _inline_canonical_finance(payload: SignUpRequest | LoginRequest) -> dict[str, float]:
+def _inline_canonical_finance(
+    payload: SignUpRequest | LoginRequest,
+) -> dict[str, float]:
     """Map the optional inline income/expense ranges onto the canonical
     personal_finance_profiles columns (annual_income, monthly_household_expense).
     The model has no *_min/_max columns, so we collapse ranges to a midpoint."""
@@ -47,7 +48,9 @@ def _inline_canonical_finance(payload: SignUpRequest | LoginRequest) -> dict[str
     income = _mid(data.get("annual_income_min"), data.get("annual_income_max"))
     if income is not None:
         out["annual_income"] = income
-    annual_expense = _mid(data.get("annual_expense_min"), data.get("annual_expense_max"))
+    annual_expense = _mid(
+        data.get("annual_expense_min"), data.get("annual_expense_max")
+    )
     if annual_expense is not None:
         out["monthly_household_expense"] = annual_expense / 12.0
     return out
@@ -65,7 +68,9 @@ async def _save_inline_onboarding_profile(
     if not finance:
         return
 
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
         profile = PersonalFinanceProfile(user_id=user.id, **finance)
@@ -76,9 +81,7 @@ async def _save_inline_onboarding_profile(
         setattr(profile, field, value)
 
 
-_EMAIL_TAKEN_DETAIL = (
-    "This email is already registered. Please sign in instead, or use a different email."
-)
+_EMAIL_TAKEN_DETAIL = "This email is already registered. Please sign in instead, or use a different email."
 
 
 async def _email_taken(
@@ -92,7 +95,9 @@ async def _email_taken(
 
 
 @router.post("/check-mobile", response_model=MobileStatusResponse)
-async def check_mobile(payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)):
+async def check_mobile(
+    payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)
+):
     phone = full_phone(payload.country_code, payload.mobile)
     result = await db.execute(select(User).where(User.phone == phone))
     user = result.scalar_one_or_none()
@@ -104,7 +109,9 @@ async def check_mobile(payload: MobileLookupRequest, db: AsyncSession = Depends(
     )
 
 
-@router.post("/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED
+)
 async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     phone = full_phone(payload.country_code, payload.mobile)
     result = await db.execute(select(User).where(User.phone == phone))
@@ -135,7 +142,9 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
         )
 
     if payload.email and await _email_taken(db, payload.email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+        )
 
     user = User(
         id=uuid.uuid4(),
@@ -155,7 +164,9 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+        )
     await db.refresh(user)
 
     access_token = create_access_token(user.id, user.phone)
@@ -178,16 +189,26 @@ async def _login_with_phone_password(
         full = "+" + digits if digits else ""
 
     if len(full) < 10:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
 
     result = await db.execute(select(User).where(User.phone == full))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
     # OTP-first mode: allow login by verified phone context without password.
     # If password is supplied and a hash exists, validate it for backward compatibility.
-    if password and user.password_hash and not verify_password(password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if (
+        password
+        and user.password_hash
+        and not verify_password(password, user.password_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
 
     access_token = create_access_token(user.id, user.phone)
     return LoginResponse(
@@ -198,7 +219,9 @@ async def _login_with_phone_password(
 
 @router.post("/token", response_model=LoginResponse)
 async def token(request: Request, db: AsyncSession = Depends(get_db)):
-    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    content_type = (
+        (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    )
     if content_type == "application/json":
         body = await request.json()
         payload = LoginRequest(**body)
@@ -250,14 +273,20 @@ async def update_me(
     result = await db.execute(select(User).where(User.id == current_user.id))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     updates = payload.model_dump(exclude_unset=True)
     new_email = updates.get("email")
-    if new_email is not None and new_email != user.email and await _email_taken(
-        db, new_email, exclude_user_id=user.id
+    if (
+        new_email is not None
+        and new_email != user.email
+        and await _email_taken(db, new_email, exclude_user_id=user.id)
     ):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+        )
 
     for field, value in updates.items():
         setattr(user, field, value)

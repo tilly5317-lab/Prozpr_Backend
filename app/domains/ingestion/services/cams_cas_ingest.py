@@ -48,12 +48,20 @@ from app.domains.mutual_funds.services.scheme_resolver import (
     build_isin_to_amfi_map,
     canonical_scheme_code,
 )
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHolding
+from app.domains.portfolio.models.portfolio import (
+    Portfolio,
+    PortfolioAllocation,
+    PortfolioHolding,
+)
 from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
-from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
+from app.domains.portfolio.models.user_portfolio_nav_history import (
+    UserPortfolioNavHistory,
+)
 from app.domains.identity.models.user import User
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +153,9 @@ def _isin_from_scheme_strings(*chunks: Optional[str]) -> Optional[str]:
     return None
 
 
-def _resolve_scheme_identifiers(scheme: dict[str, Any], scheme_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+def _resolve_scheme_identifiers(
+    scheme: dict[str, Any], scheme_name: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
     """Return ``(amfi, isin)`` with ISIN inferred from banner text when casparser omits it."""
     amfi = _clean(scheme.get("amfi"), limit=20)
     isin = _clean(scheme.get("isin"), limit=20)
@@ -160,7 +170,9 @@ def _resolve_scheme_identifiers(scheme: dict[str, Any], scheme_name: Optional[st
     return amfi, isin
 
 
-def _enrich_missing_isins_from_pdf(parsed: dict[str, Any], data: bytes, password: str) -> None:
+def _enrich_missing_isins_from_pdf(
+    parsed: dict[str, Any], data: bytes, password: str
+) -> None:
     """Set ``scheme['isin']`` when missing by scanning raw PDF text near the scheme title (CAMS banner)."""
     try:
         import pymupdf  # noqa: PLC0415
@@ -198,7 +210,11 @@ def _enrich_missing_isins_from_pdf(parsed: dict[str, Any], data: bytes, password
             guess = _isin_from_scheme_strings(window)
             if guess:
                 scheme["isin"] = guess
-                logger.info("CAS ingest: inferred ISIN %s for scheme %r from PDF text", guess, name[:60])
+                logger.info(
+                    "CAS ingest: inferred ISIN %s for scheme %r from PDF text",
+                    guess,
+                    name[:60],
+                )
 
 
 def _num(value: object, default: float = 0.0) -> float:
@@ -215,7 +231,9 @@ def _num(value: object, default: float = 0.0) -> float:
         return default
 
 
-def _split_name(name: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def _split_name(
+    name: Optional[str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     text = _clean(name)
     if not text:
         return None, None, None
@@ -288,9 +306,7 @@ _FB_DATE_RE = re.compile(
     r"^\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}$"
 )
 _FB_NUMBER_RE = re.compile(r"^\(?[\d,]+\.?\d*\)?$")
-_FB_STAMP_RE = re.compile(
-    r"\*\*\*\s*(Stamp Duty|STT Paid)\s*\*\*\*", re.IGNORECASE
-)
+_FB_STAMP_RE = re.compile(r"\*\*\*\s*(Stamp Duty|STT Paid)\s*\*\*\*", re.IGNORECASE)
 _FB_PAGE_HEADER_RE = re.compile(
     r"^(CAMSCASWS|Consolidated Account Statement|Page \d+ of )"
 )
@@ -543,7 +559,10 @@ def _parse_cas_pdf(data: bytes, password: str) -> dict[str, Any]:
     try:
         _patch_parsed_with_fallback(parsed, data, password)
     except Exception:
-        logger.warning("CAS fallback transaction parser failed; using casparser output as-is", exc_info=True)
+        logger.warning(
+            "CAS fallback transaction parser failed; using casparser output as-is",
+            exc_info=True,
+        )
 
     try:
         _enrich_missing_isins_from_pdf(parsed, data, password)
@@ -583,7 +602,9 @@ def _build_import_row(
     )
 
 
-def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[int, int, dict[str, float], float]:
+def _populate_children(
+    aa_import: MfAaImport, parsed: dict[str, Any]
+) -> tuple[int, int, dict[str, float], float]:
     """Append MfAaSummary + MfAaTransaction children; return (schemes, txns, bucket_values, cost_total)."""
     folios = parsed.get("folios") or []
     scheme_count = 0
@@ -612,7 +633,9 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
             # Persist the resolved class when casparser couldn't classify it, so
             # `mf_fund_metadata.category` (derived from this) isn't left as "N/A".
             resolved_asset_type = (
-                stype if stype and stype.strip().upper() not in _CASPARSER_UNKNOWN_TYPES else bucket.upper()
+                stype
+                if stype and stype.strip().upper() not in _CASPARSER_UNKNOWN_TYPES
+                else bucket.upper()
             )
 
             txns = scheme.get("transactions") or []
@@ -627,7 +650,9 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
                     isin=isin,
                     scheme=_clean(scheme_code, limit=20),
                     scheme_name=scheme_name,
-                    closing_balance=_num(scheme.get("close") or scheme.get("close_calculated")),
+                    closing_balance=_num(
+                        scheme.get("close") or scheme.get("close_calculated")
+                    ),
                     cost_value=(scheme_cost or None),
                     market_value=(market_value or None),
                     nav=(_num(valuation.get("nav")) or None),
@@ -666,7 +691,10 @@ def _populate_children(aa_import: MfAaImport, parsed: dict[str, Any]) -> tuple[i
 
 
 async def _apply_portfolio_rollup(
-    db: AsyncSession, user_id: uuid.UUID, bucket_value: dict[str, float], cost_total: float
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    bucket_value: dict[str, float],
+    cost_total: float,
 ) -> tuple[int, float]:
     """Replace the primary portfolio's bucket allocations with the CAS valuation roll-up."""
     total = sum(v for v in bucket_value.values() if v > 0)
@@ -675,7 +703,9 @@ async def _apply_portfolio_rollup(
 
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     await db.execute(
-        delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id == portfolio.id)
+        delete(PortfolioAllocation).where(
+            PortfolioAllocation.portfolio_id == portfolio.id
+        )
     )
     rows = 0
     for name, raw in bucket_value.items():
@@ -719,7 +749,9 @@ async def _sync_mf_portfolio_holdings_from_cas(
     candidate_isins: set[str] = set()
     for folio in parsed.get("folios") or []:
         for scheme in folio.get("schemes") or []:
-            amfi, isin = _resolve_scheme_identifiers(scheme, _clean(scheme.get("scheme")))
+            amfi, isin = _resolve_scheme_identifiers(
+                scheme, _clean(scheme.get("scheme"))
+            )
             for val in (amfi, isin):
                 if val and not val.isdigit():
                     candidate_isins.add(val.upper())
@@ -729,7 +761,9 @@ async def _sync_mf_portfolio_holdings_from_cas(
     for folio in parsed.get("folios") or []:
         folio_no = _clean(folio.get("folio"), limit=40)
         for scheme in folio.get("schemes") or []:
-            scheme_name = _clean(scheme.get("scheme"), limit=255) or "Mutual fund scheme"
+            scheme_name = (
+                _clean(scheme.get("scheme"), limit=255) or "Mutual fund scheme"
+            )
             valuation = scheme.get("valuation") or {}
             market_value = _num(valuation.get("value"))
             if market_value <= 0:
@@ -739,7 +773,9 @@ async def _sync_mf_portfolio_holdings_from_cas(
             nav = _num(valuation.get("nav"))
             units = _num(scheme.get("close") or scheme.get("close_calculated"))
             amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
-            ticker_raw = canonical_scheme_code(amfi=amfi, isin=isin, isin_to_amfi=isin_to_amfi)
+            ticker_raw = canonical_scheme_code(
+                amfi=amfi, isin=isin, isin_to_amfi=isin_to_amfi
+            )
             ticker = ticker_raw[:20] if ticker_raw else None
 
             avg_cost: Optional[float] = None
@@ -756,7 +792,11 @@ async def _sync_mf_portfolio_holdings_from_cas(
 
             folio_bit = f" · Folio {folio_no}" if folio_no else ""
             max_name = 255 - len(folio_bit)
-            base_name = scheme_name if len(scheme_name) <= max_name else scheme_name[: max(0, max_name)]
+            base_name = (
+                scheme_name
+                if len(scheme_name) <= max_name
+                else scheme_name[: max(0, max_name)]
+            )
             display_name = f"{base_name}{folio_bit}" if folio_bit else scheme_name[:255]
 
             db.add(
@@ -788,7 +828,9 @@ async def _backfill_user_profile(
     and ``/auth/me`` come back empty. We back-fill **blanks only**: anything the
     user has already entered is left untouched. Returns the list of fields filled.
     """
-    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    user = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
     if user is None:
         return []
 
@@ -816,7 +858,9 @@ async def _backfill_user_profile(
     if email and "@" in email and not _clean(user.email):
         # users.email is unique — only claim it if no other user holds it.
         clash = (
-            await db.execute(select(User.id).where(User.email == email, User.id != user_id))
+            await db.execute(
+                select(User.id).where(User.email == email, User.id != user_id)
+            )
         ).first()
         if clash is None:
             user.email = email
@@ -834,7 +878,9 @@ async def _backfill_user_profile(
 
     if filled:
         await db.flush()
-        logger.info("CAS ingest: back-filled user %s profile fields %s", user_id, filled)
+        logger.info(
+            "CAS ingest: back-filled user %s profile fields %s", user_id, filled
+        )
     return filled
 
 
@@ -855,14 +901,24 @@ async def reset_user_cams_data(db: AsyncSession, user_id: uuid.UUID) -> None:
     land atomically.
     """
     portfolio_ids = list(
-        (await db.execute(select(Portfolio.id).where(Portfolio.user_id == user_id))).scalars().all()
+        (await db.execute(select(Portfolio.id).where(Portfolio.user_id == user_id)))
+        .scalars()
+        .all()
     )
 
     # Transactions first (they reference imports via SET-NULL FK; delete before imports).
     await db.execute(delete(MfTransaction).where(MfTransaction.user_id == user_id))
-    await db.execute(delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id))
-    await db.execute(delete(UserPortfolioNavHistory).where(UserPortfolioNavHistory.user_id == user_id))
-    await db.execute(delete(PortfolioNetworthJob).where(PortfolioNetworthJob.user_id == user_id))
+    await db.execute(
+        delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id)
+    )
+    await db.execute(
+        delete(UserPortfolioNavHistory).where(
+            UserPortfolioNavHistory.user_id == user_id
+        )
+    )
+    await db.execute(
+        delete(PortfolioNetworthJob).where(PortfolioNetworthJob.user_id == user_id)
+    )
     if portfolio_ids:
         await db.execute(
             delete(PortfolioHolding).where(
@@ -871,7 +927,9 @@ async def reset_user_cams_data(db: AsyncSession, user_id: uuid.UUID) -> None:
             )
         )
         await db.execute(
-            delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id.in_(portfolio_ids))
+            delete(PortfolioAllocation).where(
+                PortfolioAllocation.portfolio_id.in_(portfolio_ids)
+            )
         )
     # Imports last — DB-level ON DELETE CASCADE clears mf_aa_summaries / mf_aa_transactions.
     await db.execute(delete(MfAaImport).where(MfAaImport.user_id == user_id))
@@ -902,7 +960,9 @@ async def ingest_cams_pdf(
 
     aa_import = _build_import_row(user_id, parsed, source_filename)
     db.add(aa_import)
-    scheme_count, txn_count, bucket_value, cost_total = _populate_children(aa_import, parsed)
+    scheme_count, txn_count, bucket_value, cost_total = _populate_children(
+        aa_import, parsed
+    )
     # Durably store the raw import + children first, so a normalization failure below
     # still leaves a retry-able RECEIVED row (see /mf-ingest/normalize/{import_id}).
     await db.commit()
@@ -924,7 +984,9 @@ async def ingest_cams_pdf(
 
     norm = await normalize_single_import(db, aa_import)
 
-    alloc_rows, total_value = await _apply_portfolio_rollup(db, user_id, bucket_value, cost_total)
+    alloc_rows, total_value = await _apply_portfolio_rollup(
+        db, user_id, bucket_value, cost_total
+    )
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     await _sync_mf_portfolio_holdings_from_cas(db, portfolio.id, parsed, total_value)
     profile_fields_filled = await _backfill_user_profile(db, user_id, parsed)

@@ -76,6 +76,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 # internals
 # ---------------------------------------------------------------------------
 
+
 def _classify_db_error(exc: BaseException) -> str | None:
     """Return the user-facing message for a known DB failure, else ``None``."""
     for cur in _walk_causes(exc):

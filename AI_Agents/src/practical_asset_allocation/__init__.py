@@ -7,6 +7,7 @@ average-based equity-subgroup sliding threshold.
 Per spec §B.1 this is the first explicit cross-agent import under
 AI_Agents/src/; see CLAUDE.md for the dependency edge documentation.
 """
+
 from .pipeline import (
     CorpusBreakdown,
     InfeasibleGoalError,

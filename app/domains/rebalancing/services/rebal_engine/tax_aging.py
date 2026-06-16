@@ -35,8 +35,10 @@ class LotSplit:
 
 def _months_between(start: date, end: date) -> int:
     """Whole months elapsed from ``start`` to ``end`` (calendar-aware)."""
-    return (end.year - start.year) * 12 + (end.month - start.month) - (
-        1 if end.day < start.day else 0
+    return (
+        (end.year - start.year) * 12
+        + (end.month - start.month)
+        - (1 if end.day < start.day else 0)
     )
 
 

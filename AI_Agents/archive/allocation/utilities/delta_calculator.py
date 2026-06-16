@@ -4,7 +4,9 @@ from ..schemas.delta import Delta, DeltaItem
 
 
 class DeltaCalculator:
-    def compute(self, ideal: IdealAllocation, portfolio: Portfolio | None) -> Delta | None:
+    def compute(
+        self, ideal: IdealAllocation, portfolio: Portfolio | None
+    ) -> Delta | None:
         if portfolio is None:
             return None
 

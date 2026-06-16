@@ -1,9 +1,12 @@
 """Stage 6: cashflow projection — monthly + annual rows with FY step-ups."""
+
 from __future__ import annotations
 from datetime import date
 
 from cashflow_statement.models import (
-    AnnualCashflowRow, MonthlyCashflowRow, OneOffEvent,
+    AnnualCashflowRow,
+    MonthlyCashflowRow,
+    OneOffEvent,
 )
 from cashflow_statement.engine._types import RunContext, MortgageSchedule
 from cashflow_statement.engine.dates import fy_for_date, eomonth
@@ -84,7 +87,9 @@ def project_cashflow(
         # phantom savings that aren't actually invested.
         income_basis = ctx.annual_income * (1 + ctx.annual_income_growth) ** i
         tax_basis = income_basis * ctx.effective_tax_rate
-        expense_basis = ctx.annual_household_expense * (1 + ctx.inflation_household_expense) ** i
+        expense_basis = (
+            ctx.annual_household_expense * (1 + ctx.inflation_household_expense) ** i
+        )
 
         # Per-month values (constant within FY, before the per-row retire check).
         pre_retire_monthly_income = income_basis / 12
@@ -119,24 +124,28 @@ def project_cashflow(
             monthly_savings_post_emi = (
                 monthly_savings_pre_emi - monthly_existing_emi - monthly_goal_emi
             )
-            monthly.append(MonthlyCashflowRow(
-                month_end_date=me,
-                fy_label=_fy_label(fy_year),
-                income=monthly_income,
-                income_tax=monthly_tax,
-                household_expense=monthly_expense,
-                savings_pre_emi=monthly_savings_pre_emi,
-                existing_mortgage_emi=monthly_existing_emi,
-                goal_mortgage_emi=monthly_goal_emi,
-                savings_post_emi=monthly_savings_post_emi,
-                one_off_inflow=inflow_by_ym.get(ym, 0.0),
-                one_off_outflow=outflow_by_ym.get(ym, 0.0),
-            ))
+            monthly.append(
+                MonthlyCashflowRow(
+                    month_end_date=me,
+                    fy_label=_fy_label(fy_year),
+                    income=monthly_income,
+                    income_tax=monthly_tax,
+                    household_expense=monthly_expense,
+                    savings_pre_emi=monthly_savings_pre_emi,
+                    existing_mortgage_emi=monthly_existing_emi,
+                    goal_mortgage_emi=monthly_goal_emi,
+                    savings_post_emi=monthly_savings_post_emi,
+                    one_off_inflow=inflow_by_ym.get(ym, 0.0),
+                    one_off_outflow=outflow_by_ym.get(ym, 0.0),
+                )
+            )
 
     return monthly
 
 
-def derive_annual_cashflow(monthly: list[MonthlyCashflowRow]) -> list[AnnualCashflowRow]:
+def derive_annual_cashflow(
+    monthly: list[MonthlyCashflowRow],
+) -> list[AnnualCashflowRow]:
     """Aggregate monthly rows into per-FY rows.
 
     P&L columns (income through one_off_outflow) are pure column sums. corpus columns
@@ -158,27 +167,29 @@ def derive_annual_cashflow(monthly: list[MonthlyCashflowRow]) -> list[AnnualCash
     annual: list[AnnualCashflowRow] = []
     for fy_label, rows in by_fy.items():
         fy_year = int(fy_label[2:])  # "FY2027" → 2027
-        annual.append(AnnualCashflowRow(
-            fy_end_date=date(fy_year, 3, 31),
-            fy_label=fy_label,
-            # P&L sums
-            income=sum(r.income for r in rows),
-            income_tax=sum(r.income_tax for r in rows),
-            household_expense=sum(r.household_expense for r in rows),
-            savings_pre_emi=sum(r.savings_pre_emi for r in rows),
-            existing_mortgage_emi=sum(r.existing_mortgage_emi for r in rows),
-            goal_mortgage_emi=sum(r.goal_mortgage_emi for r in rows),
-            savings_post_emi=sum(r.savings_post_emi for r in rows),
-            one_off_inflow=sum(r.one_off_inflow for r in rows),
-            one_off_outflow=sum(r.one_off_outflow for r in rows),
-            # corpus evolution — open is first row, close is last row, others are sums.
-            corpus_opening=rows[0].corpus_opening,
-            monthly_investment=sum(r.monthly_investment for r in rows),
-            investment_returns=sum(r.investment_returns for r in rows),
-            goal_payout=sum(r.goal_payout for r in rows),
-            corpus_closing=rows[-1].corpus_closing,
-            is_funded=all(r.is_funded for r in rows),
-        ))
+        annual.append(
+            AnnualCashflowRow(
+                fy_end_date=date(fy_year, 3, 31),
+                fy_label=fy_label,
+                # P&L sums
+                income=sum(r.income for r in rows),
+                income_tax=sum(r.income_tax for r in rows),
+                household_expense=sum(r.household_expense for r in rows),
+                savings_pre_emi=sum(r.savings_pre_emi for r in rows),
+                existing_mortgage_emi=sum(r.existing_mortgage_emi for r in rows),
+                goal_mortgage_emi=sum(r.goal_mortgage_emi for r in rows),
+                savings_post_emi=sum(r.savings_post_emi for r in rows),
+                one_off_inflow=sum(r.one_off_inflow for r in rows),
+                one_off_outflow=sum(r.one_off_outflow for r in rows),
+                # corpus evolution — open is first row, close is last row, others are sums.
+                corpus_opening=rows[0].corpus_opening,
+                monthly_investment=sum(r.monthly_investment for r in rows),
+                investment_returns=sum(r.investment_returns for r in rows),
+                goal_payout=sum(r.goal_payout for r in rows),
+                corpus_closing=rows[-1].corpus_closing,
+                is_funded=all(r.is_funded for r in rows),
+            )
+        )
     return annual
 
 

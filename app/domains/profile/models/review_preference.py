@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -22,7 +21,9 @@ if TYPE_CHECKING:
 
 class ReviewPreference(Base):
     __tablename__ = "review_preferences"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_review_preferences_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_review_preferences_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

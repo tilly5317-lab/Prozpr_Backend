@@ -6,6 +6,7 @@ graph is invoked for real (it's deterministic without an API key — it just
 short-circuits to the fallback engine compute), but the summarizer LLM call
 is monkey-patched so tests run offline.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -28,14 +29,16 @@ def _user_with_shortfall():
     )
     inv = SimpleNamespace(retirement_age=60)
     tax = SimpleNamespace(income_tax_rate=18.0)
-    goals = [SimpleNamespace(
-        goal_name="dream_home",
-        goal_type=SimpleNamespace(value="HOME_PURCHASE"),
-        present_value_amount=15_000_000,
-        target_date=date(2030, 4, 1),
-        status=SimpleNamespace(value="ACTIVE"),
-        inflation_rate=6.0,
-    )]
+    goals = [
+        SimpleNamespace(
+            goal_name="dream_home",
+            goal_type=SimpleNamespace(value="HOME_PURCHASE"),
+            present_value_amount=15_000_000,
+            target_date=date(2030, 4, 1),
+            status=SimpleNamespace(value="ACTIVE"),
+            inflation_rate=6.0,
+        )
+    ]
     return SimpleNamespace(
         date_of_birth=date(1994, 7, 22),
         assumed_lifespan_years=85,
@@ -57,7 +60,9 @@ def _stub_agent(monkeypatch):
     """
     from cashflow_statement import compute_full_projection
     from cashflow_statement.models import (
-        GoalPlanningSnapshot, PlanSummary, GoalBullet,
+        GoalPlanningSnapshot,
+        PlanSummary,
+        GoalBullet,
     )
 
     async def fake_run(request):
@@ -65,11 +70,15 @@ def _stub_agent(monkeypatch):
         summary = PlanSummary(
             top_line="Stub summary for testing.",
             retirement_note="Stub retirement note.",
-            goals=[GoalBullet(
-                name=g.name, verdict="unfunded" if g.shortfall_fv > 0 else "funded",
-                headline_amount=f"₹{g.shortfall_fv or g.corpus_required_fv:,.0f}",
-                note="stub",
-            ) for g in out.goals],
+            goals=[
+                GoalBullet(
+                    name=g.name,
+                    verdict="unfunded" if g.shortfall_fv > 0 else "funded",
+                    headline_amount=f"₹{g.shortfall_fv or g.corpus_required_fv:,.0f}",
+                    note="stub",
+                )
+                for g in out.goals
+            ],
             cashflow_note="Stub cashflow note.",
             risks=["stub risk"],
             next_steps=[],
@@ -112,7 +121,9 @@ async def test_outcome_shape_and_facts_pack():
     assert "validation_issues" in fp
 
     # Indian-notation discipline: every headline rupee key ends in `_indian`.
-    headline_money_keys = [k for k in fp["headline"] if "corpus" in k or "shortfall" in k]
+    headline_money_keys = [
+        k for k in fp["headline"] if "corpus" in k or "shortfall" in k
+    ]
     for k in headline_money_keys:
         assert k.endswith("_indian"), f"missing _indian suffix on {k}"
         assert isinstance(fp["headline"][k], str)
@@ -136,11 +147,15 @@ async def test_fallback_brief_uses_summary_top_line():
 @pytest.mark.asyncio
 async def test_missing_dob_raises():
     user = SimpleNamespace(
-        date_of_birth=None, investment_profile=None,
-        tax_profile=None, financial_goals=[],
+        date_of_birth=None,
+        investment_profile=None,
+        tax_profile=None,
+        financial_goals=[],
     )
     with pytest.raises(ValueError, match="missing_date_of_birth"):
         await svc.compute_goal_planning_snapshot(
-            user=user, user_question="?",
-            chat_session_id="x", anchor_date=date(2026, 5, 15),
+            user=user,
+            user_question="?",
+            chat_session_id="x",
+            anchor_date=date(2026, 5, 15),
         )
