@@ -1,35 +1,10 @@
-# app/routers/ai_modules/ — AI agent test routes
+# app/routers/ai_modules/ — relocated AI routes (docs only)
 
-HTTP endpoints for exercising AI_Agents orchestrators directly, bypassing chat. Each module file defines a router for one agent domain. Routes are mounted under `/api/v1/ai-modules` via the parent `routers/__init__.py`.
+The per-agent API routers that lived here (intent classifier, market commentary, portfolio query, asset allocation, rebalancing, stubs) were relocated into per-domain `routers/` packages under `app/domains/` during the DDD restructure. No router code remains here.
 
 ## Files
 
-- `intent_classifier.py` — classify customer questions into intent categories.
-- `market_commentary.py` — generate market commentary documents.
-- `portfolio_query.py` — answer portfolio questions with guardrails.
-- `asset_allocation.py` — compute ideal asset allocations.
-- `rebalancing.py` — compute a rebalancing engine response (per-fund target / buy / sell).
-- `drift_analyzer.py` — compute drift between actual and ideal holdings.
-- `mutual_fund_status.py` — return mutual fund status info.
-- `risk_profile.py` — compute deterministic risk scores and summaries.
-- `__init__.py` — assembles sub-routers.
-
-## Endpoints
-
-- `POST /api/v1/ai-modules/intent-classifier/classify` — classify a message into intent.
-- `POST /api/v1/ai-modules/market-commentary/generate` — generate market commentary.
-- `POST /api/v1/ai-modules/portfolio-query/answer` — answer portfolio question.
-- `POST /api/v1/ai-modules/asset-allocation/recommend` — recommend asset allocation.
-- `POST /api/v1/ai-modules/rebalancing/compute` — compute a rebalancing engine response.
-- `GET /api/v1/ai-modules/drift-analyzer/status` — drift analyzer status (stub).
-- `GET /api/v1/ai-modules/mutual-fund-status/status` — mutual fund status info (stub).
-- `GET /api/v1/ai-modules/risk-profile/status` — risk profile status (stub).
-
-## Depends on
-
-- `app.schemas.ai_modules` — request/response Pydantic bodies.
-- `app.services.ai_bridge.*` — orchestrator bridges for the five live routes: intent, market, portfolio-query, allocation, and rebalancing (drift, MF-status, and risk are stubs).
-- `app.dependencies` — `get_ai_user_context`, `get_effective_user`.
+- `README.md` — legacy guide to the old AI-modules routing layer and its migration into the per-domain structure.
 
 ## Don't read
 

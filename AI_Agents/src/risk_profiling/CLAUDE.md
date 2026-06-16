@@ -1,28 +1,21 @@
-# AI_Agents/src/risk_profiling
+# AI_Agents/src/risk_profiling/ — score a client's risk profile
 
-Computes a client's risk profile: deterministic Python scoring (risk capacity, OSI, savings-rate adjustment, clamping, effective risk score) followed by a Claude Haiku summary paragraph. Produces the `effective_risk_score` and supporting fields consumed downstream by allocation modules via their `AllocationInput`.
+Deterministic Python scoring (risk capacity, OSI, savings-rate adjustment, clamp, effective risk score) plus a Claude Haiku summary paragraph. Produces `effective_risk_score` + supporting fields consumed downstream via allocation modules' `AllocationInput`.
+
+## Entry / contract
+- `main.py` exposes `risk_profiling_chain` (LCEL: `compute_all_scores` → LLM summary). Scoring is fully deterministic; only the trailing summary step calls the LLM.
+- Output is an open `dict` (keys `step_name`, `inputs`, `calculations`, `output`), not a fixed model — the app layer indexes it by key and persists `calculations`/`output` as JSON.
 
 ## Files
+- `main.py` — the LCEL chain.
+- `scoring.py` — `compute_all_scores`; pure-Python scoring, no LLM.
+- `willingness.py` — `compute_risk_willingness` (re-exported); scores the four-question willingness questionnaire, tolerating unanswered questions.
+- `models.py` — `RiskProfileInput`. `prompts.py` — summary prompt + `RiskProfileSummary`.
+- `dev_run.py` / `customer_test_data.py` — smoke test + canned profiles. `README.md` — human guide.
 
-- `main.py` — exposes `risk_profiling_chain` (LCEL: scoring → LLM summary).
-- `models.py` — `RiskProfileInput`.
-- `prompts.py` — `summary_prompt` template.
-- `scoring.py` — pure-Python scoring logic.
-- `dev_run.py` — developer smoke-test runner.
-- `customer_test_data.py` — canned customer profiles for exercising the chain.
-
-## Data contract
-
-- Input: `RiskProfileInput`
-- Output: a plain `dict` with keys `step_name`, `inputs`, `calculations`, `output` (the `output` block carries `effective_risk_score` + `risk_summary`). The app layer (`app/services/effective_risk_profile/`) indexes it by key and persists `calculations`/`output` as JSON, so the contract is intentionally an open dict rather than a fixed pydantic model.
-
-## Depends on
-
-- `langchain-anthropic`, Claude Haiku
-- `python-dotenv`; `ANTHROPIC_API_KEY` env var
-- Does not import any other `src/` modules.
+## Gotchas & invariants
+- Numerics are pre-formatted before the summary call so the LLM never interprets sentinels: `savings_rate=None`→"N/A", `coverage`/`debt` ≥ `999.0`→"N/A (no financial assets)" (`main.py` `_generate_summary`).
 
 ## Don't read
-
-- `__pycache__/`
-- `customer_test_output.json`, `customer_test_output.csv` — captured run artifacts, not schemas
+- `__pycache__/`.
+- `customer_test_output.json` / `.csv` — captured run artifacts, not schemas.

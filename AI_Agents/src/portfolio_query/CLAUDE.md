@@ -1,31 +1,21 @@
-# AI_Agents/src/portfolio_query
+# AI_Agents/src/portfolio_query/ — answer client questions about their own portfolio
 
-Handles the `portfolio_query` intent: answers client questions about their own portfolio using three context sources — the fund house's market commentary, the client profile, and the client's current portfolio (asset-class, sub-category, and per-fund detail). Applies scope guardrails and returns either a factual in-scope answer or a canned redirect.
+Self-contained agent. Combines market commentary + client profile + current portfolio (asset-class, sub-category, per-fund), applies scope guardrails, and returns a factual in-scope answer or a canned redirect.
 
-Self-contained module — does not import from any peer agent module under `AI_Agents/src/`. Imports the shared `common.format_inr_indian` helper (deterministic Indian-notation rupee formatter) so the LLM never has to convert raw rupees at inference time.
+## Entry / contract
+- `orchestrator.py` exposes `PortfolioQueryOrchestrator.run(question, client, portfolio, conversation_history?)` → `PortfolioQueryResponse` (`answer` or `redirect_message` + `guardrail_triggered`).
 
 ## Files
+- `orchestrator.py` — orchestrator + INR enrichment; reads `Reference_docs/market_commentary_latest.md`.
+- `skill_executor.py` — renders a skill `.md` (YAML front matter + System/User sections) into prompts.
+- `llm_client.py` — `ChatAnthropic` wrapper with prompt caching and forced tool-use.
+- `models.py` — pydantic context/response models.
+- `portfolio_query.md` / `guardrails.md` — runtime prompt + scope-rule sources (see Gotchas).
+- `dev_run.py` — smoke test. `README.md` — human guide.
 
-- `orchestrator.py` — `PortfolioQueryOrchestrator`; entry point. Also contains `_load_market_commentary()` reading `AI_Agents/Reference_docs/market_commentary_latest.md`.
-- `models.py` — pydantic models: `ConversationTurn`, `PortfolioQueryResponse`, `ClientContext`, `PortfolioContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`.
-- `llm_client.py` — `LLMClient`; thin `langchain-anthropic` (`ChatAnthropic`) wrapper with prompt caching and forced tool-use.
-- `skill_executor.py` — `SkillExecutor`; loads markdown skill files (YAML front matter + system/user templates) and runs them through the LLM.
-- `dev_run.py` — developer smoke-test covering in-scope multi-turn and guardrail-trigger scenarios.
-- `portfolio_query.md` — prompt-adjacent skill source (system + user prompts) loaded at runtime; not documentation.
-- `guardrails.md` — prompt-adjacent scope-rule source embedded into the skill's system prompt; not documentation.
-
-## Data contract
-
-- Input: `ClientContext`, `PortfolioContext`, `question: str`, optional `conversation_history: list[ConversationTurn]`.
-- Output: `PortfolioQueryResponse` (`answer` or `redirect_message`, plus `guardrail_triggered`).
-
-## Depends on
-
-- `langchain-anthropic` → Claude Haiku; `ANTHROPIC_API_KEY` env var.
-- `pyyaml`, `python-dotenv`.
-- `AI_Agents/Reference_docs/market_commentary_latest.md` (written by the `market_commentary` agent).
+## Gotchas & invariants
+- `portfolio_query.md` (the skill) and `guardrails.md` are loaded at runtime and rendered verbatim into the system prompt; together they DEFINE the in-scope/out-of-scope (Path X/M/P) decision and the mandatory "Portfolio Impact" paragraph. Editing them changes model behavior with no code change (`orchestrator.py` `__init__` + `run`).
+- Every `*_inr` field gets a pre-computed `*_indian` sibling via `format_inr_indian` because Haiku mis-converts lakh/crore; the prompt instructs the model to copy them verbatim (`orchestrator.py` `_enrich_inr_fields`).
 
 ## Don't read
-
-- `__pycache__/`
-- `portfolio_query.md`, `guardrails.md` — runtime prompt/rule sources, not documentation.
+- `__pycache__/`.
