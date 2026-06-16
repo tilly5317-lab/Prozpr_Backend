@@ -3,7 +3,6 @@
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import json
@@ -19,7 +18,11 @@ import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.identity.models.linked_account import LinkedAccount, LinkedAccountStatus, LinkedAccountType
+from app.domains.identity.models.linked_account import (
+    LinkedAccount,
+    LinkedAccountStatus,
+    LinkedAccountType,
+)
 from app.domains.mutual_funds.models import (
     MfFundMetadata,
     MfTransaction,
@@ -32,8 +35,15 @@ from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
     resolve_asset_bucket,
 )
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioAllocation, PortfolioHistory, PortfolioHolding
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.portfolio.models.portfolio import (
+    Portfolio,
+    PortfolioAllocation,
+    PortfolioHistory,
+    PortfolioHolding,
+)
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+)
 from app.domains.ingestion.schemas.simbanks import SimBankDiscoveredAccount
 
 logger = logging.getLogger(__name__)
@@ -119,7 +129,9 @@ def _parse_option_type(scheme_option: Optional[str]) -> MfOptionType:
 
 def _parse_plan_type(scheme_plan: Optional[str], scheme_code: str) -> MfPlanType:
     if scheme_plan:
-        return MfPlanType.DIRECT if "DIRECT" in scheme_plan.upper() else MfPlanType.REGULAR
+        return (
+            MfPlanType.DIRECT if "DIRECT" in scheme_plan.upper() else MfPlanType.REGULAR
+        )
     # fall back to scheme_code string
     return MfPlanType.DIRECT if "DIRECT" in scheme_code.upper() else MfPlanType.REGULAR
 
@@ -189,7 +201,9 @@ def _parse_mf_date(v: Optional[str]) -> datetime.date:
     return datetime.now(timezone.utc).date()
 
 
-def _infer_mf_transaction_type(flag: Optional[str], desc: Optional[str]) -> MfTransactionType:
+def _infer_mf_transaction_type(
+    flag: Optional[str], desc: Optional[str]
+) -> MfTransactionType:
     f = (flag or "").strip().upper()
     d = (desc or "").strip().upper()
     if f in {"SI", "SWITCH_IN"} or "SWITCH-IN" in d:
@@ -214,7 +228,10 @@ def _is_probable_mf_payload(
     if any(token in upper_meta for token in ("MUTUAL", "MFC", "MF ")):
         return True
     raw = account_data.upper()
-    return any(token in raw for token in ('"DTTRANSACTION"', '"SCHEMENAME"', '"FOLIO"', '"TRXNUNITS"'))
+    return any(
+        token in raw
+        for token in ('"DTTRANSACTION"', '"SCHEMENAME"', '"FOLIO"', '"TRXNUNITS"')
+    )
 
 
 def _infer_account_kind(
@@ -322,7 +339,9 @@ def parse_deposit_account_xml(xml_text: str) -> tuple[_DepositSummary, dict[str,
     }
 
 
-def parse_mutual_fund_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_MfHolding], list[_MfTransactionRow]]:
+def parse_mutual_fund_account_xml(
+    xml_text: str,
+) -> tuple[dict[str, Any], list[_MfHolding], list[_MfTransactionRow]]:
     root = ET.fromstring(xml_text)
     masked_folio_no = root.attrib.get("maskedFolioNo")
     linked_acc_ref = root.attrib.get("linkedAccRef")
@@ -391,7 +410,12 @@ def parse_mutual_fund_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_
         if units <= 0 and nav > 0 and amount > 0:
             units = amount / nav
 
-        folio_number = folio_by_amfi.get(scheme_code) or txn.attrib.get("folioNo") or masked_folio_no or ""
+        folio_number = (
+            folio_by_amfi.get(scheme_code)
+            or txn.attrib.get("folioNo")
+            or masked_folio_no
+            or ""
+        )
         if not folio_number:
             folio_number = "UNKNOWN"
 
@@ -433,10 +457,14 @@ def parse_mutual_fund_account_json(
             try:
                 payload = json.loads(raw[start : end + 1])
             except json.JSONDecodeError:
-                logger.warning("[SIMBANKS][mf-json] Invalid MF JSON payload; unable to parse")
+                logger.warning(
+                    "[SIMBANKS][mf-json] Invalid MF JSON payload; unable to parse"
+                )
                 payload = {}
         else:
-            logger.warning("[SIMBANKS][mf-json] Invalid MF JSON payload; no JSON object found")
+            logger.warning(
+                "[SIMBANKS][mf-json] Invalid MF JSON payload; no JSON object found"
+            )
             payload = {}
     entries = payload.get("data") if isinstance(payload, dict) else []
     if not isinstance(entries, list):
@@ -458,7 +486,9 @@ def parse_mutual_fund_account_json(
             nav = _to_float(row.get("purchasePrice"))
             units = abs(_to_float(row.get("trxnUnits")))
             amount = abs(_to_float(row.get("trxnAmount")))
-            txn_type = _infer_mf_transaction_type(row.get("trxnTypeFlag"), row.get("trxnDesc"))
+            txn_type = _infer_mf_transaction_type(
+                row.get("trxnTypeFlag"), row.get("trxnDesc")
+            )
             txn_date = _parse_mf_date(row.get("trxnDate") or row.get("postedDate"))
             txns.append(
                 _MfTransactionRow(
@@ -478,7 +508,9 @@ def parse_mutual_fund_account_json(
                 {
                     "scheme_code": scheme_code,
                     "instrument_name": str(row.get("schemeName") or "MF Scheme"),
-                    "amc_name": str(row.get("amcName") or row.get("amc") or "Unknown AMC"),
+                    "amc_name": str(
+                        row.get("amcName") or row.get("amc") or "Unknown AMC"
+                    ),
                     "isin": row.get("isin"),
                     "scheme_option": None,
                     "scheme_type": None,
@@ -491,7 +523,11 @@ def parse_mutual_fund_account_json(
             )
             if nav > 0:
                 item["last_nav"] = nav
-            if txn_type in {MfTransactionType.BUY, MfTransactionType.SWITCH_IN, MfTransactionType.DIVIDEND_REINVEST}:
+            if txn_type in {
+                MfTransactionType.BUY,
+                MfTransactionType.SWITCH_IN,
+                MfTransactionType.DIVIDEND_REINVEST,
+            }:
                 item["units_balance"] += units
                 net_invested += amount
             elif txn_type in {MfTransactionType.SELL, MfTransactionType.SWITCH_OUT}:
@@ -530,7 +566,9 @@ def parse_mutual_fund_account_json(
     sample_folio = holdings[0].folio_no if holdings else None
     return (
         {
-            "linked_acc_ref": str(payload.get("pan") or "") if isinstance(payload, dict) else "",
+            "linked_acc_ref": str(payload.get("pan") or "")
+            if isinstance(payload, dict)
+            else "",
             "masked_folio_no": sample_folio,
             "cost_value": max(net_invested, 0.0),
             "current_value": max(current_value, 0.0),
@@ -548,23 +586,37 @@ def parse_mutual_fund_account_payload(
     return parse_mutual_fund_account_json(payload)
 
 
-def parse_equities_account_xml(xml_text: str) -> tuple[dict[str, Any], list[_EquityHolding]]:
+def parse_equities_account_xml(
+    xml_text: str,
+) -> tuple[dict[str, Any], list[_EquityHolding]]:
     root = ET.fromstring(xml_text)
-    masked_demat_id = root.attrib.get("maskedDematId") or root.attrib.get("maskedDematID")
+    masked_demat_id = root.attrib.get("maskedDematId") or root.attrib.get(
+        "maskedDematID"
+    )
     linked_acc_ref = root.attrib.get("linkedAccRef")
 
     summary_attrib = _find_first_attrib(root, "Summary")
-    current_value = _float_or_none(summary_attrib.get("currentValue") if summary_attrib else None) or 0.0
+    current_value = (
+        _float_or_none(summary_attrib.get("currentValue") if summary_attrib else None)
+        or 0.0
+    )
 
     holdings: list[_EquityHolding] = []
     for h in _find_children(root, "Holding"):
         units = float(h.attrib.get("units") or 0.0)
         ltp = float(h.attrib.get("lastTradedPrice") or 0.0)
         issuer = (h.attrib.get("issuerName") or "Equity Holding").strip()
-        amfi_code = (h.attrib.get("amfiCode") or h.attrib.get("amfi_code") or "").strip()
+        amfi_code = (
+            h.attrib.get("amfiCode") or h.attrib.get("amfi_code") or ""
+        ).strip()
         scheme_cat = (h.attrib.get("schemeCategory") or "").strip() or None
         scheme_typ = (h.attrib.get("schemeTypes") or "").strip() or None
-        is_mf = bool(amfi_code) or bool(scheme_cat) or bool(scheme_typ) or "FUND" in issuer.upper()
+        is_mf = (
+            bool(amfi_code)
+            or bool(scheme_cat)
+            or bool(scheme_typ)
+            or "FUND" in issuer.upper()
+        )
         holdings.append(
             _EquityHolding(
                 issuer_name=issuer,
@@ -594,7 +646,9 @@ async def _simbanks_get_json(client: httpx.AsyncClient, path: str) -> Any:
     return resp.json()
 
 
-async def _simbanks_get_account_xml(client: httpx.AsyncClient, fip_id: str, account_ref_no: str) -> str:
+async def _simbanks_get_account_xml(
+    client: httpx.AsyncClient, fip_id: str, account_ref_no: str
+) -> str:
     url = f"{CONNECTHUB_BASE}/Account/{fip_id}/{account_ref_no}"
     resp = await client.get(url, timeout=60)
     resp.raise_for_status()
@@ -619,7 +673,9 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
             fi_type = str(a.get("fiType") or "")
             account_type = str(a.get("accountType") or "")
 
-            account_xml = await _simbanks_get_account_xml(client, fip_id=fip_id, account_ref_no=account_ref_no)
+            account_xml = await _simbanks_get_account_xml(
+                client, fip_id=fip_id, account_ref_no=account_ref_no
+            )
 
             kind = _infer_account_kind(
                 fip_id=fip_id,
@@ -672,7 +728,9 @@ async def discover_simbanks_accounts(mobile: str) -> list[SimBankDiscoveredAccou
                 )
             elif kind == "equity":
                 eq_summary, eq_holdings = parse_equities_account_xml(account_xml)
-                all_holdings_are_mf = bool(eq_holdings) and all(h.is_mutual_fund for h in eq_holdings)
+                all_holdings_are_mf = bool(eq_holdings) and all(
+                    h.is_mutual_fund for h in eq_holdings
+                )
                 discovered.append(
                     SimBankDiscoveredAccount(
                         account_ref_no=account_ref_no,
@@ -720,7 +778,11 @@ async def sync_simbanks_accounts(
         payload = await _simbanks_get_json(client, f"/Accounts/{mobile}")
         accounts = payload.get("accounts") or []
 
-        accepted = [a for a in accounts if str(a.get("accountRefNo")) in set(accepted_account_ref_nos)]
+        accepted = [
+            a
+            for a in accounts
+            if str(a.get("accountRefNo")) in set(accepted_account_ref_nos)
+        ]
         if not accepted:
             raise ValueError("No matching SimBanks accounts for accepted refs")
 
@@ -731,7 +793,9 @@ async def sync_simbanks_accounts(
             fip_id = str(a.get("fipId") or "")
             fi_type = str(a.get("fiType") or "")
             account_type = str(a.get("accountType") or "")
-            account_xml = await _simbanks_get_account_xml(client, fip_id=fip_id, account_ref_no=account_ref_no)
+            account_xml = await _simbanks_get_account_xml(
+                client, fip_id=fip_id, account_ref_no=account_ref_no
+            )
             kind = _infer_account_kind(
                 fip_id=fip_id,
                 fi_type=fi_type,
@@ -748,15 +812,25 @@ async def sync_simbanks_accounts(
                 account_data=account_xml,
                 inferred_kind=kind,
             )
-            discovered_pairs.append((fip_id, account_ref_no, kind, fi_type, account_type, account_xml))
+            discovered_pairs.append(
+                (fip_id, account_ref_no, kind, fi_type, account_type, account_xml)
+            )
 
     # DB refresh (transactionally)
     portfolio = await get_or_create_primary_portfolio(db, user.id)
     portfolio_id = portfolio.id
 
-    await db.execute(delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id == portfolio_id))
-    await db.execute(delete(PortfolioHolding).where(PortfolioHolding.portfolio_id == portfolio_id))
-    await db.execute(delete(PortfolioHistory).where(PortfolioHistory.portfolio_id == portfolio_id))
+    await db.execute(
+        delete(PortfolioAllocation).where(
+            PortfolioAllocation.portfolio_id == portfolio_id
+        )
+    )
+    await db.execute(
+        delete(PortfolioHolding).where(PortfolioHolding.portfolio_id == portfolio_id)
+    )
+    await db.execute(
+        delete(PortfolioHistory).where(PortfolioHistory.portfolio_id == portfolio_id)
+    )
     await db.execute(delete(MfTransaction).where(MfTransaction.user_id == user.id))
     await db.execute(
         delete(LinkedAccount).where(
@@ -792,7 +866,14 @@ async def sync_simbanks_accounts(
     mf_fund_metadata_to_upsert: dict[str, dict[str, Any]] = {}
     seen_mf_fingerprints: set[str] = set()
 
-    for fip_id, account_ref_no, kind, fi_type, account_type, account_xml in discovered_pairs:
+    for (
+        fip_id,
+        account_ref_no,
+        kind,
+        fi_type,
+        account_type,
+        account_xml,
+    ) in discovered_pairs:
         if kind == "deposit":
             summary_obj, extra = parse_deposit_account_xml(account_xml)
             current_balance = summary_obj.current_balance
@@ -854,7 +935,9 @@ async def sync_simbanks_accounts(
             mf_bucket_total = 0.0
             for h in holdings:
                 current_val = h.closing_units * h.nav
-                bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category, h.instrument_name)
+                bucket = _classify_mf_bucket(
+                    h.scheme_type, h.scheme_category, h.instrument_name
+                )
                 bucket_amounts[bucket] += current_val
                 mf_bucket_total += current_val
                 holdings_to_create.append(
@@ -978,7 +1061,9 @@ async def sync_simbanks_accounts(
         elif kind == "equity":
             eq_summary, eq_holdings = parse_equities_account_xml(account_xml)
             eq_current_value = float(eq_summary.get("current_value") or 0.0)
-            all_holdings_are_mf = bool(eq_holdings) and all(h.is_mutual_fund for h in eq_holdings)
+            all_holdings_are_mf = bool(eq_holdings) and all(
+                h.is_mutual_fund for h in eq_holdings
+            )
 
             total_value += eq_current_value
             total_invested += eq_current_value
@@ -988,7 +1073,9 @@ async def sync_simbanks_accounts(
                 current_val = h.units * h.last_traded_price
                 eq_holdings_total += current_val
                 if h.is_mutual_fund:
-                    mf_bucket = _classify_mf_bucket(h.scheme_type, h.scheme_category, h.issuer_name)
+                    mf_bucket = _classify_mf_bucket(
+                        h.scheme_type, h.scheme_category, h.issuer_name
+                    )
                     bucket_amounts[mf_bucket] += current_val
                     holdings_to_create.append(
                         PortfolioHolding(
@@ -1044,7 +1131,9 @@ async def sync_simbanks_accounts(
             linked = LinkedAccount(
                 user_id=user.id,
                 account_type=(
-                    LinkedAccountType.mutual_fund if all_holdings_are_mf else LinkedAccountType.stock_demat
+                    LinkedAccountType.mutual_fund
+                    if all_holdings_are_mf
+                    else LinkedAccountType.stock_demat
                 ),
                 provider_name=fip_id,
                 account_identifier=account_ref_no,
@@ -1067,7 +1156,17 @@ async def sync_simbanks_accounts(
     # Insert/update MF fund metadata
     if mf_fund_metadata_to_upsert:
         scheme_codes = list(mf_fund_metadata_to_upsert.keys())
-        existing_rows = (await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code.in_(scheme_codes)))).scalars().all()
+        existing_rows = (
+            (
+                await db.execute(
+                    select(MfFundMetadata).where(
+                        MfFundMetadata.scheme_code.in_(scheme_codes)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         existing_by_code = {r.scheme_code: r for r in existing_rows}
 
         for code, meta in mf_fund_metadata_to_upsert.items():
@@ -1128,11 +1227,14 @@ async def sync_simbanks_accounts(
     )
 
     today = datetime.now(timezone.utc).date()
-    db.add(PortfolioHistory(portfolio_id=portfolio_id, recorded_date=today, total_value=total_value))
+    db.add(
+        PortfolioHistory(
+            portfolio_id=portfolio_id, recorded_date=today, total_value=total_value
+        )
+    )
 
     await db.commit()
     # Refresh portfolio object
     await db.refresh(portfolio)
 
     return portfolio, linked_account_ids
-

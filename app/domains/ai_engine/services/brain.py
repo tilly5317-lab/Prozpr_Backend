@@ -28,13 +28,17 @@ import httpx
 
 from app.domains.ai_engine.common import trace_line, trace_response_preview
 from app.domains.ai_engine.services.flow import (
-    FLOWS, AWAITING_SAVE_FLOW, flow_general_chat,
+    FLOWS,
+    AWAITING_SAVE_FLOW,
+    flow_general_chat,
 )
 from app.domains.ai_engine.turn_context import (
-    TurnContext, build_turn_context,
+    TurnContext,
+    build_turn_context,
 )
 from app.domains.ai_engine.chat_types import (
-    ChatBrainResult, ChatTurnInput,
+    ChatBrainResult,
+    ChatTurnInput,
 )
 from app.domains.ai_engine.types import IntentDecision, ModuleOutput
 from app.domains.chat.services.ai_module_telemetry import log_chat_turn_flow_summary
@@ -42,9 +46,7 @@ from app.domains.intent_classifier.services import intent_classifier_service
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFIER_FAILURE_MESSAGE = (
-    "Sorry — I couldn't process your request due to a technical issue. Please try again."
-)
+_CLASSIFIER_FAILURE_MESSAGE = "Sorry — I couldn't process your request due to a technical issue. Please try again."
 _INTENT_TIMEOUT_MESSAGE = (
     "That took longer than expected on my end — please try again in a moment."
 )
@@ -63,10 +65,12 @@ _GOAL_PLANNING_SENTINEL = "isn't built into the chat yet"
 
 # Intents whose classifier output is itself the reply (canned out-of-scope /
 # stock-advice redirects). No flow runs.
-_CLASSIFIER_ONLY_INTENTS: frozenset[str] = frozenset({
-    "out_of_scope",
-    "stock_advice",
-})
+_CLASSIFIER_ONLY_INTENTS: frozenset[str] = frozenset(
+    {
+        "out_of_scope",
+        "stock_advice",
+    }
+)
 
 
 def _is_llm_auth_failure(exc: BaseException) -> bool:
@@ -77,7 +81,11 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
     msg = str(exc).lower()
     return (
         "401" in msg
-        and ("unauthorized" in msg or "invalid x-api-key" in msg or "authentication_error" in msg)
+        and (
+            "unauthorized" in msg
+            or "invalid x-api-key" in msg
+            or "authentication_error" in msg
+        )
     ) or ("invalid x-api-key" in msg)
 
 
@@ -85,13 +93,14 @@ def _is_llm_auth_failure(exc: BaseException) -> bool:
 # ChatBrain
 # ---------------------------------------------------------------------------
 
+
 class ChatBrain:
     """Orchestrates one chat turn. Stateless: safe to instantiate per request."""
 
     async def run_turn(self, turn: ChatTurnInput) -> ChatBrainResult:
         sid = turn.session_id
         uid = turn.effective_user_id
-        db  = turn.db
+        db = turn.db
         flow: list[str] = []
         t_all = time.perf_counter()
 
@@ -122,8 +131,13 @@ class ChatBrain:
                 canned = getattr(intent.raw, "out_of_scope_message", None)
                 if canned:
                     return await self._finalize(
-                        text=canned, intent=intent,
-                        flow=flow, t0=t_all, db=db, uid=uid, sid=sid,
+                        text=canned,
+                        intent=intent,
+                        flow=flow,
+                        t0=t_all,
+                        db=db,
+                        uid=uid,
+                        sid=sid,
                     )
 
             # ---- 4. Pick the flow -------------------------------------------
@@ -134,12 +148,15 @@ class ChatBrain:
             # ---- 5. Run the flow (it composes the domain steps itself) ------
             try:
                 final: ModuleOutput = await asyncio.wait_for(
-                    selected(turn, ctx), timeout=_FLOW_TIMEOUT_S,
+                    selected(turn, ctx),
+                    timeout=_FLOW_TIMEOUT_S,
                 )
             except asyncio.TimeoutError:
                 logger.warning(
                     "Flow %r timed out after %.0fs (session=%s); returning fallback",
-                    selected.__name__, _FLOW_TIMEOUT_S, sid,
+                    selected.__name__,
+                    _FLOW_TIMEOUT_S,
+                    sid,
                 )
                 flow.append(f"{selected.__name__} timed out — returning fallback")
                 # The cancelled flow may have been mid-statement on the shared
@@ -152,17 +169,28 @@ class ChatBrain:
                         await db.rollback()
                     except Exception:
                         logger.exception(
-                            "ChatBrain failed to rollback after flow timeout session=%s", sid,
+                            "ChatBrain failed to rollback after flow timeout session=%s",
+                            sid,
                         )
                 return await self._finalize(
-                    text=_INTENT_TIMEOUT_MESSAGE, intent=intent,
-                    flow=flow, t0=t_all, db=db, uid=uid, sid=sid,
+                    text=_INTENT_TIMEOUT_MESSAGE,
+                    intent=intent,
+                    flow=flow,
+                    t0=t_all,
+                    db=db,
+                    uid=uid,
+                    sid=sid,
                 )
 
             # ---- 6. The flow's result owns the reply ------------------------
             return await self._finalize(
-                text=final.text or "", intent=intent,
-                flow=flow, t0=t_all, db=db, uid=uid, sid=sid,
+                text=final.text or "",
+                intent=intent,
+                flow=flow,
+                t0=t_all,
+                db=db,
+                uid=uid,
+                sid=sid,
                 final=final,
             )
 
@@ -170,7 +198,8 @@ class ChatBrain:
             if _is_llm_auth_failure(exc):
                 logger.warning(
                     "ChatBrain session=%s: LLM authentication failed (%s); using recovery path",
-                    sid, exc,
+                    sid,
+                    exc,
                 )
             else:
                 logger.exception("ChatBrain turn failed session=%s: %s", sid, exc)
@@ -181,11 +210,17 @@ class ChatBrain:
                     await db.rollback()
                 except Exception:
                     logger.exception(
-                        "ChatBrain failed to rollback aborted transaction session=%s", sid,
+                        "ChatBrain failed to rollback aborted transaction session=%s",
+                        sid,
                     )
             return await self._finalize(
-                text=_CLASSIFIER_FAILURE_MESSAGE, intent=intent,
-                flow=flow, t0=t_all, db=db, uid=uid, sid=sid,
+                text=_CLASSIFIER_FAILURE_MESSAGE,
+                intent=intent,
+                flow=flow,
+                t0=t_all,
+                db=db,
+                uid=uid,
+                sid=sid,
             )
 
     # ---------------------------------------------------------------------
@@ -219,7 +254,9 @@ class ChatBrain:
         """Shape the assistant reply + write end-of-turn telemetry."""
         ms = int((time.perf_counter() - t0) * 1000)
         trace_response_preview(
-            "final assistant message sent to client", text, max_chars=1200,
+            "final assistant message sent to client",
+            text,
+            max_chars=1200,
         )
         try:
             await asyncio.wait_for(
@@ -237,11 +274,14 @@ class ChatBrain:
         except asyncio.TimeoutError:
             logger.warning(
                 "Chat turn telemetry timed out after %.1fs (session=%s); "
-                "returning reply without telemetry row", _TELEMETRY_TIMEOUT_S, sid,
+                "returning reply without telemetry row",
+                _TELEMETRY_TIMEOUT_S,
+                sid,
             )
         except Exception:
             logger.exception(
-                "Chat turn telemetry failed (session=%s); returning reply anyway", sid,
+                "Chat turn telemetry failed (session=%s); returning reply anyway",
+                sid,
             )
         return ChatBrainResult(
             content=text,
@@ -249,7 +289,9 @@ class ChatBrain:
             intent_confidence=intent.confidence if intent else None,
             intent_reasoning=intent.reasoning if intent else None,
             asset_allocation_run_id=final.persisted_run_id if final else None,
-            ideal_allocation_rebalancing_id=final.rebalancing_recommendation_id if final else None,
+            ideal_allocation_rebalancing_id=final.rebalancing_recommendation_id
+            if final
+            else None,
             ideal_allocation_snapshot_id=final.snapshot_id if final else None,
             chart_payloads=final.chart_payloads if final else None,
         )

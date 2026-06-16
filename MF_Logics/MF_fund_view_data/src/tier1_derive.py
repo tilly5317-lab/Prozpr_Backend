@@ -17,32 +17,61 @@ def _clean_isin(v) -> str:
         return ""
     return s
 
+
 # AMFI broad mapping. Equity sub-cats per SEBI categorization.
 EQUITY_SUBCATS = {
-    "Large Cap Fund", "Mid Cap Fund", "Small Cap Fund", "Large & Mid Cap Fund",
-    "Multi Cap Fund", "Flexi Cap Fund", "Focused Fund", "ELSS",
-    "Sectoral/ Thematic", "Value Fund", "Contra Fund", "Dividend Yield Fund",
+    "Large Cap Fund",
+    "Mid Cap Fund",
+    "Small Cap Fund",
+    "Large & Mid Cap Fund",
+    "Multi Cap Fund",
+    "Flexi Cap Fund",
+    "Focused Fund",
+    "ELSS",
+    "Sectoral/ Thematic",
+    "Value Fund",
+    "Contra Fund",
+    "Dividend Yield Fund",
 }
 # Funds taxed as equity: equity funds + arbitrage + hybrid funds with >=65% equity
 EQUITY_TAXED_HYBRIDS = {"Aggressive Hybrid Fund", "Arbitrage Fund", "Equity Savings"}
 # Hybrid funds whose tax depends on portfolio mix; default to debt taxation
 HYBRID_DEBT_TAXED = {
-    "Conservative Hybrid Fund", "Multi Asset Allocation",
-    "Balanced Hybrid Fund", "Dynamic Asset Allocation or Balanced Advantage",
+    "Conservative Hybrid Fund",
+    "Multi Asset Allocation",
+    "Balanced Hybrid Fund",
+    "Dynamic Asset Allocation or Balanced Advantage",
 }
 DEBT_SUBCATS = {
-    "Liquid Fund", "Overnight Fund", "Low Duration Fund",
-    "Ultra Short Duration Fund", "Money Market Fund", "Money Market",
-    "Short Duration Fund", "Medium Duration Fund",
-    "Medium to Long Duration Fund", "Long Duration Fund",
-    "Dynamic Bond", "Corporate Bond Fund", "Credit Risk Fund",
-    "Banking and PSU Fund", "Gilt Fund",
-    "Gilt Fund with 10 year constant duration", "Floater Fund",
-    "Income", "IDF",
+    "Liquid Fund",
+    "Overnight Fund",
+    "Low Duration Fund",
+    "Ultra Short Duration Fund",
+    "Money Market Fund",
+    "Money Market",
+    "Short Duration Fund",
+    "Medium Duration Fund",
+    "Medium to Long Duration Fund",
+    "Long Duration Fund",
+    "Dynamic Bond",
+    "Corporate Bond Fund",
+    "Credit Risk Fund",
+    "Banking and PSU Fund",
+    "Gilt Fund",
+    "Gilt Fund with 10 year constant duration",
+    "Floater Fund",
+    "Income",
+    "IDF",
 }
 OTHER_SUBCATS = {
-    "Index Funds", "Other  ETFs", "Gold ETF", "FoF Domestic", "FoF Overseas",
-    "Retirement Fund", "Children’s Fund", "Children's Fund",
+    "Index Funds",
+    "Other  ETFs",
+    "Gold ETF",
+    "FoF Domestic",
+    "FoF Overseas",
+    "Retirement Fund",
+    "Children’s Fund",
+    "Children's Fund",
 }
 
 
@@ -59,9 +88,35 @@ def asset_class_for(sub_category: str, scheme_name: str = "") -> str:
     if s in {"Index Funds", "Other  ETFs"}:
         # Can't tell from sub_cat alone; infer from name
         nm = (scheme_name or "").lower()
-        if any(k in nm for k in ("nifty", "sensex", "midcap", "smallcap", "next 50", "bank", "pharma", "it ", "fmcg", "auto")):
+        if any(
+            k in nm
+            for k in (
+                "nifty",
+                "sensex",
+                "midcap",
+                "smallcap",
+                "next 50",
+                "bank",
+                "pharma",
+                "it ",
+                "fmcg",
+                "auto",
+            )
+        ):
             return "Equity"
-        if any(k in nm for k in ("liquid", "gilt", "psu", "bond", "g-sec", "duration", "money market", "tbill")):
+        if any(
+            k in nm
+            for k in (
+                "liquid",
+                "gilt",
+                "psu",
+                "bond",
+                "g-sec",
+                "duration",
+                "money market",
+                "tbill",
+            )
+        ):
             return "Debt"
         if "gold" in nm:
             return "Commodity"
@@ -116,15 +171,28 @@ def tax_treatment(asset_class: str, sub_category: str) -> dict:
     sub = sub_category or ""
     if asset_class == "Equity" or sub in EQUITY_TAXED_HYBRIDS:
         return {
-            "st_rate": "20%", "st_period": "≤ 12 months",
-            "lt_rate": "12.5% (above ₹1.25L exemption)", "lt_period": "> 12 months",
+            "st_rate": "20%",
+            "st_period": "≤ 12 months",
+            "lt_rate": "12.5% (above ₹1.25L exemption)",
+            "lt_period": "> 12 months",
         }
-    if asset_class == "Debt" or sub in HYBRID_DEBT_TAXED or asset_class in {"FoF", "Commodity"}:
+    if (
+        asset_class == "Debt"
+        or sub in HYBRID_DEBT_TAXED
+        or asset_class in {"FoF", "Commodity"}
+    ):
         return {
-            "st_rate": "Slab rate", "st_period": "Any (post 1-Apr-2023)",
-            "lt_rate": "Slab rate (no indexation)", "lt_period": "Any (post 1-Apr-2023)",
+            "st_rate": "Slab rate",
+            "st_period": "Any (post 1-Apr-2023)",
+            "lt_rate": "Slab rate (no indexation)",
+            "lt_period": "Any (post 1-Apr-2023)",
         }
-    return {"st_rate": "Slab rate", "st_period": "—", "lt_rate": "Slab rate", "lt_period": "—"}
+    return {
+        "st_rate": "Slab rate",
+        "st_period": "—",
+        "lt_rate": "Slab rate",
+        "lt_period": "—",
+    }
 
 
 def derive_row(row: dict) -> dict:
@@ -147,6 +215,7 @@ def derive_row(row: dict) -> dict:
 
 if __name__ == "__main__":
     import pandas as pd
+
     df = pd.read_csv("latest_nav_active.csv")
     sample = df.iloc[[0, 100, 1000, 5000, 8000]]
     for _, r in sample.iterrows():

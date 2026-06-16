@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 from datetime import date
@@ -50,8 +49,13 @@ from app.domains.profile.schemas import (
     TaxProfileResponse,
     TaxProfileUpdate,
 )
-from app.domains.profile.services._effective_risk import maybe_recalculate_effective_risk, upsert_effective_risk_assessment
-from app.domains.cashflow.services.cashflow_persist_service import mark_stale as mark_cashflow_stale
+from app.domains.profile.services._effective_risk import (
+    maybe_recalculate_effective_risk,
+    upsert_effective_risk_assessment,
+)
+from app.domains.cashflow.services.cashflow_persist_service import (
+    mark_stale as mark_cashflow_stale,
+)
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -62,9 +66,7 @@ async def get_full_profile(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     uid = current_user.id
-    user = (
-        await db.execute(select(User).where(User.id == uid))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     profile = (
         await db.execute(
             select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == uid)
@@ -81,13 +83,17 @@ async def get_full_profile(
         await db.execute(select(RiskProfile).where(RiskProfile.user_id == uid))
     ).scalar_one_or_none()
     constraint = (
-        await db.execute(select(InvestmentConstraint).where(InvestmentConstraint.user_id == uid))
+        await db.execute(
+            select(InvestmentConstraint).where(InvestmentConstraint.user_id == uid)
+        )
     ).scalar_one_or_none()
     tax = (
         await db.execute(select(TaxProfile).where(TaxProfile.user_id == uid))
     ).scalar_one_or_none()
     review = (
-        await db.execute(select(ReviewPreference).where(ReviewPreference.user_id == uid))
+        await db.execute(
+            select(ReviewPreference).where(ReviewPreference.user_id == uid)
+        )
     ).scalar_one_or_none()
 
     constraint_resp = None
@@ -121,7 +127,9 @@ async def get_full_profile(
                     "occupation": user.occupation if user else None,
                     "family_status": user.family_status if user else None,
                     "wealth_sources": (profile.wealth_sources or []) if profile else [],
-                    "personal_values": (profile.personal_values or []) if profile else [],
+                    "personal_values": (profile.personal_values or [])
+                    if profile
+                    else [],
                     "address": user.address if user else None,
                     "currency": user.currency if user else "INR",
                 }
@@ -129,11 +137,15 @@ async def get_full_profile(
             if user or profile
             else None
         ),
-        investment_profile=InvestmentProfileResponse.model_validate(inv_profile) if inv_profile else None,
+        investment_profile=InvestmentProfileResponse.model_validate(inv_profile)
+        if inv_profile
+        else None,
         risk_profile=RiskProfileResponse.model_validate(risk) if risk else None,
         investment_constraint=constraint_resp,
         tax_profile=TaxProfileResponse.model_validate(tax) if tax else None,
-        review_preference=ReviewPreferenceResponse.model_validate(review) if review else None,
+        review_preference=ReviewPreferenceResponse.model_validate(review)
+        if review
+        else None,
     )
 
 
@@ -143,13 +155,17 @@ async def get_personal_info(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     user = (
         await db.execute(select(User).where(User.id == current_user.id))
     ).scalar_one_or_none()
     if not user and not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Personal info not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Personal info not found"
+        )
     return PersonalInfoResponse.model_validate(
         {
             "occupation": user.occupation if user else None,
@@ -168,13 +184,17 @@ async def update_personal_info(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     user = (
         await db.execute(select(User).where(User.id == current_user.id))
     ).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     if not profile:
         profile = PersonalFinanceProfile(user_id=current_user.id)
         db.add(profile)
@@ -182,8 +202,14 @@ async def update_personal_info(
     payload_data = payload.model_dump(exclude_unset=True)
     # date_of_birth + assumed_lifespan_years live on `users`, not the finance
     # profile — route them to the user row so the cashflow engine can read them.
-    for field in ("occupation", "family_status", "address", "currency",
-                  "date_of_birth", "assumed_lifespan_years"):
+    for field in (
+        "occupation",
+        "family_status",
+        "address",
+        "currency",
+        "date_of_birth",
+        "assumed_lifespan_years",
+    ):
         if field in payload_data:
             value = payload_data.pop(field)
             if value is not None:
@@ -216,10 +242,15 @@ async def get_personal_finance(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Personal finance profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Personal finance profile not found",
+        )
     return PersonalFinanceResponse.model_validate(profile)
 
 
@@ -229,7 +260,9 @@ async def update_personal_finance(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == current_user.id)
+    stmt = select(PersonalFinanceProfile).where(
+        PersonalFinanceProfile.user_id == current_user.id
+    )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
         profile = PersonalFinanceProfile(user_id=current_user.id)
@@ -242,7 +275,9 @@ async def update_personal_finance(
 
     await db.commit()
     await db.refresh(profile)
-    await maybe_recalculate_effective_risk(db, current_user.id, "personal_finance_update")
+    await maybe_recalculate_effective_risk(
+        db, current_user.id, "personal_finance_update"
+    )
     await db.commit()
     # Income / expense / assets / liabilities / tax / SIP are the core cashflow
     # inputs — invalidate the cached plan run so it recomputes on fresh values.
@@ -280,7 +315,9 @@ async def update_investment_profile(
     # Re-fetch with the relationship eagerly loaded so Pydantic can serialise
     # without triggering implicit IO under expired attributes.
     profile = (await db.execute(stmt)).scalar_one()
-    await maybe_recalculate_effective_risk(db, current_user.id, "investment_profile_update")
+    await maybe_recalculate_effective_risk(
+        db, current_user.id, "investment_profile_update"
+    )
     await db.commit()
     # retirement_age / target_corpus feed the cashflow projection — invalidate
     # the cached plan run so the next fetch recomputes.
@@ -300,7 +337,9 @@ async def get_investment_profile(
     )
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investment profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Investment profile not found"
+        )
     return InvestmentProfileResponse.model_validate(profile)
 
 
@@ -327,7 +366,9 @@ async def update_current_properties(
     # Ensure an investment profile exists so the rows surface via /investment's
     # current_properties relationship (joined on user_id).
     inv = (
-        await db.execute(select(InvestmentProfile).where(InvestmentProfile.user_id == uid))
+        await db.execute(
+            select(InvestmentProfile).where(InvestmentProfile.user_id == uid)
+        )
     ).scalar_one_or_none()
     if not inv:
         db.add(InvestmentProfile(user_id=uid))
@@ -391,7 +432,9 @@ async def get_risk_profile(
     stmt = select(RiskProfile).where(RiskProfile.user_id == current_user.id)
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Risk profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Risk profile not found"
+        )
     return RiskProfileResponse.model_validate(profile)
 
 
@@ -400,14 +443,21 @@ async def get_effective_risk_assessment(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(EffectiveRiskAssessment).where(EffectiveRiskAssessment.user_id == current_user.id)
+    stmt = select(EffectiveRiskAssessment).where(
+        EffectiveRiskAssessment.user_id == current_user.id
+    )
     row = (await db.execute(stmt)).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Effective risk assessment not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Effective risk assessment not found",
+        )
     return EffectiveRiskAssessmentResponse.model_validate(row)
 
 
-@router.post("/effective-risk/recalculate", response_model=EffectiveRiskRecalculateResponse)
+@router.post(
+    "/effective-risk/recalculate", response_model=EffectiveRiskRecalculateResponse
+)
 async def recalculate_effective_risk_endpoint(
     as_of: Optional[date] = Query(
         None,
@@ -438,7 +488,9 @@ async def update_investment_constraints(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(InvestmentConstraint).where(InvestmentConstraint.user_id == current_user.id)
+    stmt = select(InvestmentConstraint).where(
+        InvestmentConstraint.user_id == current_user.id
+    )
     constraint = (await db.execute(stmt)).scalar_one_or_none()
     if not constraint:
         constraint = InvestmentConstraint(user_id=current_user.id)
@@ -498,10 +550,15 @@ async def get_investment_constraints(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    stmt = select(InvestmentConstraint).where(InvestmentConstraint.user_id == current_user.id)
+    stmt = select(InvestmentConstraint).where(
+        InvestmentConstraint.user_id == current_user.id
+    )
     constraint = (await db.execute(stmt)).scalar_one_or_none()
     if not constraint:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investment constraints not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Investment constraints not found",
+        )
 
     alloc_stmts = await db.execute(
         select(AssetAllocationConstraint).where(
@@ -558,7 +615,9 @@ async def get_tax_profile(
     stmt = select(TaxProfile).where(TaxProfile.user_id == current_user.id)
     profile = (await db.execute(stmt)).scalar_one_or_none()
     if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tax profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tax profile not found"
+        )
     return TaxProfileResponse.model_validate(profile)
 
 
@@ -591,5 +650,7 @@ async def get_review_preference(
     stmt = select(ReviewPreference).where(ReviewPreference.user_id == current_user.id)
     pref = (await db.execute(stmt)).scalar_one_or_none()
     if not pref:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review preferences not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review preferences not found"
+        )
     return ReviewPreferenceResponse.model_validate(pref)

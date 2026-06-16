@@ -35,7 +35,9 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("index_name", "tri_date", name="uq_index_tri_name_date"),
     )
-    op.create_index("ix_index_tri_history_index_name", "index_tri_history", ["index_name"])
+    op.create_index(
+        "ix_index_tri_history_index_name", "index_tri_history", ["index_name"]
+    )
     op.create_index("ix_index_tri_history_tri_date", "index_tri_history", ["tri_date"])
 
 

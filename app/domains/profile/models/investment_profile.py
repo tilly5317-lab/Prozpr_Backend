@@ -6,7 +6,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +29,9 @@ if TYPE_CHECKING:
 
 class InvestmentProfile(Base):
     __tablename__ = "investment_profiles"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_investment_profiles_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_investment_profiles_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -30,19 +42,33 @@ class InvestmentProfile(Base):
 
     objectives: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     detailed_goals: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    portfolio_value: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    target_corpus: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
+    portfolio_value: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    target_corpus: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
     target_timeline: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     retirement_age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    expected_inflows: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    planned_major_expenses: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    emergency_fund: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
-    emergency_fund_months: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    expected_inflows: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    planned_major_expenses: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    emergency_fund: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    emergency_fund_months: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
     liquidity_needs: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     income_needs: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
 
-    is_multi_phase_horizon: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_multi_phase_horizon: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True
+    )
     phase_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     total_horizon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 

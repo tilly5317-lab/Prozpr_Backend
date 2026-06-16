@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -16,12 +15,16 @@ from pydantic import BaseModel, Field, field_validator
 class GoalCreate(BaseModel):
     """Accepts legacy frontend field names; stored as structured goals."""
 
-    name: str = Field(..., min_length=1, max_length=100, description="Maps to goal_name")
+    name: str = Field(
+        ..., min_length=1, max_length=100, description="Maps to goal_name"
+    )
     goal_type: Optional[str] = Field(default="OTHER", max_length=32)
     slug: Optional[str] = None
     icon: Optional[str] = None
     description: Optional[str] = None
-    target_amount: float = Field(..., gt=0, description="Maps to present_value_amount (today's cost)")
+    target_amount: float = Field(
+        ..., gt=0, description="Maps to present_value_amount (today's cost)"
+    )
     inflation_rate: Optional[float] = Field(default=None, ge=0, le=50)
     target_date: Optional[date] = None
     monthly_contribution: Optional[float] = None
@@ -208,7 +211,11 @@ def goal_to_response(
     current_value: float = 0.0,
 ) -> GoalResponse:
     gt = getattr(goal, "goal_type", None)
-    goal_type_str = gt.value if gt is not None and hasattr(gt, "value") else (str(gt) if gt else None)
+    goal_type_str = (
+        gt.value
+        if gt is not None and hasattr(gt, "value")
+        else (str(gt) if gt else None)
+    )
 
     return GoalResponse(
         id=goal.id,

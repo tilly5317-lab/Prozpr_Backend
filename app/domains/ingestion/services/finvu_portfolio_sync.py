@@ -8,7 +8,6 @@ active ingestion path. The replacement is CAMS / KFintech CAS PDF upload:
 Encapsulates business logic consumed by FastAPI routers. Uses database sessions, optional external APIs, and other services; should remain free of route-specific HTTP details (status codes live in routers).
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -17,8 +16,13 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.portfolio.models.portfolio import PortfolioAllocation
-from app.domains.ingestion.schemas.finvu import FinvuPortfolioSyncRequest, FinvuPortfolioSyncResponse
-from app.domains.portfolio.services.portfolio_service import get_or_create_primary_portfolio
+from app.domains.ingestion.schemas.finvu import (
+    FinvuPortfolioSyncRequest,
+    FinvuPortfolioSyncResponse,
+)
+from app.domains.portfolio.services.portfolio_service import (
+    get_or_create_primary_portfolio,
+)
 
 
 async def apply_finvu_bucket_snapshot(
@@ -41,7 +45,11 @@ async def apply_finvu_bucket_snapshot(
             message="Total bucket value is zero; nothing written.",
         )
 
-    await db.execute(delete(PortfolioAllocation).where(PortfolioAllocation.portfolio_id == portfolio.id))
+    await db.execute(
+        delete(PortfolioAllocation).where(
+            PortfolioAllocation.portfolio_id == portfolio.id
+        )
+    )
 
     rows = 0
     for name, raw in amounts.items():

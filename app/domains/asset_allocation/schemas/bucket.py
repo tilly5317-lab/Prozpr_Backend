@@ -8,7 +8,9 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.domains.asset_allocation.schemas.subgroup import AssetAllocationBucketSubgroupResponse
+from app.domains.asset_allocation.schemas.subgroup import (
+    AssetAllocationBucketSubgroupResponse,
+)
 
 
 class AssetAllocationBucketResponse(BaseModel):

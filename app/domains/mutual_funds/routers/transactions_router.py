@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
-from app.domains.mutual_funds.schemas import MfTransactionCreate, MfTransactionResponse, MfTransactionUpdate
+from app.domains.mutual_funds.schemas import (
+    MfTransactionCreate,
+    MfTransactionResponse,
+    MfTransactionUpdate,
+)
 from app.domains.mutual_funds.services import transaction_service
 
 router = APIRouter(prefix="/transactions", tags=["MF Data"])
@@ -47,7 +51,9 @@ async def get_mf_transaction(
     return await transaction_service.get_transaction(db, txn_id, current_user.id)
 
 
-@router.post("/", response_model=MfTransactionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=MfTransactionResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_mf_transaction(
     payload: MfTransactionCreate,
     db: AsyncSession = Depends(get_db),
@@ -63,7 +69,9 @@ async def update_mf_transaction(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await transaction_service.update_transaction(db, txn_id, current_user.id, payload)
+    return await transaction_service.update_transaction(
+        db, txn_id, current_user.id, payload
+    )
 
 
 @router.delete("/{txn_id}", status_code=status.HTTP_204_NO_CONTENT)

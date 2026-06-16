@@ -74,6 +74,7 @@ class RebalancingWarningResponse(BaseModel):
 
 class RebalancingRunListItem(BaseModel):
     """Lightweight list item — no fund-level audit attached."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -88,6 +89,7 @@ class RebalancingRunListItem(BaseModel):
 
 class RebalancingRunDetailResponse(BaseModel):
     """Full detail view — totals + subgroup roll-ups + trades + warnings."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

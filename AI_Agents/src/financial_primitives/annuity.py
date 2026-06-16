@@ -2,6 +2,7 @@
 
 Sign conventions follow numpy_financial: positive principal in, positive payments out.
 """
+
 from __future__ import annotations
 import numpy_financial as npf
 
@@ -15,7 +16,9 @@ def pmt(monthly_rate: float, n: int, principal: float) -> float:
     return float(npf.pmt(monthly_rate, n, -principal))
 
 
-def rate(n: int, payment: float, principal: float, max_iter: int = 100, tol: float = 1e-9) -> float:
+def rate(
+    n: int, payment: float, principal: float, max_iter: int = 100, tol: float = 1e-9
+) -> float:
     """Inverse of pmt: given n, payment, principal, find the per-period rate.
 
     Uses npf.rate (Newton-Raphson). Raises RATEConvergenceError on non-convergence
@@ -23,9 +26,15 @@ def rate(n: int, payment: float, principal: float, max_iter: int = 100, tol: flo
     (e.g. <= -0.5 per period — indicates the inputs admit no real positive rate).
     """
     try:
-        result = npf.rate(n, -payment, principal, 0, guess=0.01, tol=tol, maxiter=max_iter)
-        if result is None or (isinstance(result, float) and (result != result)):  # NaN check
-            raise RATEConvergenceError(f"RATE did not converge for n={n}, pmt={payment}, P={principal}")
+        result = npf.rate(
+            n, -payment, principal, 0, guess=0.01, tol=tol, maxiter=max_iter
+        )
+        if result is None or (
+            isinstance(result, float) and (result != result)
+        ):  # NaN check
+            raise RATEConvergenceError(
+                f"RATE did not converge for n={n}, pmt={payment}, P={principal}"
+            )
         if result <= -0.5:
             raise RATEConvergenceError(
                 f"RATE settled on implausible value {result} for n={n}, pmt={payment}, P={principal}"

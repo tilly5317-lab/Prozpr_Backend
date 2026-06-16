@@ -43,8 +43,10 @@ _ORM_GOAL_TYPE_TO_ENGINE: dict[str, GoalType] = {
     "HOME_PURCHASE": GoalType.property,
 }
 
+
 def _map_custom_goals(
-    financial_goals: List[Any], today: date,
+    financial_goals: List[Any],
+    today: date,
 ) -> tuple[List[CustomGoal], List[str]]:
     issues: List[str] = []
     mapped: List[CustomGoal] = []
@@ -65,7 +67,9 @@ def _map_custom_goals(
         goal_name = getattr(g, "name", None) or getattr(g, "goal_name", None) or "goal"
         norm = goal_name.casefold()
         if norm in seen_names:
-            issues.append(f"goal:{goal_name} skipped — duplicate name in your goals list.")
+            issues.append(
+                f"goal:{goal_name} skipped — duplicate name in your goals list."
+            )
             continue
         seen_names.add(norm)
         # Retirement is NO LONGER injected from the profile — it is considered
@@ -83,7 +87,9 @@ def _map_custom_goals(
         infl = getattr(g, "inflation_rate", None)
         if infl is not None:
             try:
-                inflation_override = float(infl) / 100.0 if float(infl) > 1 else float(infl)
+                inflation_override = (
+                    float(infl) / 100.0 if float(infl) > 1 else float(infl)
+                )
             except (TypeError, ValueError):
                 pass
         if engine_type == GoalType.property:
@@ -91,13 +97,15 @@ def _map_custom_goals(
                 f"goal:{goal_name} (HOME_PURCHASE) modeled as a cash goal — "
                 "downpayment and mortgage data are not yet captured on the profile"
             )
-        mapped.append(CustomGoal(
-            name=goal_name,
-            goal_type=engine_type,
-            goal_value_pv=pv,
-            goal_date=target,
-            inflation_rate_override=inflation_override,
-        ))
+        mapped.append(
+            CustomGoal(
+                name=goal_name,
+                goal_type=engine_type,
+                goal_value_pv=pv,
+                goal_date=target,
+                inflation_rate_override=inflation_override,
+            )
+        )
     return mapped, issues
 
 
@@ -105,7 +113,9 @@ def _map_current_properties(user: Any) -> list[CurrentProperty]:
     return [
         CurrentProperty(
             name=p.name,
-            property_value=float(p.property_value) if p.property_value is not None else None,
+            property_value=float(p.property_value)
+            if p.property_value is not None
+            else None,
             has_mortgage=bool(p.has_mortgage),
             mortgage_emi=float(p.mortgage_emi) if p.mortgage_emi is not None else None,
             mortgage_end_date=p.mortgage_end_date,
@@ -115,7 +125,10 @@ def _map_current_properties(user: Any) -> list[CurrentProperty]:
 
 
 def build_goal_planning_input_for_user(
-    user: Any, anchor_date: date, *, portfolio_value: float | None = None,
+    user: Any,
+    anchor_date: date,
+    *,
+    portfolio_value: float | None = None,
 ) -> tuple[GoalPlanningInput, Dict[str, Any]]:
     if getattr(user, "date_of_birth", None) is None:
         raise ValueError("missing_date_of_birth")
@@ -152,18 +165,22 @@ def build_goal_planning_input_for_user(
     # Lifespan is no longer collected from the user — everyone is planned to
     # age 100. Honour an explicitly-set value if one exists, else assume 100.
     assumed_lifespan_years = int(getattr(user, "assumed_lifespan_years", None) or 100)
-    defaults_applied.extend([
-        "goal_properties=[]",
-        "one_off_inflows=[]",
-        "one_off_outflows=[]",
-    ])
+    defaults_applied.extend(
+        [
+            "goal_properties=[]",
+            "one_off_inflows=[]",
+            "one_off_outflows=[]",
+        ]
+    )
 
     # Starting corpus = liquid cash & assets + the user's current portfolio value.
     # Prefer the live portfolio value (single source of truth — the portfolio /
     # CAMS data); fall back to a manually-entered corpus only when no portfolio is
     # linked yet. This represents the total current assets the user holds.
     manual_corpus = current_portfolio_corpus_pfp(pfp)
-    live_corpus = float(portfolio_value) if portfolio_value and portfolio_value > 0 else 0.0
+    live_corpus = (
+        float(portfolio_value) if portfolio_value and portfolio_value > 0 else 0.0
+    )
     portfolio_corpus = live_corpus if live_corpus > 0 else manual_corpus
     defaults_applied.append(
         f"portfolio_corpus={'live' if live_corpus > 0 else 'manual'}:{portfolio_corpus:.0f}"
@@ -179,8 +196,12 @@ def build_goal_planning_input_for_user(
     profile = ClientProfile(
         annual_income=scalars["annual_income"],
         effective_tax_rate=effective_tax_rate_for_user(user),
-        financial_assets=scalars["financial_assets"] + other_assets_total + portfolio_corpus,
-        financial_liabilities_excl_mortgage=scalars["financial_liabilities_excl_mortgage"],
+        financial_assets=scalars["financial_assets"]
+        + other_assets_total
+        + portfolio_corpus,
+        financial_liabilities_excl_mortgage=scalars[
+            "financial_liabilities_excl_mortgage"
+        ],
         monthly_household_expense=scalars["monthly_household_expense"],
         starting_monthly_investment=scalars["starting_monthly_investment"],
     )

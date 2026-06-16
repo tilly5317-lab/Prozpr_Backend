@@ -37,7 +37,12 @@ from typing import Any
 from common import format_inr_indian, read_text_bom_aware
 
 from .llm_client import LLMClient
-from .models import ClientContext, ConversationTurn, PortfolioContext, PortfolioQueryResponse
+from .models import (
+    ClientContext,
+    ConversationTurn,
+    PortfolioContext,
+    PortfolioQueryResponse,
+)
 from .skill_executor import SkillExecutor
 
 
@@ -45,7 +50,9 @@ logger = logging.getLogger(__name__)
 
 
 _MARKET_COMMENTARY_PATH = (
-    Path(__file__).resolve().parents[2] / "Reference_docs" / "market_commentary_latest.md"
+    Path(__file__).resolve().parents[2]
+    / "Reference_docs"
+    / "market_commentary_latest.md"
 )
 
 
@@ -57,7 +64,9 @@ def _load_market_commentary() -> str:
         )
     text = read_text_bom_aware(_MARKET_COMMENTARY_PATH)
     if not text.strip():
-        raise ValueError(f"Market commentary file at {_MARKET_COMMENTARY_PATH} is empty")
+        raise ValueError(
+            f"Market commentary file at {_MARKET_COMMENTARY_PATH} is empty"
+        )
     return text.strip()
 
 
@@ -164,13 +173,18 @@ class PortfolioQueryOrchestrator:
         formatted_history = self._format_history(history)
         logger.debug("portfolio_query: %d prior turns formatted", len(history))
 
-        system, user = self.query_skill.render(
+        system_body, user = self.query_skill.render(
             market_commentary=market_commentary,
             client_profile=_dump_enriched_json(client),
             current_portfolio=_dump_enriched_json(portfolio),
             conversation_history=formatted_history,
             question=question,
             guardrail_rules=self._guardrail_rules,
+        )
+        from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
+
+        system = build_system_prompt(
+            system_body, format_profile="chat", question_aware=True
         )
         meta = self.query_skill.meta
         data, usage = await self.llm.call_structured(

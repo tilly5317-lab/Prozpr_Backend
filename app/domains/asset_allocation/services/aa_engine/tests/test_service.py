@@ -88,9 +88,16 @@ def test_facts_pack_does_not_contain_internal_subgroup_keys(sample_output):
     """Customer-tellable invariant: no internal subgroup names in the facts pack."""
     pack = build_aa_facts_pack(sample_output)
     blob = json.dumps(pack).lower()
-    for forbidden in ("low_beta_equities", "high_beta_equities", "arbitrage_plus_income",
-                      "tax_efficient_equities", "multi_asset"):
-        assert forbidden not in blob, f"facts pack leaks internal subgroup key {forbidden}"
+    for forbidden in (
+        "low_beta_equities",
+        "high_beta_equities",
+        "arbitrage_plus_income",
+        "tax_efficient_equities",
+        "multi_asset",
+    ):
+        assert forbidden not in blob, (
+            f"facts pack leaks internal subgroup key {forbidden}"
+        )
 
 
 def test_facts_pack_has_indian_siblings_for_every_inr_field(sample_output):

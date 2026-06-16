@@ -1,4 +1,5 @@
 """Smoke test for the category_gap_bar chart builder."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -36,6 +37,7 @@ async def test_returns_none_when_no_actions():
     from app.domains.ai_engine.visualizations.category_gap_bar.builder import (
         build_category_gap_bar,
     )
+
     response = MagicMock()
     response.subgroups = []
     out = await build_category_gap_bar(response)
@@ -47,6 +49,7 @@ async def test_produces_one_category():
     from app.domains.ai_engine.visualizations.category_gap_bar.builder import (
         build_category_gap_bar,
     )
+
     out = await build_category_gap_bar(_make_response())
     assert out is not None
     assert out.type == "category_gap_bar"
@@ -56,4 +59,6 @@ async def test_produces_one_category():
     assert "Plan" in series_by_name
     assert "Target" not in series_by_name
     assert series_by_name["Current"][0] == 1000000.0
-    assert series_by_name["Plan"][0] == 1100000.0  # current - sell + buy = 1000000 - 0 + 100000
+    assert (
+        series_by_name["Plan"][0] == 1100000.0
+    )  # current - sell + buy = 1000000 - 0 + 100000

@@ -107,11 +107,11 @@ async def flow_general_chat(turn, ctx) -> ModuleOutput:
 # ---------------------------------------------------------------------------
 
 FLOWS = {
-    "asset_allocation":     flow_asset_allocation,
-    "portfolio_query":      flow_portfolio_query,
-    "general_chat":         flow_general_chat,
-    "rebalancing":          flow_rebalancing,
-    "goal_planning":        flow_goal_planning,
+    "asset_allocation": flow_asset_allocation,
+    "portfolio_query": flow_portfolio_query,
+    "general_chat": flow_general_chat,
+    "rebalancing": flow_rebalancing,
+    "goal_planning": flow_goal_planning,
     "general_market_query": flow_market,
 }
 

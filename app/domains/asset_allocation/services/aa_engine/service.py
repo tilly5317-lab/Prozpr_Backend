@@ -14,7 +14,6 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -41,7 +40,8 @@ from app.domains.asset_allocation.services.aa_engine.input_builder import (
 
 
 def _invoke_pipeline(
-    alloc_input: AllocationInput, anthropic_api_key: str,
+    alloc_input: AllocationInput,
+    anthropic_api_key: str,
 ) -> tuple[dict[str, Any], GoalAllocationOutput]:
     """Run the 7-step pipeline with ``ANTHROPIC_API_KEY`` set for the LLM rationale step."""
     key = anthropic_api_key.strip()
@@ -55,15 +55,18 @@ def _invoke_pipeline(
         else:
             os.environ["ANTHROPIC_API_KEY"] = prev
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class AllocationRunOutcome:
     """Immutable outcome of one allocation pipeline run."""
+
     result: GoalAllocationOutput | None
     blocking_message: str | None = None
     asset_allocation_run_id: uuid.UUID | None = None
@@ -75,6 +78,7 @@ class AllocationRunOutcome:
 # Trace / debug helpers
 # ---------------------------------------------------------------------------
 
+
 def _short_json(obj: object, limit: int = 450) -> str:
     """JSON-serialise *obj* and truncate to *limit* chars for trace logs."""
     try:
@@ -85,12 +89,12 @@ def _short_json(obj: object, limit: int = 450) -> str:
 
 
 _STEP_MAP = [
-    ("Step 1 (emergency)",    "step1_emergency"),
-    ("Step 2 (short-term)",   "step2_short_term"),
-    ("Step 3 (medium-term)",  "step3_medium_term"),
-    ("Step 4 (long-term)",    "step4_long_term"),
-    ("Step 5 (aggregation)",  "step5_aggregation"),
-    ("Step 6 (guardrails)",   "step6_guardrails"),
+    ("Step 1 (emergency)", "step1_emergency"),
+    ("Step 2 (short-term)", "step2_short_term"),
+    ("Step 3 (medium-term)", "step3_medium_term"),
+    ("Step 4 (long-term)", "step4_long_term"),
+    ("Step 5 (aggregation)", "step5_aggregation"),
+    ("Step 6 (guardrails)", "step6_guardrails"),
     ("Step 7 (presentation)", "step7_output"),
 ]
 
@@ -154,9 +158,7 @@ _BUCKET_TITLES = {
 }
 
 
-def build_fallback_brief(
-    output: GoalAllocationOutput, spine_mode: str | None
-) -> str:
+def build_fallback_brief(output: GoalAllocationOutput, spine_mode: str | None) -> str:
     """Render a ``GoalAllocationOutput`` as user-facing markdown."""
     cs = output.client_summary
     lines: list[str] = []
@@ -211,7 +213,8 @@ def build_fallback_brief(
             bucket_splits[bucket_name].equity
             + bucket_splits[bucket_name].debt
             + bucket_splits[bucket_name].others
-        ) > 0
+        )
+        > 0
     ]
     if breakdown_rows:
         lines.append("**By horizon**")
@@ -258,15 +261,21 @@ def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
     if not portfolios:
         return None
     primary = next(
-        (p for p in portfolios if getattr(p, "is_primary", False)), portfolios[0],
+        (p for p in portfolios if getattr(p, "is_primary", False)),
+        portfolios[0],
     )
     allocations = list(getattr(primary, "allocations", []) or [])
     if not allocations:
         return None
 
     totals = {"equity": 0.0, "debt": 0.0, "cash": 0.0, "others": 0.0}
-    name_map = {"equity": "equity", "debt": "debt", "cash": "cash",
-                "other": "others", "others": "others"}
+    name_map = {
+        "equity": "equity",
+        "debt": "debt",
+        "cash": "cash",
+        "other": "others",
+        "others": "others",
+    }
     for a in allocations:
         key = name_map.get((getattr(a, "asset_class", None) or "").strip().lower())
         totals[key or "others"] += float(getattr(a, "amount", 0.0) or 0.0)
@@ -315,28 +324,32 @@ def build_aa_facts_pack(
         bucket_total = split.equity + split.debt + split.others
         if bucket_total <= 0:
             continue
-        by_horizon.append({
-            "horizon": split.bucket,
-            "amount_inr": bucket_total,
-            "amount_indian": format_inr_indian(bucket_total),
-            "mix_pct": {
-                "equity": round(split.equity_pct),
-                "debt": round(split.debt_pct),
-                "others": round(split.others_pct),
-            },
-        })
+        by_horizon.append(
+            {
+                "horizon": split.bucket,
+                "amount_inr": bucket_total,
+                "amount_indian": format_inr_indian(bucket_total),
+                "mix_pct": {
+                    "equity": round(split.equity_pct),
+                    "debt": round(split.debt_pct),
+                    "others": round(split.others_pct),
+                },
+            }
+        )
 
     goals = []
     for b in output.bucket_allocations:
         for g in b.goals:
-            goals.append({
-                "name": g.goal_name,
-                "amount_needed_inr": g.amount_needed,
-                "amount_needed_indian": format_inr_indian(g.amount_needed),
-                "horizon_months": g.time_to_goal_months,
-                "bucket": b.bucket,
-                "rationale": b.goal_rationales.get(g.goal_name),
-            })
+            goals.append(
+                {
+                    "name": g.goal_name,
+                    "amount_needed_inr": g.amount_needed,
+                    "amount_needed_indian": format_inr_indian(g.amount_needed),
+                    "horizon_months": g.time_to_goal_months,
+                    "bucket": b.bucket,
+                    "rationale": b.goal_rationales.get(g.goal_name),
+                }
+            )
 
     future = [
         {
@@ -358,7 +371,9 @@ def build_aa_facts_pack(
         "total_corpus_indian": format_inr_indian(output.grand_total),
         "emergency_fund_months": cs.emergency_fund_months,
         "monthly_household_expense_inr": cs.monthly_household_expense,
-        "monthly_household_expense_indian": format_inr_indian(cs.monthly_household_expense),
+        "monthly_household_expense_indian": format_inr_indian(
+            cs.monthly_household_expense
+        ),
         "plan_target_pct": {
             "equity": round(recommended.equity_total_pct),
             "debt": round(recommended.debt_total_pct),
@@ -393,150 +408,6 @@ def _format_allocation_answer_long(
 
 
 # ---------------------------------------------------------------------------
-# Question-tailored chat composer (Haiku)
-# ---------------------------------------------------------------------------
-
-_COMPOSER_SYSTEM_PROMPT = (
-    "You are Prozpr, an Indian-market financial assistant. The customer's question "
-    "routed to the allocation engine, which has produced an authoritative allocation "
-    "brief in the user message. Your job: decide whether the customer wants the full "
-    "brief, or a tailored answer to a specific question.\n"
-    "\n"
-    "Decision rules:\n"
-    "- 'use_brief_verbatim' — when the customer asked a BROAD allocation request and "
-    "would benefit from seeing the full goal-based plan. Examples: 'plan my "
-    "portfolio', 'how should I allocate', 'recommend an SIP plan', 'rebalance my "
-    "holdings', 'show my allocation strategy'.\n"
-    "- 'tailored_answer' — when the customer asked a NARROW question that does NOT "
-    "need the full table. Examples: 'is this too risky?', 'why so much equity?', "
-    "'how much for retirement?', 'is my emergency fund enough?', 'will this beat "
-    "inflation?', 'what's my drift?'.\n"
-    "\n"
-    "Tailored-answer rules (only when decision='tailored_answer'):\n"
-    "- 1 to 4 short sentences. MAXIMUM 80 words.\n"
-    "- Use figures from the brief verbatim. NEVER invent rupee amounts, percentages, "
-    "goals, or fund names. If the answer requires data not in the brief, say so in "
-    "one short line.\n"
-    "- Money formatting: lakhs ('L') and crores ('Cr'). Never million/billion.\n"
-    "- No preamble, no '**Answer**' heading, no echoing the question, no greeting.\n"
-    "- Do not contradict the brief. If the brief says equity 65%, you say equity 65%.\n"
-    "- Do not moralize or recommend speaking to an advisor.\n"
-    "\n"
-    "Response contract: call `return_allocation_reply` exactly once. When "
-    "decision='use_brief_verbatim', set 'answer' to an empty string."
-)
-
-_COMPOSER_RETURN_TOOL = {
-    "name": "return_allocation_reply",
-    "description": (
-        "Return the final allocation chat reply. Call exactly once. Use "
-        "'use_brief_verbatim' for broad allocation requests where the customer wants "
-        "the full plan. Use 'tailored_answer' when the customer asked a specific "
-        "question that doesn't need the full table."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "decision": {
-                "type": "string",
-                "enum": ["use_brief_verbatim", "tailored_answer"],
-                "description": (
-                    "Pick 'use_brief_verbatim' for broad allocation requests; "
-                    "'tailored_answer' for narrow questions about the plan."
-                ),
-            },
-            "answer": {
-                "type": "string",
-                "description": (
-                    "When decision='tailored_answer': 1-4 short sentences (≤80 words) "
-                    "answering the specific question, drawing only from the brief's "
-                    "numbers. When decision='use_brief_verbatim': empty string."
-                ),
-            },
-        },
-        "required": ["decision", "answer"],
-    },
-}
-
-
-def _extract_allocation_reply(blocks: list[dict]) -> tuple[str, str] | None:
-    """Pull (decision, answer) from a `return_allocation_reply` tool_use block."""
-    for b in blocks:
-        if b.get("type") == "tool_use" and b.get("name") == "return_allocation_reply":
-            inp = b.get("input") or {}
-            decision = inp.get("decision")
-            answer = inp.get("answer", "")
-            if (
-                decision in ("use_brief_verbatim", "tailored_answer")
-                and isinstance(answer, str)
-            ):
-                return decision, answer
-    return None
-
-
-async def compose_allocation_chat_reply(
-    user_question: str,
-    deterministic_brief: str,
-    mode: str,
-) -> str | None:
-    """Tailor the allocation chat reply to the customer's specific question.
-
-    Returns the tailored reply when Haiku picks 'tailored_answer'; returns None
-    when it picks 'use_brief_verbatim' OR on any failure. The caller falls back
-    to the deterministic brief whenever this returns None.
-    """
-    api_key = get_settings().get_anthropic_asset_allocation_key()
-    if not api_key:
-        return None
-
-    user_prompt = (
-        f"Customer question: {user_question}\n\n"
-        f"Engine spine mode: {mode}\n\n"
-        f"Allocation brief from engine (authoritative — numbers must come ONLY "
-        f"from this):\n{deterministic_brief}"
-    )
-
-    payload = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 600,
-        "system": _COMPOSER_SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_prompt}],
-        "tools": [_COMPOSER_RETURN_TOOL],
-        "tool_choice": {"type": "tool", "name": "return_allocation_reply"},
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=payload,
-            )
-        if resp.status_code != 200:
-            logger.warning(
-                "Allocation composer returned status %d; falling back to deterministic brief",
-                resp.status_code,
-            )
-            return None
-        parsed = _extract_allocation_reply(resp.json().get("content", []))
-        if parsed is None:
-            logger.warning("Allocation composer returned no parseable tool call; falling back")
-            return None
-        decision, answer = parsed
-        if decision == "use_brief_verbatim":
-            return None
-        return answer.strip() or None
-    except Exception:
-        logger.exception("Allocation composer failed; falling back to deterministic brief")
-        return None
-
-
-# ---------------------------------------------------------------------------
 # Blocking-message helpers
 # ---------------------------------------------------------------------------
 
@@ -563,6 +434,7 @@ _MSG_ENGINE_ERROR = (
 # Core pipeline orchestration
 # ---------------------------------------------------------------------------
 
+
 async def compute_allocation_result(
     user,
     user_question: str,
@@ -583,7 +455,9 @@ async def compute_allocation_result(
     trace_line("module: asset_allocation — building inputs")
 
     if chat_ctx is None:
-        from app.domains.ai_engine.turn_context import TurnContext  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
+        from app.domains.ai_engine.turn_context import (
+            TurnContext,
+        )  # lazy: avoids ai_bridge ↔ chat_core cycle at import time
 
         chat_ctx = TurnContext(
             user_ctx=user,
@@ -621,7 +495,9 @@ async def compute_allocation_result(
 
     try:
         full_state, output = await asyncio.to_thread(
-            _invoke_pipeline, alloc_input, api_key,
+            _invoke_pipeline,
+            alloc_input,
+            api_key,
         )
     except Exception as exc:
         logger.exception("asset_allocation pipeline failed: %s", exc)
@@ -630,7 +506,8 @@ async def compute_allocation_result(
 
     for label, key in _STEP_MAP:
         trace_line(
-            _summarize_step(label, key, full_state[key]) if key in full_state
+            _summarize_step(label, key, full_state[key])
+            if key in full_state
             else f"{label}: <missing in state>"
         )
     trace_line(f"GoalAllocationOutput grand_total={output.grand_total}")
@@ -639,7 +516,12 @@ async def compute_allocation_result(
     reb_id: uuid.UUID | None = None
     snap_id: uuid.UUID | None = None
     aa_run_id: uuid.UUID | None = None
-    if db is not None and persist_recommendation and output is not None and acting_user_id is not None:
+    if (
+        db is not None
+        and persist_recommendation
+        and output is not None
+        and acting_user_id is not None
+    ):
         from app.domains.asset_allocation.services.allocation_recommendation_persist_service import (
             persist_goal_allocation_recommendation,
         )
@@ -648,7 +530,9 @@ async def compute_allocation_result(
         )
 
         reb_id, snap_id = await persist_goal_allocation_recommendation(
-            db, acting_user_id, output,
+            db,
+            acting_user_id,
+            output,
             chat_session_id=chat_session_id,
             user_question=None,
             spine_mode=spine_mode,
@@ -674,7 +558,9 @@ async def compute_allocation_result(
             )
             trace_line(f"persisted: asset_allocation_run_id={aa_run_id}")
         except Exception:
-            logger.exception("asset allocation persist failed; continuing without run id")
+            logger.exception(
+                "asset allocation persist failed; continuing without run id"
+            )
 
     # Persist AgentRun row for follow-up reasoning. Does not replace
     # allocation_recommendation_persist; this captures structured I/O for chat.
@@ -693,7 +579,9 @@ async def compute_allocation_result(
                     "allocation_result": output.model_dump(mode="json"),
                     "correlation_ids": {
                         "snapshot_id": str(snap_id) if snap_id else None,
-                        "rebalancing_recommendation_id": str(reb_id) if reb_id else None,
+                        "rebalancing_recommendation_id": str(reb_id)
+                        if reb_id
+                        else None,
                     },
                 },
                 emit_standard_log=False,
@@ -714,6 +602,7 @@ async def compute_allocation_result(
 # Standalone HTTP entry point
 # ---------------------------------------------------------------------------
 
+
 async def generate_asset_allocation_response(
     user,
     user_question: str,
@@ -724,7 +613,8 @@ async def generate_asset_allocation_response(
 ) -> str:
     """Run allocation for standalone HTTP and return a full user-facing string."""
     outcome = await compute_allocation_result(
-        user, user_question,
+        user,
+        user_question,
         db=db,
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,

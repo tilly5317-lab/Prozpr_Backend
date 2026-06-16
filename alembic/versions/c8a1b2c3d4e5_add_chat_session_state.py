@@ -23,7 +23,9 @@ def upgrade() -> None:
     op.create_table(
         "chat_session_state",
         sa.Column("session_id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("awaiting_save", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column(
+            "awaiting_save", sa.Boolean(), nullable=False, server_default=sa.false()
+        ),
         sa.Column(
             "last_counterfactual_run_id",
             postgresql.UUID(as_uuid=True),
@@ -37,7 +39,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["session_id"], ["chat_sessions.id"], ondelete="CASCADE",
+            ["session_id"],
+            ["chat_sessions.id"],
+            ondelete="CASCADE",
         ),
     )
 

@@ -53,23 +53,33 @@ def _scheme_to_isin(scheme_codes: set[str]) -> dict[str, str]:
 
 
 async def build_holdings_ledger(
-    db: AsyncSession, *, user_id: uuid.UUID,
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
 ) -> list[HoldingLedgerEntry]:
     """Return one entry per ISIN with non-zero remaining units. FIFO."""
-    rows = (await db.execute(
-        select(MfTransaction)
-        .where(MfTransaction.user_id == user_id)
-        .order_by(MfTransaction.scheme_code, MfTransaction.transaction_date)
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(MfTransaction)
+                .where(MfTransaction.user_id == user_id)
+                .order_by(MfTransaction.scheme_code, MfTransaction.transaction_date)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     by_scheme: dict[str, deque[Lot]] = defaultdict(deque)
     for txn in rows:
         if txn.transaction_type == MfTransactionType.BUY:
-            by_scheme[txn.scheme_code].append(Lot(
-                acquisition_date=txn.transaction_date,
-                units=abs(Decimal(str(txn.units))),
-                acquisition_nav=Decimal(str(txn.nav)),
-            ))
+            by_scheme[txn.scheme_code].append(
+                Lot(
+                    acquisition_date=txn.transaction_date,
+                    units=abs(Decimal(str(txn.units))),
+                    acquisition_nav=Decimal(str(txn.nav)),
+                )
+            )
         elif txn.transaction_type == MfTransactionType.SELL:
             # CAS stores redemption units as negative; use the magnitude or the
             # ``while remaining > 0`` FIFO loop never runs and sold lots stay on the books.
@@ -100,9 +110,11 @@ async def build_holdings_ledger(
         if isin is None:
             # No ISIN known for this scheme — skip; service.py logs a warning later.
             continue
-        out.append(HoldingLedgerEntry(
-            isin=isin,
-            scheme_code=scheme_code,
-            lots=tuple(lots),
-        ))
+        out.append(
+            HoldingLedgerEntry(
+                isin=isin,
+                scheme_code=scheme_code,
+                lots=tuple(lots),
+            )
+        )
     return out

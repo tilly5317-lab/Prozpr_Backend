@@ -28,7 +28,9 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.domains.mutual_funds.services.latest_snapshot_service import rebuild_all_users_latest_snapshot
+from app.domains.mutual_funds.services.latest_snapshot_service import (
+    rebuild_all_users_latest_snapshot,
+)
 from app.domains.mutual_funds.services.mfapi_ingest_service import (
     IngestMode,
     MfapiIngestError,
@@ -99,13 +101,17 @@ async def run_daily_mfapi_job() -> None:
                 return
             try:
                 stale_codes, total_meta = await list_scheme_codes_needing_nav_refresh(
-                    db, min_nav_date=min_nav,
+                    db,
+                    min_nav_date=min_nav,
                 )
                 up_to_date = total_meta - len(stale_codes)
                 logger.info(
                     "mfapi daily job: %d/%d schemes already have NAV on or after %s; "
                     "%d need refresh",
-                    up_to_date, total_meta, min_nav, len(stale_codes),
+                    up_to_date,
+                    total_meta,
+                    min_nav,
+                    len(stale_codes),
                 )
 
                 total_nav_inserted = 0
@@ -120,7 +126,9 @@ async def run_daily_mfapi_job() -> None:
                         phase_t0 = time.monotonic()
                         logger.info(
                             "mfapi daily job: phase %d/%d — %d schemes",
-                            phase_idx + 1, phases, len(chunk),
+                            phase_idx + 1,
+                            phases,
+                            len(chunk),
                         )
                         result = await ingest_mfapi(
                             db,
@@ -146,7 +154,9 @@ async def run_daily_mfapi_job() -> None:
                 users, snap_rows = await _rebuild_latest_snapshots(db)
                 logger.info(
                     "mfapi daily job: snapshot rebuild in %.1fs — users=%d rows=%d",
-                    time.monotonic() - snap_t0, users, snap_rows,
+                    time.monotonic() - snap_t0,
+                    users,
+                    snap_rows,
                 )
 
                 elapsed = time.monotonic() - t0

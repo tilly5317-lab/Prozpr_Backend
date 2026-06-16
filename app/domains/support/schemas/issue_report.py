@@ -4,7 +4,6 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. The
 domain has NO database model by design — reports are appended to an Excel log and emailed.
 """
 
-
 from __future__ import annotations
 
 import uuid

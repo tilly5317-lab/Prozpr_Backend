@@ -1,10 +1,14 @@
 """Engine-private intermediate types. NOT exported from cashflow_statement.__init__."""
+
 from __future__ import annotations
 from datetime import date
 from pydantic import BaseModel
 from cashflow_statement.models import (
-    GoalType, RetirementSnapshot,
-    GoalFundingStatus, OneOffFundingStatus, MonthlyCashflowRow,
+    GoalType,
+    RetirementSnapshot,
+    GoalFundingStatus,
+    OneOffFundingStatus,
+    MonthlyCashflowRow,
 )
 
 
@@ -29,7 +33,9 @@ class RunContext(BaseModel):
 
     # Resolved retirement (populated by .with_retirement())
     retirement_date_considered: date | None = None
-    retired_portfolio_roi_annual: float  # nominal; consumed by retirement.py pre-`with_retirement`
+    retired_portfolio_roi_annual: (
+        float  # nominal; consumed by retirement.py pre-`with_retirement`
+    )
 
     # Assumption snapshot
     sip_share: float
@@ -45,9 +51,11 @@ class RunContext(BaseModel):
     default_mortgage_interest_annual: float
 
     def with_retirement(self, snap: RetirementSnapshot) -> "RunContext":
-        return self.model_copy(update={
-            "retirement_date_considered": snap.retirement_date,
-        })
+        return self.model_copy(
+            update={
+                "retirement_date_considered": snap.retirement_date,
+            }
+        )
 
 
 class MortgageSchedule(BaseModel):
@@ -57,12 +65,19 @@ class MortgageSchedule(BaseModel):
     that detail belongs in a standalone amortization tool, not the cashflow projection.
     The cashflow projection only needs FY-level EMI totals and the date the mortgage closes.
     """
+
     property_ref: str
-    end_date: date | None  # last EMI month_end; None if mortgage doesn't close within horizon
+    end_date: (
+        date | None
+    )  # last EMI month_end; None if mortgage doesn't close within horizon
     annual_emi_by_fy: dict[date, float]  # fy_end -> sum of EMIs paid in that FY
-    emi: float | None = None              # None when no actual mortgage (principal <= 0)
-    payoff_date: date | None = None       # analytical payoff = start_date + tenure_months (independent of horizon)
-    total_interest: float | None = None   # emi * n_months - principal; None for existing mortgages (no principal known)
+    emi: float | None = None  # None when no actual mortgage (principal <= 0)
+    payoff_date: date | None = (
+        None  # analytical payoff = start_date + tenure_months (independent of horizon)
+    )
+    total_interest: float | None = (
+        None  # emi * n_months - principal; None for existing mortgages (no principal known)
+    )
 
     def total_emi_in_fy(self, fy_end: date) -> float:
         return self.annual_emi_by_fy.get(fy_end, 0.0)
@@ -76,7 +91,7 @@ class GoalPropertyOutcome(BaseModel):
     amortization: MortgageSchedule | None
     goal_date: date
     goal_value_pv: float
-    inflation_used: float   # the rate actually applied (user override or assumption)
+    inflation_used: float  # the rate actually applied (user override or assumption)
 
 
 class GoalInternal(BaseModel):
@@ -84,16 +99,20 @@ class GoalInternal(BaseModel):
     goal_type: GoalType
     goal_date: date
     goal_date_fy: date
-    goal_value_pv: float        # full goal value in today's ₹
-    goal_value_fv: float        # full goal value at goal_date (inflated)
-    corpus_required_fv: float   # corpus drain at goal_date (=goal_value_fv unless mortgaged property)
+    goal_value_pv: float  # full goal value in today's ₹
+    goal_value_fv: float  # full goal value at goal_date (inflated)
+    corpus_required_fv: (
+        float  # corpus drain at goal_date (=goal_value_fv unless mortgaged property)
+    )
     inflation_rate: float
     expected_roi: float
     investment_required_pv: float
 
 
 class FundingResult(BaseModel):
-    monthly_enriched: list[MonthlyCashflowRow]  # cashflow rows with corpus fields filled in
+    monthly_enriched: list[
+        MonthlyCashflowRow
+    ]  # cashflow rows with corpus fields filled in
     corpus_closing: float
     per_goal_status: list[GoalFundingStatus]
     per_one_off_outflow_status: list[OneOffFundingStatus]

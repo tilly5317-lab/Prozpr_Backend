@@ -40,16 +40,24 @@ async def get_portfolio_snapshot(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await portfolio_snapshot_service.get_snapshot(db, snapshot_id, current_user.id)
+    return await portfolio_snapshot_service.get_snapshot(
+        db, snapshot_id, current_user.id
+    )
 
 
-@router.post("/", response_model=PortfolioAllocationSnapshotResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=PortfolioAllocationSnapshotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_portfolio_snapshot(
     payload: PortfolioAllocationSnapshotCreate,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await portfolio_snapshot_service.create_snapshot(db, current_user.id, payload)
+    return await portfolio_snapshot_service.create_snapshot(
+        db, current_user.id, payload
+    )
 
 
 @router.patch("/{snapshot_id}", response_model=PortfolioAllocationSnapshotResponse)
@@ -59,7 +67,9 @@ async def update_portfolio_snapshot(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
-    return await portfolio_snapshot_service.update_snapshot(db, snapshot_id, current_user.id, payload)
+    return await portfolio_snapshot_service.update_snapshot(
+        db, snapshot_id, current_user.id, payload
+    )
 
 
 @router.delete("/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT)

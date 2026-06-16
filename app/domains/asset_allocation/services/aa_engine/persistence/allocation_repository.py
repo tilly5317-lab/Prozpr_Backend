@@ -133,7 +133,10 @@ async def save_asset_allocation_from_engine_output(
 
     # 2. asset_allocation_run_targets
     target_map = await insert_asset_allocation_run_targets_for_run(
-        db, run, doc, financial_goal_ids_by_name=financial_goal_ids_by_name,
+        db,
+        run,
+        doc,
+        financial_goal_ids_by_name=financial_goal_ids_by_name,
     )
     goals = (doc.get("client_summary") or {}).get("goals") or []
     for g in goals:
@@ -149,7 +152,9 @@ async def save_asset_allocation_from_engine_output(
 
     # 3. asset_allocation_buckets + children (subgroups, asset_classes, goal links)
     buckets = doc.get("bucket_allocations") or []
-    trace_line(f"persist: writing {len(buckets)} buckets → [asset_allocation_buckets] + children")
+    trace_line(
+        f"persist: writing {len(buckets)} buckets → [asset_allocation_buckets] + children"
+    )
     for b in buckets:
         if isinstance(b, dict):
             bname = b.get("bucket", "?")
@@ -164,7 +169,10 @@ async def save_asset_allocation_from_engine_output(
 
     # 4. asset_allocation_aggregates (planned + actual)
     await insert_asset_allocation_aggregates(
-        db, run_id=run.id, user_id=user_id, doc=doc,
+        db,
+        run_id=run.id,
+        user_id=user_id,
+        doc=doc,
     )
     for key in ("planned", "actual"):
         blk = breakdown.get(key) or {}

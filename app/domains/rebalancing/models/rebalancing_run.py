@@ -115,7 +115,9 @@ class RebalancingRun(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    engine_request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    engine_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
     engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
@@ -147,7 +149,9 @@ class RebalancingRun(Base):
     knob_snapshot: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
     )
-    request_input: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    request_input: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     used_cached_allocation: Mapped[Optional[bool]] = mapped_column(nullable=True)
     user_question: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
 
@@ -203,9 +207,15 @@ class RebalancingTotals(Base):
         primary_key=True,
     )
 
-    total_buy_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    total_sell_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    net_cash_flow_inr: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    total_buy_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    total_sell_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
+    net_cash_flow_inr: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0
+    )
     total_stcg_realised: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0
     )

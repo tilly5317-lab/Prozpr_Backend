@@ -59,8 +59,14 @@ def _serialize_plan_run(run) -> CashflowPlanRunDetailResponse:
             summary_error=run.plan_summary.summary_error,
         )
 
-    annual = [AnnualCashflowRowSchema.model_validate(r) for r in (run.annual_rows or [])]
-    monthly = [MonthlyCashflowRowSchema.model_validate(r) for r in (run.monthly_rows or [])] if run.monthly_rows else None
+    annual = [
+        AnnualCashflowRowSchema.model_validate(r) for r in (run.annual_rows or [])
+    ]
+    monthly = (
+        [MonthlyCashflowRowSchema.model_validate(r) for r in (run.monthly_rows or [])]
+        if run.monthly_rows
+        else None
+    )
 
     return CashflowPlanRunDetailResponse(
         id=run.id,
@@ -120,9 +126,13 @@ def _raise_for_input_error(err: ValueError) -> None:
     raise err
 
 
-async def _compute_and_persist(db: AsyncSession, user: User) -> CashflowPlanRunDetailResponse:
+async def _compute_and_persist(
+    db: AsyncSession, user: User
+) -> CashflowPlanRunDetailResponse:
     """Run the cashflow engine and persist the result."""
-    from app.domains.cashflow.services.cashflow_compute_service import run_cashflow_projection_for_user
+    from app.domains.cashflow.services.cashflow_compute_service import (
+        run_cashflow_projection_for_user,
+    )
     from app.domains.portfolio.services.portfolio_service import get_primary_portfolio
 
     # The current portfolio value feeds the engine's starting corpus (single
@@ -135,7 +145,10 @@ async def _compute_and_persist(db: AsyncSession, user: User) -> CashflowPlanRunD
     )
 
     snapshot = await run_cashflow_projection_for_user(
-        user, anchor_date=date.today(), detail_level="full", portfolio_value=portfolio_value
+        user,
+        anchor_date=date.today(),
+        detail_level="full",
+        portfolio_value=portfolio_value,
     )
     await persist_plan_run(db, user.id, snapshot)
 
@@ -162,7 +175,12 @@ async def get_latest_cashflow(
         and existing.engine_version != current_version
     )
 
-    if existing is None or existing.is_stale or existing.assumption_id is None or version_stale:
+    if (
+        existing is None
+        or existing.is_stale
+        or existing.assumption_id is None
+        or version_stale
+    ):
         try:
             return await _compute_and_persist(db, user)
         except ValueError as e:

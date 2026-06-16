@@ -8,6 +8,7 @@ Computes:
 
 NAV dates from mfapi.in are 'DD-MM-YYYY' strings.
 """
+
 from __future__ import annotations
 
 import math
@@ -37,10 +38,14 @@ def _nearest_on_or_before(series: pd.Series, target: pd.Timestamp) -> float | No
     return float(s.iloc[-1])
 
 
-def cagr(series: pd.Series, years: float, anchor: pd.Timestamp | None = None) -> float | None:
+def cagr(
+    series: pd.Series, years: float, anchor: pd.Timestamp | None = None
+) -> float | None:
     if anchor is None:
         anchor = series.index.max()
-    start = anchor - pd.DateOffset(years=int(round(years * 12)) // 12, months=int(round(years * 12)) % 12)
+    start = anchor - pd.DateOffset(
+        years=int(round(years * 12)) // 12, months=int(round(years * 12)) % 12
+    )
     end_v = _nearest_on_or_before(series, anchor)
     start_v = _nearest_on_or_before(series, start)
     if not (end_v and start_v) or start_v <= 0:
@@ -52,7 +57,9 @@ def cagr(series: pd.Series, years: float, anchor: pd.Timestamp | None = None) ->
     return float((end_v / start_v) ** (1 / years) - 1) * 100
 
 
-def cagr_anchored_endyear(series: pd.Series, anchor_year: int, lookback_years: int = 3) -> float | None:
+def cagr_anchored_endyear(
+    series: pd.Series, anchor_year: int, lookback_years: int = 3
+) -> float | None:
     anchor = pd.Timestamp(year=anchor_year, month=12, day=31)
     if anchor > series.index.max():
         anchor = series.index.max()
@@ -101,7 +108,9 @@ def sharpe_3y(series: pd.Series, rf_pct: float = RISK_FREE_PCT) -> float | None:
     return (cg - rf_pct) / ann_vol
 
 
-def beta_te(fund: pd.Series, bench: pd.Series, years: int = 3) -> tuple[float | None, float | None]:
+def beta_te(
+    fund: pd.Series, bench: pd.Series, years: int = 3
+) -> tuple[float | None, float | None]:
     """Return (beta, tracking_error_annualized_pct). None for both when bench variance ~ 0."""
     end = min(fund.index.max(), bench.index.max())
     start = end - pd.DateOffset(years=years)
@@ -125,18 +134,24 @@ def beta_te(fund: pd.Series, bench: pd.Series, years: int = 3) -> tuple[float | 
     return float(beta), float(te)
 
 
-def synthetic_fixed_series(start: pd.Timestamp, end: pd.Timestamp, rate_pct: float) -> pd.Series:
+def synthetic_fixed_series(
+    start: pd.Timestamp, end: pd.Timestamp, rate_pct: float
+) -> pd.Series:
     idx = pd.date_range(start, end, freq="B")
     daily = (1 + rate_pct / 100) ** (1 / 252)
     vals = daily ** np.arange(len(idx))
     return pd.Series(vals * 100, index=idx)
 
 
-def synthetic_blend_series(equity: pd.Series, equity_w: float, rate_pct: float) -> pd.Series:
+def synthetic_blend_series(
+    equity: pd.Series, equity_w: float, rate_pct: float
+) -> pd.Series:
     """Daily-rebalanced blend of equity NAV and a fixed rate."""
     end = equity.index.max()
     start = equity.index.min()
-    fixed = synthetic_fixed_series(start, end, rate_pct).reindex(equity.index, method="ffill")
+    fixed = synthetic_fixed_series(start, end, rate_pct).reindex(
+        equity.index, method="ffill"
+    )
     eq_norm = equity / equity.iloc[0]
     fx_norm = fixed / fixed.iloc[0]
     blended = equity_w * eq_norm + (1 - equity_w) * fx_norm
@@ -150,10 +165,13 @@ def get_benchmark_series(token: str | int, fund_series: pd.Series) -> pd.Series 
             return None
         return nav_to_series(j["data"])
     if isinstance(token, str) and token.startswith("FIXED_"):
-        return synthetic_fixed_series(fund_series.index.min(), fund_series.index.max(), fixed_rate(token))
+        return synthetic_fixed_series(
+            fund_series.index.min(), fund_series.index.max(), fixed_rate(token)
+        )
     if isinstance(token, str) and token.startswith("BLEND_"):
         eq, rate = hybrid_blend(token)
         from .benchmarks import NIFTY_50
+
         eqj = fetch_nav(NIFTY_50)
         if not eqj:
             return None

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from typing import Any, FrozenSet
 
-from app.domains.profile.services._effective_risk.calculation import EffectiveRiskComputationInput
+from app.domains.profile.services._effective_risk.calculation import (
+    EffectiveRiskComputationInput,
+)
 
 # Trigger names must match ``trigger_reason`` passed from routers (prefix before truncation).
 # Empty set = only ``age`` is refreshed from DB; all other inputs come from the previous snapshot.
@@ -42,7 +44,9 @@ _MERGE_KEYS_BY_TRIGGER: dict[str, FrozenSet[str]] = {
 _ALWAYS_REFRESH: FrozenSet[str] = frozenset({"age"})
 
 
-def computation_input_to_inputs_dict(inp: EffectiveRiskComputationInput) -> dict[str, Any]:
+def computation_input_to_inputs_dict(
+    inp: EffectiveRiskComputationInput,
+) -> dict[str, Any]:
     return {
         "age": inp.age,
         "occupation_type": inp.occupation_type,
@@ -56,7 +60,9 @@ def computation_input_to_inputs_dict(inp: EffectiveRiskComputationInput) -> dict
     }
 
 
-def inputs_dict_to_computation_input(d: dict[str, Any]) -> EffectiveRiskComputationInput:
+def inputs_dict_to_computation_input(
+    d: dict[str, Any],
+) -> EffectiveRiskComputationInput:
     return EffectiveRiskComputationInput(
         age=float(d["age"]),
         occupation_type=str(d["occupation_type"]),

@@ -18,7 +18,10 @@ from app.domains.mutual_funds.schemas import (
     MfFundMetadataSearchResponse,
     MfFundMetadataUpdate,
 )
-from app.domains.mutual_funds.services import fund_metadata_service, investor_detail_service
+from app.domains.mutual_funds.services import (
+    fund_metadata_service,
+    investor_detail_service,
+)
 
 router = APIRouter(prefix="/fund-metadata", tags=["MF Data"])
 
@@ -40,7 +43,10 @@ async def list_fund_metadata(
 @router.get("/search", response_model=MfFundMetadataSearchResponse)
 async def search_fund_metadata(
     db: AsyncSession = Depends(get_db),
-    q: Optional[str] = Query(None, description="Free-text search across scheme name, AMC, scheme code and ISIN"),
+    q: Optional[str] = Query(
+        None,
+        description="Free-text search across scheme name, AMC, scheme code and ISIN",
+    ),
     category: Optional[str] = Query(None),
     sub_category: Optional[str] = Query(None),
     asset_class: Optional[str] = Query(None),
@@ -101,7 +107,9 @@ async def get_fund_metadata(
     return await fund_metadata_service.get_metadata(db, metadata_id)
 
 
-@router.post("/", response_model=MfFundMetadataResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=MfFundMetadataResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_fund_metadata(
     payload: MfFundMetadataCreate,
     db: AsyncSession = Depends(get_db),

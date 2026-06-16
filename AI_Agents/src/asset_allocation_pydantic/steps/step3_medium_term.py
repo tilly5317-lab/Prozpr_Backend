@@ -33,8 +33,11 @@ def _risk_bucket(score: float) -> Literal["Low", "Medium", "High"]:
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
     goals_in_bucket = [
-        g for g in inp.goals
-        if MEDIUM_TERM_BOUNDARY_MONTHS <= g.time_to_goal_months < LONG_TERM_BOUNDARY_MONTHS
+        g
+        for g in inp.goals
+        if MEDIUM_TERM_BOUNDARY_MONTHS
+        <= g.time_to_goal_months
+        < LONG_TERM_BOUNDARY_MONTHS
     ]
     risk_bucket = _risk_bucket(inp.effective_risk_score)
     debt_key = (
@@ -49,7 +52,8 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
 
     for g in goals_in_bucket:
         horizon = min(
-            MEDIUM_TERM_HORIZON_MAX, max(MEDIUM_TERM_HORIZON_MIN, floor(g.time_to_goal_months / 12))
+            MEDIUM_TERM_HORIZON_MAX,
+            max(MEDIUM_TERM_HORIZON_MIN, floor(g.time_to_goal_months / 12)),
         )
         eq_pct, dt_pct = MEDIUM_TERM_SPLIT[(horizon, risk_bucket)]
         # A.4: when equities market view is very bearish (<= 3), force the Low
@@ -83,7 +87,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step3Output:
             scale = remaining_corpus / total_goal_amount
             total_equity = round_to_100(total_equity * scale)
             total_debt = round_to_100(total_debt * scale)
-        negotiable = [g.goal_name for g in goals_in_bucket if g.goal_priority == "negotiable"]
+        negotiable = [
+            g.goal_name for g in goals_in_bucket if g.goal_priority == "negotiable"
+        ]
         negotiable_str = ", ".join(negotiable) if negotiable else "none flagged"
         msg = (
             f"Your medium-term goals ask for more than what's left after the "

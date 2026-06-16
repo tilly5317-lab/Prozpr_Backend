@@ -54,18 +54,30 @@ class FinancialGoal(Base):
     )
     goal_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    goal_value_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
-    goal_value_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
-    inflation_rate: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+    goal_value_pv: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    goal_value_fv: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    inflation_rate: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 6), nullable=True
+    )
 
     target_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     target_fv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
     is_downpayment_only: Mapped[Optional[bool]] = mapped_column(
         Boolean, nullable=True, server_default="false"
     )
-    upfront_amount: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
-    downpayment_pct: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
-    inflation_annual: Mapped[Optional[float]] = mapped_column(Numeric(7, 6), nullable=True)
+    upfront_amount: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    downpayment_pct: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 6), nullable=True
+    )
+    inflation_annual: Mapped[Optional[float]] = mapped_column(
+        Numeric(7, 6), nullable=True
+    )
     mortgage_tenure_years: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     mortgage_interest_annual: Mapped[Optional[float]] = mapped_column(
         Numeric(7, 6), nullable=True
@@ -75,7 +87,9 @@ class FinancialGoal(Base):
 
     # --- Legacy allocation / onboarding ---
     goal_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    present_value_amount: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
+    present_value_amount: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
     target_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     priority: Mapped[Optional[GoalPriority]] = mapped_column(
         SAEnum(GoalPriority, name="goal_priority_enum_v2", create_constraint=False),
@@ -88,18 +102,25 @@ class FinancialGoal(Base):
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     time_to_goal_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    amount_needed: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    amount_needed: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     goal_priority: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     investment_goal: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
 
     # Per-goal monthly SIP the user plans to contribute toward this goal.
-    monthly_contribution: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
+    monthly_contribution: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     user = relationship("User", back_populates="financial_goals")

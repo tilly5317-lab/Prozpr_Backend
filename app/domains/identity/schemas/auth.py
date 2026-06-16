@@ -3,7 +3,6 @@
 Request/response or DTO shapes for API validation and OpenAPI documentation. Kept separate from ORM models so API contracts can evolve independently of database columns.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -96,7 +95,11 @@ class LoginRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "examples": [
-                {"country_code": "+91", "mobile": "9876543210", "password": "yourpassword8"}
+                {
+                    "country_code": "+91",
+                    "mobile": "9876543210",
+                    "password": "yourpassword8",
+                }
             ]
         }
     }

@@ -29,7 +29,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
-from app.domains.portfolio.models.user_portfolio_nav_history import UserPortfolioNavHistory
+from app.domains.portfolio.models.user_portfolio_nav_history import (
+    UserPortfolioNavHistory,
+)
 
 
 HORIZON_DAYS: dict[str, int] = {
@@ -98,7 +100,8 @@ async def _load_holding_paths(
     db: AsyncSession, user_id: uuid.UUID
 ) -> tuple[list[_HoldingPath], float]:
     portfolio_stmt = select(Portfolio).where(
-        Portfolio.user_id == user_id, Portfolio.is_primary == True  # noqa: E712
+        Portfolio.user_id == user_id,
+        Portfolio.is_primary == True,  # noqa: E712
     )
     portfolio = (await db.execute(portfolio_stmt)).scalar_one_or_none()
     if portfolio is None:
@@ -154,7 +157,11 @@ async def recompute_user_nav_history(
     for delta in range(days, -1, -1):
         d = today - timedelta(days=delta)
         total = sum(p.units * _nav_on_day(p, delta) for p in paths)
-        gain_pct = ((total - total_invested) / total_invested * 100) if total_invested > 0 else 0.0
+        gain_pct = (
+            ((total - total_invested) / total_invested * 100)
+            if total_invested > 0
+            else 0.0
+        )
         rows.append(
             {
                 "id": uuid.uuid4(),

@@ -6,7 +6,9 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.domains.intent_classifier.services.intent_classifier_engine import classify_user_message
+from app.domains.intent_classifier.services.intent_classifier_engine import (
+    classify_user_message,
+)
 
 
 async def _wrap_sync(fn, *args, **kwargs):
@@ -14,28 +16,36 @@ async def _wrap_sync(fn, *args, **kwargs):
 
 
 class ActiveIntentForwardingTests(unittest.TestCase):
-
     def test_active_intent_forwarded_to_classification_input(self):
         captured = {}
 
         def fake_classify(self, inp):
             captured["active_intent"] = inp.active_intent
-            return MagicMock(intent=MagicMock(value="asset_allocation"),
-                              confidence=0.9, is_follow_up=True,
-                              reasoning="...",
-                              out_of_scope_message=None)
+            return MagicMock(
+                intent=MagicMock(value="asset_allocation"),
+                confidence=0.9,
+                is_follow_up=True,
+                reasoning="...",
+                out_of_scope_message=None,
+            )
 
-        with patch("app.domains.intent_classifier.services.intent_classifier_engine._get_classifier") as gc, \
-             patch.object(asyncio, "to_thread", new=_wrap_sync):
+        with (
+            patch(
+                "app.domains.intent_classifier.services.intent_classifier_engine._get_classifier"
+            ) as gc,
+            patch.object(asyncio, "to_thread", new=_wrap_sync),
+        ):
             classifier = MagicMock()
             classifier.classify = lambda inp: fake_classify(classifier, inp)
             gc.return_value = classifier
 
-            asyncio.run(classify_user_message(
-                customer_question="is this too aggressive?",
-                conversation_history=[],
-                active_intent="asset_allocation",
-            ))
+            asyncio.run(
+                classify_user_message(
+                    customer_question="is this too aggressive?",
+                    conversation_history=[],
+                    active_intent="asset_allocation",
+                )
+            )
 
         self.assertIsNotNone(captured["active_intent"])
         self.assertEqual(captured["active_intent"].value, "asset_allocation")

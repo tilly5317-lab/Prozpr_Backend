@@ -3,7 +3,6 @@
 Declares HTTP routes, dependencies (auth, DB session, user context), and maps request/response schemas. Delegates work to ``app.services`` and returns appropriate status codes and Pydantic models.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -45,7 +44,9 @@ async def mark_as_read(
     )
     notification = (await db.execute(stmt)).scalar_one_or_none()
     if not notification:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found"
+        )
 
     notification.is_read = True
     await db.commit()

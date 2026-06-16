@@ -22,6 +22,7 @@ constant. The denominator used for share % is the equity pool that ACTUALLY
 funds the subgroups (i.e. post-multi-asset for both engines, and additionally
 post-ELSS/non-MF for practical).
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -49,8 +50,7 @@ def equity_subgroup_min_pct_required(
         locked_share = 0.0
     first_term = (
         SLIDER_BASE_PCT
-        - max(0.0, locked_share - SLIDER_LOCKED_THRESHOLD)
-        * SLIDER_LOCKED_MULTIPLIER
+        - max(0.0, locked_share - SLIDER_LOCKED_THRESHOLD) * SLIDER_LOCKED_MULTIPLIER
     )
     second_term = min(SLIDER_AVG_CAP_PCT, average_subgroup_pct)
     return max(first_term, second_term)
@@ -113,12 +113,11 @@ def apply_equity_subgroup_slider(
 
     # R200-R215: drop below-threshold subgroups; redistribute proportionally.
     surviving = {
-        sg: amt for sg, amt in subgroup_amounts.items()
+        sg: amt
+        for sg, amt in subgroup_amounts.items()
         if pct_by_subgroup.get(sg, 0.0) >= min_pct_required
     }
-    freed = sum(
-        amt for sg, amt in subgroup_amounts.items() if sg not in surviving
-    )
+    freed = sum(amt for sg, amt in subgroup_amounts.items() if sg not in surviving)
     surviving_sum = sum(surviving.values())
 
     if freed == 0 or surviving_sum == 0:

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from common import read_text_bom_aware
 
-from .document_generator import document_generation_chain
+from .document_generator import generate_document
 from .models import MacroSnapshot
 from .prompts import (
     EXTRACT_MACRO_DATA_TOOL,
@@ -90,13 +90,17 @@ def run_websearch_extraction() -> MacroSnapshot:
     MacroSnapshot if the model does not finalise (so the caller's cache-fallback
     path kicks in).
     """
-    response = _extraction_llm.invoke([
-        SystemMessage(content=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH),
-        HumanMessage(content=(
-            "Gather current values for all 14 Indian macro indicators and "
-            "return them via the extract_macro_data tool."
-        )),
-    ])
+    response = _extraction_llm.invoke(
+        [
+            SystemMessage(content=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH),
+            HumanMessage(
+                content=(
+                    "Gather current values for all 14 Indian macro indicators and "
+                    "return them via the extract_macro_data tool."
+                )
+            ),
+        ]
+    )
 
     for tool_call in response.tool_calls:
         if tool_call["name"] == "extract_macro_data":
@@ -127,7 +131,9 @@ class CacheManager:
         if not os.path.exists(cache_path):
             return None
         try:
-            with open(cache_path, "r", encoding="utf-8") as f:  # pin UTF-8 (matches save())
+            with open(
+                cache_path, "r", encoding="utf-8"
+            ) as f:  # pin UTF-8 (matches save())
                 data = json.load(f)
             return MacroSnapshot(**data)
         except Exception:
@@ -195,9 +201,8 @@ class MarketCommentaryAgent:
             return None
 
         md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
-        if (
-            os.path.exists(md_path)
-            and os.path.getmtime(md_path) >= os.path.getmtime(self._cache_path)
+        if os.path.exists(md_path) and os.path.getmtime(md_path) >= os.path.getmtime(
+            self._cache_path
         ):
             try:
                 # BOM-aware: an existing .md may be UTF-16 (PowerShell) or UTF-8.
@@ -207,12 +212,12 @@ class MarketCommentaryAgent:
             except OSError:
                 pass  # fall through to regeneration
 
-        regenerated_md = document_generation_chain.invoke(
-            {"snapshot": snapshot, "date": date or datetime.utcnow()}
-        )
+        regenerated_md = generate_document(snapshot, date or datetime.utcnow())
         try:
             os.makedirs(self.output_dir, exist_ok=True)
-            with open(md_path, "w", encoding="utf-8") as f:  # pin UTF-8 (see CacheManager.save)
+            with open(
+                md_path, "w", encoding="utf-8"
+            ) as f:  # pin UTF-8 (see CacheManager.save)
                 f.write(regenerated_md)
         except OSError:
             pass
@@ -242,7 +247,7 @@ class MarketCommentaryAgent:
         # Step 5: generate and write the 2-page Markdown commentary
         if self._generate_document:
             now = datetime.utcnow()
-            document_md = document_generation_chain.invoke({"snapshot": snapshot, "date": now})
+            document_md = generate_document(snapshot, now)
             snapshot.document_md = document_md
             self._write_document(document_md)
 
@@ -251,7 +256,9 @@ class MarketCommentaryAgent:
     def _write_document(self, document_md: str) -> str:
         """Write the Markdown commentary to the fixed 'latest' path. Returns the path."""
         md_path = os.path.join(self.output_dir, _DOCUMENT_FILENAME)
-        with open(md_path, "w", encoding="utf-8") as f:  # pin UTF-8 (see CacheManager.save)
+        with open(
+            md_path, "w", encoding="utf-8"
+        ) as f:  # pin UTF-8 (see CacheManager.save)
             f.write(document_md)
         return md_path
 
@@ -259,11 +266,19 @@ class MarketCommentaryAgent:
     def _is_snapshot_empty(snapshot: MacroSnapshot) -> bool:
         """Return True if every indicator field is None."""
         fields = [
-            snapshot.repo_rate_pct, snapshot.rbi_stance, snapshot.cpi_yoy_pct,
-            snapshot.nifty50_pe, snapshot.nifty_midcap150_pe, snapshot.nifty_smallcap250_pe,
-            snapshot.gsec_10yr_yield_pct, snapshot.sbi_fd_1yr_rate_pct,
-            snapshot.gold_price_inr_per_10g, snapshot.gold_price_usd_per_oz,
-            snapshot.fed_funds_rate_pct, snapshot.fii_net_flows_cr_inr,
-            snapshot.brent_crude_usd, snapshot.usd_inr_rate,
+            snapshot.repo_rate_pct,
+            snapshot.rbi_stance,
+            snapshot.cpi_yoy_pct,
+            snapshot.nifty50_pe,
+            snapshot.nifty_midcap150_pe,
+            snapshot.nifty_smallcap250_pe,
+            snapshot.gsec_10yr_yield_pct,
+            snapshot.sbi_fd_1yr_rate_pct,
+            snapshot.gold_price_inr_per_10g,
+            snapshot.gold_price_usd_per_oz,
+            snapshot.fed_funds_rate_pct,
+            snapshot.fii_net_flows_cr_inr,
+            snapshot.brent_crude_usd,
+            snapshot.usd_inr_rate,
         ]
         return all(f is None for f in fields)

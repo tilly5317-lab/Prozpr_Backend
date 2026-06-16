@@ -11,6 +11,7 @@ Goal-property mortgages: EMI is `pmt(rate, tenure, principal)`; end_date is
 Monthly rate convention: simple (`annual / 12`), matching Indian banking "monthly
 reducing balance". The PMT formula uses the same convention.
 """
+
 from __future__ import annotations
 from datetime import date
 from calendar import monthrange
@@ -31,7 +32,10 @@ def _add_months(d: date, months: int) -> date:
 
 
 def _accrue_constant_emi_by_fy(
-    start_date: date, end_date: date, emi: float, horizon_end: date | None = None,
+    start_date: date,
+    end_date: date,
+    emi: float,
+    horizon_end: date | None = None,
 ) -> tuple[dict[date, float], date | None]:
     """Walk month-ends from `start_date` to `min(end_date, horizon_end)`, summing `emi` per FY.
 
@@ -82,13 +86,15 @@ def build_existing_mortgages(
             emi=p.mortgage_emi,
         )
 
-        schedules.append(MortgageSchedule(
-            property_ref=f"existing:{p.name}",
-            end_date=p.mortgage_end_date,
-            annual_emi_by_fy=annual_emi_by_fy,
-            emi=p.mortgage_emi,
-            payoff_date=p.mortgage_end_date,
-        ))
+        schedules.append(
+            MortgageSchedule(
+                property_ref=f"existing:{p.name}",
+                end_date=p.mortgage_end_date,
+                annual_emi_by_fy=annual_emi_by_fy,
+                emi=p.mortgage_emi,
+                payoff_date=p.mortgage_end_date,
+            )
+        )
     return schedules
 
 
@@ -110,7 +116,8 @@ def build_goal_property_mortgage(
     if principal <= 0 or tenure_months <= 0:
         return MortgageSchedule(
             property_ref=property_ref,
-            end_date=None, annual_emi_by_fy={},
+            end_date=None,
+            annual_emi_by_fy={},
         )
     emi = pmt(monthly_rate, tenure_months, principal)
     analytical_end = _add_months(start_date, tenure_months)
@@ -124,7 +131,8 @@ def build_goal_property_mortgage(
     total_interest = emi * tenure_months - principal
     return MortgageSchedule(
         property_ref=property_ref,
-        end_date=end_date, annual_emi_by_fy=annual_emi_by_fy,
+        end_date=end_date,
+        annual_emi_by_fy=annual_emi_by_fy,
         emi=emi,
         payoff_date=analytical_end,
         total_interest=total_interest,

@@ -9,7 +9,9 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from app.domains.ai_engine.turn_context import (
-    AgentRunRecord, TurnContext, build_turn_context,
+    AgentRunRecord,
+    TurnContext,
+    build_turn_context,
 )
 
 
@@ -25,8 +27,10 @@ class _StubResult:
         class _ScalarResult:
             def __init__(self, rows):
                 self._rows = rows
+
             def all(self):
                 return self._rows
+
         return _ScalarResult(self._rows)
 
     def scalar_one_or_none(self):
@@ -34,7 +38,6 @@ class _StubResult:
 
 
 class TurnContextBuilderTests(unittest.TestCase):
-
     def test_loads_last_agent_run_per_module_and_active_intent(self):
         sid = uuid.uuid4()
 
@@ -47,10 +50,12 @@ class TurnContextBuilderTests(unittest.TestCase):
             created_at=datetime(2026, 4, 27, 9, 0),
         )
         db = MagicMock()
-        db.execute = AsyncMock(side_effect=[
-            _StubResult([alloc_row]),
-            _StubResult(["asset_allocation"]),           # last intent_detected (scalar)
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _StubResult([alloc_row]),
+                _StubResult(["asset_allocation"]),  # last intent_detected (scalar)
+            ]
+        )
 
         turn = MagicMock(
             user_ctx=MagicMock(),
@@ -74,10 +79,12 @@ class TurnContextBuilderTests(unittest.TestCase):
     def test_empty_session_returns_empty_runs(self):
         sid = uuid.uuid4()
         db = MagicMock()
-        db.execute = AsyncMock(side_effect=[
-            _StubResult([]),
-            _StubResult([]),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _StubResult([]),
+                _StubResult([]),
+            ]
+        )
         turn = MagicMock(
             user_ctx=MagicMock(),
             user_question="hello",

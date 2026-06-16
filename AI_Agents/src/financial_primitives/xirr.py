@@ -4,6 +4,7 @@ Pure Python, no I/O, no LLM. Hand-rolled Newton-Raphson with a bisection
 fallback for cases where Newton diverges, oscillates, or hits a derivative
 of zero.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -19,7 +20,7 @@ _RATE_MAX = 1e6
 
 def _npv(rate: float, years: list[float], amounts: list[float]) -> float:
     base = 1.0 + rate
-    return sum(a / base ** y for y, a in zip(years, amounts))
+    return sum(a / base**y for y, a in zip(years, amounts))
 
 
 def _dnpv(rate: float, years: list[float], amounts: list[float]) -> float:
@@ -75,8 +76,26 @@ def xirr(cashflows: Sequence[tuple[date, float]], guess: float = 0.1) -> float |
 def _bisect(years: list[float], amounts: list[float]) -> float | None:
     """Scan a grid of rates to bracket a sign change in NPV, then bisect."""
     grid = [
-        -0.99, -0.9, -0.7, -0.5, -0.3, -0.1, -0.05, -0.01, 0.0,
-        0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0, 1000.0,
+        -0.99,
+        -0.9,
+        -0.7,
+        -0.5,
+        -0.3,
+        -0.1,
+        -0.05,
+        -0.01,
+        0.0,
+        0.01,
+        0.05,
+        0.1,
+        0.2,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        100.0,
+        1000.0,
     ]
     prev_rate = grid[0]
     prev_v = _npv(prev_rate, years, amounts)

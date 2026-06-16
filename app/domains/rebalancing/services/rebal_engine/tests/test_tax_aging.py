@@ -25,7 +25,7 @@ def test_lt_lot_classified_as_long_term():
     assert split.st_value_inr == Decimal(0)
     assert split.st_cost_inr == Decimal(0)
     assert split.lt_value_inr == Decimal("600")  # 10 * 60
-    assert split.lt_cost_inr == Decimal("500")   # 10 * 50
+    assert split.lt_cost_inr == Decimal("500")  # 10 * 50
 
 
 def test_st_lot_just_under_12_months_equity():

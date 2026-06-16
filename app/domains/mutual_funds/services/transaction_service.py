@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.mutual_funds.models import MfFundMetadata, MfSipMandate, MfTransaction
 from app.domains.mutual_funds.schemas import MfTransactionCreate, MfTransactionUpdate
-from app.domains.mutual_funds.services.latest_snapshot_service import rebuild_user_latest_snapshot
+from app.domains.mutual_funds.services.latest_snapshot_service import (
+    rebuild_user_latest_snapshot,
+)
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
 from app.domains.mutual_funds.services.scheme_classification import classify_holding
 
@@ -23,17 +25,24 @@ async def _ensure_sip_owned(
     if sip_id is None:
         return
     row = (
-        await db.execute(select(MfSipMandate).where(MfSipMandate.id == sip_id, MfSipMandate.user_id == user_id))
+        await db.execute(
+            select(MfSipMandate).where(
+                MfSipMandate.id == sip_id, MfSipMandate.user_id == user_id
+            )
+        )
     ).scalar_one_or_none()
     if not row:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="sip_mandate_id does not belong to this user"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sip_mandate_id does not belong to this user",
         )
 
 
 async def _enrich_from_fund_tables(db: AsyncSession, row: MfTransaction) -> None:
     meta = (
-        await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == row.scheme_code))
+        await db.execute(
+            select(MfFundMetadata).where(MfFundMetadata.scheme_code == row.scheme_code)
+        )
     ).scalar_one_or_none()
     if meta:
         row.isin = meta.isin
@@ -71,18 +80,26 @@ async def list_transactions(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def get_transaction(db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.UUID) -> MfTransaction:
+async def get_transaction(
+    db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.UUID
+) -> MfTransaction:
     row = (
         await db.execute(
-            select(MfTransaction).where(MfTransaction.id == txn_id, MfTransaction.user_id == user_id)
+            select(MfTransaction).where(
+                MfTransaction.id == txn_id, MfTransaction.user_id == user_id
+            )
         )
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MF transaction not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="MF transaction not found"
+        )
     return row
 
 
-async def create_transaction(db: AsyncSession, user_id: uuid.UUID, payload: MfTransactionCreate) -> MfTransaction:
+async def create_transaction(
+    db: AsyncSession, user_id: uuid.UUID, payload: MfTransactionCreate
+) -> MfTransaction:
     await _ensure_sip_owned(db, payload.sip_mandate_id, user_id)
     data = payload.model_dump()
     data["user_id"] = user_id
@@ -103,7 +120,10 @@ async def create_transaction(db: AsyncSession, user_id: uuid.UUID, payload: MfTr
 
 
 async def update_transaction(
-    db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.UUID, payload: MfTransactionUpdate
+    db: AsyncSession,
+    txn_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: MfTransactionUpdate,
 ) -> MfTransaction:
     row = await get_transaction(db, txn_id, user_id)
     data = payload.model_dump(exclude_unset=True)
@@ -117,13 +137,17 @@ async def update_transaction(
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     await db.refresh(row)
     await rebuild_user_latest_snapshot(db, user_id)
     return row
 
 
-async def delete_transaction(db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def delete_transaction(
+    db: AsyncSession, txn_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     row = await get_transaction(db, txn_id, user_id)
     await db.delete(row)
     await db.commit()

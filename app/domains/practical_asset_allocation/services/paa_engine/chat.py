@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     """Run the practical allocation engine, persist the run, and return a brief."""
     outcome = await compute_practical_allocation_result(
-        ctx.user_ctx, ctx.user_question, chat_ctx=ctx,
+        ctx.user_ctx,
+        ctx.user_question,
+        chat_ctx=ctx,
     )
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)

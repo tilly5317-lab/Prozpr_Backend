@@ -22,6 +22,7 @@ Internal house view (to be edited by the firm):
 [Insert your market commentary / house view text here]
 """
 
+
 def generate_market_commentary_response(
     user_message: str,
     session_history: List[Dict],
@@ -30,14 +31,16 @@ def generate_market_commentary_response(
     messages = [{"role": "system", "content": MARKET_COMMENTARY_SYSTEM_PROMPT}]
 
     if profile_context:
-        messages.append({
-            "role": "system",
-            "content": (
-                f"Client profile context: risk tolerance={profile_context.get('risk_tolerance')}, "
-                f"primary objective={profile_context.get('primary_objective')}, "
-                f"time horizon={profile_context.get('time_horizon')}."
-            ),
-        })
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    f"Client profile context: risk tolerance={profile_context.get('risk_tolerance')}, "
+                    f"primary objective={profile_context.get('primary_objective')}, "
+                    f"time horizon={profile_context.get('time_horizon')}."
+                ),
+            }
+        )
 
     for entry in session_history:
         messages.append({"role": entry["role"], "content": entry["content"]})

@@ -118,27 +118,59 @@ def test_format_answer_propagates_truncation_failure_unwrapped():
 
 
 def test_invoke_llm_raises_formatter_failure_when_response_truncated():
-    """When Haiku stops because it hit max_tokens, the formatter must raise
-    FormatterFailure so the bridge falls back to the deterministic brief
-    instead of returning a half-rendered markdown table."""
+    """Hitting max_tokens must still raise FormatterFailure so the bridge falls back
+    to the deterministic brief instead of returning a half-rendered answer."""
     from app.domains.ai_engine.answer_formatter import formatter as fmt
 
     class _FakeMessage:
-        content = "Here are your trades:\n| Fund | Buy | Sell |\n| A | 10 | 0 |\n| B "
+        tool_calls = []                                   # truncated mid tool-call
         response_metadata = {"stop_reason": "max_tokens"}
+
+    class _BoundLLM:
+        def invoke(self, _msgs):
+            return _FakeMessage()
 
     class _FakeLLM:
         def __init__(self, **_kw):
             pass
 
-        def invoke(self, _msgs):
-            return _FakeMessage()
+        def bind_tools(self, *_a, **_kw):
+            return _BoundLLM()
 
     with patch("langchain_anthropic.ChatAnthropic", _FakeLLM), \
          patch("app.core.config.get_settings") as gs:
         gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
         with pytest.raises(FormatterFailure, match="truncated"):
             asyncio.run(fmt._invoke_llm("sys", "user"))
+
+
+def test_invoke_llm_returns_answer_field():
+    """The answer-only forced tool returns the `answer` field as the reply."""
+    from app.domains.ai_engine.answer_formatter import formatter as fmt
+
+    class _FakeMessage:
+        tool_calls = [{
+            "name": "return_formatted_answer",
+            "args": {"answer": "You're an **Aggressive** investor."},
+        }]
+        response_metadata = {"stop_reason": "tool_use"}
+
+    class _BoundLLM:
+        def invoke(self, _msgs):
+            return _FakeMessage()
+
+    class _FakeLLM:
+        def __init__(self, **_kw):
+            pass
+
+        def bind_tools(self, *_a, **_kw):
+            return _BoundLLM()
+
+    with patch("langchain_anthropic.ChatAnthropic", _FakeLLM), \
+         patch("app.core.config.get_settings") as gs:
+        gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
+        out = asyncio.run(fmt._invoke_llm("sys", "user"))
+    assert out == "You're an **Aggressive** investor."
 
 
 # ---------------------------------------------------------------------------

@@ -50,9 +50,7 @@ def _clamp_score(x: float) -> float:
 
 def _age_from_dob(dob: date) -> int:
     today = date.today()
-    age = today.year - dob.year - (
-        (today.month, today.day) < (dob.month, dob.day)
-    )
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
     return max(_MIN_AGE, age)
 
 
@@ -151,7 +149,12 @@ def build_goal_allocation_input_for_user(
         calc = getattr(era, "calculations", None) or {}
         osi = float(calc.get("osi", 1.0))
         savings_rate_adjustment = calc.get("savings_rate_adjustment") or "skipped"
-        if savings_rate_adjustment not in {"none", "equity_boost", "equity_reduce", "skipped"}:
+        if savings_rate_adjustment not in {
+            "none",
+            "equity_boost",
+            "equity_reduce",
+            "skipped",
+        }:
             savings_rate_adjustment = "skipped"
         gap_exceeds_3 = bool(calc.get("gap_exceeds_3", False))
         shortfall_amount = calc.get("shortfall_amount")
@@ -246,9 +249,13 @@ def build_goal_allocation_input_for_user(
         shortfall_amount=shortfall_amount,
         total_corpus=max(total_corpus, 0.0),
         monthly_household_expense=max(monthly_household_expense, 0.0),
-        tax_regime=_tax_regime_override if _tax_regime_override in ("old", "new") else "new",
+        tax_regime=_tax_regime_override
+        if _tax_regime_override in ("old", "new")
+        else "new",
         section_80c_utilized=0.0,
-        emergency_fund_needed=bool(_emergency_override) if _emergency_override is not None else False,
+        emergency_fund_needed=bool(_emergency_override)
+        if _emergency_override is not None
+        else False,
         primary_income_from_portfolio=False,
         intergenerational_transfer=False,
         effective_tax_rate=max(0.0, min(100.0, effective_tax_rate)),

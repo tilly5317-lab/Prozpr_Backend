@@ -3,7 +3,6 @@
 Defines a database table mapping, columns, and relationships. Imported by services and Alembic migrations; avoid importing FastAPI or routers from here to prevent circular dependencies.
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -32,10 +31,16 @@ class StockTransaction(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     symbol: Mapped[str] = mapped_column(
-        String(50), ForeignKey("company_metadata.symbol", ondelete="RESTRICT"), nullable=False
+        String(50),
+        ForeignKey("company_metadata.symbol", ondelete="RESTRICT"),
+        nullable=False,
     )
     transaction_type: Mapped[StockTransactionType] = mapped_column(
-        SAEnum(StockTransactionType, name="stock_transaction_type_enum", create_constraint=True),
+        SAEnum(
+            StockTransactionType,
+            name="stock_transaction_type_enum",
+            create_constraint=True,
+        ),
         nullable=False,
     )
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)

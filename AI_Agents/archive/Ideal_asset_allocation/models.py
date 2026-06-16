@@ -22,7 +22,9 @@ class AllocationInput(BaseModel):
     monthly_household_expense: float
     investment_horizon: str  # e.g. "long", "medium", "short", or "7 years"
     investment_horizon_years: Optional[float] = None  # required if medium-term
-    investment_goal: str  # e.g. "wealth creation", "regular income", "intergenerational transfer"
+    investment_goal: (
+        str  # e.g. "wealth creation", "regular income", "intergenerational transfer"
+    )
     tax_regime: Literal["old", "new"]
     section_80c_utilized: float = Field(default=0.0, ge=0.0)
     emergency_fund_needed: bool = True
@@ -38,6 +40,7 @@ class AllocationInput(BaseModel):
 
 
 # ── Output models (step5_presentation) ───────────────────────────────────────
+
 
 class CarveOut(BaseModel):
     type: str

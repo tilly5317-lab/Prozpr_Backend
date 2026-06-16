@@ -37,12 +37,8 @@ from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
 )
 
 
-_LEAD_REFRESHED = (
-    "_First I redid your asset mix from your goals, then worked out the trades to get there._"
-)
-_CLOSING = (
-    "_Worth a sanity check on exit loads and tax before you pull the trigger._"
-)
+_LEAD_REFRESHED = "_First I redid your asset mix from your goals, then worked out the trades to get there._"
+_CLOSING = "_Worth a sanity check on exit loads and tax before you pull the trigger._"
 
 
 def _fmt_inr(amount: Decimal | float | int) -> str:
@@ -139,7 +135,8 @@ def _bucket_target(
 
 
 def _summary_table(
-    buckets: list[_Bucket], response: RebalancingComputeResponse,
+    buckets: list[_Bucket],
+    response: RebalancingComputeResponse,
 ) -> list[str]:
     rows: list[str] = []
     rows.append("| Category | Current | Target | Plan |")
@@ -170,7 +167,9 @@ def _action_tables(b: _Bucket) -> list[str]:
         out.append("| --- | --- | ---: |")
         for r in sorted(sells, key=lambda r: -_sell_total(r)):
             verb = "Exit" if r.exit_flag else "Trim"
-            out.append(f"| {verb} | {r.recommended_fund} | {_fmt_inr(_sell_total(r))} |")
+            out.append(
+                f"| {verb} | {r.recommended_fund} | {_fmt_inr(_sell_total(r))} |"
+            )
         out.append("")
 
     return out

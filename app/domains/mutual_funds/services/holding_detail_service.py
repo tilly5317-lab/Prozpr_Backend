@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 # Transaction types where units flow *into* the holding (colour green in the UI);
 # everything else (SELL, SWITCH_OUT) flows out (colour red).
 _INFLOW_TYPES: frozenset[MfTransactionType] = frozenset(
-    {MfTransactionType.BUY, MfTransactionType.SWITCH_IN, MfTransactionType.DIVIDEND_REINVEST}
+    {
+        MfTransactionType.BUY,
+        MfTransactionType.SWITCH_IN,
+        MfTransactionType.DIVIDEND_REINVEST,
+    }
 )
 
 # Pull enough history for long-horizon charts + 5Y / max rolling NAV returns from ``mf_nav_history``.
@@ -84,7 +88,9 @@ def _looks_like_isin(code: str) -> bool:
     return bool(_ISIN_RE.match(code.strip().upper()))
 
 
-def _first_nav_on_or_after(sorted_rows: list[MfNavHistory], cutoff: date) -> Optional[float]:
+def _first_nav_on_or_after(
+    sorted_rows: list[MfNavHistory], cutoff: date
+) -> Optional[float]:
     """First NAV observation on or after ``cutoff`` (sorted ascending by date)."""
     for r in sorted_rows:
         if r.nav_date >= cutoff:
@@ -107,7 +113,9 @@ def _nav_at_or_before(sorted_rows: list[MfNavHistory], cutoff: date) -> Optional
     return chosen
 
 
-def _compute_nav_returns_pct(nav_rows: list[MfNavHistory]) -> dict[str, Optional[float | date]]:
+def _compute_nav_returns_pct(
+    nav_rows: list[MfNavHistory],
+) -> dict[str, Optional[float | date]]:
     """Rolling returns from ``mf_nav_history``: end = latest row; start = NAV at or before horizon cutoffs."""
     empty: dict[str, Optional[float | date]] = {
         "nav_returns_as_of": None,
@@ -153,7 +161,9 @@ def _compute_nav_returns_pct(nav_rows: list[MfNavHistory]) -> dict[str, Optional
 async def _resolve_metadata(db: AsyncSession, code: str) -> Optional[MfFundMetadata]:
     """Find the fund-metadata row for an AMFI scheme code or an ISIN."""
     row = (
-        await db.execute(select(MfFundMetadata).where(MfFundMetadata.scheme_code == code))
+        await db.execute(
+            select(MfFundMetadata).where(MfFundMetadata.scheme_code == code)
+        )
     ).scalar_one_or_none()
     if row is not None:
         return row
@@ -195,7 +205,9 @@ async def _nav_series(
                 .order_by(MfNavHistory.nav_date.asc())
                 .limit(_NAV_ROW_CAP + 1)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     truncated = len(rows) > _NAV_ROW_CAP
     return rows[:_NAV_ROW_CAP], truncated
@@ -214,9 +226,13 @@ async def _user_transactions(
                     MfTransaction.user_id == user_id,
                     MfTransaction.scheme_code.in_(scheme_codes),
                 )
-                .order_by(MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc())
+                .order_by(
+                    MfTransaction.transaction_date.asc(), MfTransaction.created_at.asc()
+                )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -259,8 +275,16 @@ def _position_from_ledger(
     current_value = (units * current_price) if current_price is not None else None
     # Cost basis of the units still held, at the average purchase NAV.
     invested = (average_cost * units) if average_cost is not None else None
-    gain = (current_value - invested) if (current_value is not None and invested is not None) else None
-    gain_pct = (100.0 * gain / invested) if (gain is not None and invested and invested > 0) else None
+    gain = (
+        (current_value - invested)
+        if (current_value is not None and invested is not None)
+        else None
+    )
+    gain_pct = (
+        (100.0 * gain / invested)
+        if (gain is not None and invested and invested > 0)
+        else None
+    )
 
     return MfHoldingPosition(
         units=round(units, 4),
@@ -321,11 +345,15 @@ async def build_holding_detail(
     if not _looks_like_isin(scheme_code):
         try:
             await ensure_nav_history_for_chart(
-                db, scheme_code, date_from=d_from, date_to=d_to,
+                db,
+                scheme_code,
+                date_from=d_from,
+                date_to=d_to,
             )
         except Exception:  # noqa: BLE001
             logger.exception(
-                "chart NAV backfill failed for scheme %s", scheme_code,
+                "chart NAV backfill failed for scheme %s",
+                scheme_code,
             )
             notes.append(
                 "Couldn't load full NAV history for this chart; "
@@ -333,14 +361,13 @@ async def build_holding_detail(
             )
 
     latest = await _latest_nav(db, scheme_code)
-    nav_rows, truncated = await _nav_series(db, scheme_code, date_from=d_from, date_to=d_to)
+    nav_rows, truncated = await _nav_series(
+        db, scheme_code, date_from=d_from, date_to=d_to
+    )
 
     # Top up today's NAV only when the latest stored point is stale.
     recent_cutoff = today - timedelta(days=_RECENT_NAV_MAX_AGE_DAYS)
-    needs_nav_refresh = (
-        latest is None
-        or latest.nav_date < recent_cutoff
-    )
+    needs_nav_refresh = latest is None or latest.nav_date < recent_cutoff
     if needs_nav_refresh and not _looks_like_isin(scheme_code):
         try:
             await get_latest_nav_with_source_fallback(db, scheme_code)
@@ -351,7 +378,9 @@ async def build_holding_detail(
             )
         else:
             latest = await _latest_nav(db, scheme_code)
-            nav_rows, truncated = await _nav_series(db, scheme_code, date_from=d_from, date_to=d_to)
+            nav_rows, truncated = await _nav_series(
+                db, scheme_code, date_from=d_from, date_to=d_to
+            )
 
     if latest is None:
         notes.append(
@@ -369,7 +398,10 @@ async def build_holding_detail(
     try:
         await normalize_pending_imports(db, user_id)
     except Exception:  # noqa: BLE001 — best-effort; never block the page on this
-        logger.exception("normalize_pending_imports failed for user %s during holding-detail", user_id)
+        logger.exception(
+            "normalize_pending_imports failed for user %s during holding-detail",
+            user_id,
+        )
 
     # The NAV backfill and the normalization above may have just created the
     # ``mf_fund_metadata`` row for this scheme — pick it up so we can use its
@@ -398,7 +430,9 @@ async def build_holding_detail(
     # Fill the fund's canonical class from scheme_classification when it isn't
     # otherwise present, so the client gets Equity/Debt/Others instead of blank.
     _scheme_name = meta.scheme_name if meta else (txns[0].fund_name if txns else None)
-    _sub_category = meta.sub_category if meta else (txns[0].sub_category if txns else None)
+    _sub_category = (
+        meta.sub_category if meta else (txns[0].sub_category if txns else None)
+    )
     _category = meta.category if meta else (txns[0].category if txns else None)
     asset_class, asset_subgroup = fill_classification(
         _sub_category, _scheme_name, scheme_type=_category
@@ -406,10 +440,14 @@ async def build_holding_detail(
 
     return MfHoldingDetailResponse(
         scheme_code=scheme_code,
-        scheme_name=(meta.scheme_name if meta else (txns[0].fund_name if txns else None)),
+        scheme_name=(
+            meta.scheme_name if meta else (txns[0].fund_name if txns else None)
+        ),
         amc_name=(meta.amc_name if meta else None),
         category=(meta.category if meta else (txns[0].category if txns else None)),
-        sub_category=(meta.sub_category if meta else (txns[0].sub_category if txns else None)),
+        sub_category=(
+            meta.sub_category if meta else (txns[0].sub_category if txns else None)
+        ),
         asset_class=asset_class,
         asset_subgroup=asset_subgroup,
         isin=isin or (txns[0].isin if txns else None),
@@ -418,7 +456,10 @@ async def build_holding_detail(
         metadata_id=(meta.id if meta else None),
         latest_nav=_f(latest.nav) if latest else None,
         latest_nav_date=latest.nav_date if latest else None,
-        nav_history=[MfHoldingNavPoint(nav_date=r.nav_date, nav=_f(r.nav) or 0.0) for r in nav_rows],
+        nav_history=[
+            MfHoldingNavPoint(nav_date=r.nav_date, nav=_f(r.nav) or 0.0)
+            for r in nav_rows
+        ],
         nav_history_from=(nav_rows[0].nav_date if nav_rows else None),
         nav_history_to=(nav_rows[-1].nav_date if nav_rows else None),
         nav_history_truncated=truncated,

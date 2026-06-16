@@ -12,6 +12,7 @@ Switches between schemes are treated differently at the two grains:
   (no external money moves). Excluded from cashflows and from the ``invested``
   total to avoid double-counting when a single rupee is switched between funds.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,12 +38,14 @@ logger = logging.getLogger(__name__)
 class XirrResult:
     scheme_code: Optional[str]
     folio_number: Optional[str]
-    xirr: Optional[float]            # annualised, 0.12 == 12%; None when undefined
-    invested: float                  # gross outflows (rounded ₹)
-    current_value: float             # units_held × latest_nav (rounded ₹)
-    absolute_return: Optional[float] # (current + realised − invested) / invested; None if invested == 0
-    cashflow_count: int              # number of non-zero cashflows used
-    as_of_date: date                 # date of the terminal NAV (or latest txn if no NAV found)
+    xirr: Optional[float]  # annualised, 0.12 == 12%; None when undefined
+    invested: float  # gross outflows (rounded ₹)
+    current_value: float  # units_held × latest_nav (rounded ₹)
+    absolute_return: Optional[
+        float
+    ]  # (current + realised − invested) / invested; None if invested == 0
+    cashflow_count: int  # number of non-zero cashflows used
+    as_of_date: date  # date of the terminal NAV (or latest txn if no NAV found)
 
 
 async def _latest_navs(
@@ -52,12 +55,16 @@ async def _latest_navs(
     if not scheme_codes:
         return {}
     rows = (
-        await db.execute(
-            select(MfNavHistory)
-            .where(MfNavHistory.scheme_code.in_(scheme_codes))
-            .order_by(MfNavHistory.scheme_code, MfNavHistory.nav_date.desc())
+        (
+            await db.execute(
+                select(MfNavHistory)
+                .where(MfNavHistory.scheme_code.in_(scheme_codes))
+                .order_by(MfNavHistory.scheme_code, MfNavHistory.nav_date.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: dict[str, tuple[float, date]] = {}
     for r in rows:
         if r.scheme_code not in out:  # first row per scheme is the latest by date
@@ -114,7 +121,9 @@ def _build_cashflows(
             continue
         nav_entry = nav_lookup.get(scheme)
         if not nav_entry:
-            logger.info("xirr: no NAV row for scheme %s; excluded from current value", scheme)
+            logger.info(
+                "xirr: no NAV row for scheme %s; excluded from current value", scheme
+            )
             continue
         nav, nav_date = nav_entry
         current_value += units * nav
@@ -130,7 +139,9 @@ def _build_cashflows(
     return cfs, invested, realised, current_value, as_of_date
 
 
-def _abs_return(invested: float, realised: float, current_value: float) -> Optional[float]:
+def _abs_return(
+    invested: float, realised: float, current_value: float
+) -> Optional[float]:
     if invested <= 0:
         return None
     return (current_value + realised - invested) / invested
@@ -145,7 +156,9 @@ async def compute_scheme_xirr(
     """XIRR for one scheme (optionally narrowed to one folio)."""
     stmt = (
         select(MfTransaction)
-        .where(MfTransaction.user_id == user_id, MfTransaction.scheme_code == scheme_code)
+        .where(
+            MfTransaction.user_id == user_id, MfTransaction.scheme_code == scheme_code
+        )
         .order_by(MfTransaction.transaction_date.asc())
     )
     if folio_number is not None:
@@ -177,7 +190,9 @@ async def compute_portfolio_xirr(db: AsyncSession, user_id: uuid.UUID) -> XirrRe
                 .where(MfTransaction.user_id == user_id)
                 .order_by(MfTransaction.transaction_date.asc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     nav_lookup = await _latest_navs(db, {t.scheme_code for t in txns})
 
@@ -207,7 +222,9 @@ async def compute_all_scheme_xirrs(
                 .where(MfTransaction.user_id == user_id)
                 .order_by(MfTransaction.transaction_date.asc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not txns:
         return []
@@ -220,7 +237,8 @@ async def compute_all_scheme_xirrs(
     results: list[XirrResult] = []
     for (scheme, folio), group_txns in groups.items():
         cfs, invested, realised, cv, as_of = _build_cashflows(
-            group_txns, {scheme: nav_lookup[scheme]} if scheme in nav_lookup else {},
+            group_txns,
+            {scheme: nav_lookup[scheme]} if scheme in nav_lookup else {},
             include_switches=True,
         )
         results.append(

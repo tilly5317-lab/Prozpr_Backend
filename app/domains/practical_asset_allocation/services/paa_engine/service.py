@@ -67,7 +67,8 @@ async def compute_practical_allocation_result(
     except Exception as exc:
         logger.exception("practical_asset_allocation input build failed: %s", exc)
         return PracticalAllocationRunOutcome(
-            result=None, blocking_message=_MSG_ENGINE_ERROR,
+            result=None,
+            blocking_message=_MSG_ENGINE_ERROR,
         )
 
     trace_line(
@@ -81,13 +82,15 @@ async def compute_practical_allocation_result(
     except InfeasibleGoalError as exc:
         logger.warning("practical_asset_allocation infeasible: %s", exc)
         return PracticalAllocationRunOutcome(
-            result=None, blocking_message=_MSG_ENGINE_ERROR,
+            result=None,
+            blocking_message=_MSG_ENGINE_ERROR,
         )
     except Exception as exc:
         logger.exception("practical_asset_allocation pipeline failed: %s", exc)
         trace_line(f"practical_asset_allocation ERROR: {exc!s}")
         return PracticalAllocationRunOutcome(
-            result=None, blocking_message=_MSG_ENGINE_ERROR,
+            result=None,
+            blocking_message=_MSG_ENGINE_ERROR,
         )
 
     trace_line(f"PracticalAllocationOutput grand_total={output.grand_total}")

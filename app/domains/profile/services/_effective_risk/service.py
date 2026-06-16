@@ -3,7 +3,6 @@
 App-layer persistence and calculation helpers for the user’s effective risk assessment (distinct from the deterministic ``risk_profiling.scoring`` used when building ``AllocationInput`` for ideal allocation).
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -15,10 +14,16 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.profile.models import InvestmentProfile, PersonalFinanceProfile, RiskProfile
+from app.domains.profile.models import (
+    InvestmentProfile,
+    PersonalFinanceProfile,
+    RiskProfile,
+)
 from app.domains.identity.models.user import User
 from app.domains.profile.models.effective_risk_assessment import EffectiveRiskAssessment
-from app.domains.profile.services._effective_risk.calculation import compute_effective_risk_document
+from app.domains.profile.services._effective_risk.calculation import (
+    compute_effective_risk_document,
+)
 from app.domains.profile.services._effective_risk.inputs import build_computation_input
 from app.domains.profile.services._effective_risk.merge import merge_computation_inputs
 
@@ -44,21 +49,31 @@ async def upsert_effective_risk_assessment(
     """
     existing = (
         await db.execute(
-            select(EffectiveRiskAssessment).where(EffectiveRiskAssessment.user_id == user_id)
+            select(EffectiveRiskAssessment).where(
+                EffectiveRiskAssessment.user_id == user_id
+            )
         )
     ).scalar_one_or_none()
-    previous_inputs = (existing.payload or {}).get("inputs") if existing and existing.payload else None
+    previous_inputs = (
+        (existing.payload or {}).get("inputs")
+        if existing and existing.payload
+        else None
+    )
 
     user = (
         await db.execute(select(User).where(User.id == user_id))
     ).scalar_one_or_none()
     profile = (
         await db.execute(
-            select(PersonalFinanceProfile).where(PersonalFinanceProfile.user_id == user_id)
+            select(PersonalFinanceProfile).where(
+                PersonalFinanceProfile.user_id == user_id
+            )
         )
     ).scalar_one_or_none()
     inv = (
-        await db.execute(select(InvestmentProfile).where(InvestmentProfile.user_id == user_id))
+        await db.execute(
+            select(InvestmentProfile).where(InvestmentProfile.user_id == user_id)
+        )
     ).scalar_one_or_none()
     risk = (
         await db.execute(select(RiskProfile).where(RiskProfile.user_id == user_id))
@@ -72,7 +87,9 @@ async def upsert_effective_risk_assessment(
     try:
         merged_inp = merge_computation_inputs(previous_inputs, inp, trigger_reason)
     except (KeyError, TypeError, ValueError):
-        logger.warning("Effective risk merge failed for user %s; using full DB inputs", user_id)
+        logger.warning(
+            "Effective risk merge failed for user %s; using full DB inputs", user_id
+        )
         merged_inp = inp
 
     try:
@@ -128,6 +145,8 @@ async def maybe_recalculate_effective_risk(
 ) -> None:
     """Best-effort recompute; never raises to callers (profile routes stay stable)."""
     try:
-        await upsert_effective_risk_assessment(db, user_id, trigger_reason=trigger_reason)
+        await upsert_effective_risk_assessment(
+            db, user_id, trigger_reason=trigger_reason
+        )
     except Exception:
         logger.exception("maybe_recalculate_effective_risk failed user=%s", user_id)

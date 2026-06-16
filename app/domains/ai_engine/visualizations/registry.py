@@ -13,6 +13,7 @@ Each registered tool carries:
 Adding a new chart = create the chart's per-folder package and register one entry below.
 The selector and dispatcher in ``brain.py`` read from this dict; nothing else needs to change.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,10 +32,16 @@ from app.domains.ai_engine.visualizations.category_gap_bar.schema import Categor
 from app.domains.ai_engine.visualizations.concentration_risk.builder import (
     build_concentration_risk,
 )
-from app.domains.ai_engine.visualizations.concentration_risk.schema import ConcentrationRisk
-from app.domains.ai_engine.visualizations.current_donut.builder import build_current_donut
+from app.domains.ai_engine.visualizations.concentration_risk.schema import (
+    ConcentrationRisk,
+)
+from app.domains.ai_engine.visualizations.current_donut.builder import (
+    build_current_donut,
+)
 from app.domains.ai_engine.visualizations.current_donut.schema import CurrentDonut
-from app.domains.ai_engine.visualizations.planned_donut.builder import build_planned_donut
+from app.domains.ai_engine.visualizations.planned_donut.builder import (
+    build_planned_donut,
+)
 from app.domains.ai_engine.visualizations.planned_donut.schema import PlannedDonut
 from app.domains.ai_engine.visualizations.profile_dial.builder import build_profile_dial
 from app.domains.ai_engine.visualizations.profile_dial.schema import ProfileDial

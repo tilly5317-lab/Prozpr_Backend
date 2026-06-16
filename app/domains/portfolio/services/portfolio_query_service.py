@@ -103,7 +103,9 @@ def _f(obj: Any, attr: str) -> float | None:
         return None
 
 
-def _holding_invested_and_gain(h: Any) -> tuple[float | None, float | None, float | None]:
+def _holding_invested_and_gain(
+    h: Any,
+) -> tuple[float | None, float | None, float | None]:
     """Derive (invested_inr, gain_inr, gain_pct) from cost basis when possible.
 
     Returns ``(None, None, None)`` if avg_cost × quantity isn't computable. Uses
@@ -233,7 +235,9 @@ def _build_client_context(user: Any) -> ClientContext:
     age = _age_from_dob(dob) if dob is not None else None
 
     risk_category = rp.risk_category if rp is not None else None
-    investment_horizon = getattr(rp, "investment_horizon", None) if rp is not None else None
+    investment_horizon = (
+        getattr(rp, "investment_horizon", None) if rp is not None else None
+    )
     occupation_type = getattr(rp, "occupation_type", None) if rp is not None else None
 
     effective_risk_score = _f(era, "effective_risk_score") if era is not None else None
@@ -416,7 +420,10 @@ async def generate_portfolio_query_response(
         first_name = getattr(user, "first_name", None) or "there"
         return _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
 
-    api_key = get_settings().get_anthropic_portfolio_query_key() or get_settings().get_anthropic_key()
+    api_key = (
+        get_settings().get_anthropic_portfolio_query_key()
+        or get_settings().get_anthropic_key()
+    )
     if not api_key:
         return _MISSING_KEY_REPLY
 

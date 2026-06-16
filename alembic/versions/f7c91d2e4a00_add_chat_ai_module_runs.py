@@ -31,14 +31,33 @@ def upgrade() -> None:
         sa.Column("spine_mode", sa.String(length=32), nullable=True),
         sa.Column("duration_ms", sa.Integer(), nullable=True),
         sa.Column("extra", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["session_id"], ["chat_sessions.id"], ondelete="SET NULL"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["session_id"], ["chat_sessions.id"], ondelete="SET NULL"
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_chat_ai_module_runs_user_id", "chat_ai_module_runs", ["user_id"], unique=False)
-    op.create_index("ix_chat_ai_module_runs_session_id", "chat_ai_module_runs", ["session_id"], unique=False)
-    op.create_index("ix_chat_ai_module_runs_module", "chat_ai_module_runs", ["module"], unique=False)
+    op.create_index(
+        "ix_chat_ai_module_runs_user_id",
+        "chat_ai_module_runs",
+        ["user_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_chat_ai_module_runs_session_id",
+        "chat_ai_module_runs",
+        ["session_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_chat_ai_module_runs_module", "chat_ai_module_runs", ["module"], unique=False
+    )
 
 
 def downgrade() -> None:

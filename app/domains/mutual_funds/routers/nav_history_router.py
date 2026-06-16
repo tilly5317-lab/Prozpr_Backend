@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
-from app.domains.mutual_funds.schemas import MfNavHistoryCreate, MfNavHistoryResponse, MfNavHistoryUpdate
+from app.domains.mutual_funds.schemas import (
+    MfNavHistoryCreate,
+    MfNavHistoryResponse,
+    MfNavHistoryUpdate,
+)
 from app.domains.mutual_funds.services import nav_history_service
 
 router = APIRouter(prefix="/nav-history", tags=["MF Data"])
@@ -61,7 +65,9 @@ async def get_nav_by_scheme_code(
         description="If set, return NAV on this date only; if omitted, return latest available NAV.",
     ),
 ):
-    return await nav_history_service.get_nav_by_scheme(db, scheme_code, nav_date=nav_date)
+    return await nav_history_service.get_nav_by_scheme(
+        db, scheme_code, nav_date=nav_date
+    )
 
 
 @router.patch(
@@ -80,7 +86,9 @@ async def update_nav_by_scheme(
         description="Calendar date of this NAV row (required — together with scheme_code it is the row key).",
     ),
 ):
-    return await nav_history_service.update_nav_on_scheme_date(db, scheme_code, nav_date, payload)
+    return await nav_history_service.update_nav_on_scheme_date(
+        db, scheme_code, nav_date, payload
+    )
 
 
 @router.delete(
@@ -139,7 +147,9 @@ async def update_nav_by_isin(
         description="Calendar date of this NAV row (required — together with ISIN it is the row key).",
     ),
 ):
-    return await nav_history_service.update_nav_on_isin_date(db, isin, nav_date, payload)
+    return await nav_history_service.update_nav_on_isin_date(
+        db, isin, nav_date, payload
+    )
 
 
 @router.delete(
@@ -160,7 +170,9 @@ async def delete_nav_by_isin(
     await nav_history_service.delete_nav_on_isin_date(db, isin, nav_date)
 
 
-@router.post("/", response_model=MfNavHistoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=MfNavHistoryResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_nav_history(
     payload: MfNavHistoryCreate,
     db: AsyncSession = Depends(get_db),

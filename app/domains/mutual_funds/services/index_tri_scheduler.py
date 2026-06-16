@@ -31,7 +31,9 @@ def start_tri_scheduler() -> Optional[Any]:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
     except ImportError as exc:
-        logger.warning("apscheduler not installed; TRI daily refresh disabled. (%s)", exc)
+        logger.warning(
+            "apscheduler not installed; TRI daily refresh disabled. (%s)", exc
+        )
         return None
 
     sched = AsyncIOScheduler(
@@ -55,7 +57,9 @@ def start_tri_scheduler() -> Optional[Any]:
     _tri_scheduler = sched
 
     for job in sched.get_jobs():
-        logger.info("TRI scheduler: [%s] %s — next run: %s", job.id, job.name, job.next_run_time)
+        logger.info(
+            "TRI scheduler: [%s] %s — next run: %s", job.id, job.name, job.next_run_time
+        )
     return sched
 
 
