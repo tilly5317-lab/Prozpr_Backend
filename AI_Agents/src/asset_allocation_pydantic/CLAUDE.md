@@ -1,49 +1,29 @@
-# AI_Agents/src/asset_allocation_pydantic
+# AI_Agents/src/asset_allocation_pydantic/ — goal-based asset-allocation pipeline
 
-Pure-Python goal-based asset-allocation pipeline over pydantic models. Processes emergency carve-out, short-term, medium-term, and long-term goals, then aggregates, applies guardrails, and assembles the final presentation. LLM use is isolated to an optional rationale function injected at the presentation step.
+Pure-Python pipeline over pydantic models: processes emergency carve-out, short / medium / long-term goals, then aggregates, applies guardrails, and assembles the presentation. LLM use is isolated to an optional rationale step.
+
+## Entry / contract
+- `run_allocation` (`__init__.py`, defined in `pipeline.py`) is the public entry.
+- Input `AllocationInput`; output `GoalAllocationOutput` (asset-class-only — see invariant).
+- LLM rationale is optional, via an injected `rationale_fn` (Anthropic when enabled).
 
 ## Files
-
-- `pipeline.py` — entry point for the allocation pipeline.
+- `__init__.py` — flat public API: `run_allocation` + the public models.
+- `pipeline.py` — runs steps 1–7 in order.
 - `models.py` — `AllocationInput`, `Goal`, `GoalAllocationOutput`, per-step `StepNOutput` schemas.
-- `tables.py` — static lookup tables (default market commentary scores, multi-asset composition, fund mappings).
-- `utils.py` — shared helpers used across steps.
-- `steps/` — one file per pipeline step (`step1_emergency.py` … `step7_presentation.py`) plus `_rationale_llm.py` for the optional LLM rationale.
-- `docs/` — implementation plan (`plan.md`); planning reference, not product docs.
-- `Testing/` — pytest suite (see Tests section).
-- `Master_testing/` — large-scale profile sweep runner; results land in `Master_testing/results/`.
+- `tables.py` — static lookup tables (default market-commentary scores, multi-asset composition). Asset-class only — no fund mappings.
+- `utils.py` — shared rounding/helpers (`round_to_100`, `ceil_to_half`).
+- `equity_subgroup_slider.py` — single source of truth for the v2 average-based equity-subgroup slider; shared with the practical engine.
+- `steps/` — one file per step (`step1_emergency.py` … `step7_presentation.py`) plus `_rationale_llm.py` for the optional LLM rationale.
+- `docs/plan.md` — implementation plan; planning reference, not product docs.
 
-## Data contract
+## Gotchas & invariants
+- **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names / ISINs / SEBI sub-category strings. Enforced by `Testing/test_no_fund_mapping.py`.
+- **Phase-5 guardrail denominator.** Equity-subgroup shares are validated against `step4.multi_asset.equity_for_subgroups` — the pool left after the multi-asset carve-out, which Phase 5 itself split — NOT total equity. Wrong base silently flags valid plans (`steps/step6_guardrails.py`).
+- **Symbols re-used cross-agent.** `practical_asset_allocation/` (spec §B.1, the first cross-`src/` import) imports steps 1–3 + 5, selected `step4_long_term` helpers, the slider, `tables`, `utils.round_to_100`, and the public models. Do not rename without a cross-module sweep.
 
-- Input: `AllocationInput`
-- Output: `GoalAllocationOutput`
-
-## Depends on
-
-- `pydantic`; no other `src/` module is imported directly.
-- `AllocationInput` carries `effective_risk_score` / OSI / `savings_rate_adjustment` fields populated from `risk_profiling/` output by the caller.
-- `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/` output by the caller.
-- LLM use is optional via injected `rationale_fn` (Anthropic when enabled).
-
-## Tests
-
-- Command: `pytest AI_Agents/src/asset_allocation_pydantic/Testing -v`
-- Key suites: `test_pipeline.py` (end-to-end), `test_step1_emergency.py` … `test_step7_presentation.py` (per-step), `test_tables.py`, `test_utils.py`
-
-## Consumed by
-
-- **`practical_asset_allocation/`** — per spec §B.1 (the first cross-agent edge
-  under `AI_Agents/src/`), imports `step1_emergency.run`,
-  `step2_short_term.run`, `step3_medium_term.run`, `step5_aggregation.run`,
-  selected helpers from `step4_long_term` (`phase1_bounds`,
-  `phase4_multi_asset`, `phase5_equity_subgroups`), `utils.round_to_100` /
-  `ceil_to_half`, and the public models. **Do not rename these symbols
-  without a cross-module sweep.**
+## Testing
+- Tests live in `Testing/` (`test_part_a.py`, `test_no_fund_mapping.py`). `Master_testing/` is a large-scale profile-sweep runner; output lands in `Master_testing/results/`.
 
 ## Don't read
-
-- `__pycache__/`
-- `Testing/` fixture files (`dev_output_samples.json`, `pydantic_output_samples.json`) — captured artifacts
-- `Master_testing/results/` — sweep output, not source of truth
-- `references/` — domain markdown consumed by prompts; not product docs
-- `simulation_website/goal_allocation_explorer.html` — standalone HTML explorer, not source code
+- `__pycache__/`, `Testing/`, `Master_testing/results/`.

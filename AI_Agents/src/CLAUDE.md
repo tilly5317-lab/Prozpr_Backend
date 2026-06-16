@@ -1,50 +1,47 @@
 # AI_Agents/src — Module Map
 
-Python package hosting the Prozpr AI financial-advisor agents. Each top-level folder is a self-contained agent/module: a LangChain or orchestrator-driven pipeline that consumes a pydantic input model, calls Claude (typically Haiku), and returns a structured pydantic output. Modules are composed externally by the FastAPI layer; within `src/` they are peers and do not import each other (with the documented exceptions in **Cross-module edges** below).
+Python package hosting the Prozpr AI financial-advisor agents. Each top-level folder is a self-contained agent: a LangChain or orchestrator-driven pipeline over pydantic input → structured pydantic output. The FastAPI layer composes them; within `src/` they are peers and do not import each other (exceptions in **Cross-module edges**).
 
 ## Files at this level
 
-- `common.py` — cross-agent utilities (e.g., `format_inr_indian` for Indian-notation rupee formatting). Self-contained; depends only on the standard library. Other modules under `AI_Agents/src/` may import from this file freely; this file must not import from any peer agent module. The `app/` layer re-exports from here via `app/services/ai_bridge/common.py`.
+- `common.py` — cross-agent utilities; standard-library only, must not import any peer agent. Public exports: `format_inr_indian`, `read_text_bom_aware`, `RISK_CATEGORIES`, `category_for_effective_risk_score`. The `app/` layer re-imports `format_inr_indian` + `RISK_CATEGORIES` + `category_for_effective_risk_score` with NO parallel copy — edit here, app follows (`app/domains/ai_engine/common.py`, `app/domains/profile/models/risk_profile.py`).
 
 ## Child modules
 
-- **asset_allocation_pydantic/** — Pure-Python goal-based allocation pipeline over pydantic models; LLM use is isolated to an optional rationale step. Entry: `pipeline.py`.
-- **cashflow_statement/** — Goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal. Computes monthly/annual cashflow projections, per-goal funding, and headline status against an Excel-parity baseline. Entry: `engine/pipeline.py` (engine), `agent/graph.py` (agent). See `cashflow_statement/CLAUDE.md`.
-- **financial_primitives/** — Shared numerical kernel (TVM, annuity via numpy_financial, inflation, Indian FY date helpers, retirement closed-form, XIRR). Pure functions, no LLM, no I/O, fully unit-tested. Library not agent — has no pipeline of its own and is not exposed as an LLM tool. Consumers include `cashflow_statement/engine/` and (via `xirr`) `app/domains/mutual_funds/services/xirr_service.py` + `app/domains/portfolio/services/benchmark_service.py`. Entry: `__init__.py` (flat public API).
-- **Rebalancing/** — Pure-Python rebalancing engine; takes a goal-based ideal allocation plus current holdings and emits per-fund target / buy / sell amounts under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`.
-- **intent_classifier/** — Classifies a customer question into one of seven intents (asset_allocation, goal_planning, stock_advice, portfolio_query, general_market_query, rebalancing, out_of_scope) using Claude Haiku + structured output. Entry: `classifier.py`.
-- **market_commentary/** — Scrapes Indian macro indicators and uses Claude to extract a structured `MacroSnapshot`, then generates a markdown commentary document persisted to `AI_Agents/Reference_docs/`. Entry: `main.py`.
-- **portfolio_query/** — Self-contained agent that answers client questions about their own portfolio using market commentary + client profile + current portfolio (asset-class, sub-category, and per-fund detail), with in-scope/out-of-scope guardrails. Entry: `orchestrator.py`.
-- **practical_asset_allocation/** — Holdings-aware goal-based allocation. Wraps `asset_allocation_pydantic` (importing its steps 1-3, step5, and selected step4 helpers) with four extra corpus inputs (`mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`) and reimplements long-term with ELSS freeze, non-MF equity NFA-banded cap, and the v2 average-based equity-subgroup slider. Entry: `pipeline.py` (single file). See `practical_asset_allocation/CLAUDE.md`.
-- **risk_profiling/** — Deterministic scoring of a client's risk profile (inputs → scores/flags) plus an LLM-generated summary paragraph. Entry: `main.py`.
-- **chat_eval/** — Dev-only evaluation harness: replays a YAML question set through the chat pipeline and emits JSON/HTML reports (`report.json`, `report.md`, `Chat_responses.html`). Not imported by runtime. Entry: `run_eval.py`.
+- **asset_allocation_pydantic/** — pure-Python goal-based allocation pipeline over pydantic models; LLM use isolated to an optional rationale step. Entry: `pipeline.py`.
+- **cashflow_statement/** — goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal, validated against an Excel-parity baseline. Entry: `engine/pipeline.py`, `agent/graph.py`. See `cashflow_statement/CLAUDE.md`.
+- **financial_primitives/** — shared numerical kernel (TVM, annuity, inflation, Indian FY dates, retirement, XIRR). Pure functions, no LLM, no I/O. Library not agent; not an LLM tool. See `financial_primitives/CLAUDE.md`.
+- **Rebalancing/** — pure-Python rebalancing engine; takes an ideal allocation + current holdings, emits per-fund target/buy/sell under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`. See `Rebalancing/CLAUDE.md`.
+- **intent_classifier/** — classifies a customer question into one of seven intents using Claude Haiku + structured output. Entry: `classifier.py`.
+- **market_commentary/** — scrapes Indian macro indicators, extracts a structured `MacroSnapshot` via Claude, then writes a markdown commentary doc to `Reference_docs/`. Entry: `main.py`.
+- **portfolio_query/** — answers client questions about their own portfolio from market commentary + client profile + holdings, with in/out-of-scope guardrails. Entry: `orchestrator.py`.
+- **practical_asset_allocation/** — holdings-aware allocation. Wraps `asset_allocation_pydantic` with four extra corpus inputs; reimplements long-term with ELSS freeze, non-MF-equity NFA-banded cap, and v2 equity-subgroup slider. Entry: `pipeline.py`. See `practical_asset_allocation/CLAUDE.md`.
+- **risk_profiling/** — deterministic scoring of a client's risk profile (inputs → scores/flags) + an LLM-generated summary paragraph. Entry: `main.py`.
+- **chat_eval/** — (gitignored; dev-only) eval harness: replays a YAML question set through the chat pipeline, emits JSON/HTML reports. Entry: `run_eval.py`.
 
-> Note: `drift_analysis/` lives in `AI_Agents/archive/drift_analysis/`, not here.
+> `drift_analysis/` lives in `AI_Agents/archive/`, not here.
 
 ## Cross-module edges
 
-- `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label and downstream routing is handled outside `src/`.
+- `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label; downstream routing is handled outside `src/`.
 - `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (written by `market_commentary/`) but does not import the `market_commentary` module — the file is the contract.
-- `asset_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` directly — the caller wires them in.
+- `asset_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` — the caller wires them in.
 - `asset_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
-- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` (steps 1-3, step5, selected step4 helpers, utils, models) — **the first explicit cross-agent import** under `AI_Agents/src/`, blessed by spec §B.1. Documented on both sides.
-- `Rebalancing/` will additionally import `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec).
+- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` (steps 1-3, step5, selected step4 helpers, utils, models) — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1. Documented on both sides.
+- `Rebalancing/` imports `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec); `pipeline.run_rebalancing` calls it first and surfaces its output on `RebalancingComputeResponse.practical_allocation`.
 - All other modules are independent of each other at the Python-import level.
 
 ## Conventions
 
-- `models.py` — top-level pydantic input/output schemas for the module.
-- `prompts.py` — prompt strings / `ChatPromptTemplate` objects used by the pipeline.
-- `main.py` — LCEL-chain modules (`market_commentary`, `risk_profiling`) expose their chain here.
-- `orchestrator.py` — class-based orchestrators (`portfolio_query`) expose their top-level class here.
-- `references/` — markdown and CSV domain references consumed by prompts (asset-class rules, carve-outs, guardrails, fund mappings). Not product docs.
-- `Testing/` — pytest suites and dev sample runners.
-- `dev_run.py` — developer smoke-test script; run as `python -m <module>.dev_run` from `src/`.
-- Prompt-adjacent `.md` files (e.g. `portfolio_query/portfolio_query.md`, `portfolio_query/guardrails.md`) are skill/prompt sources loaded at runtime, not documentation.
-- LLM calls go through `langchain-anthropic` (`ChatAnthropic` / LCEL). No raw `anthropic` SDK calls — see root `CLAUDE.md`.
+- Per-module file roles: `models.py` (pydantic I/O schemas), `prompts.py` (prompt strings / `ChatPromptTemplate`), `main.py` (LCEL chain), `orchestrator.py` (class-based orchestrator's top-level class).
+- `references/` — markdown/CSV domain references consumed by prompts (carve-outs, guardrails, fund mappings). Not product docs.
+- `Testing/` — pytest suites + sample runners.
+- `dev_run.py` — developer smoke-test (`python -m <module>.dev_run`); present only in `portfolio_query`, `risk_profiling`, `cashflow_statement`.
+- Prompt-adjacent `.md` files are runtime skill/prompt sources, not docs.
+- LLM calls go through LangChain — see root `CLAUDE.md`.
 
 ## Don't read
 
 - `__pycache__/`, `.pytest_cache/`, `.DS_Store`, `*.egg-info/`
-- `../archive/` — historical modules, not part of the active pipeline
+- `../archive/` — historical modules, not the active pipeline
 - `docs/` — local planning scaffolding, not agent code
