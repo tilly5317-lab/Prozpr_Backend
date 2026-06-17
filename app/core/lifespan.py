@@ -34,9 +34,9 @@ from app.domains.mutual_funds.services.mfapi_scheduler import (
     shutdown_scheduler,
     start_scheduler,
 )
-from app.domains.mutual_funds.services.index_tri_scheduler import (
-    shutdown_tri_scheduler,
-    start_tri_scheduler,
+from app.domains.benchmarks.services.benchmark_scheduler import (
+    shutdown_benchmark_scheduler,
+    start_benchmark_scheduler,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ def _start_schedulers() -> None:
     """Start background schedulers, each gated by its own env flag.
 
     - mfapi.in NAV polling (``MFAPI_SCHEDULER_ENABLED``)
-    - NSE Nifty 50 TRI refresh (``INDEX_TRI_SCHEDULER_ENABLED``)
+    - thrice-daily benchmark EOD refresh (``BENCHMARK_SCHEDULER_ENABLED``)
     """
     if not get_settings().mfapi_scheduler_enabled():
         logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
@@ -139,15 +139,15 @@ def _start_schedulers() -> None:
         except Exception as exc:
             logger.warning("mfapi scheduler failed to start: %s", exc)
 
-    if not get_settings().index_tri_scheduler_enabled():
+    if not get_settings().benchmark_scheduler_enabled():
         logger.info(
-            "index TRI scheduler disabled (INDEX_TRI_SCHEDULER_ENABLED is false)"
+            "benchmark scheduler disabled (BENCHMARK_SCHEDULER_ENABLED is false)"
         )
     else:
         try:
-            start_tri_scheduler()
+            start_benchmark_scheduler()
         except Exception as exc:
-            logger.warning("index TRI scheduler failed to start: %s", exc)
+            logger.warning("benchmark scheduler failed to start: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +158,6 @@ def _start_schedulers() -> None:
 async def _shutdown() -> None:
     logger.info("Shutting down Ask PI API...")
     await shutdown_scheduler()
-    await shutdown_tri_scheduler()
+    await shutdown_benchmark_scheduler()
     await dispose_engine()
     logger.info("Shutdown complete")
