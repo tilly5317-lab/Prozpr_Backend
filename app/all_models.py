@@ -45,12 +45,15 @@ from app.domains.mutual_funds.models import (  # noqa: F401
     mf_fund_metadata,
     mf_fund_rating,
     mf_nav_history,
-    index_tri_history,
     mf_sip_mandate,
     mf_transaction,
     mf_allocation_snapshot,
     user_investment_list,
     user_mf_latest_snapshot,
+)
+from app.domains.benchmarks.models import (  # noqa: F401
+    benchmark_index,
+    benchmark_index_value,
 )
 from app.domains.equities.models import (  # noqa: F401
     enums as equities_enums,

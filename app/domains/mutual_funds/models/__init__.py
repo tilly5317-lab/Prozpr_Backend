@@ -18,7 +18,6 @@ from app.domains.mutual_funds.models.enums import (
 from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
 from app.domains.mutual_funds.models.mf_fund_rating import MfFundRating
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
-from app.domains.mutual_funds.models.index_tri_history import IndexTriHistory
 from app.domains.mutual_funds.models.mf_sip_mandate import MfSipMandate
 from app.domains.mutual_funds.models.mf_aa_import import (
     MfAaImport,
@@ -37,7 +36,6 @@ __all__ = [
     "MfAaImportStatus",
     "MfAaSummary",
     "MfAaTransaction",
-    "IndexTriHistory",
     "MfFundMetadata",
     "MfFundRating",
     "MfNavHistory",

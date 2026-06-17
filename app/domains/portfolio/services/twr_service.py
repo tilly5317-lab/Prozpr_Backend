@@ -2,9 +2,10 @@
 
 Feeds the pure ``financial_primitives.twr_wealth_index`` kernel from the user's
 real data: daily portfolio values (``UserPortfolioNavHistory``), external
-cashflows (``MfTransaction`` ledger), and the Nifty 50 TRI (``IndexTriHistory``).
-Mirrors how ``benchmark_service`` wraps ``financial_primitives.xirr``. The
-frontend rebases the returned full series per selected range.
+cashflows (``MfTransaction`` ledger), and the Nifty 50 EOD series (from the
+``benchmarks`` domain via ``benchmark_data_service.load_value_series``). Mirrors
+how ``benchmark_service`` wraps ``financial_primitives.xirr``. The frontend
+rebases the returned full series per selected range.
 """
 
 from __future__ import annotations
@@ -18,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_primitives import twr_wealth_index
 
-from app.domains.mutual_funds.models import IndexTriHistory, MfTransaction
+from app.domains.benchmarks.services.benchmark_data_service import load_value_series
+from app.domains.mutual_funds.models import MfTransaction
 from app.domains.portfolio.models.user_portfolio_nav_history import (
     UserPortfolioNavHistory,
 )
@@ -65,13 +67,7 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
         elif type_value in EXTERNAL_OUT_TYPES:
             cashflows[txn_date] -= magnitude
 
-    tri_rows = (
-        await db.execute(
-            select(IndexTriHistory.tri_date, IndexTriHistory.tri_value).where(
-                IndexTriHistory.index_name == NIFTY_INDEX_NAME
-            )
-        )
-    ).all()
+    tri_rows = await load_value_series(db, NIFTY_INDEX_NAME)
     tri_lookup = build_step_lookup([(d, float(v)) for d, v in tri_rows])
     baseline = tri_lookup(daily_values[0][0])
 

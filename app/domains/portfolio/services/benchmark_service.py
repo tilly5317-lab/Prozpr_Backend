@@ -28,7 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_primitives.xirr import xirr
 
-from app.domains.mutual_funds.models import IndexTriHistory, MfNavHistory, MfTransaction
+from app.domains.benchmarks.services.benchmark_data_service import (
+    NIFTY_50_CODE,
+    load_value_series,
+)
+from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
 
 # Horizon -> trailing days; MAX = since first purchase.
 HORIZON_DAYS: dict[str, Optional[int]] = {
@@ -191,7 +195,9 @@ def _build_summary(bench_cf, cust_val, bench_val, invested, as_of) -> dict:
 # DB adapter
 # ---------------------------------------------------------------------------
 
-NIFTY_INDEX_NAME = "NIFTY 50"
+# Benchmark index code lives in the benchmarks domain; re-exported here so
+# ``twr_service`` (which imports it from this module) keeps working unchanged.
+NIFTY_INDEX_NAME = NIFTY_50_CODE
 
 
 async def _load_txns(db: AsyncSession, user_id: uuid.UUID) -> list[TxnLite]:
@@ -230,14 +236,9 @@ async def _load_nav_rows(db: AsyncSession, codes: set[str]):
     ).all()
 
 
-async def _load_tri_rows(db: AsyncSession):
-    return (
-        await db.execute(
-            select(IndexTriHistory.tri_date, IndexTriHistory.tri_value).where(
-                IndexTriHistory.index_name == NIFTY_INDEX_NAME
-            )
-        )
-    ).all()
+async def _load_tri_rows(db: AsyncSession) -> list[tuple[date, float]]:
+    """Nifty 50 EOD (value_date, tri_value) series from the benchmarks domain."""
+    return await load_value_series(db, NIFTY_INDEX_NAME)
 
 
 async def compute_portfolio_vs_nifty(
