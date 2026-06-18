@@ -93,11 +93,18 @@ class CashflowPlanRun(Base):
     plan_summary: Mapped[Optional["CashflowPlanSummary"]] = relationship(
         back_populates="plan_run", uselist=False, cascade="all, delete-orphan"
     )
+    # Ordered chronologically so the API returns the full series in sequence —
+    # rows have random UUID PKs, so without this the loaded list is unordered and
+    # the goal-planner chart / XLS export would show the years scrambled.
     annual_rows: Mapped[List["CashflowAnnualRow"]] = relationship(
-        back_populates="plan_run", cascade="all, delete-orphan"
+        back_populates="plan_run",
+        cascade="all, delete-orphan",
+        order_by="CashflowAnnualRow.fy_end_date",
     )
     monthly_rows: Mapped[List["CashflowMonthlyRow"]] = relationship(
-        back_populates="plan_run", cascade="all, delete-orphan"
+        back_populates="plan_run",
+        cascade="all, delete-orphan",
+        order_by="CashflowMonthlyRow.month_end_date",
     )
 
 
