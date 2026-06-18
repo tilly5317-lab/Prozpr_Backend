@@ -33,8 +33,11 @@ from cashflow_statement.engine.summary import (
 # Bump on any change to the projection math/semantics so cached plan runs
 # auto-recompute (the cashflow router recomputes when a stored run's
 # engine_version != this). 0.2.0: retirement is no longer auto-injected as a
-# goal (model_retirement) — see build_goals_table / input_builder.
-ENGINE_VERSION = "0.2.0"
+# goal (model_retirement) — see build_goals_table / input_builder. 0.3.0: the
+# projection horizon now always runs to max(last_goal, retirement_date) even when
+# retirement is not modelled, so the cashflow always reaches the planned
+# retirement age (see horizon block below).
+ENGINE_VERSION = "0.3.0"
 
 
 def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
@@ -55,25 +58,25 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
     if input.model_retirement:
         ctx = ctx.with_retirement(retirement)  # 2b
 
-    # Horizon. When retirement is modelled, the projection runs until the later of
-    # retirement and the last goal (so post-retirement goals are funded from the
-    # corpus left after the retirement lump-sum payout). When it is NOT modelled,
-    # retirement is not a goal — the horizon ends at the last user goal (falling
-    # back to the retirement date only when the user has no goals at all, so the
-    # projection still shows a wealth trajectory rather than nothing). Only custom
-    # goals and goal properties extend the horizon; one-off outflows do NOT — a
-    # one-off scheduled beyond the projection end is dropped, so warn the caller.
+    # Horizon. The projection ALWAYS runs until the later of the retirement date
+    # and the last goal — i.e. max(last_goal_year, retirement_age). Retirement age
+    # comes from the goal-planning inputs (RetirementInput, default 60); the last
+    # goal contributes nothing when the user has no goals (last_goal_date falls
+    # back to retire_date). So:
+    #   - no goals / goals before retirement  -> horizon = retirement date
+    #   - a goal after retirement             -> horizon = that goal's date
+    # This holds whether or not retirement is *modelled* as a goal: model_retirement
+    # only governs stopping salary income + injecting the retirement corpus payout
+    # (gated above / in build_goals_table), NOT the horizon length. Only custom
+    # goals and goal properties can push the horizon past retirement; one-off
+    # outflows do NOT — a one-off scheduled beyond the projection end is dropped,
+    # so warn the caller.
     retire_date = retirement.retirement_date
     goal_dates = [gp.goal_date for gp in input.goal_properties] + [
         cg.goal_date for cg in input.custom_goals
     ]
     last_goal_date = max(goal_dates, default=retire_date)
-    if input.model_retirement:
-        projection_end = max(retire_date, last_goal_date)
-        horizon_anchor_date = retire_date
-    else:
-        projection_end = last_goal_date
-        horizon_anchor_date = last_goal_date
+    projection_end = max(retire_date, last_goal_date)
     projection_end_month_end = eomonth(
         date(projection_end.year, projection_end.month, 1), 0
     )
@@ -86,7 +89,7 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
             )
 
     horizon = compute_horizon_years(
-        retirement_date=horizon_anchor_date,
+        retirement_date=retire_date,
         latest_update_date=ctx.latest_update_date,
         last_goal_date=last_goal_date,
         cap=ctx.horizon_cap_years,
