@@ -3,15 +3,13 @@
 Single entry point for the entire chat lifecycle of allocation conversations:
 - First turn (no AgentRun for asset_allocation in session) → run engine,
   persist, return chat brief
-- Subsequent turns → call _detect_action LLM to pick one of 7 modes
-  (narrate / educate / counterfactual_explore / save_last_counterfactual /
-   clarify / recompute_full / redirect), then dispatch.
+- Subsequent turns → call _detect_action LLM to pick one of 6 modes
+  (narrate / educate / counterfactual_explore / clarify / recompute_full /
+   redirect), then dispatch.
 
-Commit pattern: ``counterfactual_explore`` runs the engine with overrides and
-does NOT persist; the response appends a save offer. If the customer follows
-up with "save it" / "lock it in", the classifier emits
-``save_last_counterfactual``, which loads the most recent counterfactual
-overrides from chat_ai_module_runs and re-runs the engine with persist=True.
+``counterfactual_explore`` runs the engine with overrides and does NOT
+persist; it narrates the result as a hypothetical for comparison against the
+saved plan.
 
 The engine wrapper compute_allocation_result lives in ``service.py`` (sibling
 module) and is consumed by both this module and the standalone HTTP endpoint.
@@ -47,7 +45,6 @@ from app.domains.ai_engine.common import (
 from app.domains.ai_engine.turn_context import (
     AgentRunRecord,
     TurnContext,
-    upsert_awaiting_save,
 )
 from app.domains.asset_allocation.services.aa_engine.overrides import (
     _ALLOWED_OVERRIDE_KEYS,
@@ -67,7 +64,6 @@ class ChatAction(BaseModel):
         "narrate",
         "educate",
         "counterfactual_explore",
-        "save_last_counterfactual",
         "clarify",
         "recompute_full",
         "redirect",
@@ -108,20 +104,13 @@ _DEFAULT_CLARIFY_FALLBACK = (
     "fund name, or amount you'd like to consider?"
 )
 
-_NO_PENDING_COUNTERFACTUAL_MESSAGE = (
-    "There's no recent 'what if' to save in this conversation. "
-    "If you'd like to lock in a change, tell me what you'd like "
-    "different (e.g., 'what if my risk were 7?') and I'll show "
-    "you the result first — then you can save it."
-)
-
 
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
 _DETECT_SYSTEM = """You decide how to handle a chat turn about a customer's
-goal-based asset allocation. Pick exactly one of seven modes.
+goal-based asset allocation. Pick exactly one of six modes.
 
 - "narrate" — the question asks about THIS customer's plan or its data:
   "why so much X?", "is this too aggressive?", "explain my long-term mix",
@@ -142,17 +131,9 @@ goal-based asset allocation. Pick exactly one of seven modes.
   test. This covers BOTH "what if" curiosity ("what if my risk were 7?")
   AND commit-shaped requests ("lock in risk 7", "save this with ₹1
   crore"). Don't try to disambiguate verb intent — always emit
-  counterfactual_explore here. The handler runs the engine and offers
-  the customer a chance to save; if they confirm in the next turn,
-  classify that as `save_last_counterfactual`. Must specify `overrides`.
+  counterfactual_explore here. Must specify `overrides`.
   Multiple keys allowed in one action ("what if risk were 7 AND corpus
   were ₹1 crore" → both keys). Does NOT persist on this turn.
-- "save_last_counterfactual" — the customer is committing the most
-  recent counterfactual as their saved plan. Triggered by terse
-  approvals after a counterfactual: "save", "save it", "lock it in",
-  "lock in", "yes", "yeah do that", "go ahead", "make this my plan",
-  "keep this", "do it". No `overrides` field needed — the system loads
-  the previous turn's overrides and re-runs with persist=True.
 - "clarify" — the customer signals a direction but does not give a usable
   value ("I can take more risk", "less debt please", "be more conservative").
   Compose a concrete clarification question in `clarification_question`,
@@ -194,13 +175,8 @@ Examples:
                                           total_corpus: 10000000}
 - "lock in risk 7"                     → counterfactual_explore,
                                          overrides={effective_risk_score: 7}
-                                         (the handler will offer to save)
 - "save this with ₹1 crore corpus"     → counterfactual_explore,
                                          overrides={total_corpus: 10000000}
-- "save it" / "lock it in" / "yes"     → save_last_counterfactual
-  (only when the previous turn was a counterfactual_explore — the system
-  loads the previous overrides and persists)
-- "make this my plan"                  → save_last_counterfactual
 - "do asset allocation which more risk" → clarify (current risk from snapshot)
 - "allocation with more risk"          → clarify or counterfactual_explore if
                                          a score is given — NOT redirect
@@ -331,16 +307,8 @@ by the classifier). Per-mode behavior:
   counterfactual_explore   — hypothetical-only result. Make clear this is
                              a hypothetical for comparison, not the saved
                              plan; reference the saved plan as the
-                             baseline but don't reprint it in full. End
-                             the response with an explicit save offer like
-                             "Want me to save this as your active plan?
-                             Just say 'save' or 'lock it in'." Length:
-                             6-10 sentences (including the save offer).
-  save_last_counterfactual — the customer is committing the most recent
-                             counterfactual as their saved plan. Lead with
-                             "Saved." then briefly state what was committed
-                             (which override(s) were applied) and the
-                             resulting mix. Length: 4-6 sentences.
+                             baseline but don't reprint it in full.
+                             Length: 6-10 sentences.
 """
 
 
@@ -420,14 +388,6 @@ async def _dispatch_action(
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(last_alloc, ctx, action.overrides or {})
 
-    if action.mode == "save_last_counterfactual":
-        # State-machine gate: if no counterfactual is pending save in this
-        # session, the classifier guessed wrong. Return guidance instead of
-        # risking a write on stale telemetry.
-        if not ctx.awaiting_save:
-            return ChatHandlerResult(text=_NO_PENDING_COUNTERFACTUAL_MESSAGE)
-        return await _save_last_counterfactual(ctx)
-
     if action.mode == "clarify":
         text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
         return ChatHandlerResult(text=text)
@@ -440,18 +400,12 @@ async def _dispatch_action(
     return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason))
 
 
-_COUNTERFACTUAL_SAVE_OFFER = (
-    "\n\n_Want to save this as your active plan? Say **save** or **lock it in**._"
-)
-
-
 async def _reply_with_allocation_tables(
     *,
     ctx: TurnContext,
     output: Any,
     action_mode: str,
     spine_mode: str,
-    hypothetical: bool = False,
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
 
@@ -481,8 +435,6 @@ async def _reply_with_allocation_tables(
             "I worked out an allocation for you. Open the allocation tab to "
             "see the per-bucket details."
         )
-    if hypothetical:
-        text = text.rstrip() + _COUNTERFACTUAL_SAVE_OFFER
     return text
 
 
@@ -617,13 +569,7 @@ async def _counterfactual_explore(
     ctx: TurnContext,
     overrides: dict[str, Any],
 ) -> ChatHandlerResult:
-    """Run engine with overrides, do NOT persist, narrate as hypothetical.
-
-    Writes a chat_ai_module_runs row capturing the overrides so a follow-up
-    `save_last_counterfactual` turn can re-run with persist=True without
-    re-classifying the original constraint. The formatter prompt instructs
-    the LLM to end the response with an explicit save offer.
-    """
+    """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
         return ChatHandlerResult(text=_INVALID_OVERRIDE_TEMPLATE)
 
@@ -644,37 +590,11 @@ async def _counterfactual_explore(
     if outcome.result is None:
         return ChatHandlerResult(text="I couldn't compute that hypothetical right now.")
 
-    # Capture overrides for a potential save_last_counterfactual follow-up,
-    # and mark this session as awaiting save (cross-turn state machine).
-    # Both writes are best-effort — if either fails, the customer can re-state.
-    if ctx.db is not None:
-        try:
-            from app.domains.chat.services.ai_module_telemetry import (
-                record_ai_module_run,
-            )
-
-            await record_ai_module_run(
-                ctx.db,
-                user_id=ctx.effective_user_id,
-                session_id=ctx.session_id,
-                module="asset_allocation",
-                reason="counterfactual_overrides",
-                input_payload={"overrides": overrides},
-                emit_standard_log=False,
-            )
-        except Exception as exc:
-            logger.warning("counterfactual_overrides_capture_failed: %s", exc)
-        try:
-            await upsert_awaiting_save(ctx.db, ctx.session_id, True)
-        except Exception as exc:
-            logger.warning("awaiting_save_upsert_failed: %s", exc)
-
     text = await _reply_with_allocation_tables(
         ctx=ctx,
         output=outcome.result,
         action_mode="counterfactual_explore",
         spine_mode="counterfactual",
-        hypothetical=True,
     )
     return ChatHandlerResult(text=text)
 
@@ -682,98 +602,6 @@ async def _counterfactual_explore(
 async def _recompute_full(ctx: TurnContext) -> ChatHandlerResult:
     """Same as first-turn but explicitly user-requested re-run."""
     return await _first_turn_run_engine(ctx)
-
-
-async def _save_last_counterfactual(
-    ctx: TurnContext,
-) -> ChatHandlerResult:
-    """Commit the most recent counterfactual_explore as the saved plan.
-
-    Loads the overrides captured by ``_counterfactual_explore`` from the
-    most recent chat_ai_module_runs row in this session with
-    ``reason='counterfactual_overrides'``, re-runs the engine with those
-    overrides AND persist=True, and returns a 'Saved.'-led response.
-    """
-    overrides = await _load_last_counterfactual_overrides(ctx)
-    if overrides is None:
-        # Defense-in-depth: state gate said awaiting_save=True, but no
-        # telemetry row found. Same guidance message as the state gate.
-        return ChatHandlerResult(text=_NO_PENDING_COUNTERFACTUAL_MESSAGE)
-
-    chat_ctx = with_chat_overrides(ctx, overrides)
-    outcome = await compute_allocation_result(
-        ctx.user_ctx,
-        ctx.user_question,
-        db=ctx.db,  # persist
-        persist_recommendation=ctx.db is not None,
-        acting_user_id=ctx.effective_user_id,
-        chat_session_id=ctx.session_id,
-        spine_mode="full",
-        chat_ctx=chat_ctx,
-    )
-
-    if outcome.blocking_message:
-        return ChatHandlerResult(text=outcome.blocking_message)
-    if outcome.result is None:
-        return ChatHandlerResult(
-            text="I couldn't save that plan right now. Please try again."
-        )
-
-    # Save succeeded — clear the state-machine flag so a subsequent unrelated
-    # "save it" doesn't re-commit the same plan.
-    if ctx.db is not None:
-        try:
-            await upsert_awaiting_save(ctx.db, ctx.session_id, False)
-        except Exception as exc:
-            logger.warning("awaiting_save_reset_failed: %s", exc)
-
-    text = "Saved.\n\n" + await _reply_with_allocation_tables(
-        ctx=ctx,
-        output=outcome.result,
-        action_mode="save_last_counterfactual",
-        spine_mode="full",
-    )
-    return ChatHandlerResult(
-        text=text,
-        snapshot_id=outcome.allocation_snapshot_id,
-        asset_allocation_run_id=outcome.asset_allocation_run_id,
-        rebalancing_recommendation_id=outcome.rebalancing_recommendation_id,
-    )
-
-
-async def _load_last_counterfactual_overrides(
-    ctx: TurnContext,
-) -> Optional[dict[str, Any]]:
-    """Find the overrides used by the most recent counterfactual in this session.
-
-    Returns None when no counterfactual_overrides row exists in this session.
-    """
-    if ctx.db is None or ctx.session_id is None:
-        return None
-    from sqlalchemy import select
-    from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
-
-    stmt = (
-        select(ChatAiModuleRun)
-        .where(ChatAiModuleRun.session_id == ctx.session_id)
-        .where(ChatAiModuleRun.module == "asset_allocation")
-        .where(ChatAiModuleRun.reason == "counterfactual_overrides")
-        .order_by(ChatAiModuleRun.created_at.desc())
-        .limit(1)
-    )
-    try:
-        result = await ctx.db.execute(stmt)
-        row = result.scalar_one_or_none()
-    except Exception as exc:
-        logger.warning("load_last_counterfactual_overrides_failed: %s", exc)
-        return None
-    if row is None:
-        return None
-    payload = row.input_payload or {}
-    overrides = payload.get("overrides")
-    if not isinstance(overrides, dict) or not overrides:
-        return None
-    return overrides
 
 
 # ---------------------------------------------------------------------------

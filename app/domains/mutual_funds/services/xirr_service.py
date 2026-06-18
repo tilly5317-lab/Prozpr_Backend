@@ -88,8 +88,10 @@ def _build_cashflows(
     units_per_scheme: dict[str, float] = defaultdict(float)
 
     for t in txns:
-        amount = float(t.amount)
-        units = float(t.units)
+        # Ingest stores redemptions (SELL/SWITCH_OUT) with NEGATIVE amount AND units;
+        # direction is decided by the transaction type below, so use magnitudes here.
+        amount = abs(float(t.amount))
+        units = abs(float(t.units))
         ttype = t.transaction_type
 
         if ttype == MfTransactionType.BUY:

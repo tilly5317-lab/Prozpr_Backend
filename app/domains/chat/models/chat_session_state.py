@@ -1,8 +1,11 @@
 """SQLAlchemy ORM model — `chat_session_state.py`.
 
-Per-session cross-turn state for chat handlers. One row per chat session,
-upserted by handlers (e.g., counterfactual_explore sets awaiting_save=True;
-save_last_counterfactual gates on it and resets to False on success).
+Per-session cross-turn state for chat handlers. One row per chat session.
+
+``awaiting_save`` is a generic cross-turn gate (when set, ``ChatBrain``
+routes the next turn back to the gate's flow regardless of the classifier
+verdict). No handler sets it today; it remains as plumbing for a future
+durable-save flow.
 """
 
 from __future__ import annotations

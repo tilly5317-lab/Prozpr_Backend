@@ -28,31 +28,43 @@ def monthly_invest_or_withdraw(
     sip_share: float,
     retirement_date: date | None,
 ) -> tuple[float, str]:
-    """M147 4-branch decision rule for monthly invest/withdraw.
+    """M147 monthly invest/withdraw decision rule.
 
-    Returns (amount, kind) where kind ∈ {"user_sip", "user_sip_capped", "savings_sip_fraction", "withdrawal", "zero"}.
-    "user_sip_capped" means the grown user-SIP exceeded `savings_post_emi` and was clamped to it.
+    Returns (amount, kind) where kind ∈ {"user_sip", "user_sip_capped",
+    "savings_sip_fraction", "withdrawal", "zero"}. Positive amount = invested into
+    the corpus, negative = drawn from it.
 
-    Post-retirement check is month-level (`m > retirement_date`),
-    so the partial retirement FY correctly stops investing from `retirement_date` onward.
+    Order of decisions:
+      1. Post-retirement (month-level `m > retirement_date`) → no invest/withdraw,
+         so the partial retirement FY correctly stops investing from
+         `retirement_date` onward.
+      2. Deficit (`savings_post_emi < 0`) → draw the shortfall from the corpus,
+         REGARDLESS of the SIP. You can't invest money you don't have, and forcing
+         the stated SIP in a deficit nets to the same corpus change as simply
+         funding the shortfall from the corpus, so the SIP is moot here.
+      3. No surplus (`savings_post_emi == 0`) → nothing to invest.
+      4. Surplus → invest per the SIP preference:
+         - stated SIP > 0: the grown SIP, capped at the month's savings
+           ("user_sip_capped" when the cap fires — distinguishes stated-and-capped
+           from stated-and-affordable);
+         - explicit 0: invest nothing (the user opted out — NOT the fallback);
+         - blank (None): the default fraction of savings ("savings_sip_fraction").
     """
     m_year = fy_for_date(m)
     if retirement_date is not None and m > retirement_date:
         return 0.0, "zero"
-    if user_sip is not None and user_sip > 0:
-        # The stated user SIP is capped at the household's
-        # actual post-EMI savings_post_emi for the month. This prevents the engine from
-        # "magic-ing up money" when EMIs + expense leave less than the stated SIP.
-        # When savings_post_emi is non-positive, the cap means zero.
-        if savings_post_emi <= 0:
+    if savings_post_emi < 0:
+        return savings_post_emi, "withdrawal"
+    if savings_post_emi == 0:
+        return 0.0, "zero"
+    if user_sip is not None:
+        if user_sip == 0:
             return 0.0, "zero"
         grown = user_sip * (1 + invest_growth) ** (m_year - base_year)
         if grown > savings_post_emi:
             return savings_post_emi, "user_sip_capped"
         return grown, "user_sip"
-    if savings_post_emi > 0:
-        return savings_post_emi * sip_share, "savings_sip_fraction"
-    return savings_post_emi, "withdrawal"
+    return savings_post_emi * sip_share, "savings_sip_fraction"
 
 
 def compute_funding(

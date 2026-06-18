@@ -19,7 +19,6 @@ from app.domains.rebalancing.services.rebal_engine.service import (
 from app.domains.ai_engine.turn_context import (
     AgentRunRecord,
     TurnContext,
-    upsert_awaiting_save,
 )
 from app.domains.ai_engine.answer_formatter import format_with_telemetry
 from app.domains.rebalancing.services.rebal_engine.formatter import (
@@ -43,7 +42,6 @@ class RebalanceAction(BaseModel):
         "narrate",
         "educate",
         "counterfactual_explore",
-        "save_last_counterfactual",
         "recompute",
         "clarify",
         "redirect",
@@ -93,9 +91,7 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   test. This covers BOTH "what if" curiosity ("what if my tax rate were
   20%?") AND commit-shaped requests ("save with 20% tax rate", "lock
   this in with ₹2L more"). Don't try to disambiguate verb intent —
-  always emit counterfactual_explore here. The handler runs the engine
-  and offers the customer a chance to save; if they confirm in the next
-  turn, classify that as `save_last_counterfactual`. Must specify
+  always emit counterfactual_explore here. Must specify
   `overrides`. Allowed override keys (others → redirect):
     effective_tax_rate:        number 0-100 (% — overrides customer's tax bracket)
     stcg_offset_budget_inr:    number ≥ 0 (₹ — STCG offset budget for this run)
@@ -104,12 +100,6 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
     additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
   Multiple keys are allowed in one action ("what if my tax rate were 20%
   AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
-- "save_last_counterfactual" — the customer is committing the most
-  recent counterfactual as their saved recommendation. Triggered by
-  terse approvals after a counterfactual: "save", "save it", "lock it
-  in", "lock in", "yes", "yeah do that", "go ahead", "make this my
-  plan", "keep this", "do it". No `overrides` field needed — the system
-  loads the previous turn's overrides and re-runs with persist=True.
 - "recompute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
@@ -144,16 +134,11 @@ counterfactual_explore (hypothetical with at least one concrete value):
                                               overrides={additional_cash_inr: 200000}
 - "save with 20% tax rate"                  → counterfactual_explore,
                                               overrides={effective_tax_rate: 20}
-                                              (commit-shaped — still emit explore;
-                                              the system offers a save next turn)
+                                              (commit-shaped — still emit explore)
 - "what if my tax were 20% AND I had ₹50K
   in short-term losses?"                    → counterfactual_explore, overrides=
                                               {effective_tax_rate: 20,
                                                carryforward_st_loss_inr: 50000}
-
-save_last_counterfactual (terse approval right after a counterfactual_explore):
-- "save it" / "lock it in"                  → save_last_counterfactual
-- "yes, do that" / "make this my plan"      → save_last_counterfactual
 
 recompute:
 - "rebalance my portfolio"                  → recompute
@@ -267,15 +252,7 @@ produced by the classifier). Per-mode behavior:
   counterfactual_explore — hypothetical-only result. Make clear this is a
                hypothetical for comparison, not the saved recommendation;
                reference the saved recommendation as the baseline but
-               don't reprint it in full. End the response with an explicit
-               save offer like "Want me to save this as your active
-               recommendation? Just say 'save' or 'lock it in'." Length:
-               6-10 sentences (including the save offer).
-  save_last_counterfactual — the customer is committing the most recent
-               counterfactual as their saved recommendation. Lead with
-               "Saved." then briefly state what was committed (which
-               override(s) were applied) and the resulting trades / mix.
-               Length: 4-6 sentences.
+               don't reprint it in full. Length: 6-10 sentences.
 """
 
 _REDIRECT_TEMPLATE = (
@@ -286,13 +263,6 @@ _REDIRECT_TEMPLATE = (
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific fund, action (sell/swap), "
     "or constraint?"
-)
-
-_NO_PENDING_COUNTERFACTUAL_MESSAGE = (
-    "There's no recent 'what if' to save in this conversation. "
-    "If you'd like to lock in a change, tell me what you'd like "
-    "different (e.g., 'what if I had ₹2L more?') and I'll show "
-    "you the result first — then you can save it."
 )
 
 _NARRATE_DEGRADED_FALLBACK = (
@@ -408,18 +378,6 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
 
-    if action.mode == "save_last_counterfactual":
-        # State-machine gate: if no counterfactual is pending save in this
-        # session, the classifier guessed wrong. Return guidance instead of
-        # risking a write on stale telemetry.
-        if not ctx.awaiting_save:
-            return ChatHandlerResult(
-                text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
-                snapshot_id=None,
-                rebalancing_recommendation_id=None,
-            )
-        return await _save_last_counterfactual(ctx)
-
     # narrate / educate / recompute — all go through formatter; recompute also re-runs.
     if action.mode == "recompute":
         outcome = await compute_rebalancing_result(
@@ -497,13 +455,7 @@ async def _counterfactual_explore(
     ctx: TurnContext,
     overrides: dict[str, Any],
 ) -> ChatHandlerResult:
-    """Run engine with overrides, do NOT persist, narrate as hypothetical.
-
-    Writes a chat_ai_module_runs row capturing the overrides so a follow-up
-    `save_last_counterfactual` turn can re-run with persist=True without
-    re-classifying the original constraint. The formatter prompt instructs
-    the LLM to end the response with an explicit save offer.
-    """
+    """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
         return ChatHandlerResult(
             text=_INVALID_OVERRIDE_TEMPLATE,
@@ -540,34 +492,6 @@ async def _counterfactual_explore(
             rebalancing_recommendation_id=None,
         )
 
-    # Capture overrides for a potential save_last_counterfactual follow-up,
-    # and mark this session as awaiting save (cross-turn state machine).
-    # Both writes are best-effort — if either fails, the customer can re-state.
-    if ctx.db is not None:
-        try:
-            from app.domains.chat.services.ai_module_telemetry import (
-                record_ai_module_run,
-            )
-
-            await record_ai_module_run(
-                ctx.db,
-                user_id=ctx.effective_user_id,
-                session_id=ctx.session_id,
-                module="rebalancing",
-                reason="counterfactual_overrides",
-                input_payload={
-                    "overrides": overrides,
-                    "needs_fresh_aa": needs_fresh_aa,
-                },
-                emit_standard_log=False,
-            )
-        except Exception as exc:
-            logger.warning("counterfactual_overrides_capture_failed: %s", exc)
-        try:
-            await upsert_awaiting_save(ctx.db, ctx.session_id, True)
-        except Exception as exc:
-            logger.warning("awaiting_save_upsert_failed: %s", exc)
-
     text = await _format_or_fallback_rebal(
         ctx=ctx,
         response=outcome.response,
@@ -578,109 +502,6 @@ async def _counterfactual_explore(
     return ChatHandlerResult(
         text=text, snapshot_id=None, rebalancing_recommendation_id=None
     )
-
-
-async def _save_last_counterfactual(
-    ctx: TurnContext,
-) -> ChatHandlerResult:
-    """Commit the most recent counterfactual_explore as the saved recommendation.
-
-    Loads the overrides captured by ``_counterfactual_explore`` from the
-    most recent chat_ai_module_runs row in this session with
-    ``reason='counterfactual_overrides'``, re-runs the engine with those
-    overrides AND persist=True, and returns a 'Saved.'-led response.
-    """
-    payload = await _load_last_counterfactual_payload(ctx)
-    if payload is None:
-        # Defense-in-depth: state gate said awaiting_save=True, but no
-        # telemetry row found. Same guidance message as the state gate.
-        return ChatHandlerResult(
-            text=_NO_PENDING_COUNTERFACTUAL_MESSAGE,
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
-
-    overrides = payload.get("overrides", {})
-    needs_fresh_aa = bool(payload.get("needs_fresh_aa", False))
-
-    chat_ctx = with_chat_overrides(ctx, overrides)
-    outcome = await compute_rebalancing_result(
-        user=ctx.user_ctx,
-        user_question=ctx.user_question,
-        db=ctx.db,
-        acting_user_id=ctx.effective_user_id,
-        chat_session_id=ctx.session_id,
-        persist=True,  # commit
-        force_fresh_allocation=needs_fresh_aa,
-        chat_ctx=chat_ctx,
-    )
-
-    if outcome.blocking_message is not None:
-        return ChatHandlerResult(
-            text=outcome.blocking_message,
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
-    if outcome.response is None:
-        return ChatHandlerResult(
-            text="I couldn't save that recommendation right now. Please try again.",
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
-
-    # Save succeeded — clear the state-machine flag so a subsequent unrelated
-    # "save it" doesn't re-commit the same recommendation.
-    if ctx.db is not None:
-        try:
-            await upsert_awaiting_save(ctx.db, ctx.session_id, False)
-        except Exception as exc:
-            logger.warning("awaiting_save_reset_failed: %s", exc)
-
-    text = await _format_or_fallback_rebal(
-        ctx=ctx,
-        response=outcome.response,
-        fallback_brief=outcome.formatted_text or "",
-        action_mode="save_last_counterfactual",
-        goal_buckets=outcome.goal_buckets,
-    )
-    return ChatHandlerResult(
-        text=text,
-        snapshot_id=outcome.allocation_snapshot_id,
-        rebalancing_recommendation_id=outcome.recommendation_id,
-        rebalancing_response=outcome.response,
-    )
-
-
-async def _load_last_counterfactual_payload(
-    ctx: TurnContext,
-) -> Optional[dict[str, Any]]:
-    """Find the overrides + flags used by the most recent counterfactual in this session."""
-    if ctx.db is None or ctx.session_id is None:
-        return None
-    from sqlalchemy import select
-    from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
-
-    stmt = (
-        select(ChatAiModuleRun)
-        .where(ChatAiModuleRun.session_id == ctx.session_id)
-        .where(ChatAiModuleRun.module == "rebalancing")
-        .where(ChatAiModuleRun.reason == "counterfactual_overrides")
-        .order_by(ChatAiModuleRun.created_at.desc())
-        .limit(1)
-    )
-    try:
-        result = await ctx.db.execute(stmt)
-        row = result.scalar_one_or_none()
-    except Exception as exc:
-        logger.warning("load_last_counterfactual_payload_failed: %s", exc)
-        return None
-    if row is None:
-        return None
-    payload = row.input_payload or {}
-    overrides = payload.get("overrides")
-    if not isinstance(overrides, dict) or not overrides:
-        return None
-    return payload
 
 
 # ---------------------------------------------------------------------------

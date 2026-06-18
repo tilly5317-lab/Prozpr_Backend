@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prozpr — How the AI Chat Works (Flow Guide)</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 0 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div></div>
+      <div class="meta">
+        Prozpr · Non-technical flow guide<br />Validated against the live code on 2026-06-19
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# How the Prozpr AI Chat Works — A Flow Guide
+
+> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder.
+
+---
+
+## 1. The big picture in 30 seconds
+
+Every time a customer sends a message, it goes through the **same five steps**, managed by a single coordinator we call the **ChatBrain**:
+
+1. **Remember** — load the recent conversation so the AI has context.
+2. **Understand** — decide *what kind* of question this is (one of seven types).
+3. **Route** — send it to the matching "recipe" (we call these **flows**).
+4. **Work** — one or more **specialist modules** do the actual thinking.
+5. **Reply** — a shared **Answer Writer** turns the result into a friendly, on-brand message, which is saved and sent back.
+
+```mermaid
+flowchart TD
+    A["Customer sends a message"] --> B["Remember: load recent conversation history"]
+    B --> C{"Understand: what kind of question is this?"}
+    C -->|"asks us to pick a stock"| Z1["Instant canned reply: we focus on funds, not single stocks"]
+    C -->|"off-topic / gibberish / security"| Z2["Instant canned reply: gentle redirect"]
+    C -->|"one of the 5 real question types"| D["Route: pick the matching flow recipe"]
+    D --> E["Work: run the specialist module(s) in order"]
+    E --> F["Reply: Answer Writer phrases it in Prozpr's voice"]
+    Z1 --> G["Save the reply and send it to the customer"]
+    Z2 --> G
+    F --> G
+```
+
+**Two things worth knowing up front:**
+
+- **Every customer, every message, follows this same path.** There is no "special" or "side door" route for some users — the web chat sends all messages through the ChatBrain. (There are a few internal testing endpoints used by engineers, but no live customer chat ever uses them.)
+- **The answer arrives all at once**, not word-by-word streaming. The customer waits while the work happens, then sees the complete reply.
+
+---
+
+## 2. Step 1 — Understanding the question
+
+Before the AI can help, it has to figure out **what the customer actually wants**. This is the job of the **Intent Classifier** — a small, fast AI model that reads the new message plus the recent conversation and assigns it exactly **one** of seven labels (called *intents*).
+
+Think of it as a smart receptionist: it doesn't answer the question itself, it just decides *which desk* the question belongs at, and how confident it is.
+
+A few important properties:
+
+- It can **only** ever return one of the seven known labels — it is technically prevented from inventing a new one. This keeps routing predictable.
+- It looks at **recent history**, so follow-up questions ("what about with more risk?") are understood in context, not in isolation.
+- For two of the seven labels, the classifier *also* writes the reply itself (a polite canned message) — see the next section.
+
+---
+
+## 3. The question types
+
+Here are all seven question types the AI recognises, what the customer is really asking in each, and what happens next.
+
+| Question type (intent) | The customer is asking… | What the AI does |
+|---|---|---|
+| **Asset allocation** | "How should I invest? What mix is right for me?" | Builds an ideal investment mix and explains it. *Saved.* |
+| **Goal planning** | "Can I afford this goal? Can I retire at 55?" | Runs a cashflow projection and tells them if the goal is fundable. *Saved.* |
+| **Portfolio query** | "What's in my portfolio? What's my biggest holding?" | Answers factually from their actual holdings. *Read-only.* |
+| **General market query** | "What's happening in the markets right now?" | Pulls fresh market data and explains it in plain language. |
+| **Rebalancing** | "Rebalance my portfolio / swap these funds." | Works out the ideal mix, then the exact buy/sell trades. *Saved.* |
+| **Stock advice** | "Which individual stock should I buy?" | **Instant canned reply** — Prozpr advises on funds, not single stocks. |
+| **Out of scope** | Off-topic, gibberish, security questions, "summarise this chat" | **Instant canned reply** — a gentle redirect back to what Prozpr can help with. |
+| *(General chat)* | Catch-all / safety net | A friendly conversational reply. Also writes the final answer for market questions (see below). |
+
+> The last row, **general chat**, isn't something the classifier picks directly. It's the system's safety net and the "writer" used at the end of a market question. (More on this in the gaps section.)
+
+The two **canned-reply** types (stock advice and out of scope) are special: they're answered *immediately* by the receptionist and never reach a specialist. That keeps off-topic and unsupported requests fast and consistent.
+
+---
+
+## 4. Step 2 — Routing to the right specialist
+
+Once the question type is known, the ChatBrain looks it up in a simple table and runs the matching **flow**. A *flow* is just a **recipe**: it lists which specialist module(s) to run, and in what order.
+
+Most question types use **one** specialist. Two of them use **two specialists in a chain**, where the first one's result is handed to the second:
+
+```mermaid
+flowchart LR
+    IC{"Question type"}
+
+    IC -->|asset allocation| F1["Asset Allocation"]
+    IC -->|goal planning| F2["Goal Planning (Cashflow)"]
+    IC -->|portfolio query| F3["Portfolio Query — read only"]
+    IC -->|stock advice| F4["Canned redirect"]
+    IC -->|out of scope| F5["Canned redirect"]
+
+    IC -->|general market query| M1["Market Commentary"] --> M2["General Chat writes the reply"]
+    IC -->|rebalancing| R1["Practical Allocation (holdings-aware ideal mix)"] --> R2["Rebalancing builds the trade plan"]
+```
+
+**Why the two chains exist:**
+
+- **Market questions** need *fresh facts first*. So the **Market Commentary** module gathers the latest market data, then hands it to **General Chat**, which writes the actual answer grounded in those facts.
+- **Rebalancing** needs a *target* before it can plan trades. So **Practical Allocation** first works out the ideal mix *given what the customer already owns*, then **Rebalancing** figures out which funds to buy and sell to get there.
+
+When a flow chains two specialists, the first specialist's output is passed forward to the second — they never reach into each other directly. This keeps each specialist independent and easy to reason about.
+
+---
+
+## 5. The specialist modules, explained
+
+Each specialist is a self-contained expert. Here's what each one does *for the customer*, in plain English.
+
+### Intent Classifier (the receptionist)
+Reads the question and recent history and labels it as one of the seven types, with a confidence score. It doesn't solve anything — it decides where the question goes. For "stock advice" and "out of scope", it also writes the polite canned reply on the spot.
+
+### Asset Allocation
+Answers **"what should I invest in?"** It looks at the customer's financial profile — income, savings, goals, time horizons, and risk tolerance — and produces a target **mix of asset classes** (how much in equity, debt, gold, cash).
+
+It works goal-by-goal: it sets aside an emergency fund, puts short-term goals (money needed in 1–3 years) into safer/liquid assets, medium-term goals into balanced choices, and long-term goals into growth assets. The customer's **risk score** (calculated separately as part of their profile) is a key input here.
+
+The customer sees a clear recommended mix — typically a **pie chart plus a table** — with a short explanation of the reasoning. The result is **saved** so it can be referenced later (for example, by rebalancing).
+
+### Practical Asset Allocation
+A more realistic cousin of Asset Allocation that accounts for **what the customer already owns**. The plain version designs a "perfect" mix from scratch; this version starts from the customer's *actual holdings* so it doesn't recommend pointless trades (for example, telling someone to sell and re-buy almost the same thing).
+
+It also applies real-world constraints: tax-saving (ELSS) funds that are locked in for three years are handled carefully, and limits are placed on certain holdings. It runs entirely on fixed rules (no AI guesswork in the maths). The customer sees the same kind of mix-and-table reply — and crucially, this becomes the **target** that the Rebalancing module aims for. *(This module runs as the first step of the rebalancing flow; customers don't trigger it by name.)*
+
+### Rebalancing
+Turns a target mix into an **actual trade plan**. Given the ideal mix (from Practical Allocation) and the customer's current holdings, it produces the specific list: *buy ₹X of this fund, sell ₹Y of that one*.
+
+It is **tax-aware**. It knows how long each holding has been owned and what tax would apply if sold, and it chooses the order of sales to keep the customer's tax bill as low as possible (for example, favouring holdings that trigger lower tax, and using past losses to offset gains where possible). It also respects per-fund limits. The customer sees a readable summary of the recommended trades, *why* each one is suggested, and the tax impact. The recommendation is **saved**.
+
+### Goal Planning (Cashflow)
+Answers big life-goal questions: **"Can I retire at 55?"**, **"Can I afford my child's education and a house?"** The customer provides their financial situation (age, income, expenses, savings, existing loans) and describes their goals with target dates and amounts.
+
+The module then projects their finances **month by month and year by year**, working out what they'll have versus what they'll need, and whether each goal is affordable. The customer sees a structured plan: a headline verdict (on track, or a shortfall), a table of goals with required-vs-funded amounts, a retirement snapshot, and year-by-year cashflow tables — plus notes on what to adjust if a goal doesn't fit. Plans can be **saved**.
+
+### Portfolio Query
+Answers factual questions about the customer's **own portfolio** — "What's my largest holding?", "How is my money split across asset classes?", "How have I done over the last year?" It reads directly from the customer's actual holdings and profile, and can fold in the latest market context.
+
+It has built-in **guardrails**: if a question is really asking for stock-picking advice or strays outside what it can responsibly answer, it politely redirects instead. This module is **read-only** — it answers questions but never changes or saves anything.
+
+### Market Commentary
+Gathers a current snapshot of the **Indian market** — around 14 macro indicators such as inflation, interest rates, key indices, currency moves, and commodity prices — using AI together with live web search. It distils those numbers into a short plain-English commentary.
+
+In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. If gathering fresh data takes too long (more than ~2 minutes), the system **doesn't make the customer wait** — it falls back to the most recent saved snapshot and continues, so the customer still gets an answer.
+
+### General Chat
+The friendly **catch-all writer**. It handles conversational questions that don't need a specialist, and it writes the **final answer for market questions** (using the commentary that Market Commentary just gathered). It reads the question, the conversation history, and any market context, then replies naturally and personally. If the market context happens to be missing or causes a hiccup, it simply answers from the question alone — the conversation never breaks.
+
+---
+
+## 6. Step 3 — How the answer gets written (the Answer Formatter)
+
+This is one of the most important — and least visible — parts of the system, and it answers the question *"how is the prompt structured?"*
+
+Here's the key idea: **the specialist modules mostly produce *facts and numbers*, not the final wording.** The polished, on-brand reply the customer reads is written by a shared component, the **Answer Formatter** (the "Answer Writer"). This keeps Prozpr's voice consistent no matter which specialist did the work.
+
+When a specialist finishes, it hands the Answer Writer a tidy package of ingredients, and the Writer composes the reply from them:
+
+```mermaid
+flowchart TD
+    subgraph IN["What the Answer Writer is handed"]
+      P1["House style — Prozpr's voice, tone, and rules"]
+      P2["The Facts Pack — the exact numbers the specialist computed (it may ONLY use these)"]
+      P3["The customer's profile — first name, situation"]
+      P4["The last 6 messages — recent context"]
+      P5["The customer's actual question"]
+    end
+    IN --> W["Answer Writer (a fast Claude model)"]
+    W -->|"writes a clean reply"| R["Final friendly answer to the customer"]
+    W -->|"if it fails or is too slow"| FB["A pre-written, fact-based fallback summary"]
+    FB --> R
+```
+
+**The rules that keep answers trustworthy:**
+
+- **No making things up.** The Writer is told it may only cite numbers that are in the Facts Pack. If it's asked *how* a figure was derived and the underlying rate isn't in the pack, it describes the result without inventing the method.
+- **Consistent presentation.** Percentages are shown as whole numbers; the customer's first name is used to greet them on a fresh plan, and sparingly after that.
+- **A safety net.** If the Writer fails for any reason (an error, or it takes too long), the system falls back to a **pre-written, deterministic summary** built straight from the facts — so the customer always gets a coherent answer, never an error page.
+
+In short: **specialists compute the truth; the Answer Writer phrases it.**
+
+---
+
+## 7. How the AI remembers the conversation
+
+Prozpr's chat is **session-based** — each conversation is remembered.
+
+- Every turn, the system loads the **most recent ~20 messages** so the AI has context.
+- Different parts use different amounts of that history: the **receptionist** (classifier) sees the last ~12 messages, and the **Answer Writer** sees the last ~6 — enough to stay relevant without being overwhelmed.
+- On the **first** message of a new chat, the system auto-generates a **title** for the conversation.
+
+Each customer message is **answered within its own turn** — the AI uses recent history for context, but there's no "reply now, confirm on your next message" handshake. A what-if question is a good example: when a customer asks *"what if my risk were higher?"*, the AI shows the hypothetical result **in that same turn**. It explores the scenario but doesn't save it. *(An earlier two-turn "what-if → save it" feature — where the customer could say "save it" to lock in a hypothetical — has been removed. Durably saving an explored scenario is deferred to a future build; see the gaps section.)*
+
+---
+
+## 8. Walkthrough examples
+
+The best way to see the flow is to follow real questions through it. Each example below is a **validated path** — it matches what the code actually does.
+
+### Example A — "How should I invest ₹10 lakh for my child's education in 12 years?"
+
+```mermaid
+sequenceDiagram
+    participant C as Customer
+    participant B as ChatBrain
+    participant IC as Intent Classifier
+    participant AA as Asset Allocation
+    participant AF as Answer Writer
+    C->>B: the question
+    B->>IC: what kind of question is this?
+    IC-->>B: "asset allocation"
+    B->>AA: build the ideal mix
+    AA-->>B: target mix + chart data (saved)
+    B->>AF: write the reply from these facts
+    AF-->>B: friendly explanation
+    B-->>C: recommended mix + pie chart
+```
+
+**Path:** understand → *asset allocation* → Asset Allocation module → Answer Writer → saved reply with a chart. ✅
+
+### Example B — "What's my biggest holding?"
+
+**Path:** understand → *portfolio query* → Portfolio Query module reads the customer's holdings → factual answer. **Nothing is saved** (read-only). If the question had secretly been "which stock should I buy more of?", the module's guardrail would politely redirect instead. ✅
+
+### Example C — "What's going on with the Indian markets?"
+
+**Path:** understand → *general market query* → Market Commentary gathers fresh macro data (or falls back to the latest saved snapshot if it's slow) → General Chat writes the reply using that data → answer. ✅
+
+### Example D — "Rebalance my portfolio."
+
+**Path:** understand → *rebalancing* → Practical Allocation works out the ideal mix given current holdings → Rebalancing builds the tax-aware buy/sell plan → saved reply with the recommended trades. ✅
+
+### Example E — "Which stock should I buy?"
+
+**Path:** understand → *stock advice* → **instant canned reply** explaining Prozpr focuses on funds, not single stocks. No specialist runs. ✅
+
+---
+
+## 9. What the AI won't do (guardrails)
+
+- **No individual stock-picking.** Prozpr advises on funds and overall strategy, not "buy this specific share." Such requests get a consistent, polite redirect.
+- **Stays on financial topics.** Off-topic, gibberish, or security-probing messages get a gentle redirect rather than an answer.
+- **No invented numbers.** As described above, the Answer Writer can only use figures the specialist actually computed.
+- **No silent failures.** If a step errors or times out, the customer gets a graceful fallback message or a fact-based summary — never a crash.
+
+---
+
+## 10. Known gaps found during this review (team-facing)
+
+> ⚠️ **This section is for the internal team, not customers.** Producing this flow chart doubled as a sanity check of the live code. The architecture is healthy overall (see the verdict below). The original review surfaced one real issue and two minor notes; the "save it" issue and its related stale-comment note have since been **resolved** by removing the feature (see below), leaving one minor product note open.
+
+### What we confirmed is healthy
+- **One uniform path for everyone.** Every customer chat message goes through the same ChatBrain turn. No alternate live routes exist.
+- **Every question type is handled.** All seven types the receptionist can return map cleanly to either a specialist flow or a canned reply — nothing falls through the cracks.
+- **The two specialist chains are wired correctly.** Market → General Chat, and Practical Allocation → Rebalancing both hand their results forward correctly.
+- **Graceful degradation works.** If market data is slow, or the Answer Writer fails, the customer still gets a sensible answer.
+
+### Resolved since the original review — the "save it" two-turn path
+The original review flagged two issues around the two-turn "what-if → save" feature: a routing gate that could misfire (sending the *"save it"* follow-up to **Goal Planning** regardless of which specialist raised it, which could also leave a chat stuck), and a stale Goal Planning code comment about that gate. **Both were resolved on 2026-06-19 by removing the "save it" feature outright.** What-if exploration stays — single-turn, with no save offer — and durably saving an explored scenario is deferred to a future build. The underlying `awaiting_save` routing gate remains in the code as **inert plumbing** for that future flow: no handler raises it today, so it can no longer misroute or trap a conversation.
+
+### Issue 1 — no dedicated "small talk" lane (minor / product question)
+"General chat" exists as a safety net, but the receptionist never routes to it directly — it always picks one of the seven concrete types. Genuinely conversational messages ("thanks!", "what can you help me with?") therefore get sorted into the nearest bucket (often "out of scope"). This is a **product decision**, not a bug — flagging it in case a friendlier catch-all is wanted.
+
+---
+
+## 11. Glossary
+
+| Term | Plain meaning |
+|---|---|
+| **ChatBrain** | The coordinator that runs every chat turn — understand, route, work, reply. |
+| **Turn** | One round of the conversation: the customer's message in, the AI's reply out. |
+| **Intent** | The *type* of question, as labelled by the receptionist (e.g. "asset allocation"). There are seven. |
+| **Intent Classifier** | The "receptionist" AI that labels each question. |
+| **Flow** | A recipe that says which specialist module(s) to run for a given question type, and in what order. |
+| **Module / specialist** | A self-contained expert that does one job (e.g. Rebalancing, Goal Planning). |
+| **Answer Formatter / Answer Writer** | The shared component that turns a specialist's facts into the final, on-brand reply. |
+| **Facts Pack** | The bundle of computed numbers a specialist hands to the Answer Writer — the only figures it's allowed to cite. |
+| **Claude / Haiku** | The underlying AI models. "Haiku" is a small, fast model used for the receptionist and the Answer Writer. |
+| **Read-only** | A path that answers a question without changing or saving anything (e.g. Portfolio Query). |
+| **Saved** | The result is stored so it can be referenced later (e.g. an allocation or rebalancing plan). |
+
+---
+
+*This guide describes the chat flow as built. If the flow changes, please update this document (and re-validate the walkthrough paths in Section 8).*
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
