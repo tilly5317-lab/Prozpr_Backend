@@ -180,7 +180,9 @@ def test_missing_finance_profile_blocks_engine():
         build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
 
 
-def test_missing_retirement_age_blocks_engine():
+def test_missing_retirement_age_defaults_to_60():
+    """retirement_age is optional — when absent it defaults to 60 (a standard
+    planning assumption, like lifespan=100) rather than blocking the engine."""
     pfp = SimpleNamespace(
         annual_income=1_000_000,
         monthly_household_expense=30_000,
@@ -189,8 +191,36 @@ def test_missing_retirement_age_blocks_engine():
         effective_tax_rate=0.25,
     )
     user = _user(pfp=pfp, inv=None)
-    with pytest.raises(ValueError, match="missing_required_inputs:.*retirement_age"):
-        build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+    inp, debug = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+    assert inp.retirement.retirement_age == 60
+    assert any("retirement_age=60" in d for d in debug["defaults_applied"])
+
+
+def test_horizon_extends_to_retirement_even_when_goals_are_earlier():
+    """The cashflow projection must run to max(last_goal, retirement_age). With a
+    DOB of 1985 + retirement age 60 (retirement ~2045) and the only goal in 2030,
+    the projection must still reach ~retirement, not stop at the 2030 goal."""
+    from cashflow_statement import compute_full_projection
+
+    pfp = SimpleNamespace(
+        annual_income=2_000_000,
+        monthly_household_expense=50_000,
+        financial_assets=5_000_000,
+        financial_liabilities_excl_mortgage=0,
+        starting_monthly_investment=30_000,
+        effective_tax_rate=0.25,
+    )
+    goals = [
+        _goal(name="travel", goal_type="TRAVEL", pv=500_000, target=date(2030, 6, 1))
+    ]
+    # DOB 1985-06-15 + retirement age 60 -> retires 2045 (FY2046).
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=goals)
+    inp, _ = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+
+    out = compute_full_projection(inp)
+    last_fy_year = max(r.fy_end_date.year for r in out.annual_cashflow)
+    # Goal is in 2030; the horizon must extend well past it, up to retirement.
+    assert last_fy_year >= 2045, f"horizon stopped at FY{last_fy_year}, expected >= 2045"
 
 
 def test_home_purchase_emits_property_validation_issue():

@@ -357,12 +357,16 @@ class Settings:
         return True
 
     @staticmethod
-    def index_tri_scheduler_enabled() -> bool:
-        """Daily 20:30 IST NSE Nifty 50 TRI refresh. Default ON; set
-        ``INDEX_TRI_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev."""
-        raw = (_getenv("INDEX_TRI_SCHEDULER_ENABLED") or "").strip().lower()
-        if raw in {"0", "false", "no", "off"}:
-            return False
+    def benchmark_scheduler_enabled() -> bool:
+        """Thrice-daily (09:30/14:30/21:30 IST) benchmark EOD refresh. Default ON;
+        set ``BENCHMARK_SCHEDULER_ENABLED=false`` (or 0/no/off) in tests/local dev.
+
+        The legacy ``INDEX_TRI_SCHEDULER_ENABLED`` flag is still honoured for
+        back-compat (either flag set to a falsey value disables the job)."""
+        for var in ("BENCHMARK_SCHEDULER_ENABLED", "INDEX_TRI_SCHEDULER_ENABLED"):
+            raw = (_getenv(var) or "").strip().lower()
+            if raw in {"0", "false", "no", "off"}:
+                return False
         return True
 
     @staticmethod

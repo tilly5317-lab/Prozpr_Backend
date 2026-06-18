@@ -38,6 +38,11 @@ from cashflow_statement import (
 )
 
 
+# Standard planned retirement age used when the user hasn't supplied one.
+# Mirrors the assumed_lifespan_years=100 default — a planning assumption, not a
+# zero-fill, so it does not violate the "real numbers only" readiness gate.
+DEFAULT_RETIREMENT_AGE = 60
+
 _ORM_GOAL_TYPE_TO_ENGINE: dict[str, GoalType] = {
     "CHILD_EDUCATION": GoalType.child_local_education,
     "HOME_PURCHASE": GoalType.property,
@@ -147,11 +152,21 @@ def build_goal_planning_input_for_user(
     defaults_applied: List[str] = []
     validation_issues: List[str] = []
 
-    # The readiness gate above guarantees pfp, inv, retirement_age, the finance
-    # scalars and a tax rate are all present — so no missing-profile/default-tax
-    # fallbacks can fire here. Real values only.
+    # The readiness gate above guarantees the required finance scalars (income,
+    # expense, DOB) are present — so no missing-profile/zero-fill fallbacks fire
+    # for those. Real values only for the figures that can't be assumed.
     scalars = personal_finance_scalars(user)
-    retirement_age = int(inv.retirement_age)
+
+    # Retirement age comes from the goal-planning inputs (investment profile). It
+    # defaults to 60 when the user hasn't set one — a standard planning assumption,
+    # mirroring assumed_lifespan_years=100 below. The projection horizon then always
+    # runs to at least this retirement age (see cashflow_statement pipeline).
+    raw_retirement_age = getattr(inv, "retirement_age", None) if inv is not None else None
+    if raw_retirement_age is not None:
+        retirement_age = int(raw_retirement_age)
+    else:
+        retirement_age = DEFAULT_RETIREMENT_AGE
+        defaults_applied.append(f"retirement_age={DEFAULT_RETIREMENT_AGE}")
     target_corpus_today = getattr(inv, "target_corpus", None) if inv else None
     retirement_override = float(target_corpus_today) if target_corpus_today else None
 
@@ -222,11 +237,12 @@ def build_goal_planning_input_for_user(
         one_off_inflows=[],
         one_off_outflows=[],
         detail_level="default",
-        # Retirement is NOT auto-modelled: no injected retirement corpus drawdown,
-        # income is not stopped at retirement age, and the projection ends at the
-        # user's last goal. Retirement counts only if the user adds it as a goal
-        # (it then flows through `custom_goals` above). RetirementInput is still
-        # passed (required by the schema + populates the output's retirement view).
+        # Retirement is NOT auto-modelled: no injected retirement corpus drawdown
+        # and income is not stopped at retirement age. Retirement counts as a goal
+        # only if the user adds it explicitly (it then flows through `custom_goals`
+        # above). RetirementInput is still passed (required by the schema, populates
+        # the output's retirement view, and — regardless of this flag — drives the
+        # projection horizon, which always runs to max(last_goal, retirement_age)).
         model_retirement=False,
     )
 

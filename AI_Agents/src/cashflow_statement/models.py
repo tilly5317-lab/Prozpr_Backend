@@ -206,10 +206,12 @@ class GoalPlanningInput(BaseModel):
     # RetirementInput (corpus drawdown at retirement_date) and stops salary income
     # at retirement_age — the original behaviour, used by the agent / dev tooling.
     # When False: retirement is NOT modelled by default — no injected retirement
-    # goal, income is never stopped, and the projection horizon ends at the last
-    # user goal. Retirement is then considered ONLY when the user adds it as an
-    # explicit goal (which flows through as a normal custom goal). The product
-    # goal-planning path sets this False (see app input_builder).
+    # goal and income is never stopped. Retirement is then considered as a corpus
+    # goal ONLY when the user adds it as an explicit goal (which flows through as a
+    # normal custom goal). The product goal-planning path sets this False (see app
+    # input_builder). NOTE: regardless of this flag, the projection HORIZON always
+    # runs to max(last_goal, retirement_date) — this flag only governs income-stop
+    # + the injected retirement payout, not the horizon length (see pipeline.py).
     model_retirement: bool = True
 
     @model_validator(mode="after")
