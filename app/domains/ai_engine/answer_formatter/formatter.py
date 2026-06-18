@@ -42,7 +42,6 @@ ActionMode = Literal[
     "recompute",  # rebalancing
     "recompute_full",  # asset_allocation
     "counterfactual_explore",  # both
-    "save_last_counterfactual",  # both — commits most recent counterfactual
 ]
 
 

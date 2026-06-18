@@ -11,7 +11,6 @@
 
 ## Gotchas & invariants
 - **Incomplete profiles are HARD-REFUSED, never zero-filled.** The input builder raises `missing_required_inputs:<keys>` (or `missing_date_of_birth`) so the engine only ever runs on the user's real numbers — no default/placeholder substitution (`services/goal_planning_engine/input_builder.py`).
-- **The gateway can open the `awaiting_save` multi-turn gate.** When set, the next turn routes back to `goal_planning` regardless of classifier verdict; the flag persists on `chat_session_state` (owned by `ai_engine`), not echoed through `side_effects` (`services/cashflow_module_service.py`).
 - **The input builder is synchronous** — it returns the constructed `GoalPlanningInput` + a debug dict directly. Don't await it; only the engine run is offloaded via `asyncio.to_thread` (`services/goal_planning_engine/service.py`).
 
 ## Don't read

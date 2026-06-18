@@ -21,6 +21,7 @@ from financial_primitives import twr_wealth_index
 
 from app.domains.benchmarks.services.benchmark_data_service import load_value_series
 from app.domains.mutual_funds.models import MfTransaction
+from app.domains.mutual_funds.services.xirr_service import compute_portfolio_xirr
 from app.domains.portfolio.models.user_portfolio_nav_history import (
     UserPortfolioNavHistory,
 )
@@ -34,7 +35,15 @@ from app.domains.portfolio.services.benchmark_service import (
 
 
 async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesResponse:
-    """Assemble the user's daily TWR series (portfolio + normalized Nifty 50 TRI)."""
+    """Assemble the user's daily TWR series (portfolio + normalized Nifty 50 TRI).
+
+    Also carries the since-inception portfolio XIRR (money-weighted return) so the
+    Performance tab's headline figures all come from this one call.
+    """
+    xirr_result = await compute_portfolio_xirr(db, user_id)
+    portfolio_xirr = xirr_result.xirr
+    as_of_date = xirr_result.as_of_date
+
     nav_rows = (
         await db.execute(
             select(
@@ -47,7 +56,9 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
     ).all()
     daily_values = [(d, float(v)) for d, v in nav_rows]
     if len(daily_values) < 2:
-        return TwrSeriesResponse(has_data=False, points=[])
+        return TwrSeriesResponse(
+            has_data=False, points=[], portfolio_xirr=portfolio_xirr, as_of_date=as_of_date
+        )
 
     txn_rows = (
         await db.execute(
@@ -78,4 +89,9 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
         nifty_index = (tri / baseline) if (tri is not None and baseline) else None
         points.append(TwrPoint(date=d, portfolio_index=w, nifty_index=nifty_index))
 
-    return TwrSeriesResponse(has_data=len(points) >= 2, points=points)
+    return TwrSeriesResponse(
+        has_data=len(points) >= 2,
+        points=points,
+        portfolio_xirr=portfolio_xirr,
+        as_of_date=as_of_date,
+    )

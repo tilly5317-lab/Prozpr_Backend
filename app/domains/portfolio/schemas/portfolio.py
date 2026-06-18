@@ -157,3 +157,9 @@ class TwrSeriesResponse(BaseModel):
 
     has_data: bool  # True only when there are >= 2 valued days (renderable)
     points: list[TwrPoint]
+    portfolio_xirr: Optional[float] = (
+        None  # since-inception money-weighted return (decimal, 0.11 == 11%); null if undefined
+    )
+    as_of_date: Optional[date] = (
+        None  # date the current value is priced at (latest NAV used for XIRR)
+    )

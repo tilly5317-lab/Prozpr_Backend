@@ -330,7 +330,6 @@ class HandleRoutingTests(unittest.TestCase):
             patch.object(
                 mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
             ) as engine,
-            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.format_answer",
                 new=AsyncMock(return_value="hypothetical"),
@@ -382,7 +381,6 @@ class HandleRoutingTests(unittest.TestCase):
             patch.object(
                 mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
             ) as engine,
-            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.format_answer",
                 new=AsyncMock(return_value="hypothetical"),
@@ -425,7 +423,6 @@ class HandleRoutingTests(unittest.TestCase):
             patch.object(
                 mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
             ) as engine,
-            patch.object(mod, "upsert_awaiting_save", new=AsyncMock()),
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.format_answer",
                 new=AsyncMock(return_value="hypothetical"),
@@ -444,85 +441,6 @@ class HandleRoutingTests(unittest.TestCase):
             )
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("force_fresh_allocation", False))
-
-    def test_save_last_counterfactual_persists_with_loaded_overrides(self):
-        """save_last_counterfactual loads overrides from chat_ai_module_runs and re-runs with persist=True."""
-        action = mod.RebalanceAction(mode="save_last_counterfactual")
-        outcome = MagicMock(
-            response=MagicMock(),
-            blocking_message=None,
-            allocation_snapshot_id=uuid.uuid4(),
-            recommendation_id=uuid.uuid4(),
-            formatted_text="",
-        )
-        upsert_mock = AsyncMock()
-        with (
-            patch.object(
-                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
-            ),
-            patch.object(
-                mod,
-                "_load_last_counterfactual_payload",
-                new=AsyncMock(
-                    return_value={
-                        "overrides": {"effective_tax_rate": 20},
-                        "needs_fresh_aa": False,
-                    }
-                ),
-            ),
-            patch.object(
-                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
-            ) as engine,
-            patch.object(mod, "upsert_awaiting_save", new=upsert_mock),
-            patch(
-                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                new=AsyncMock(return_value="Saved. Plan locked in."),
-            ),
-            patch(
-                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
-                return_value={},
-            ),
-            patch(
-                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
-                new=AsyncMock(return_value=None),
-            ),
-        ):
-            result = asyncio.run(
-                mod.handle(
-                    _ctx("save it", last_run=_agent_run(), awaiting_save=True),
-                )
-            )
-        kwargs = engine.call_args.kwargs
-        self.assertTrue(kwargs.get("persist", False))
-        # Override flows via TurnContext.chat_overrides (NOT via setattr on User):
-        chat_ctx = kwargs.get("chat_ctx")
-        self.assertIsNotNone(
-            chat_ctx, "compute_rebalancing_result not called with chat_ctx"
-        )
-        self.assertEqual(chat_ctx.chat_overrides, {"effective_tax_rate": 20})
-        self.assertIsNotNone(result.rebalancing_recommendation_id)
-        # State machine: awaiting_save reset to False after successful save.
-        upsert_call = upsert_mock.call_args
-        self.assertIsNotNone(upsert_call, "upsert_awaiting_save not called after save")
-        self.assertEqual(upsert_call.args[2], False)
-
-    def test_save_with_no_prior_counterfactual_responds_gracefully(self):
-        """save_last_counterfactual with no recent counterfactual returns guidance."""
-        action = mod.RebalanceAction(mode="save_last_counterfactual")
-        with (
-            patch.object(
-                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
-            ),
-            patch.object(
-                mod,
-                "_load_last_counterfactual_payload",
-                new=AsyncMock(return_value=None),
-            ),
-            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
-        ):
-            result = asyncio.run(mod.handle(_ctx("save it", last_run=_agent_run())))
-        self.assertIn("no recent 'what if'", result.text)
-        engine.assert_not_called()
 
     def test_counterfactual_with_invalid_override_returns_template(self):
         action = mod.RebalanceAction(

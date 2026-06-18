@@ -9,7 +9,7 @@ Owns ONLY the orchestration of a chat turn — no per-intent/per-domain logic (t
 ## The turn (`ChatBrain.run_turn`)
 1. `build_turn_context(turn)` → `TurnContext` (history + last module runs + active intent + `awaiting_save` gate).
 2. Run the always-first `intent_classifier` → `IntentDecision`. Classifier-only intents (`out_of_scope`, `stock_advice`) short-circuit with a canned message.
-3. `FLOWS[intent.name]` (or `flow_general_chat` for unknown) picks the flow; `ctx.awaiting_save` overrides to the cashflow save flow.
+3. `FLOWS[intent.name]` (or `flow_general_chat` for unknown) picks the flow. A legacy `ctx.awaiting_save` override (→ `flow_goal_planning`) still sits in `_flow_for`, but it is **inert**: no handler raises the flag since the AA/rebalancing "save it" follow-up was removed, so the override never fires today.
 4. `await flow(turn, ctx)` under a per-flow timeout → final `ModuleOutput`.
 5. `_finalize` shapes `ChatBrainResult` + writes telemetry (best-effort).
 
