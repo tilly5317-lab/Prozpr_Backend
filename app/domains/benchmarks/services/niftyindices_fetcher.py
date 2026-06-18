@@ -1,9 +1,13 @@
-"""Async client for the niftyindices.com Total Return Index (TRI) feed.
+"""Async client (scraper) for the niftyindices.com Total Return Index (TRI) feed.
 
 One operation: POST ``getTotalReturnIndexString`` returns daily TRI rows for an
 index over a date range. Long ranges time out, so callers use ``fetch_tri_chunked``
 to split into <=2-year windows. Mirrors the retry-with-backoff posture of
-``mfapi_fetcher.py``.
+``mutual_funds.services.mfapi_fetcher``.
+
+This is the reusable scraper used both by the daily ``benchmark_scheduler`` and
+the one-time ``scripts.backfill_nifty50`` temp scraper. Source page:
+https://www.niftyindices.com/reports/historical-data
 """
 
 from __future__ import annotations

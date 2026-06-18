@@ -103,7 +103,10 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         "int",
         "years",
         _retirement_age,
-        help="The age you plan to stop earning a salary.",
+        help="The age you plan to stop earning a salary. Optional — a standard "
+        "retirement age of 60 is assumed if left blank. The cashflow projection "
+        "always runs to at least this age.",
+        optional=True,
     ),
     FieldSpec(
         "annual_income",
