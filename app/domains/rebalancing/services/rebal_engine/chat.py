@@ -55,7 +55,7 @@ class RebalanceAction(BaseModel):
         description=(
             "For counterfactual_explore. Allowed keys: effective_tax_rate, "
             "stcg_offset_budget_inr, carryforward_st_loss_inr, "
-            "carryforward_lt_loss_inr."
+            "carryforward_lt_loss_inr, additional_cash_inr."
         ),
     )
     clarification_question: Optional[str] = Field(default=None)
@@ -566,13 +566,40 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
         return {}
 
 
+def _classifier_digest(facts: dict[str, Any]) -> dict[str, Any]:
+    """Reduce the curated facts pack to the few signals the mode classifier needs.
+
+    The classifier only routes the customer's QUESTION into one of six modes; it
+    never reads ₹ amounts (the answer is built by a separate build_rebal_facts_pack
+    call in _format_or_fallback_rebal). It needs only: a recommendation exists, and
+    which sub_categories / funds it covers, so the narrate-vs-educate tie-break can
+    tell a fund-specific question from a general one. Names are ~1 token each; the
+    per-fund/per-bucket rupee tables that dominated (and truncated) the snapshot go.
+    """
+    if not facts:
+        return {}
+    fund_actions = facts.get("fund_actions") or []
+    buckets = facts.get("buckets") or []
+    return {
+        "has_recommendation": bool(fund_actions or buckets),
+        "trade_count": facts.get("trade_count"),
+        "has_sells": any((fa.get("sell_inr") or 0) > 0 for fa in fund_actions),
+        "sub_categories": list(
+            dict.fromkeys(b.get("sub_category") for b in buckets if b.get("sub_category"))
+        ),
+        "fund_names": list(
+            dict.fromkeys(fa.get("fund_name") for fa in fund_actions if fa.get("fund_name"))
+        ),
+    }
+
+
 async def _detect_rebal_action(
     last_run: AgentRunRecord,
     ctx: TurnContext,
 ) -> RebalanceAction:
     """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_run.output_payload)
-    snapshot_json = json.dumps(slim, default=str)
+    snapshot_json = json.dumps(_classifier_digest(slim), default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
         logger.info(
             "detect_rebal_action_snapshot_truncated original_len=%d budget=%d",

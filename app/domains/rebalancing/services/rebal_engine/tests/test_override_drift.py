@@ -47,3 +47,29 @@ def test_rebal_override_keys_in_prompt_match_code() -> None:
         f"  prompt-only: {sorted(prompt_keys - code_keys)}\n"
         f"  code-only:   {sorted(code_keys - prompt_keys)}"
     )
+
+
+def test_rebal_override_keys_in_field_description_match_code() -> None:
+    """The ``RebalanceAction.overrides`` Field description is a SECOND copy of
+    the allow-list the model sees (via the structured-output schema). It must
+    also match ``_REBAL_ALLOWED_OVERRIDE_KEYS`` — this guards the copy that
+    previously drifted (it had dropped ``additional_cash_inr``).
+    """
+    from app.domains.rebalancing.services.rebal_engine.chat import RebalanceAction
+
+    desc = RebalanceAction.model_fields["overrides"].description or ""
+    match = re.search(r"Allowed keys:\s*([^.]+)", desc)
+    assert match, (
+        "Could not locate the 'Allowed keys:' list in the overrides Field "
+        f"description: {desc!r}"
+    )
+    desc_keys = {tok.strip() for tok in match.group(1).split(",") if tok.strip()}
+    code_keys = set(_REBAL_ALLOWED_OVERRIDE_KEYS)
+    assert desc_keys == code_keys, (
+        f"Override key drift between the RebalanceAction.overrides Field "
+        f"description and _REBAL_ALLOWED_OVERRIDE_KEYS frozenset in overrides.py:\n"
+        f"  description: {sorted(desc_keys)}\n"
+        f"  code:        {sorted(code_keys)}\n"
+        f"  description-only: {sorted(desc_keys - code_keys)}\n"
+        f"  code-only:        {sorted(code_keys - desc_keys)}"
+    )
