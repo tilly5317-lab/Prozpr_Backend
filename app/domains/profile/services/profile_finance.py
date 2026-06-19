@@ -36,6 +36,13 @@ def financial_assets_pfp(pfp: Any) -> float:
     return max(_f(getattr(pfp, "financial_assets", None)), 0.0)
 
 
+def equity_shares_pfp(pfp: Any) -> float:
+    """Listed equities / direct shares the user holds outside their MF portfolio.
+    Stored apart from ``financial_assets`` (cash & debt) so the two asset classes
+    can be edited separately, but summed into the cashflow corpus alongside it."""
+    return max(_f(getattr(pfp, "equity_shares", None)), 0.0)
+
+
 def financial_liabilities_excl_mortgage_pfp(pfp: Any) -> float:
     return max(_f(getattr(pfp, "financial_liabilities_excl_mortgage", None)), 0.0)
 
@@ -86,10 +93,12 @@ def personal_finance_scalars(user: Any) -> dict[str, float | None]:
     return {
         "annual_income": annual_income_pfp(pfp),
         "effective_tax_rate": effective_tax_rate_for_user(user),
-        # Cash & liquid assets only. The current portfolio value is folded into the
+        # Cash & debt instruments only. Equities are tracked separately
+        # (``equity_shares``) and the current MF portfolio value is folded into the
         # cashflow starting corpus separately (see input_builder) so the live
         # portfolio stays the single source of truth for that figure.
         "financial_assets": financial_assets_pfp(pfp),
+        "equity_shares": equity_shares_pfp(pfp),
         "financial_liabilities_excl_mortgage": financial_liabilities_excl_mortgage_pfp(
             pfp
         ),
