@@ -49,6 +49,13 @@ class PersonalFinanceProfile(Base):
     financial_assets: Mapped[Optional[float]] = mapped_column(
         Numeric(18, 2), nullable=True
     )
+    # Listed equities / direct shares (and equity-fund holdings the user enters by
+    # hand). Stored apart from ``financial_assets`` (now "cash & debt") so the two
+    # asset classes can be shown and edited separately on onboarding + goal-planning.
+    # Summed into the cashflow starting corpus alongside the other asset figures.
+    equity_shares: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     financial_liabilities_excl_mortgage: Mapped[Optional[float]] = mapped_column(
         Numeric(18, 2), nullable=True
     )

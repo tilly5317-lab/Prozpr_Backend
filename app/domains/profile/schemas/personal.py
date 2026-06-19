@@ -19,7 +19,16 @@ class PersonalFinanceFields(BaseModel):
         le=1.0,
         description="Blended post-deduction rate as a fraction (e.g. 0.22).",
     )
-    financial_assets: Optional[float] = Field(default=None, ge=0)
+    financial_assets: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Cash & debt instruments (savings, FDs, bonds, debt funds).",
+    )
+    equity_shares: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Listed equities / direct shares and equity-fund holdings.",
+    )
     financial_liabilities_excl_mortgage: Optional[float] = Field(default=None, ge=0)
     monthly_household_expense: Optional[float] = Field(default=None, ge=0)
     starting_monthly_investment: Optional[float] = Field(default=None, ge=0)

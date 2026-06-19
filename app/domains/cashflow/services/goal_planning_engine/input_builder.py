@@ -21,7 +21,6 @@ from app.domains.profile.services.profile_finance import (
     current_portfolio_corpus_pfp,
     current_properties_for_user,
     effective_tax_rate_for_user,
-    other_investments_total_for_user,
     personal_finance_scalars,
 )
 
@@ -201,18 +200,21 @@ def build_goal_planning_input_for_user(
         f"portfolio_corpus={'live' if live_corpus > 0 else 'manual'}:{portfolio_corpus:.0f}"
     )
 
-    # "Cash & assets" = liquid financial_assets + other holdings (gold, FDs,
-    # unlisted shares…). Same total the goal-planner readiness shows, so the
-    # projection and the displayed input stay in sync.
-    other_assets_total = other_investments_total_for_user(user)
-    if other_assets_total > 0:
-        defaults_applied.append(f"other_assets={other_assets_total:.0f}")
+    # Opening corpus = cash & debt (financial_assets) + equities (equity_shares)
+    # + the current MF portfolio. "Other assets" (gold, FDs, unlisted shares…)
+    # are deliberately EXCLUDED — they are not treated as part of the investable
+    # opening corpus the projection grows. The two manual figures are edited
+    # separately on onboarding / goal-planning but roll up into one corpus, so the
+    # projection and the displayed inputs stay in sync.
+    equity_shares_total = scalars["equity_shares"] or 0.0
+    if equity_shares_total > 0:
+        defaults_applied.append(f"equity_shares={equity_shares_total:.0f}")
 
     profile = ClientProfile(
         annual_income=scalars["annual_income"],
         effective_tax_rate=effective_tax_rate_for_user(user),
         financial_assets=scalars["financial_assets"]
-        + other_assets_total
+        + equity_shares_total
         + portfolio_corpus,
         financial_liabilities_excl_mortgage=scalars[
             "financial_liabilities_excl_mortgage"
