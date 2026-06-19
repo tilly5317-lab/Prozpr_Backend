@@ -294,14 +294,37 @@ class RecomputeFullTests(unittest.TestCase):
 
 
 class RedirectModeTests(unittest.TestCase):
-    def test_redirect_returns_template_with_reason(self):
+    def test_redirect_routes_template_through_relay(self):
         action = mod.ChatAction(mode="redirect", redirect_reason="change holdings")
-        with patch.object(mod, "_detect_action", new=AsyncMock(return_value=action)):
+        relay = AsyncMock(return_value="RELAYED")
+        with (
+            patch.object(mod, "_detect_action", new=AsyncMock(return_value=action)),
+            patch.object(mod, "format_relay_or_canned", new=relay),
+        ):
             result = asyncio.run(
                 mod.handle(_ctx("swap arbitrage", last_alloc=_agent_run()))
             )
-        self.assertIn("Profile", result.text)
-        self.assertIn("change holdings", result.text)
+        self.assertEqual(result.text, "RELAYED")
+        kwargs = relay.call_args.kwargs
+        self.assertEqual(kwargs["module_name"], "asset_allocation")
+        # the resolved redirect template (with the reason) is what we relay
+        self.assertIn("Profile", kwargs["message"])
+        self.assertIn("change holdings", kwargs["message"])
+
+    def test_invalid_override_routes_template_through_relay(self):
+        action = mod.ChatAction(mode="counterfactual_explore", overrides={})
+        relay = AsyncMock(return_value="RELAYED")
+        with (
+            patch.object(mod, "_detect_action", new=AsyncMock(return_value=action)),
+            patch.object(mod, "format_relay_or_canned", new=relay),
+        ):
+            result = asyncio.run(
+                mod.handle(_ctx("defer the rebalance", last_alloc=_agent_run()))
+            )
+        self.assertEqual(result.text, "RELAYED")
+        kwargs = relay.call_args.kwargs
+        self.assertEqual(kwargs["module_name"], "asset_allocation")
+        self.assertEqual(kwargs["message"], mod._INVALID_OVERRIDE_TEMPLATE)
 
 
 class DetectActionFailureTests(unittest.TestCase):

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import TYPE_CHECKING
 
 import anthropic
 from langchain_anthropic import ChatAnthropic
@@ -23,6 +24,11 @@ from app.domains.ai_engine.common import (
     ensure_ai_agents_path,
     format_inr_indian,
 )
+from app.domains.ai_engine.answer_formatter import format_with_telemetry
+
+if TYPE_CHECKING:
+    from app.domains.ai_engine.turn_context import TurnContext
+    from app.domains.ai_engine.types import IntentDecision
 
 ensure_ai_agents_path()
 
@@ -82,6 +88,67 @@ def _oos_reply(classification: ClassificationResult) -> str:
             OUT_OF_SCOPE_MESSAGE,
         )
     return OUT_OF_SCOPE_MESSAGE
+
+
+_REDIRECT_FORMATTER_BODY = (
+    "You are declining a request that falls outside what PI helps with, then "
+    "redirecting the customer to what PI can do.\n"
+    "\n"
+    "FACTS_PACK has a single field, `boundary_message`: PI's authoritative "
+    "statement of what it does and doesn't help with. Treat it as the source of "
+    "truth for scope.\n"
+    "\n"
+    "Write the reply:\n"
+    "- Open by briefly acknowledging, in your own words, what the customer "
+    "actually asked — one short clause that shows you understood it.\n"
+    "- Say plainly that it's outside what you can help with today.\n"
+    "- Redirect to what PI does, drawing only on `boundary_message`. For the "
+    "stock-advice case, convey its rationale: PI doesn't advise on individual "
+    "stocks and instead focuses on a diversified, fund-based portfolio for "
+    "long-term goals.\n"
+    "\n"
+    "Never do any of these:\n"
+    "- Do not answer the out-of-scope request itself: no individual stock picks "
+    "or buy/sell calls; no tax, insurance, legal, or medical advice; no help "
+    "with passwords, logins, or credentials; no answering general-knowledge or "
+    "off-topic questions.\n"
+    "- Do not invent capabilities or scope beyond `boundary_message`.\n"
+    "\n"
+    "Keep it to 3-5 sentences, warm, in PI's voice."
+)
+
+
+def should_tailor(intent_name: str, subreason: OutOfScopeSubreason | None) -> bool:
+    """True when the reply should be tailored by the formatter rather than
+    returned as the verbatim canned line. Sensitive / contentless sub-reasons
+    (gibberish, identity, security/credentials, chat-summary) stay canned."""
+    if intent_name == "stock_advice":
+        return True
+    if intent_name == "out_of_scope":
+        return subreason in {OutOfScopeSubreason.OFF_TOPIC, OutOfScopeSubreason.OTHER}
+    return False
+
+
+async def format_redirect_or_canned(*, ctx: "TurnContext", intent: "IntentDecision") -> str:
+    """Reply for the classifier-only intents (out_of_scope / stock_advice).
+
+    Resolves the canned line via ``_oos_reply``. For the tailored cases it runs
+    the shared formatter to acknowledge the customer's question and redirect; on
+    any formatter failure ``format_with_telemetry`` calls the fallback closure,
+    which returns the same canned line (today's behaviour — zero regression).
+    """
+    resolved = _oos_reply(intent.raw)
+    if not should_tailor(intent.name, intent.raw.out_of_scope_subreason):
+        return resolved
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack={"boundary_message": resolved},
+        body_prompt=_REDIRECT_FORMATTER_BODY,
+        module_name=intent.name,
+        action_mode="redirect",
+        profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
+        build_fallback=lambda: resolved,
+    )
 
 
 # Keep market commentary under this limit so the prompt fits the context window.

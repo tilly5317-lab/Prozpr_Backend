@@ -11,7 +11,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from app.domains.ai_engine.answer_formatter import format_with_telemetry
+from app.domains.ai_engine.answer_formatter import (
+    format_relay_or_canned,
+    format_with_telemetry,
+)
 from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
 from app.domains.cashflow.services.goal_planning_engine.service import (
     compute_goal_planning_snapshot,
@@ -147,21 +150,27 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
         )
     except ValueError as e:
         if str(e) == "missing_date_of_birth":
-            return ChatHandlerResult(
-                text=(
+            text = await format_relay_or_canned(
+                ctx=ctx,
+                module_name="goal_planning",
+                message=(
                     "To run a goal projection for you, I'll need your date of "
                     "birth — it anchors the math. Add it in settings, and "
                     "we'll pick this up right away."
                 ),
             )
+            return ChatHandlerResult(text=text)
         if str(e) == "missing_financial_profile":
-            return ChatHandlerResult(
-                text=(
+            text = await format_relay_or_canned(
+                ctx=ctx,
+                module_name="goal_planning",
+                message=(
                     "I need your financial profile to run a cashflow projection — "
                     "things like annual income, expenses, and current assets. "
                     "Please update your profile and we'll get this done."
                 ),
             )
+            return ChatHandlerResult(text=text)
         if str(e).startswith("missing_required_inputs:"):
             from app.domains.cashflow.services.goal_planning_engine.readiness import (
                 REQUIRED_CASHFLOW_FIELDS,
@@ -170,13 +179,16 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
             labels = {f.key: f.label for f in REQUIRED_CASHFLOW_FIELDS}
             keys = [k for k in str(e).split(":", 1)[1].split(",") if k]
             needed = ", ".join(labels.get(k, k) for k in keys)
-            return ChatHandlerResult(
-                text=(
+            text = await format_relay_or_canned(
+                ctx=ctx,
+                module_name="goal_planning",
+                message=(
                     "Before I can project your goals on real numbers, I need a few "
                     f"more details: {needed}. Open Goal Planning to add them and "
                     "I'll run the projection right away."
                 ),
             )
+            return ChatHandlerResult(text=text)
         raise
 
     text = await format_with_telemetry(
