@@ -16,10 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from app.domains.profile.services.profile_finance import (
-    other_investments_total_for_user,
-)
-
 
 @dataclass(frozen=True)
 class FieldSpec:
@@ -68,19 +64,6 @@ def effective_tax_rate_value(user: Any) -> Optional[float]:
     if tax is not None and getattr(tax, "income_tax_rate", None) is not None:
         return float(tax.income_tax_rate) / 100.0
     return None
-
-
-def cash_and_assets_value(user: Any) -> Optional[float]:
-    """Total cash & assets = liquid ``financial_assets`` + the user's other
-    investments (gold, FDs, unlisted shares…). Single figure shown on the
-    goal-planner inputs, kept in sync with the financial profile. Returns None
-    only when the user has supplied neither."""
-    pfp = _pfp(user)
-    cash = getattr(pfp, "financial_assets", None) if pfp is not None else None
-    other = other_investments_total_for_user(user)
-    if cash is None and other == 0:
-        return None
-    return float(cash or 0.0) + other
 
 
 # Order here drives the order the fields appear in the unlock form.
@@ -148,12 +131,22 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     ),
     FieldSpec(
         "financial_assets",
-        "Cash & assets",
+        "Cash & debt",
         "Assets & liabilities",
         "money",
         "₹",
-        cash_and_assets_value,
-        help="Your total cash, liquid savings and other assets (gold, FDs, unlisted shares, etc.), synced from your financial profile. Excludes your mutual-fund portfolio corpus (above). Optional — treated as ₹0 if left blank.",
+        _pfp_get("financial_assets"),
+        help="Your cash, savings and debt holdings (FDs, bonds, debt funds), synced from your financial profile. Equities go in the field below; excludes other assets (gold, unlisted shares) and your mutual-fund portfolio corpus (above). Optional — treated as ₹0 if left blank.",
+        optional=True,
+    ),
+    FieldSpec(
+        "equity_shares",
+        "Equities / shares",
+        "Assets & liabilities",
+        "money",
+        "₹",
+        _pfp_get("equity_shares"),
+        help="Listed shares and equity-fund holdings you hold outside your mutual-fund portfolio (above). Optional — treated as ₹0 if left blank.",
         optional=True,
     ),
     FieldSpec(
