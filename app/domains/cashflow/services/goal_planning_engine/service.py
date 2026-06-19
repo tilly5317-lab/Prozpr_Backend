@@ -328,7 +328,10 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
             }
         )
 
-    # Annual cashflow table
+    # Annual cashflow table for the formatter LLM. Mirrors the columns the
+    # formatter renders (chat.py §5 "Annual Cashflow Table"); the EMI splits and
+    # corpus_opening are persisted in CashflowAnnualRow but the table never shows
+    # them, so they're omitted here to keep the prompt small.
     facts["annual_cashflow"] = []
     for row in output.annual_cashflow:
         facts["annual_cashflow"].append(
@@ -338,10 +341,7 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
                 "income_tax": format_inr_indian(row.income_tax),
                 "household_expense": format_inr_indian(row.household_expense),
                 "savings_pre_emi": format_inr_indian(row.savings_pre_emi),
-                "existing_mortgage_emi": format_inr_indian(row.existing_mortgage_emi),
-                "goal_mortgage_emi": format_inr_indian(row.goal_mortgage_emi),
                 "savings_post_emi": format_inr_indian(row.savings_post_emi),
-                "corpus_opening": format_inr_indian(row.corpus_opening),
                 "monthly_investment": format_inr_indian(row.monthly_investment),
                 "investment_returns": format_inr_indian(row.investment_returns),
                 "goal_payout": format_inr_indian(row.goal_payout),
