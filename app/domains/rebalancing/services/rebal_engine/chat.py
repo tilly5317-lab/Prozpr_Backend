@@ -13,6 +13,7 @@ from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
 from app.domains.ai_engine.common import build_detect_history_block
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.rebalancing.services.rebal_engine.service import (
+    TAILORABLE_BLOCKERS,
     build_rebal_facts_pack,
     compute_rebalancing_result,
 )
@@ -20,7 +21,10 @@ from app.domains.ai_engine.turn_context import (
     AgentRunRecord,
     TurnContext,
 )
-from app.domains.ai_engine.answer_formatter import format_with_telemetry
+from app.domains.ai_engine.answer_formatter import (
+    format_relay_or_canned,
+    format_with_telemetry,
+)
 from app.domains.rebalancing.services.rebal_engine.formatter import (
     build_fallback_rebal_brief,
 )
@@ -297,6 +301,16 @@ async def _format_or_fallback_rebal(
     )
 
 
+async def _blocking_text(ctx: TurnContext, blocking_message: str) -> str:
+    """Tailor data-gap gates (missing DOB / no holdings) through the formatter;
+    keep transient/data-quality error blockers verbatim."""
+    if blocking_message in TAILORABLE_BLOCKERS:
+        return await format_relay_or_canned(
+            ctx=ctx, module_name="rebalancing", message=blocking_message,
+        )
+    return blocking_message
+
+
 def _rehydrate_response(payload: dict[str, Any]) -> Any:
     """Best-effort rehydration of RebalancingComputeResponse from persisted JSON.
 
@@ -335,8 +349,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
+            text = await _blocking_text(ctx, outcome.blocking_message)
             return ChatHandlerResult(
-                text=outcome.blocking_message,
+                text=text,
                 snapshot_id=None,
                 rebalancing_recommendation_id=None,
             )
@@ -369,8 +384,13 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
+        text = await format_relay_or_canned(
+            ctx=ctx,
+            module_name="rebalancing",
+            message=_REDIRECT_TEMPLATE.format(reason=reason),
+        )
         return ChatHandlerResult(
-            text=_REDIRECT_TEMPLATE.format(reason=reason),
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )
@@ -388,8 +408,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
+            text = await _blocking_text(ctx, outcome.blocking_message)
             return ChatHandlerResult(
-                text=outcome.blocking_message,
+                text=text,
                 snapshot_id=None,
                 rebalancing_recommendation_id=None,
             )
@@ -457,8 +478,13 @@ async def _counterfactual_explore(
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
+        text = await format_relay_or_canned(
+            ctx=ctx,
+            module_name="rebalancing",
+            message=_INVALID_OVERRIDE_TEMPLATE,
+        )
         return ChatHandlerResult(
-            text=_INVALID_OVERRIDE_TEMPLATE,
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )
@@ -480,8 +506,9 @@ async def _counterfactual_explore(
     )
 
     if outcome.blocking_message is not None:
+        text = await _blocking_text(ctx, outcome.blocking_message)
         return ChatHandlerResult(
-            text=outcome.blocking_message,
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )

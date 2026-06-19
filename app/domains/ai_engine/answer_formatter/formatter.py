@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Module-supplied dict — flat-ish, JSON-serializable, ≤ ~1500 tokens.
 FactsPack = dict[str, Any]
 
-# Modes that pass through the formatter. clarify / redirect bypass it.
+# Modes that pass through the formatter. clarify bypasses it.
 ActionMode = Literal[
     "compute",
     "narrate",
@@ -42,6 +42,7 @@ ActionMode = Literal[
     "recompute",  # rebalancing
     "recompute_full",  # asset_allocation
     "counterfactual_explore",  # both
+    "redirect",  # out_of_scope / stock_advice
 ]
 
 
@@ -303,3 +304,39 @@ async def format_with_telemetry(
             emit_standard_log=False,
         )
     return text
+
+
+_RELAY_BODY = (
+    "You are relaying a short boundary or next-step message to the customer — "
+    "either a limit on what you can do from chat, or something they need to "
+    "provide before you can proceed.\n"
+    "\n"
+    "FACTS_PACK has a single field, `boundary_message`: the exact limit or "
+    "instruction to convey.\n"
+    "\n"
+    "Open by briefly acknowledging, in your own words, what the customer asked, "
+    "then convey `boundary_message` faithfully in PI's voice. Do NOT perform or "
+    "simulate the requested action, and do NOT add capabilities, steps, or "
+    "requirements beyond `boundary_message`. Keep it to 2-4 sentences, warm."
+)
+
+
+async def format_relay_or_canned(
+    *,
+    ctx: TurnContext,
+    module_name: str,
+    message: str,
+    action_mode: str = "redirect",
+) -> str:
+    """Tailor a short canned boundary/redirect/gate ``message`` via the formatter;
+    fall back to it verbatim on failure. Shared by the in-scope module redirects
+    and data-gap gates (mirrors the out_of_scope/stock_advice redirect handler)."""
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack={"boundary_message": message},
+        body_prompt=_RELAY_BODY,
+        module_name=module_name,
+        action_mode=action_mode,
+        profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
+        build_fallback=lambda: message,
+    )

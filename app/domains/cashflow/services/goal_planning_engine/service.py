@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.domains.identity.models.user import User
 from app.domains.ai_engine.common import ensure_ai_agents_path, format_inr_indian
 from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
@@ -97,6 +98,7 @@ async def compute_goal_planning_snapshot(
         )
         raise
 
+    from common import anthropic_api_key_env
     from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
     from cashflow_statement.summarizer import summarize_plan
@@ -107,7 +109,10 @@ async def compute_goal_planning_snapshot(
 
     summary = None
     try:
-        summary = await asyncio.to_thread(summarize_plan, output)
+        # Attribute the summarizer LLM call to the goal-planning key (falls back
+        # to the shared ANTHROPIC_API_KEY when unset).
+        with anthropic_api_key_env(get_settings().get_anthropic_goal_planning_key()):
+            summary = await asyncio.to_thread(summarize_plan, output)
     except Exception:
         logger.warning(
             "summarize_plan failed; proceeding without narrative", exc_info=True

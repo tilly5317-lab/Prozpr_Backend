@@ -40,8 +40,13 @@ def _stub_dependencies(monkeypatch):
     async def fake_formatter(**kwargs):
         return f"FORMATTED({kwargs['module_name']}/{kwargs['action_mode']}): ok"
 
+    async def fake_relay(*, ctx, module_name, message, action_mode="redirect"):
+        # mirror the helper: relayed text carries the canned message faithfully
+        return message
+
     monkeypatch.setattr(gp_chat, "compute_goal_planning_snapshot", fake_compute)
     monkeypatch.setattr(gp_chat, "format_with_telemetry", fake_formatter)
+    monkeypatch.setattr(gp_chat, "format_relay_or_canned", fake_relay)
 
 
 def _ctx(user):

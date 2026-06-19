@@ -79,6 +79,10 @@ _MSG_UNPRICEABLE = (
     "is missing for it. Try again later or let us know via help."
 )
 
+# Data-gap gates the customer can resolve (missing DOB, no holdings) are tailored
+# through the formatter; transient/data-quality error blockers stay verbatim.
+TAILORABLE_BLOCKERS: frozenset[str] = frozenset({_MSG_MISSING_DOB, _MSG_NO_HOLDINGS})
+
 
 @dataclass(frozen=True)
 class RebalancingRunOutcome:
