@@ -88,8 +88,32 @@ def build_detect_history_block(history: list[dict[str, str]] | None) -> str:
 
 
 def trace_line(message: str) -> None:
-    """Print ``message`` prefixed with ``[AILAX_TRACE]`` for server-side debugging."""
-    print(f"{_TRACE_PREFIX} {message}", flush=True)
+    """Print ``message`` prefixed with ``[AILAX_TRACE]`` for server-side debugging.
+
+    Best-effort only: a debug trace must NEVER break the request it is tracing.
+    On a console whose encoding can't represent the text — e.g. Windows cp1252
+    stdout vs the ``₹`` sign in money traces — a plain ``print`` raises
+    ``UnicodeEncodeError`` and would bubble up to a 500. Degrade gracefully
+    instead: write UTF-8 bytes straight to the buffer (preserving ``₹``), and if
+    even that fails, swallow it rather than fail the request.
+    """
+    line = f"{_TRACE_PREFIX} {message}"
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        try:
+            buffer = getattr(sys.stdout, "buffer", None)
+            if buffer is not None:
+                buffer.write((line + "\n").encode("utf-8", errors="replace"))
+                buffer.flush()
+            else:
+                enc = getattr(sys.stdout, "encoding", None) or "ascii"
+                print(line.encode(enc, "replace").decode(enc, "replace"), flush=True)
+        except Exception:
+            pass
+    except Exception:
+        # Never let server-side tracing break a request.
+        pass
 
 
 def trace_response_preview(label: str, text: str, max_chars: int = 600) -> None:

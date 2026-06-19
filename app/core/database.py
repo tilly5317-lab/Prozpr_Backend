@@ -243,6 +243,15 @@ async def apply_postgres_schema_patches() -> None:
                 "ADD COLUMN IF NOT EXISTS current_portfolio_corpus NUMERIC(18,2)"
             )
         )
+        # ORM/column drift (alembic f5c2a1b3d8e7): listed equities / direct shares,
+        # stored apart from financial_assets (now "cash & debt") and summed into the
+        # cashflow corpus. Patched here so DBs on the divergent alembic head self-heal.
+        await conn.execute(
+            text(
+                "ALTER TABLE personal_finance_profiles "
+                "ADD COLUMN IF NOT EXISTS equity_shares NUMERIC(18,2)"
+            )
+        )
         # ORM/column drift: UserCurrentProperty.mortgage_balance (outstanding loan
         # amount collected in onboarding; added after the table first shipped).
         await conn.execute(

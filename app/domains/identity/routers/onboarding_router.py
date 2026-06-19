@@ -46,6 +46,7 @@ _PFP_FIELDS = {
     "annual_income",
     "effective_tax_rate",
     "financial_assets",
+    "equity_shares",
     "financial_liabilities_excl_mortgage",
     "monthly_household_expense",
     "starting_monthly_investment",
@@ -88,6 +89,11 @@ def _profile_to_response(
         financial_assets=(
             float(profile.financial_assets)
             if profile.financial_assets is not None
+            else None
+        ),
+        equity_shares=(
+            float(profile.equity_shares)
+            if profile.equity_shares is not None
             else None
         ),
         financial_liabilities_excl_mortgage=(
