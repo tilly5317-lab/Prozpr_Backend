@@ -334,12 +334,29 @@ This is one of the most important — and least visible — parts of the system,
 
 Here's the key idea: **the specialist modules mostly produce *facts and numbers*, not the final wording.** The polished, on-brand reply the customer reads is written by a shared component, the **Answer Formatter** (the "Answer Writer"). This keeps Prozpr's voice consistent no matter which specialist did the work.
 
-When a specialist finishes, it hands the Answer Writer a tidy package of ingredients, and the Writer composes the reply from them:
+### First, the AI decides *how* to answer (the "mode")
+
+The receptionist in Step 1 already decided *which topic* a question belongs to. But once a customer is inside a topic — say they've just been shown their investment mix — their **follow-up** questions still vary a lot, and each needs a different kind of answer:
+
+- **Explain** — talk about *this* customer's plan or numbers ("why is so much in debt?").
+- **Teach** — define a concept in general, then tie it back to their situation ("what's an arbitrage fund?").
+- **What-if** — try a hypothetical with a specific value, shown only for comparison and **not** saved ("what if my risk were 7?").
+- **Redo** — re-run the plan from scratch with their current saved details.
+- **Ask back** — when the customer signals a direction but gives no number ("I can take more risk"), ask a precise follow-up ("your risk is 5.5 — would 7 feel right?").
+- **Redirect** — when they want something chat can't change from here (like editing a goal), point them to the right place instead.
+
+So a follow-up turn really happens in **two steps**: first a quick sorting into one of these *modes*, then the actual writing. The very first question about a topic skips the sorting — the specialist simply builds the plan — so the modes only come into play on follow-ups.
+
+This sorting step is also where the **boundaries** live. A "what-if" is only allowed on a small, defined set of inputs (things like risk score, total corpus, or tax rate); ask to change anything outside that list and it becomes a polite redirect rather than a made-up answer. (It's the same instinct as the stock-picking and off-topic guardrails — just applied *inside* a topic.)
+
+When a specialist finishes, it hands the Answer Writer a tidy package of ingredients — including the mode it just picked — and the Writer composes the reply from them:
 
 ```mermaid
 flowchart TD
     subgraph IN["What the Answer Writer is handed"]
-      P1["House style — Prozpr's voice, tone, and rules"]
+      P1["House style — Prozpr's voice, tone, and rules (shared by every specialist)"]
+      P0["The specialist's briefing — what THIS module's numbers mean, and how long and what shape the answer should take"]
+      P6["The mode — what kind of answer to write (explain, teach, what-if, …)"]
       P2["The Facts Pack — the exact numbers the specialist computed (it may ONLY use these)"]
       P3["The customer's profile — first name, situation"]
       P4["The last 6 messages — recent context"]
@@ -351,13 +368,15 @@ flowchart TD
     FB --> R
 ```
 
+Notice that the Writer's instructions come in **two halves**: a *shared house style* that every specialist uses (so the voice never changes), plus a *module-specific briefing* that only makes sense for that one specialist — an allocation briefing explains what an "equity/debt mix" means, a rebalancing briefing explains what a "buy/sell trade" means. The shared half keeps Prozpr sounding like one person across every kind of question; the specific half lets each answer be accurate. The customer never sees either — only the finished reply.
+
 **The rules that keep answers trustworthy:**
 
 - **No making things up.** The Writer is told it may only cite numbers that are in the Facts Pack. If it's asked *how* a figure was derived and the underlying rate isn't in the pack, it describes the result without inventing the method.
 - **Consistent presentation.** Percentages are shown as whole numbers; the customer's first name is used to greet them on a fresh plan, and sparingly after that.
 - **A safety net.** If the Writer fails for any reason (an error, or it takes too long), the system falls back to a **pre-written, deterministic summary** built straight from the facts — so the customer always gets a coherent answer, never an error page.
 
-In short: **specialists compute the truth; the Answer Writer phrases it.**
+In short: **the receptionist picks the topic, the specialist decides the angle and computes the truth, and the Answer Writer phrases it** — always in the one Prozpr voice.
 
 ---
 
@@ -455,6 +474,7 @@ The original review flagged two issues around the two-turn "what-if → save" fe
 | **Module / specialist** | A self-contained expert that does one job (e.g. Rebalancing, Goal Planning). |
 | **Answer Formatter / Answer Writer** | The shared component that turns a specialist's facts into the final, on-brand reply. |
 | **Facts Pack** | The bundle of computed numbers a specialist hands to the Answer Writer — the only figures it's allowed to cite. |
+| **Mode** | On a follow-up question, the *kind* of answer needed — explain, teach, what-if, redo, ask-back, or redirect. The AI picks it before writing, and it shapes how the reply reads. |
 | **Claude / Haiku** | The underlying AI models. "Haiku" is a small, fast model used for the receptionist and the Answer Writer. |
 | **Read-only** | A path that answers a question without changing or saving anything (e.g. Portfolio Query). |
 | **Saved** | The result is stored so it can be referenced later (e.g. an allocation or rebalancing plan). |

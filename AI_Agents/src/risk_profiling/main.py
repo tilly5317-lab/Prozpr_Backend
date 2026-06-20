@@ -10,6 +10,7 @@ Usage:
     # result is a dict matching the JSON schema in risk_profile.md
 """
 
+from functools import cache
 from typing import Any, Dict
 
 from common import format_inr_indian
@@ -19,8 +20,20 @@ from langchain_core.runnables import RunnableLambda
 from .prompts import RiskProfileSummary, summary_prompt
 from .scoring import compute_all_scores
 
-_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", max_tokens=400)
-_summary_chain = summary_prompt | _llm.with_structured_output(RiskProfileSummary)
+_SUMMARY_MODEL = "claude-haiku-4-5-20251001"
+
+
+@cache
+def _get_summary_chain():
+    """Build (and cache) the summary chain on first call.
+
+    ``ChatAnthropic`` reads ``ANTHROPIC_API_KEY`` from the environment at
+    construction time, so it is built lazily here rather than at import: the
+    app layer sets the risk-profiling key around the chain invoke, and the
+    first call bakes that key into the cached chain.
+    """
+    llm = ChatAnthropic(model=_SUMMARY_MODEL, max_tokens=400)
+    return summary_prompt | llm.with_structured_output(RiskProfileSummary)
 
 
 def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -38,7 +51,7 @@ def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
     dbt = calc["current_debt_percent"]
     debt_str = "N/A (no financial assets)" if dbt >= 999.0 else f"{dbt:.0f}%"
 
-    result = _summary_chain.invoke(
+    result = _get_summary_chain().invoke(
         {
             "age": inp["age"],
             "effective_risk_score": data["output"]["effective_risk_score"],

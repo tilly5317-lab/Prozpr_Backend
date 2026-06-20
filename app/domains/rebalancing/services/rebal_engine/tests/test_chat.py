@@ -111,6 +111,27 @@ def test_handle_returns_blocking_message(monkeypatch):
     assert result.rebalancing_response is None
 
 
+def test_handle_tailors_data_gap_blocking_message(monkeypatch):
+    """A data-gap blocker (missing DOB) is routed through the relay; an error
+    blocker stays verbatim (see test_handle_returns_blocking_message)."""
+    from app.domains.rebalancing.services.rebal_engine import chat as rb_chat
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        RebalancingRunOutcome,
+        _MSG_MISSING_DOB,
+    )
+
+    blocked = RebalancingRunOutcome(response=None, blocking_message=_MSG_MISSING_DOB)
+    monkeypatch.setattr(
+        rb_chat, "compute_rebalancing_result", AsyncMock(return_value=blocked)
+    )
+    relay = AsyncMock(return_value="RELAYED")
+    monkeypatch.setattr(rb_chat, "format_relay_or_canned", relay)
+    result = asyncio.run(rb_chat.handle(_ctx()))
+    assert result.text == "RELAYED"
+    assert relay.call_args.kwargs["message"] == _MSG_MISSING_DOB
+    assert relay.call_args.kwargs["module_name"] == "rebalancing"
+
+
 def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
     """The handler passes the engine response as rebalancing_response so
     downstream consumers can build payloads without re-running the engine.
@@ -442,20 +463,44 @@ class HandleRoutingTests(unittest.TestCase):
         kwargs = engine.call_args.kwargs
         self.assertFalse(kwargs.get("force_fresh_allocation", False))
 
-    def test_counterfactual_with_invalid_override_returns_template(self):
+    def test_counterfactual_with_invalid_override_routes_template_through_relay(self):
         action = mod.RebalanceAction(
             mode="counterfactual_explore",
             overrides={"unknown_key": 1},
         )
+        relay = AsyncMock(return_value="RELAYED")
         with (
             patch.object(
                 mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
             ),
+            patch.object(mod, "format_relay_or_canned", new=relay),
             patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
         ):
             result = asyncio.run(mod.handle(_ctx("what if?", last_run=_agent_run())))
-        self.assertIn("'what if'", result.text)
+        self.assertEqual(result.text, "RELAYED")
+        self.assertEqual(
+            relay.call_args.kwargs["message"], mod._INVALID_OVERRIDE_TEMPLATE
+        )
+        self.assertEqual(relay.call_args.kwargs["module_name"], "rebalancing")
         engine.assert_not_called()
+
+    def test_redirect_routes_template_through_relay(self):
+        action = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+        relay = AsyncMock(return_value="RELAYED")
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "format_relay_or_canned", new=relay),
+        ):
+            result = asyncio.run(
+                mod.handle(_ctx("change something", last_run=_agent_run()))
+            )
+        self.assertEqual(result.text, "RELAYED")
+        kwargs = relay.call_args.kwargs
+        self.assertEqual(kwargs["module_name"], "rebalancing")
+        self.assertIn("Profile", kwargs["message"])
+        self.assertIn("lock fund Y", kwargs["message"])
 
     def test_followup_recompute_re_runs_engine(self):
         action = mod.RebalanceAction(mode="recompute")

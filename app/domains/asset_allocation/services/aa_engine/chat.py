@@ -29,7 +29,10 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.domains.ai_engine.answer_formatter import format_with_telemetry
+from app.domains.ai_engine.answer_formatter import (
+    format_relay_or_canned,
+    format_with_telemetry,
+)
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
@@ -397,7 +400,12 @@ async def _dispatch_action(
 
     # redirect (default)
     reason = action.redirect_reason or "change your plan"
-    return ChatHandlerResult(text=_REDIRECT_TEMPLATE.format(reason=reason))
+    text = await format_relay_or_canned(
+        ctx=ctx,
+        module_name="asset_allocation",
+        message=_REDIRECT_TEMPLATE.format(reason=reason),
+    )
+    return ChatHandlerResult(text=text)
 
 
 async def _reply_with_allocation_tables(
@@ -571,7 +579,12 @@ async def _counterfactual_explore(
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
-        return ChatHandlerResult(text=_INVALID_OVERRIDE_TEMPLATE)
+        text = await format_relay_or_canned(
+            ctx=ctx,
+            module_name="asset_allocation",
+            message=_INVALID_OVERRIDE_TEMPLATE,
+        )
+        return ChatHandlerResult(text=text)
 
     chat_ctx = with_chat_overrides(ctx, overrides)
     outcome = await compute_allocation_result(

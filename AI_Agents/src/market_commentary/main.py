@@ -4,6 +4,7 @@ import json
 import os
 import time
 from datetime import datetime
+from functools import cache
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from common import read_text_bom_aware
+from common import anthropic_api_key_env, read_text_bom_aware
 
 from .document_generator import generate_document
 from .models import MacroSnapshot
@@ -66,19 +67,27 @@ def _to_snapshot(extraction: _MacroExtraction) -> MacroSnapshot:
     return MacroSnapshot(**raw, data_gaps=gaps)
 
 
-_extraction_llm = ChatAnthropic(
-    model=_EXTRACTION_MODEL,
-    max_tokens=_EXTRACTION_MAX_TOKENS,
-).bind_tools(
-    [
-        {
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": _WEBSEARCH_MAX_USES,
-        },
-        EXTRACT_MACRO_DATA_TOOL,
-    ]
-)
+@cache
+def _get_extraction_llm():
+    """Build (and cache) the web-search extraction LLM on first call.
+
+    Built lazily (not at import) so ``ChatAnthropic`` reads
+    ``ANTHROPIC_API_KEY`` at call time — ``MarketCommentaryAgent`` scopes the
+    market-commentary key around the run, and the first call bakes it in.
+    """
+    return ChatAnthropic(
+        model=_EXTRACTION_MODEL,
+        max_tokens=_EXTRACTION_MAX_TOKENS,
+    ).bind_tools(
+        [
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": _WEBSEARCH_MAX_USES,
+            },
+            EXTRACT_MACRO_DATA_TOOL,
+        ]
+    )
 
 
 def run_websearch_extraction() -> MacroSnapshot:
@@ -90,7 +99,7 @@ def run_websearch_extraction() -> MacroSnapshot:
     MacroSnapshot if the model does not finalise (so the caller's cache-fallback
     path kicks in).
     """
-    response = _extraction_llm.invoke(
+    response = _get_extraction_llm().invoke(
         [
             SystemMessage(content=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH),
             HumanMessage(
@@ -168,8 +177,10 @@ class MarketCommentaryAgent:
         output_dir: str = ".",
         generate_document: bool = True,
     ) -> None:
-        if api_key:
-            os.environ["ANTHROPIC_API_KEY"] = api_key
+        # Scoped around the LLM calls in run()/run_from_cache() rather than
+        # mutating the global env at construction, so each module keeps its own
+        # key attribution (and the shared-fallback contract) intact.
+        self._api_key = api_key
         self.output_dir = output_dir
         self._cache_path = os.path.join(output_dir, _CACHE_FILENAME)
         self._generate_document = generate_document
@@ -212,7 +223,8 @@ class MarketCommentaryAgent:
             except OSError:
                 pass  # fall through to regeneration
 
-        regenerated_md = generate_document(snapshot, date or datetime.utcnow())
+        with anthropic_api_key_env(self._api_key):
+            regenerated_md = generate_document(snapshot, date or datetime.utcnow())
         try:
             os.makedirs(self.output_dir, exist_ok=True)
             with open(
@@ -230,7 +242,8 @@ class MarketCommentaryAgent:
             MacroSnapshot with the latest macro-economic indicator values.
         """
         # Step 1+2: Claude with web_search gathers and extracts all 14 indicators.
-        snapshot = run_websearch_extraction()
+        with anthropic_api_key_env(self._api_key):
+            snapshot = run_websearch_extraction()
 
         # Step 3: fallback to cache if all indicator fields are null
         if self._is_snapshot_empty(snapshot):
@@ -247,7 +260,8 @@ class MarketCommentaryAgent:
         # Step 5: generate and write the 2-page Markdown commentary
         if self._generate_document:
             now = datetime.utcnow()
-            document_md = generate_document(snapshot, now)
+            with anthropic_api_key_env(self._api_key):
+                document_md = generate_document(snapshot, now)
             snapshot.document_md = document_md
             self._write_document(document_md)
 

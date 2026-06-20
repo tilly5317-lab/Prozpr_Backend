@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cache
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -76,8 +77,6 @@ def _build_prompt_vars(inputs: dict) -> dict:
     }
 
 
-_llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
-
 # Force a private planning pass (outline, discarded) before the document body so the
 # commentary starts cleanly at the letterhead with no preamble.
 _DOC_TOOL = reasoned_reply_tool(
@@ -93,9 +92,20 @@ _DOC_TOOL = reasoned_reply_tool(
         "and which macro figures land in each section before writing. Never shown."
     ),
 )
-_llm_bound = _llm.bind_tools(
-    [_DOC_TOOL], tool_choice={"type": "tool", "name": "return_commentary_document"}
-)
+
+
+@cache
+def _get_doc_llm():
+    """Build (and cache) the document-generation LLM on first call.
+
+    Lazy (not at import) so ``ChatAnthropic`` reads ``ANTHROPIC_API_KEY`` at
+    call time — ``MarketCommentaryAgent`` scopes the market-commentary key
+    around the run.
+    """
+    llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
+    return llm.bind_tools(
+        [_DOC_TOOL], tool_choice={"type": "tool", "name": "return_commentary_document"}
+    )
 
 
 def generate_document(snapshot: MacroSnapshot, date: Optional[datetime] = None) -> str:
@@ -103,7 +113,7 @@ def generate_document(snapshot: MacroSnapshot, date: Optional[datetime] = None) 
     prompt_vars = _build_prompt_vars({"snapshot": snapshot, "date": date})
     messages = DOCUMENT_GENERATION_PROMPT.format_messages(**prompt_vars)
     document = extract_reasoned_reply(
-        _llm_bound.invoke(messages), answer_field="document"
+        _get_doc_llm().invoke(messages), answer_field="document"
     )
     if not document:
         raise RuntimeError("Document generation returned no `document` field.")

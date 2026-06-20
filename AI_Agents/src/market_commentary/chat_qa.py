@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from functools import cache
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -15,8 +16,6 @@ _DOCUMENT_FILENAME = "market_commentary_latest.md"
 _QA_MODEL = "claude-sonnet-4-6"
 _QA_MAX_TOKENS = 1500  # was 1024 — room for the discarded reasoning field
 
-_qa_llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS)
-
 # Force the model to think privately, then return a clean answer. The reasoning field is
 # declared first (so it conditions the answer) and discarded by extract_reasoned_reply.
 _QA_TOOL = reasoned_reply_tool(
@@ -26,9 +25,16 @@ _QA_TOOL = reasoned_reply_tool(
         "document. 2-5 short sentences. No preamble, no working-out."
     ),
 )
-_qa_llm_bound = _qa_llm.bind_tools(
-    [_QA_TOOL], tool_choice={"type": "tool", "name": "return_qa_answer"}
-)
+
+
+@cache
+def _get_qa_llm():
+    """Build (and cache) the QA LLM on first call (lazy so ``ChatAnthropic``
+    reads ``ANTHROPIC_API_KEY`` at call time, not at import)."""
+    llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS)
+    return llm.bind_tools(
+        [_QA_TOOL], tool_choice={"type": "tool", "name": "return_qa_answer"}
+    )
 
 
 def load_latest_commentary(output_dir: str) -> str:
@@ -73,7 +79,7 @@ def answer_question(
         document_content=document_content,
         user_question=user_question,
     )
-    answer = extract_reasoned_reply(_qa_llm_bound.invoke(messages))
+    answer = extract_reasoned_reply(_get_qa_llm().invoke(messages))
     if answer:
         return answer
     # Rare malformed tool call — return a safe, on-voice fallback rather than crash.
