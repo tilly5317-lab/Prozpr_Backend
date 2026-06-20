@@ -126,12 +126,19 @@ class ChatBrain:
                 f"(confidence={intent.confidence:.2f}, reasoning={intent.reasoning!r})"
             )
 
-            # ---- 3. Classifier-only intents: surface the canned message -----
+            # ---- 3. Classifier-only intents: tailor the redirect, else canned -
             if intent.name in _CLASSIFIER_ONLY_INTENTS and intent.raw is not None:
                 canned = getattr(intent.raw, "out_of_scope_message", None)
                 if canned:
+                    # Function-local import keeps the brain free of module-level
+                    # domain deps (its convention) and avoids any import cycle.
+                    from app.domains.general_chat.services.general_chat_engine import (
+                        format_redirect_or_canned,
+                    )
+
+                    text = await format_redirect_or_canned(ctx=ctx, intent=intent)
                     return await self._finalize(
-                        text=canned,
+                        text=text,
                         intent=intent,
                         flow=flow,
                         t0=t_all,

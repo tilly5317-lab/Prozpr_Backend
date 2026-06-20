@@ -20,10 +20,10 @@ def test_generate_document_returns_document_and_discards_outline():
     with (
         patch.object(dg, "_build_prompt_vars", return_value={}),
         patch.object(dg, "DOCUMENT_GENERATION_PROMPT") as prompt,
-        patch.object(dg, "_llm_bound") as bound,
+        patch.object(dg, "_get_doc_llm") as get_llm,
     ):
         prompt.format_messages.return_value = ["m"]
-        bound.invoke.return_value = resp
+        get_llm.return_value.invoke.return_value = resp
         out = dg.generate_document(snapshot=None)
     assert out.startswith("# Prozpr")
     assert "SECRET PLAN" not in out

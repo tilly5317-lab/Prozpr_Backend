@@ -123,3 +123,4 @@ issue_reports/
 /app/domains/ai_engine/answer_formatter/tests
 =======
 >>>>>>> f742ab5e1e1f4322753613fa8ba48d23ee0abb82
+/app/core/tests

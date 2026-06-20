@@ -16,8 +16,8 @@ def test_answer_question_returns_answer_and_discards_reasoning():
             },
         }
     ]
-    with patch.object(qa, "_qa_llm_bound") as bound:
-        bound.invoke.return_value = resp
+    with patch.object(qa, "_get_qa_llm") as get_llm:
+        get_llm.return_value.invoke.return_value = resp
         out = qa.answer_question(
             "what's the repo rate?", document_content="... repo 5.25% ..."
         )
@@ -28,7 +28,7 @@ def test_answer_question_returns_answer_and_discards_reasoning():
 def test_answer_question_falls_back_on_malformed_tool_call():
     resp = MagicMock()
     resp.tool_calls = []
-    with patch.object(qa, "_qa_llm_bound") as bound:
-        bound.invoke.return_value = resp
+    with patch.object(qa, "_get_qa_llm") as get_llm:
+        get_llm.return_value.invoke.return_value = resp
         out = qa.answer_question("?", document_content="doc")
     assert isinstance(out, str) and out.strip()  # safe fallback, no crash

@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.domains.identity.models.user import User
 from app.domains.ai_engine.common import ensure_ai_agents_path, format_inr_indian
 from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
@@ -97,6 +98,7 @@ async def compute_goal_planning_snapshot(
         )
         raise
 
+    from common import anthropic_api_key_env
     from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
     from cashflow_statement.summarizer import summarize_plan
@@ -107,7 +109,10 @@ async def compute_goal_planning_snapshot(
 
     summary = None
     try:
-        summary = await asyncio.to_thread(summarize_plan, output)
+        # Attribute the summarizer LLM call to the goal-planning key (falls back
+        # to the shared ANTHROPIC_API_KEY when unset).
+        with anthropic_api_key_env(get_settings().get_anthropic_goal_planning_key()):
+            summary = await asyncio.to_thread(summarize_plan, output)
     except Exception:
         logger.warning(
             "summarize_plan failed; proceeding without narrative", exc_info=True
@@ -323,7 +328,10 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
             }
         )
 
-    # Annual cashflow table
+    # Annual cashflow table for the formatter LLM. Mirrors the columns the
+    # formatter renders (chat.py §5 "Annual Cashflow Table"); the EMI splits and
+    # corpus_opening are persisted in CashflowAnnualRow but the table never shows
+    # them, so they're omitted here to keep the prompt small.
     facts["annual_cashflow"] = []
     for row in output.annual_cashflow:
         facts["annual_cashflow"].append(
@@ -333,10 +341,7 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
                 "income_tax": format_inr_indian(row.income_tax),
                 "household_expense": format_inr_indian(row.household_expense),
                 "savings_pre_emi": format_inr_indian(row.savings_pre_emi),
-                "existing_mortgage_emi": format_inr_indian(row.existing_mortgage_emi),
-                "goal_mortgage_emi": format_inr_indian(row.goal_mortgage_emi),
                 "savings_post_emi": format_inr_indian(row.savings_post_emi),
-                "corpus_opening": format_inr_indian(row.corpus_opening),
                 "monthly_investment": format_inr_indian(row.monthly_investment),
                 "investment_returns": format_inr_indian(row.investment_returns),
                 "goal_payout": format_inr_indian(row.goal_payout),

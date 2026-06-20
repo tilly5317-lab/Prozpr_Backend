@@ -17,6 +17,7 @@ from app.domains.ai_engine.answer_formatter.formatter import (
     FormatterFailure,
     assemble_prompt,
     format_answer,
+    format_relay_or_canned,
     format_with_telemetry,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "FormatterFailure",
     "assemble_prompt",
     "format_answer",
+    "format_relay_or_canned",
     "format_with_telemetry",
 ]

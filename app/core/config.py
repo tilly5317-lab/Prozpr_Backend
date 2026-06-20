@@ -326,19 +326,9 @@ class Settings:
         return Settings._anthropic_key("ANSWER_FORMATTER_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
-    def get_anthropic_follow_up_key() -> str | None:
-        """Follow-up suggestion service."""
-        return Settings._anthropic_key("FOLLOW_UP_API_KEY", "ANTHROPIC_API_KEY")
-
-    @staticmethod
     def get_anthropic_general_chat_key() -> str | None:
         """General-chat (out-of-scope / casual) reply generator."""
         return Settings._anthropic_key("GENERAL_CHAT_API_KEY", "ANTHROPIC_API_KEY")
-
-    @staticmethod
-    def get_anthropic_chart_selector_key() -> str | None:
-        """Chart-selector LLM call for chat answers."""
-        return Settings._anthropic_key("CHART_SELECTOR_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
     def get_anthropic_goal_planning_key() -> str | None:

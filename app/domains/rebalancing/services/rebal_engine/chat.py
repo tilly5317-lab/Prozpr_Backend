@@ -13,6 +13,7 @@ from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
 from app.domains.ai_engine.common import build_detect_history_block
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.rebalancing.services.rebal_engine.service import (
+    TAILORABLE_BLOCKERS,
     build_rebal_facts_pack,
     compute_rebalancing_result,
 )
@@ -20,7 +21,10 @@ from app.domains.ai_engine.turn_context import (
     AgentRunRecord,
     TurnContext,
 )
-from app.domains.ai_engine.answer_formatter import format_with_telemetry
+from app.domains.ai_engine.answer_formatter import (
+    format_relay_or_canned,
+    format_with_telemetry,
+)
 from app.domains.rebalancing.services.rebal_engine.formatter import (
     build_fallback_rebal_brief,
 )
@@ -51,7 +55,7 @@ class RebalanceAction(BaseModel):
         description=(
             "For counterfactual_explore. Allowed keys: effective_tax_rate, "
             "stcg_offset_budget_inr, carryforward_st_loss_inr, "
-            "carryforward_lt_loss_inr."
+            "carryforward_lt_loss_inr, additional_cash_inr."
         ),
     )
     clarification_question: Optional[str] = Field(default=None)
@@ -297,6 +301,16 @@ async def _format_or_fallback_rebal(
     )
 
 
+async def _blocking_text(ctx: TurnContext, blocking_message: str) -> str:
+    """Tailor data-gap gates (missing DOB / no holdings) through the formatter;
+    keep transient/data-quality error blockers verbatim."""
+    if blocking_message in TAILORABLE_BLOCKERS:
+        return await format_relay_or_canned(
+            ctx=ctx, module_name="rebalancing", message=blocking_message,
+        )
+    return blocking_message
+
+
 def _rehydrate_response(payload: dict[str, Any]) -> Any:
     """Best-effort rehydration of RebalancingComputeResponse from persisted JSON.
 
@@ -335,8 +349,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
+            text = await _blocking_text(ctx, outcome.blocking_message)
             return ChatHandlerResult(
-                text=outcome.blocking_message,
+                text=text,
                 snapshot_id=None,
                 rebalancing_recommendation_id=None,
             )
@@ -369,8 +384,13 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
+        text = await format_relay_or_canned(
+            ctx=ctx,
+            module_name="rebalancing",
+            message=_REDIRECT_TEMPLATE.format(reason=reason),
+        )
         return ChatHandlerResult(
-            text=_REDIRECT_TEMPLATE.format(reason=reason),
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )
@@ -388,8 +408,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             chat_session_id=ctx.session_id,
         )
         if outcome.blocking_message is not None:
+            text = await _blocking_text(ctx, outcome.blocking_message)
             return ChatHandlerResult(
-                text=outcome.blocking_message,
+                text=text,
                 snapshot_id=None,
                 rebalancing_recommendation_id=None,
             )
@@ -457,8 +478,13 @@ async def _counterfactual_explore(
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
+        text = await format_relay_or_canned(
+            ctx=ctx,
+            module_name="rebalancing",
+            message=_INVALID_OVERRIDE_TEMPLATE,
+        )
         return ChatHandlerResult(
-            text=_INVALID_OVERRIDE_TEMPLATE,
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )
@@ -480,8 +506,9 @@ async def _counterfactual_explore(
     )
 
     if outcome.blocking_message is not None:
+        text = await _blocking_text(ctx, outcome.blocking_message)
         return ChatHandlerResult(
-            text=outcome.blocking_message,
+            text=text,
             snapshot_id=None,
             rebalancing_recommendation_id=None,
         )
@@ -539,13 +566,40 @@ def _slim_snapshot(output_payload: dict[str, Any] | None) -> dict[str, Any]:
         return {}
 
 
+def _classifier_digest(facts: dict[str, Any]) -> dict[str, Any]:
+    """Reduce the curated facts pack to the few signals the mode classifier needs.
+
+    The classifier only routes the customer's QUESTION into one of six modes; it
+    never reads ₹ amounts (the answer is built by a separate build_rebal_facts_pack
+    call in _format_or_fallback_rebal). It needs only: a recommendation exists, and
+    which sub_categories / funds it covers, so the narrate-vs-educate tie-break can
+    tell a fund-specific question from a general one. Names are ~1 token each; the
+    per-fund/per-bucket rupee tables that dominated (and truncated) the snapshot go.
+    """
+    if not facts:
+        return {}
+    fund_actions = facts.get("fund_actions") or []
+    buckets = facts.get("buckets") or []
+    return {
+        "has_recommendation": bool(fund_actions or buckets),
+        "trade_count": facts.get("trade_count"),
+        "has_sells": any((fa.get("sell_inr") or 0) > 0 for fa in fund_actions),
+        "sub_categories": list(
+            dict.fromkeys(b.get("sub_category") for b in buckets if b.get("sub_category"))
+        ),
+        "fund_names": list(
+            dict.fromkeys(fa.get("fund_name") for fa in fund_actions if fa.get("fund_name"))
+        ),
+    }
+
+
 async def _detect_rebal_action(
     last_run: AgentRunRecord,
     ctx: TurnContext,
 ) -> RebalanceAction:
     """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
     slim = _slim_snapshot(last_run.output_payload)
-    snapshot_json = json.dumps(slim, default=str)
+    snapshot_json = json.dumps(_classifier_digest(slim), default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
         logger.info(
             "detect_rebal_action_snapshot_truncated original_len=%d budget=%d",
