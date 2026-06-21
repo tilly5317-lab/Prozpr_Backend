@@ -22,12 +22,20 @@ class ChatSessionUpdate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
 
 
+class ChatSessionRatingUpdate(BaseModel):
+    """Set the user's 1–5 star rating of Pi for a session (one per session)."""
+
+    rating: int = Field(..., ge=1, le=5)
+
+
 class ChatSessionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     id: uuid.UUID
     title: Optional[str] = None
     status: str
+    # 1–5 if the user has rated this conversation, else null.
+    rating: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
