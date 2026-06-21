@@ -193,6 +193,11 @@ async def apply_postgres_schema_patches() -> None:
                 """
             )
         )
+        # ORM/column drift: ChatSession.rating — user's 1–5 rating of Pi, one per
+        # conversation. Added after the table first shipped.
+        await conn.execute(
+            text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS rating SMALLINT")
+        )
         # ORM/column drift: MfFundMetadata.isin* (see alembic f1a2b3c4d5e6)
         await conn.execute(
             text(

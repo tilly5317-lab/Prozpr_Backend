@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +49,11 @@ class ChatSession(Base):
         ),
         default=ChatSessionStatus.active,
     )
+
+    # User's 1–5 star rating of Pi for this conversation; null until rated.
+    # One rating per session — set via PATCH /chat/sessions/{id}/rating, so the
+    # frontend can stop re-prompting once a session has been rated.
+    rating: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

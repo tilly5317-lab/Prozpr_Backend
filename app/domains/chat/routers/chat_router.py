@@ -27,6 +27,7 @@ from app.domains.chat.schemas.chat import (
     ChatSendMessageResponse,
     ChatSessionCreate,
     ChatSessionDetailResponse,
+    ChatSessionRatingUpdate,
     ChatSessionResponse,
     ChatSessionUpdate,
     UploadStatementResponse,
@@ -276,6 +277,26 @@ async def update_session(
     (the title is no longer a default), so a manual name is never overwritten."""
     session = await _get_user_session(session_id, db, current_user.id)
     session.title = payload.title.strip()
+    await db.commit()
+    await db.refresh(session)
+    return ChatSessionResponse.model_validate(session)
+
+
+@router.patch("/sessions/{session_id}/rating", response_model=ChatSessionResponse)
+async def rate_session(
+    session_id: uuid.UUID,
+    payload: ChatSessionRatingUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Record the user's 1–5 rating of Pi for this session.
+
+    Idempotent — one rating per session; calling again overwrites it. The
+    frontend reads this back on load so the rating prompt is shown only until
+    the conversation has been rated, not on every revisit.
+    """
+    session = await _get_user_session(session_id, db, current_user.id)
+    session.rating = payload.rating
     await db.commit()
     await db.refresh(session)
     return ChatSessionResponse.model_validate(session)
