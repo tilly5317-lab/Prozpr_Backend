@@ -192,6 +192,157 @@ def _build_summary(bench_cf, cust_val, bench_val, invested, as_of) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Windowed XIRR (Performance-tab headline, per selected timeframe)
+# ---------------------------------------------------------------------------
+
+# Analysis-tab windows — mirror the frontend range selector exactly so the XIRR
+# headline matches the chart window the user sees. YTD is calendar year-to-date;
+# the rest are trailing-day counts; "ALL"/"MAX" = since first purchase.
+ANALYSIS_WINDOW_DAYS: dict[str, int] = {"1M": 30, "3M": 90, "1Y": 365, "3Y": 365 * 3}
+
+
+def _analysis_window_start(first_purchase: date, as_of: date, label: str) -> date:
+    """Start date for a windowed-XIRR label, never earlier than first purchase."""
+    u = label.upper()
+    if u in ("ALL", "MAX"):
+        return first_purchase
+    if u == "YTD":
+        return max(first_purchase, date(as_of.year, 1, 1))
+    days = ANALYSIS_WINDOW_DAYS.get(u)
+    if days is None:
+        return first_purchase
+    return max(first_purchase, as_of - timedelta(days=days))
+
+
+def _customer_window_xirr(
+    txns: list[TxnLite],
+    nav_lookup: Callable[[str, date], Optional[float]],
+    *,
+    start: date,
+    as_of: date,
+) -> Optional[float]:
+    """Money-weighted XIRR for the customer over ``[start, as_of]``.
+
+    The position held *before* the window enters as one negative cashflow at
+    ``start`` (units priced at the window-start NAV); buys/sells *inside* the
+    window are signed external flows; the current value at ``as_of`` is the
+    terminal inflow. CAS stores redemptions negative — magnitudes are taken and
+    the type decides direction (matches ``build_comparison_series``).
+    """
+    units: dict[str, float] = defaultdict(float)
+
+    def value_on(on: date) -> float:
+        return sum(u * (nav_lookup(s, on) or 0.0) for s, u in units.items() if u > 0)
+
+    for t in txns:  # units carried in before the window opens
+        if t.txn_date >= start:
+            continue
+        if t.txn_type in ADD_UNIT_TYPES:
+            units[t.scheme_code] += abs(t.units)
+        elif t.txn_type in REMOVE_UNIT_TYPES:
+            units[t.scheme_code] -= abs(t.units)
+
+    cfs: list[tuple[date, float]] = []
+    opening = value_on(start)
+    if opening > 0:
+        cfs.append((start, -opening))
+
+    for t in txns:  # flows inside the window; units roll forward to as_of
+        if t.txn_date < start:
+            continue
+        if t.txn_type in ADD_UNIT_TYPES:
+            units[t.scheme_code] += abs(t.units)
+        elif t.txn_type in REMOVE_UNIT_TYPES:
+            units[t.scheme_code] -= abs(t.units)
+        if t.txn_type in EXTERNAL_IN_TYPES:
+            cfs.append((t.txn_date, -abs(t.amount)))
+        elif t.txn_type in EXTERNAL_OUT_TYPES:
+            cfs.append((t.txn_date, abs(t.amount)))
+
+    terminal = value_on(as_of)
+    if terminal > 0:
+        cfs.append((as_of, terminal))
+
+    return xirr(cfs)
+
+
+def _nifty_window_xirr(
+    txns: list[TxnLite],
+    tri_lookup: Callable[[date], Optional[float]],
+    *,
+    start: date,
+    as_of: date,
+) -> Optional[float]:
+    """Same window math for a Nifty-50 clone driven by identical external flows.
+
+    Clone units bought/sold at each external flow = amount / TRI(flow date);
+    opening and terminal value the accumulated clone units at the window bounds.
+    """
+    nifty_units = 0.0
+    for t in txns:  # clone units carried in before the window opens
+        if t.txn_date >= start:
+            continue
+        tri = tri_lookup(t.txn_date)
+        if not tri:
+            continue
+        if t.txn_type in EXTERNAL_IN_TYPES:
+            nifty_units += abs(t.amount) / tri
+        elif t.txn_type in EXTERNAL_OUT_TYPES:
+            nifty_units -= abs(t.amount) / tri
+
+    cfs: list[tuple[date, float]] = []
+    opening = nifty_units * (tri_lookup(start) or 0.0)
+    if opening > 0:
+        cfs.append((start, -opening))
+
+    for t in txns:  # external flows inside the window; clone units roll forward
+        if t.txn_date < start:
+            continue
+        tri = tri_lookup(t.txn_date)
+        if t.txn_type in EXTERNAL_IN_TYPES:
+            cfs.append((t.txn_date, -abs(t.amount)))
+            if tri:
+                nifty_units += abs(t.amount) / tri
+        elif t.txn_type in EXTERNAL_OUT_TYPES:
+            cfs.append((t.txn_date, abs(t.amount)))
+            if tri:
+                nifty_units -= abs(t.amount) / tri
+
+    terminal = nifty_units * (tri_lookup(as_of) or 0.0)
+    if terminal > 0:
+        cfs.append((as_of, terminal))
+
+    return xirr(cfs)
+
+
+def compute_windowed_xirrs(
+    txns: list[TxnLite],
+    nav_lookup: Callable[[str, date], Optional[float]],
+    tri_lookup: Callable[[date], Optional[float]],
+    *,
+    as_of: date,
+    windows: list[str],
+) -> dict[str, tuple[Optional[float], Optional[float]]]:
+    """Customer + Nifty-clone XIRR for each requested window.
+
+    Returns ``{label: (customer_xirr, nifty_xirr)}`` (decimals, 0.12 == 12%);
+    both ``None`` when there are no transactions or the XIRR is undefined.
+    """
+    if not txns:
+        return {w: (None, None) for w in windows}
+    txns = sorted(txns, key=lambda t: t.txn_date)
+    first = txns[0].txn_date
+    out: dict[str, tuple[Optional[float], Optional[float]]] = {}
+    for w in windows:
+        start = _analysis_window_start(first, as_of, w)
+        out[w] = (
+            _customer_window_xirr(txns, nav_lookup, start=start, as_of=as_of),
+            _nifty_window_xirr(txns, tri_lookup, start=start, as_of=as_of),
+        )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # DB adapter
 # ---------------------------------------------------------------------------
 
@@ -275,3 +426,42 @@ async def compute_portfolio_vs_nifty(
     return build_comparison_series(
         txns, nav_lookup, tri_lookup, as_of=as_of, horizon=horizon
     )
+
+
+async def compute_windowed_xirrs_for_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    windows: list[str],
+    as_of: Optional[date] = None,
+) -> dict[str, Optional[float]]:
+    """Customer money-weighted XIRR per window label for the Performance tab.
+
+    Returns ``{label: customer_xirr}`` (decimal; None when undefined). The Nifty
+    clone XIRR is computed but not surfaced here — the benchmark line on the chart
+    is time-weighted and rebased client-side, so only the customer headline needs
+    a per-window money-weighted figure.
+    """
+    as_of = as_of or date.today()
+    txns = await _load_txns(db, user_id)
+    if not txns:
+        return {w: None for w in windows}
+
+    codes = {t.scheme_code for t in txns}
+    nav_rows = await _load_nav_rows(db, codes)
+    per_scheme: dict[str, list[tuple[date, float]]] = defaultdict(list)
+    for scheme_code, nav_date, nav in nav_rows:
+        per_scheme[scheme_code].append((nav_date, float(nav)))
+    nav_lookups = {sc: build_step_lookup(rows) for sc, rows in per_scheme.items()}
+
+    def nav_lookup(scheme: str, on: date) -> Optional[float]:
+        f = nav_lookups.get(scheme)
+        return f(on) if f else None
+
+    tri_rows = await _load_tri_rows(db)
+    tri_lookup = build_step_lookup([(d, float(v)) for d, v in tri_rows])
+
+    out = compute_windowed_xirrs(
+        txns, nav_lookup, tri_lookup, as_of=as_of, windows=windows
+    )
+    return {w: cust for w, (cust, _nifty) in out.items()}

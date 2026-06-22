@@ -31,7 +31,12 @@ from app.domains.portfolio.services.benchmark_service import (
     EXTERNAL_OUT_TYPES,
     NIFTY_INDEX_NAME,
     build_step_lookup,
+    compute_windowed_xirrs_for_user,
 )
+
+# Range labels the Performance tab can select — kept in lockstep with the
+# frontend selector so windowed_xirr[range] always resolves.
+ANALYSIS_WINDOWS = ["1M", "3M", "YTD", "1Y", "3Y", "All"]
 
 
 async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesResponse:
@@ -43,6 +48,12 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
     xirr_result = await compute_portfolio_xirr(db, user_id)
     portfolio_xirr = xirr_result.xirr
     as_of_date = xirr_result.as_of_date
+
+    # Money-weighted XIRR for every selectable range, priced at the same as-of
+    # date as the headline so "All" lines up with portfolio_xirr.
+    windowed_xirr = await compute_windowed_xirrs_for_user(
+        db, user_id, windows=ANALYSIS_WINDOWS, as_of=as_of_date
+    )
 
     nav_rows = (
         await db.execute(
@@ -57,7 +68,11 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
     daily_values = [(d, float(v)) for d, v in nav_rows]
     if len(daily_values) < 2:
         return TwrSeriesResponse(
-            has_data=False, points=[], portfolio_xirr=portfolio_xirr, as_of_date=as_of_date
+            has_data=False,
+            points=[],
+            portfolio_xirr=portfolio_xirr,
+            windowed_xirr=windowed_xirr,
+            as_of_date=as_of_date,
         )
 
     txn_rows = (
@@ -93,5 +108,6 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
         has_data=len(points) >= 2,
         points=points,
         portfolio_xirr=portfolio_xirr,
+        windowed_xirr=windowed_xirr,
         as_of_date=as_of_date,
     )

@@ -160,6 +160,9 @@ class TwrSeriesResponse(BaseModel):
     portfolio_xirr: Optional[float] = (
         None  # since-inception money-weighted return (decimal, 0.11 == 11%); null if undefined
     )
+    windowed_xirr: dict[str, Optional[float]] = (
+        {}  # money-weighted XIRR per range label (1M/3M/YTD/1Y/3Y/All); "All" == portfolio_xirr
+    )
     as_of_date: Optional[date] = (
         None  # date the current value is priced at (latest NAV used for XIRR)
     )
