@@ -133,11 +133,20 @@ async def _compute_and_persist(
     from app.domains.cashflow.services.cashflow_compute_service import (
         run_cashflow_projection_for_user,
     )
-    from app.domains.portfolio.services.portfolio_service import get_primary_portfolio
+    from app.domains.portfolio.services.portfolio_service import (
+        get_primary_portfolio,
+        revalue_primary_portfolio_at_latest_nav,
+    )
 
     # The current portfolio value feeds the engine's starting corpus (single
     # source of truth — the portfolio/CAMS data), summed with cash & assets.
-    portfolio = await get_primary_portfolio(db, user.id)
+    # Re-mark it to *today's* NAV first (the same revaluation the /portfolio
+    # dashboard uses) so the corpus tracks the current value, not the frozen
+    # statement-date figure. Falls back to the stored row if there is nothing to
+    # revalue (no holdings / no primary portfolio).
+    portfolio = await revalue_primary_portfolio_at_latest_nav(db, user.id)
+    if portfolio is None:
+        portfolio = await get_primary_portfolio(db, user.id)
     portfolio_value = (
         float(portfolio.total_value)
         if portfolio is not None and portfolio.total_value is not None
@@ -185,6 +194,27 @@ async def get_latest_cashflow(
             return await _compute_and_persist(db, user)
         except ValueError as e:
             _raise_for_input_error(e)
+
+    # The plan is usable. Refresh it at most once per calendar day so the
+    # starting corpus tracks the portfolio's current (today's-NAV) value — but
+    # never fail the read on this: if a daily refresh can't run (e.g. a required
+    # input was cleared since), keep serving the last good plan.
+    day_stale = (
+        existing is not None
+        and existing.computed_at is not None
+        and existing.computed_at.date() < date.today()
+    )
+    if day_stale:
+        try:
+            return await _compute_and_persist(db, user)
+        except ValueError:
+            logger.info(
+                "daily cashflow refresh skipped (incomplete inputs) — serving last plan"
+            )
+        except Exception:  # noqa: BLE001 — a refresh must never break the read
+            logger.warning(
+                "daily cashflow refresh failed — serving last plan", exc_info=True
+            )
 
     return _serialize_plan_run(existing)
 
