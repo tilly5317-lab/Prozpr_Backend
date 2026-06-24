@@ -513,6 +513,88 @@ def classify_holding(
 
 
 # ---------------------------------------------------------------------------
+# Multi-asset / hybrid look-through (asset-class split for blended funds)
+# ---------------------------------------------------------------------------
+#
+# A blended fund holds equity + debt (+ others) inside one scheme. The canonical
+# classifier above maps each such fund to a SINGLE asset_class (e.g. a
+# Multi-Asset Allocation Fund → Equity), which over-counts equity wherever
+# holdings roll up into an Equity/Debt/Others mix. To match the asset-allocation
+# engine's multi-asset composition methodology (surfaced in chat), these funds
+# are instead SPLIT across asset classes by a per-category band.
+#
+# This table is the single source of the split rule; every asset-class rollup
+# (portfolio donut, chat current-mix, rebalancing breakdown) routes through
+# ``add_to_asset_class_mix`` so the split stays consistent app-wide. Keyed on
+# CANONICAL sub_category (the SUBCAT_TO_MAPPING vocabulary); raw SEBI labels are
+# normalized first. Weights within each row sum to 1.0.
+ASSET_CLASS_LOOKTHROUGH_WEIGHTS: dict[str, dict[str, float]] = {
+    "Multi-Asset Allocation Fund": {
+        ASSET_CLASS_EQUITY: 0.65,
+        ASSET_CLASS_DEBT: 0.25,
+        ASSET_CLASS_OTHERS: 0.10,
+    },
+    "Aggressive Hybrid Fund (Equity 65-80%, Debt 20-35%)": {
+        ASSET_CLASS_EQUITY: 0.70,
+        ASSET_CLASS_DEBT: 0.30,
+    },
+    "Dynamic Asset Allocation Fund": {
+        ASSET_CLASS_EQUITY: 0.65,
+        ASSET_CLASS_DEBT: 0.35,
+    },
+    "Balanced Hybrid Fund (Equity 40-60%, Debt 40-60%)": {
+        ASSET_CLASS_EQUITY: 0.50,
+        ASSET_CLASS_DEBT: 0.50,
+    },
+    "Conservative Hybrid Fund (Equity 10-25%, Debt 75-90%)": {
+        ASSET_CLASS_EQUITY: 0.20,
+        ASSET_CLASS_DEBT: 0.80,
+    },
+}
+
+
+def asset_class_lookthrough(sub_category: Optional[str]) -> Optional[dict[str, float]]:
+    """Equity/Debt/Others weights for a blended fund whose value should be split
+    across asset classes (look-through), or ``None`` when the fund maps cleanly
+    to a single asset_class (caller should use ``classify_holding`` /
+    ``asset_class_for_subgroup`` instead).
+
+    Accepts raw or canonical ``sub_category`` — raw SEBI labels are normalized
+    via ``_RAW_SUBCAT_NORMALIZATIONS`` (the same Tier-1 path
+    ``classify_sub_category`` uses) before the lookup.
+    """
+    if not sub_category:
+        return None
+    raw = sub_category.strip()
+    canonical = _RAW_SUBCAT_NORMALIZATIONS.get(raw, raw)
+    return ASSET_CLASS_LOOKTHROUGH_WEIGHTS.get(canonical)
+
+
+def add_to_asset_class_mix(
+    mix: dict[str, float],
+    *,
+    amount: float,
+    sub_category: Optional[str],
+    fallback_asset_class: str,
+) -> None:
+    """Accumulate ``amount`` into ``mix`` (keyed by canonical asset_class),
+    splitting blended funds via ``asset_class_lookthrough`` when applicable and
+    otherwise assigning the whole amount to ``fallback_asset_class``.
+
+    Mutates ``mix`` in place. This is the single entry point for the multi-asset
+    / hybrid look-through — route every asset-class rollup through here so the
+    split stays consistent across the portfolio donut, chat current-mix and the
+    rebalancing breakdown.
+    """
+    weights = asset_class_lookthrough(sub_category)
+    if weights:
+        for asset_class, weight in weights.items():
+            mix[asset_class] = mix.get(asset_class, 0.0) + amount * weight
+    else:
+        mix[fallback_asset_class] = mix.get(fallback_asset_class, 0.0) + amount
+
+
+# ---------------------------------------------------------------------------
 # Name-based fallback (when sub_category is missing/unknown)
 # ---------------------------------------------------------------------------
 #

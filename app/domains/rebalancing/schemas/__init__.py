@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict, computed_field
 from app.domains.mutual_funds.services.scheme_classification import (
     asset_class_for_subgroup,
 )
+from app.domains.rebalancing.services.rebalancing_summary import (
+    build_rebalance_summary,
+)
 
 
 # ── Nested child schemas ────────────────────────────────────────────────
@@ -90,6 +93,41 @@ class RebalancingWarningSchema(BaseModel):
     affected_isins: List[str]
 
 
+class RebalancingSummarySchema(BaseModel):
+    """Plan-aware headline (title + one-line subtitle) for the run.
+
+    Replaces the Invest page's old static "Time to fine-tune your mix." header
+    with copy that reflects what this run actually recommends. Computed on read
+    from the run's totals + per-asset-class drift — see ``rebalancing_summary``.
+    """
+
+    title: str  # what we're doing
+    subtitle: str  # how / the numbers
+    reason: Optional[str] = None  # one-line why; None when nothing needs justifying
+
+
+class AssetClassBreakdownRow(BaseModel):
+    """One Equity/Debt/Others row of the Invest-page current-vs-target bars."""
+
+    asset_class: str  # "Equity" | "Debt" | "Others"
+    current_inr: float
+    target_inr: float
+
+
+class RebalancingAssetClassBreakdown(BaseModel):
+    """Backend-computed asset-class split for the Invest "Current vs Target" view.
+
+    Blended multi-asset / hybrid funds are split per-category (look-through) so the
+    frontend renders these numbers directly without any client-side classification.
+    ``current`` mirrors the dashboard donut (from holdings); ``target`` reconciles
+    with the trade list (from the rebalancing plan's per-subgroup totals).
+    """
+
+    rows: List[AssetClassBreakdownRow]
+    current_total_inr: float
+    target_total_inr: float
+
+
 # ── Top-level response schemas ──────────────────────────────────────────
 
 
@@ -146,6 +184,25 @@ class RebalancingRunDetailResponse(BaseModel):
     subgroup_summaries: List[RebalancingSubgroupSummarySchema] = []
     trades: List[RebalancingTradeSchema] = []
     warnings: List[RebalancingWarningSchema] = []
+    # Populated by the run-detail router (read-time, not persisted): the
+    # multi-asset-aware Equity/Debt/Others split for the Current-vs-Target bars.
+    asset_class_breakdown: Optional[RebalancingAssetClassBreakdown] = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def summary(self) -> Optional[RebalancingSummarySchema]:
+        """Personalized headline derived from this run's totals + drift direction."""
+        result = build_rebalance_summary(
+            self.totals,
+            self.subgroup_summaries,
+            self.trades,
+            self.asset_class_breakdown,
+        )
+        if result is None:
+            return None
+        return RebalancingSummarySchema(
+            title=result.title, subtitle=result.subtitle, reason=result.reason
+        )
 
 
 # ── Request schemas ─────────────────────────────────────────────────────

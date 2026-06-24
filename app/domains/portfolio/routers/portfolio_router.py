@@ -29,8 +29,9 @@ from app.domains.ingestion.schemas.finvu import (
     FinvuPortfolioSyncRequest,
     FinvuPortfolioSyncResponse,
 )
-from app.domains.mutual_funds.services.scheme_classification import (
-    classify_holding,
+from app.domains.portfolio.services.allocation_rollup import (
+    current_asset_class_mix,
+    holding_single_asset_class,
 )
 from app.domains.portfolio.schemas.portfolio import (
     NetworthJobStatusResponse,
@@ -114,36 +115,16 @@ async def get_recommended_plan(
     )
 
 
-def _holding_asset_class(holding: PortfolioHolding) -> str:
-    """Canonical 3-bucket asset_class (``Equity`` / ``Debt`` / ``Others``) for one holding.
+def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingResponse:
+    """Serialize a holding with the canonical asset_class + SEBI sub_category.
 
-    THE single classification path for a holding — used both for the holdings
-    list (``_build_holding_response``) and the current-allocation donut
-    (``_derive_allocations``) so the two can never disagree.
-
-    Resolution order:
-      1. ``classify_holding(sub_category, name)`` — SEBI sub_category lookup
-         plus the ``arbitrage_plus_income`` name override.
-      2. Direct equity shortcut — non-MF holdings with ``instrument_type``
-         in {"equity", "stock", "share"} are equities by definition.
-      3. Catch-all → ``Others``. Anything we can't confidently place (no SEBI
-         sub_category, or an unrecognized one) goes to the Others bucket rather
-         than being name-guessed into a wrong Equity/Debt.
+    The holdings list shows each fund's dominant single asset_class (no
+    look-through split); the donut's split breakdown is derived separately in
+    ``_derive_allocations``. Both share ``allocation_rollup`` so they agree.
     """
     md = holding.fund_metadata
     sebi_sub = md.sub_category if md else None
-    asset_class, _ = classify_holding(sebi_sub, holding.instrument_name)
-    if asset_class is None:
-        itype = (holding.instrument_type or "").strip().lower()
-        asset_class = "Equity" if itype in ("equity", "stock", "share") else "Others"
-    return asset_class
-
-
-def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingResponse:
-    """Serialize a holding with the canonical asset_class + SEBI sub_category."""
-    md = holding.fund_metadata
-    sebi_sub = md.sub_category if md else None
-    asset_class = _holding_asset_class(holding)
+    asset_class = holding_single_asset_class(holding)
     base = PortfolioHoldingResponse.model_validate(holding)
     return base.model_copy(
         update={"asset_class": asset_class, "sub_category": sebi_sub}
@@ -170,10 +151,10 @@ def _derive_allocations(
     Non-holding assets — i.e. a SimBanks bank ``Cash`` balance — have no holding
     to sum, so any persisted ``Cash`` row is carried forward as-is.
     """
-    amounts: dict[str, float] = {}
-    for h in holdings:
-        ac = _holding_asset_class(h)
-        amounts[ac] = amounts.get(ac, 0.0) + float(h.current_value or 0)
+    # Blended funds (multi-asset / hybrid) are split across Equity/Debt/Others via
+    # the central look-through; everything else lands in its single class. Shared
+    # with chat's current-mix so the two can never disagree.
+    amounts: dict[str, float] = current_asset_class_mix(holdings)
     # Carry forward bank cash — the only persisted bucket with no holding behind it.
     for a in persisted:
         if (a.asset_class or "").strip().lower() == "cash":
