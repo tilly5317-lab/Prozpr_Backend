@@ -823,10 +823,14 @@ async def _backfill_user_profile(
 ) -> list[str]:
     """Fill empty identity fields on the user's row from the CAS investor block.
 
-    The CAS carries the investor's legal name, email, PAN and (a) postal address —
-    when the user signed up with only a phone number these are blank, so ``/profile``
-    and ``/auth/me`` come back empty. We back-fill **blanks only**: anything the
-    user has already entered is left untouched. Returns the list of fields filled.
+    The CAS carries the investor's email, PAN and (a) postal address — when the
+    user signed up with only a phone number these are blank, so ``/profile`` and
+    ``/auth/me`` come back empty. We back-fill **blanks only**: anything the user
+    has already entered is left untouched. Returns the list of fields filled.
+
+    The investor NAME is deliberately NOT taken from the CAS — the name the user
+    enters at sign-up is authoritative. (The CAS legal name is still recorded in
+    the ``mf_aa_imports`` audit row; it just never lands on the user profile.)
     """
     user = (
         await db.execute(select(User).where(User.id == user_id))
@@ -838,16 +842,7 @@ async def _backfill_user_profile(
     folios = parsed.get("folios") or []
     filled: list[str] = []
 
-    first, middle, last = _split_name(investor.get("name"))
-    if first and not _clean(user.first_name):
-        user.first_name = first
-        filled.append("first_name")
-    if middle and not _clean(user.middle_name):
-        user.middle_name = middle
-        filled.append("middle_name")
-    if last and not _clean(user.last_name):
-        user.last_name = last
-        filled.append("last_name")
+    # NOTE: the investor name is intentionally NOT back-filled from the CAS.
 
     address = _clean(investor.get("address"), limit=500)
     if address and not _clean(user.address):
@@ -882,6 +877,21 @@ async def _backfill_user_profile(
             "CAS ingest: back-filled user %s profile fields %s", user_id, filled
         )
     return filled
+
+
+def _total_market_value(parsed: dict[str, Any]) -> float:
+    """Sum the current market value across every scheme in the parsed CAS.
+
+    Mirrors the per-scheme valuation used by :func:`_populate_children` so we can
+    cheaply tell, before any DB writes, whether the statement has live holdings.
+    """
+    total = 0.0
+    for folio in parsed.get("folios") or []:
+        for scheme in folio.get("schemes") or []:
+            value = _num((scheme.get("valuation") or {}).get("value"))
+            if value > 0:
+                total += value
+    return total
 
 
 # --------------------------------------------------------------------------- entry point
@@ -954,6 +964,22 @@ async def ingest_cams_pdf(
     merge that only appends new (de-duplicated) transactions.
     """
     parsed = await asyncio.to_thread(_parse_cas_pdf, file_bytes, password)
+
+    # Reject statement variants we can't build a real portfolio from — BEFORE any
+    # DB writes, and before a replace_existing reset wipes the user's prior data:
+    #   * a Summary CAS has holdings but NO transaction history; and
+    #   * a statement with no current holdings (net value 0) has nothing invested.
+    if (_clean(parsed.get("cas_type")) or "").upper() == "SUMMARY":
+        raise CamsPdfParseError(
+            "This is a Summary CAMS / KFintech statement (holdings only, with no "
+            "transaction history). Please generate and upload the Detailed "
+            "Consolidated Account Statement instead."
+        )
+    if _total_market_value(parsed) <= 0:
+        raise CamsPdfParseError(
+            "This statement shows no current mutual-fund holdings (net value ₹0). "
+            "Please upload a statement that includes your active investments."
+        )
 
     if replace_existing:
         await reset_user_cams_data(db, user_id)

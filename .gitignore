@@ -124,3 +124,6 @@ issue_reports/
 =======
 >>>>>>> f742ab5e1e1f4322753613fa8ba48d23ee0abb82
 /app/core/tests
+/app/domains/rebalancing/services/tests
+/app/domains/rebalancing/services/rebal_engine/tests
+/app/domains/asset_allocation/services/aa_engine/tests

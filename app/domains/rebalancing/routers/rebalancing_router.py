@@ -18,16 +18,23 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
+from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
+from app.domains.portfolio.services.allocation_rollup import current_asset_class_mix
 from app.domains.rebalancing.models.rebalancing_run import (
     RebalancingRun,
     RebalancingRunStatus,
 )
 from app.domains.rebalancing.schemas import (
+    AssetClassBreakdownRow,
+    RebalancingAssetClassBreakdown,
     RebalancingReadinessField,
     RebalancingReadinessResponse,
     RebalancingRunDetailResponse,
     RebalancingRunListItem,
     RebalancingStatusUpdate,
+)
+from app.domains.rebalancing.services.asset_class_breakdown import (
+    target_asset_class_mix,
 )
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
@@ -117,6 +124,9 @@ async def get_run(
             selectinload(RebalancingRun.subgroup_summaries),
             selectinload(RebalancingRun.trades),
             selectinload(RebalancingRun.warnings),
+            selectinload(RebalancingRun.portfolio)
+            .selectinload(Portfolio.holdings)
+            .selectinload(PortfolioHolding.fund_metadata),
         )
     )
     run = (await db.execute(stmt)).scalar_one_or_none()
@@ -124,7 +134,41 @@ async def get_run(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
         )
-    return RebalancingRunDetailResponse.model_validate(run)
+    resp = RebalancingRunDetailResponse.model_validate(run)
+    resp.asset_class_breakdown = _build_asset_class_breakdown(run)
+    return resp
+
+
+# Canonical bar order for the Current-vs-Target view.
+_BREAKDOWN_ORDER: tuple[str, ...] = ("Equity", "Debt", "Others")
+
+
+def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBreakdown:
+    """Multi-asset-aware Equity/Debt/Others split for the Invest-page bars.
+
+    CURRENT comes from the portfolio holdings (the shared ``current_asset_class_mix``
+    used by the dashboard + chat). TARGET comes from the plan's per-subgroup totals,
+    with the engine's generic ``multi_asset`` sleeve split by the 65/25/10
+    composition the engine sized it as — matching the engine ideal shown in chat.
+    """
+    holdings = list(run.portfolio.holdings) if run.portfolio else []
+    current_mix = current_asset_class_mix(holdings)
+    target_mix = target_asset_class_mix(run.subgroup_summaries)
+
+    rows = [
+        AssetClassBreakdownRow(
+            asset_class=asset_class,
+            current_inr=round(current_mix.get(asset_class, 0.0), 2),
+            target_inr=round(target_mix.get(asset_class, 0.0), 2),
+        )
+        for asset_class in _BREAKDOWN_ORDER
+        if current_mix.get(asset_class, 0.0) > 0 or target_mix.get(asset_class, 0.0) > 0
+    ]
+    return RebalancingAssetClassBreakdown(
+        rows=rows,
+        current_total_inr=round(sum(current_mix.values()), 2),
+        target_total_inr=round(sum(target_mix.values()), 2),
+    )
 
 
 @router.put("/{run_id}/status", response_model=RebalancingRunListItem)
