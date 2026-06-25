@@ -24,6 +24,7 @@ from app.domains.ai_engine.common import (
 )
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
+from app.domains.portfolio.services.allocation_rollup import current_asset_class_mix
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
@@ -247,15 +248,20 @@ def build_fallback_brief(output: GoalAllocationOutput, spine_mode: str | None) -
 
 
 def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
-    """Sum the customer's PortfolioAllocation rows into a true current mix.
+    """Roll the customer's holdings into a true current Equity/Debt/Cash/Others mix.
 
     Source of truth for what the customer ACTUALLY holds today, distinct from
-    the asset_allocation engine's recommended deployment. ORM rows carry
-    asset_class ∈ {Equity, Debt, Cash, Other}; we surface all four (the engine
-    only models three, so `cash` is preserved as its own bucket here).
+    the asset_allocation engine's recommended deployment. The Equity/Debt/Others
+    buckets are derived LIVE from holdings via ``current_asset_class_mix`` (the
+    same shared rollup the dashboard donut uses, so the two agree) — which splits
+    blended multi-asset / hybrid funds across asset classes via the central
+    look-through. ``Cash`` (a bank balance, with no holding behind it) is carried
+    from the persisted allocation rows. When a portfolio has no holdings (legacy
+    / partial data), we fall back to the frozen ingest-time allocation rows so we
+    never show an empty current mix.
 
-    Returns None when no portfolio / no allocation rows are present so the
-    formatter can omit the "current mix" framing rather than show zeros.
+    Returns None when no portfolio / no holdings or allocation rows are present
+    so the formatter can omit the "current mix" framing rather than show zeros.
     """
     portfolios = list(getattr(user, "portfolios", []) or [])
     if not portfolios:
@@ -264,21 +270,31 @@ def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
         (p for p in portfolios if getattr(p, "is_primary", False)),
         portfolios[0],
     )
+    holdings = list(getattr(primary, "holdings", []) or [])
     allocations = list(getattr(primary, "allocations", []) or [])
-    if not allocations:
+    if not holdings and not allocations:
         return None
 
     totals = {"equity": 0.0, "debt": 0.0, "cash": 0.0, "others": 0.0}
-    name_map = {
-        "equity": "equity",
-        "debt": "debt",
-        "cash": "cash",
-        "other": "others",
-        "others": "others",
-    }
-    for a in allocations:
-        key = name_map.get((getattr(a, "asset_class", None) or "").strip().lower())
-        totals[key or "others"] += float(getattr(a, "amount", 0.0) or 0.0)
+    if holdings:
+        mix = current_asset_class_mix(holdings)
+        totals["equity"] += mix.get("Equity", 0.0)
+        totals["debt"] += mix.get("Debt", 0.0)
+        totals["others"] += mix.get("Others", 0.0)
+        for a in allocations:
+            if (getattr(a, "asset_class", None) or "").strip().lower() == "cash":
+                totals["cash"] += float(getattr(a, "amount", 0.0) or 0.0)
+    else:
+        name_map = {
+            "equity": "equity",
+            "debt": "debt",
+            "cash": "cash",
+            "other": "others",
+            "others": "others",
+        }
+        for a in allocations:
+            key = name_map.get((getattr(a, "asset_class", None) or "").strip().lower())
+            totals[key or "others"] += float(getattr(a, "amount", 0.0) or 0.0)
 
     grand = sum(totals.values())
     if grand <= 0:
@@ -562,6 +578,31 @@ async def compute_allocation_result(
                 "asset allocation persist failed; continuing without run id"
             )
 
+    # Display the holdings-aware (PRACTICAL) allocation so the chat answer — and
+    # the follow-up modes that rehydrate this snapshot — match the Invest /
+    # rebalancing view. The IDEAL ``output`` above is still what we persist to
+    # ``asset_allocation_runs`` (the base the rebalancing flow reuses), so
+    # rebalancing never rebalances a practical-of-practical base. PracticalAllocation
+    # Output is a superset of GoalAllocationOutput, so it flows through the facts
+    # pack / formatter unchanged; we drop its extra ``corpus_breakdown`` when
+    # snapshotting so the rehydrate (``GoalAllocationOutput.model_validate``) stays
+    # valid. If the practical engine is unavailable, we fall back to showing ideal.
+    display_output: Any = output
+    try:
+        from app.domains.practical_asset_allocation.services.paa_engine.service import (
+            compute_practical_allocation_result,
+        )
+
+        practical_outcome = await compute_practical_allocation_result(
+            user, user_question, chat_ctx=chat_ctx
+        )
+        if practical_outcome.result is not None:
+            display_output = practical_outcome.result
+        else:
+            trace_line("practical allocation unavailable for display; showing ideal")
+    except Exception:
+        logger.exception("practical allocation for display failed; showing ideal")
+
     # Persist AgentRun row for follow-up reasoning. Does not replace
     # allocation_recommendation_persist; this captures structured I/O for chat.
     if db is not None and acting_user_id is not None and output is not None:
@@ -576,7 +617,9 @@ async def compute_allocation_result(
                 spine_mode=spine_mode,
                 input_payload=alloc_input.model_dump(mode="json"),
                 output_payload={
-                    "allocation_result": output.model_dump(mode="json"),
+                    "allocation_result": display_output.model_dump(
+                        mode="json", exclude={"corpus_breakdown"}
+                    ),
                     "correlation_ids": {
                         "snapshot_id": str(snap_id) if snap_id else None,
                         "rebalancing_recommendation_id": str(reb_id)
@@ -590,7 +633,7 @@ async def compute_allocation_result(
             logger.warning("AgentRun persistence skipped (non-fatal): %s", exc)
 
     return AllocationRunOutcome(
-        result=output,
+        result=display_output,
         blocking_message=None,
         asset_allocation_run_id=aa_run_id,
         rebalancing_recommendation_id=reb_id,

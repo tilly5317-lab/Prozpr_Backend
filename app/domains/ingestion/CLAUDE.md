@@ -13,7 +13,8 @@
 - `casparser` is a heavy optional dependency, imported LAZILY inside the parse function so the app boots without it installed (`services/cams_cas_ingest.py`, `_parse_cas_pdf`).
 - CAMS ingest writes across THREE areas: raw audit (`mf_aa_imports`/summaries/transactions), normalized `mf_transactions`, and bucketed `portfolio_allocations` (Cash/Debt/Equity/Other) (`services/cams_cas_ingest.py`).
 - A transaction-type allow-list (`_TXN_TYPE_FLAG`) silently SKIPS non-holding-flow rows — DIVIDEND_PAYOUT, STAMP_DUTY_TAX, STT_TAX, TDS_TAX, etc. — so only unit-moving txns become `mf_transactions` (`services/cams_cas_ingest.py`).
-- CAS profile/identity back-fill FILLS BLANKS ONLY (name, email, PAN, address); anything the user already set is never overwritten, and unique email/PAN are skipped on clash (`services/cams_cas_ingest.py`, `_backfill_user_profile`).
+- CAS profile/identity back-fill FILLS BLANKS ONLY — email, PAN, address; **the investor name is NOT taken from the CAS** (the sign-up name is authoritative; the legal name is still kept in the `mf_aa_imports` audit row). Anything the user already set is never overwritten, and unique email/PAN are skipped on clash (`services/cams_cas_ingest.py`, `_backfill_user_profile`).
+- `ingest_cams_pdf` REJECTS, before any DB write (and before a `replace_existing` reset wipes prior data), two statement variants — raising `CamsPdfParseError` → HTTP 422: a **Summary CAS** (`cas_type == "SUMMARY"`, holdings only / no txn history) and a statement with **no current holdings** (`_total_market_value(parsed) <= 0`) (`services/cams_cas_ingest.py`).
 - Finvu is DEPRECATED (account-aggregator licensing), superseded by CAMS CAS upload; retained for reference, off all active paths (`services/finvu_portfolio_sync.py`).
 
 ## Don't read

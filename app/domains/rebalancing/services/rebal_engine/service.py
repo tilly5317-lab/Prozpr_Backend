@@ -30,7 +30,6 @@ from app.domains.asset_allocation.services.aa_engine.service import (
     compute_allocation_result,
 )
 from app.domains.ai_engine.common import (
-    asset_class_for_subgroup,
     ensure_ai_agents_path,
     format_inr_indian,
     trace_line,
@@ -176,6 +175,35 @@ def build_goal_buckets_block(
             }
         )
     return out
+
+
+def _asset_class_mix_from_buckets(buckets: list[dict[str, Any]]) -> dict[str, float]:
+    """Lowercase Equity/Debt/Others ₹ mix from fact-pack buckets.
+
+    Splits blended multi-asset / hybrid funds across asset classes via the central
+    look-through (keyed on each bucket's ``sub_category``), falling back to the
+    subgroup's nominal class — same methodology as the dashboard donut and chat
+    current-mix. Built in canonical title-case, then mapped to this builder's
+    long-standing lowercase contract for chat facts.
+    """
+    from app.domains.mutual_funds.services.scheme_classification import (
+        add_to_asset_class_mix,
+        asset_class_for_subgroup as canonical_class_for_subgroup,
+    )
+
+    title_mix: dict[str, float] = {}
+    for bucket in buckets:
+        add_to_asset_class_mix(
+            title_mix,
+            amount=float(bucket.get("current_inr", 0.0) or 0.0),
+            sub_category=bucket.get("sub_category"),
+            fallback_asset_class=canonical_class_for_subgroup(bucket.get("asset_subgroup")),
+        )
+    return {
+        "equity": title_mix.get("Equity", 0.0),
+        "debt": title_mix.get("Debt", 0.0),
+        "others": title_mix.get("Others", 0.0),
+    }
 
 
 def build_rebal_facts_pack(
@@ -348,11 +376,9 @@ def build_rebal_facts_pack(
         bucket["planned_final_indian"] = format_inr_indian(bucket["planned_final_inr"])
         buckets.append(bucket)
 
-    # High-level asset-class mix — group buckets by asset_subgroup → asset_class.
-    asset_class_inr: dict[str, float] = {"equity": 0.0, "debt": 0.0, "others": 0.0}
-    for b in buckets:
-        cls = asset_class_for_subgroup(b.get("asset_subgroup"))
-        asset_class_inr[cls] = asset_class_inr.get(cls, 0.0) + b["current_inr"]
+    # High-level asset-class mix — split blended multi-asset / hybrid funds across
+    # Equity/Debt/Others via the central look-through (see _asset_class_mix_from_buckets).
+    asset_class_inr = _asset_class_mix_from_buckets(buckets)
     asset_class_total = sum(asset_class_inr.values()) or 0.0
     asset_class_pct = {
         cls: (round(amt / asset_class_total * 100) if asset_class_total > 0 else 0)
