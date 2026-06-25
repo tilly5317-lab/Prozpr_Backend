@@ -25,10 +25,13 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     if inp.cadence is Cadence.SIP_MONTHLY:
         # deploy_amount_inr is the MONTHLY amount; per-fund amounts are monthly.
         buys = [b.model_copy(update={"monthly_amount_inr": b.amount_inr}) for b in buys]
+    deployed = sum(b.amount_inr for b in buys)
     return AdditionalInvestmentOutput(
         branch_used=branch,
         cadence=inp.cadence,
         deploy_amount_inr=inp.deploy_amount_inr,
+        deployed_inr=deployed,
+        undeployed_inr=inp.deploy_amount_inr - deployed,
         per_subgroup_target=targets,
         buys=buys,
     )
