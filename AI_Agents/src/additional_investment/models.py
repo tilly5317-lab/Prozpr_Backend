@@ -81,5 +81,7 @@ class AdditionalInvestmentOutput(BaseModel):
     branch_used: BranchUsed
     cadence: Cadence
     deploy_amount_inr: float
+    deployed_inr: float    # sum of buy amounts actually placed
+    undeployed_inr: float  # deploy_amount_inr - deployed_inr (>0 when caps/fund-scarcity bind)
     per_subgroup_target: list[SubgroupTarget]
     buys: list[FundBuy]
