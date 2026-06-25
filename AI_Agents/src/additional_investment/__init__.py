@@ -9,3 +9,4 @@ from additional_investment.models import (  # noqa: F401
     FundBuy,
     AdditionalInvestmentOutput,
 )
+from additional_investment.pipeline import run_additional_investment  # noqa: F401
