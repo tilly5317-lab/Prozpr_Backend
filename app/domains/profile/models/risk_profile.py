@@ -56,6 +56,8 @@ class RiskProfile(Base):
     investment_experience: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
     )
+    # Behavioural "investment focus" answer (capital-preservation … maximise-growth).
+    investment_focus: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     investment_horizon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     drop_reaction: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     max_drawdown: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)

@@ -265,6 +265,15 @@ async def apply_postgres_schema_patches() -> None:
                 "ADD COLUMN IF NOT EXISTS mortgage_balance NUMERIC(18,2)"
             )
         )
+        # ORM/column drift: RiskProfile.investment_focus — the second behavioural
+        # question (investment focus / risk appetite) collected on profile/complete,
+        # which previously had no column and was silently dropped.
+        await conn.execute(
+            text(
+                "ALTER TABLE risk_profiles "
+                "ADD COLUMN IF NOT EXISTS investment_focus VARCHAR(100)"
+            )
+        )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]

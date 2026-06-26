@@ -13,6 +13,7 @@ class RiskProfileUpdate(BaseModel):
     occupation_type: Optional[str] = None
     risk_capacity: Optional[str] = None
     investment_experience: Optional[str] = None
+    investment_focus: Optional[str] = None
     investment_horizon: Optional[str] = None
     drop_reaction: Optional[str] = None
     max_drawdown: Optional[float] = None
@@ -28,6 +29,7 @@ class RiskProfileResponse(BaseModel):
     occupation_type: Optional[str] = None
     risk_capacity: Optional[str] = None
     investment_experience: Optional[str] = None
+    investment_focus: Optional[str] = None
     investment_horizon: Optional[str] = None
     drop_reaction: Optional[str] = None
     max_drawdown: Optional[float] = None
