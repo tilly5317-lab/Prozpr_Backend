@@ -271,9 +271,16 @@ async def apply_postgres_schema_patches() -> None:
         await conn.execute(
             text(
                 "ALTER TABLE risk_profiles "
-                "ADD COLUMN IF NOT EXISTS investment_focus VARCHAR(100)"
+                "ADD COLUMN IF NOT EXISTS investment_focus TEXT"
             )
         )
+        # The behavioural-question answers store the full option sentence (often
+        # >100 chars), so widen the original VARCHAR(100) columns to TEXT to avoid
+        # "value too long for type character varying(100)" on save.
+        for _col in ("investment_experience", "investment_focus", "drop_reaction"):
+            await conn.execute(
+                text(f"ALTER TABLE risk_profiles ALTER COLUMN {_col} TYPE TEXT")
+            )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]
