@@ -131,7 +131,7 @@ Example questions:
 
 Key distinction from portfolio_query: general_market_query is about **the market in general**, not the customer's own holdings.
 
-Key distinction from asset_allocation: `asset_allocation` requires a **personal hook** — the customer's portfolio, their money, their SIP, their situation ("should I add midcap to my portfolio", "I have ₹5L, where to invest"). Generic timing/valuation questions with no personal hook ("is it a good time to invest in midcap") are market-commentary questions and belong here.
+Key distinction from asset_allocation: `asset_allocation` requires a **personal hook** — the customer's portfolio, their money, their SIP, their situation ("should I add midcap to my portfolio", "is my equity/debt mix right for me"). Generic timing/valuation questions with no personal hook ("is it a good time to invest in midcap") are market-commentary questions and belong here.
 
 ---
 
