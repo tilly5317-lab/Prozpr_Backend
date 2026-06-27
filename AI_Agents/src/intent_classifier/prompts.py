@@ -23,7 +23,7 @@ Example questions:
 - "How is my portfolio looking? Is it aligned with the goals?" (compound: descriptive opener + alignment ask; alignment is the substantive part → asset_allocation)
 - "Is my current allocation right for my retirement plan?"
 
-**Goal-mention does not flip intent.** A question that mentions a goal as context but whose primary ask is "where should I invest" or "is my portfolio aligned" stays in `asset_allocation`. Examples:
+**A goal mention is context, not the intent.** Look at the primary ask: a policy/mix or alignment question ("should I add midcap", "is my portfolio aligned") stays in `asset_allocation`; a "where do I invest this amount" or fund-deployment ask is `additional_investment` even when a goal is mentioned. Examples:
 - "I have ₹50k/month and want ₹10 crore in 15 years — where should I invest?" → `additional_investment` (a stated amount to deploy; goal is context, no feasibility ask)
 - "Should I add midcap to my portfolio for my retirement goal?" → `asset_allocation`
 - "Is my portfolio aligned with my goals?" → `asset_allocation` (alignment ask = comparing actual vs. ideal; this is what AA does)
@@ -185,7 +185,7 @@ Example questions:
 - "Which large-cap fund should I invest in?"
 - "Which mutual fund is best for me?"
 
-Key distinction from `asset_allocation`: asset_allocation answers the **target mix** as a policy question ("what should my equity/debt split be?", "is my allocation right?", "should I add midcap?") — it does NOT name funds and does NOT require a specific new amount. additional_investment answers **"deploy THIS money / which funds"** — it always involves new money to put to work and/or specific fund names. If the customer states an amount to invest, or asks which fund to buy, it is additional_investment.
+Key distinction from `asset_allocation`: asset_allocation answers the **target mix** as a policy question ("what should my equity/debt split be?", "is my allocation right?", "should I add midcap?") — it does NOT name funds and does NOT require a specific new amount. additional_investment answers **"deploy THIS money / which funds"** — it involves new money to deploy, specific fund selection, or both. If the customer states an amount to invest, or asks which fund to buy, it is additional_investment.
 
 Key distinction from `rebalancing`: rebalancing **moves existing money** to fix drift — it buys AND sells, with tax-aware sequencing ("rebalance my portfolio", "switch from Axis to Mirae", "I'm overweight small caps"). additional_investment only **adds new money** (BUY-only); it never sells. A fund-to-fund **swap** of existing holdings is rebalancing; picking a fund for **new** money is additional_investment.
 
