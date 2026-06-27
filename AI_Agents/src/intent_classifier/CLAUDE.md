@@ -1,6 +1,6 @@
-# AI_Agents/src/intent_classifier/ — classify a customer question into one of seven intents
+# AI_Agents/src/intent_classifier/ — classify a customer question into one of eight intents
 
-Classifies into `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `rebalancing`, or `out_of_scope`. For redirect-eligible intents also returns a canned customer-facing message. Returns a label only — downstream routing happens outside `src/`.
+Classifies into `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `rebalancing`, `additional_investment`, or `out_of_scope`. For redirect-eligible intents also returns a canned customer-facing message. Returns a label only — downstream routing happens outside `src/`.
 
 ## Entry / contract
 - `classifier.py` exposes `IntentClassifier.classify(input)` → `ClassificationResult`; builds the LangChain + Claude Haiku pipeline (structured output + prompt caching).
