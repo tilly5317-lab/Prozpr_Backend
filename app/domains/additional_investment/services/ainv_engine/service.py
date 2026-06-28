@@ -1,0 +1,164 @@
+"""Additional-investment orchestrator.
+
+Mirrors ``rebal_engine.service.compute_rebalancing_result``: primes the
+practical (holdings-aware) allocation, materialises the engine input, runs the
+pure additional-investment engine on a worker thread, and builds the chat facts
+pack. Persistence is gated behind ``persist`` (left OFF in Plan 3a; Plan 3b
+flips the default and wires ``persist_additional_investment_recommendation``).
+
+The additional-investment engine follows the *allocation* I/O family — money is
+plain ``float`` and the wrappers are ``AdditionalInvestmentInput`` /
+``AdditionalInvestmentOutput`` (NOT Rebalancing's ``Decimal`` +
+``ComputeRequest``/``Response``) — there is no tax-lot arithmetic here.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.domains.ai_engine.turn_context import TurnContext
+
+from app.domains.ai_engine.common import ensure_ai_agents_path, trace_line
+from app.domains.additional_investment.services.ainv_engine.input_builder import (
+    build_additional_investment_input_for_user,
+)
+from app.domains.practical_asset_allocation.services.paa_engine.service import (
+    compute_practical_allocation_result,
+)
+
+ensure_ai_agents_path()
+
+from additional_investment.models import (  # type: ignore[import-not-found]  # noqa: E402
+    AdditionalInvestmentOutput,
+    Cadence,
+)
+from additional_investment.pipeline import (  # type: ignore[import-not-found]  # noqa: E402
+    run_additional_investment,
+)
+
+
+_MSG_ENGINE_ERROR = (
+    "I couldn't work out where to invest your money right now. Try again in a "
+    "moment, and if it keeps happening let us know via the help option."
+)
+
+
+@dataclass(frozen=True)
+class AdditionalInvestmentRunOutcome:
+    """Immutable outcome of one additional-investment orchestration run.
+
+    On the happy path ``output`` + ``facts_pack`` are set and
+    ``blocking_message`` is None. When the input builder refuses (incomplete
+    profile) or a pre-check fails, ``output`` and ``facts_pack`` are None and
+    ``blocking_message`` carries the customer-facing gate text — the chat
+    handler relays it via ``format_relay_or_canned`` instead of formatting a
+    BUY list (so the orchestrator never raises on a gate).
+
+    ``run_id`` is None whenever ``persist=False`` (the only mode in Plan 3a);
+    Plan 3b flips ``persist`` and fills it with the persisted run's id.
+    ``used_cached_allocation`` is always False today — the practical-allocation
+    service recomputes fresh each call (no cache layer yet); the field exists
+    for parity with ``RebalancingRunOutcome`` and future caching.
+    """
+
+    output: "AdditionalInvestmentOutput | None"
+    facts_pack: dict | None
+    run_id: "uuid.UUID | None" = None
+    used_cached_allocation: bool = False
+    blocking_message: str | None = None
+
+
+async def compute_additional_investment_result(
+    user,
+    user_question: str,
+    *,
+    db: AsyncSession,
+    acting_user_id: uuid.UUID,
+    chat_session_id: Optional[uuid.UUID],
+    deploy_amount_inr: float,
+    cadence: Cadence,
+    chat_ctx: "TurnContext",
+    persist: bool = False,
+) -> AdditionalInvestmentRunOutcome:
+    """Prime allocation → build input → run engine → build facts pack.
+
+    Mirrors ``compute_rebalancing_result``: the practical allocation is primed
+    first (its ``aggregated_subgroups`` feed the per-subgroup deploy split; the
+    per-fund caps key off the deploy amount, so no corpus total is read), the
+    engine input is materialised from that allocation (holding-agnostic — no
+    holdings fetch), the pure engine runs on a worker thread, and the chat facts
+    pack is built.
+
+    Persistence is gated behind ``persist`` (False in Plan 3a; Plan 3b flips the
+    default and calls ``persist_additional_investment_recommendation``).
+    """
+    trace_line("module: additional_investment — start")
+
+    paa_outcome = await compute_practical_allocation_result(
+        user,
+        user_question,
+        chat_ctx=chat_ctx,
+    )
+    if paa_outcome.result is None:
+        # Pre-check failed (practical allocation could not be produced /
+        # incomplete profile): return a blocking outcome the chat handler relays
+        # via format_relay_or_canned — never an engine BUY list, never a raise.
+        return AdditionalInvestmentRunOutcome(
+            output=None,
+            facts_pack=None,
+            blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
+        )
+
+    inp, debug = await build_additional_investment_input_for_user(
+        chat_ctx,
+        paa_outcome.result,
+        deploy_amount_inr=deploy_amount_inr,
+        cadence=cadence,
+    )
+    trace_line(f"additional_investment input debug: {debug}")
+
+    response: AdditionalInvestmentOutput = await asyncio.to_thread(
+        run_additional_investment,
+        inp,
+    )
+
+    # ``build_ainv_facts_pack`` lives in chat.py; import it lazily so loading the
+    # orchestrator never eager-imports chat (chat.handle imports this function —
+    # eager import would be a circular dependency via chat_core.turn_context).
+    from app.domains.additional_investment.services.ainv_engine.chat import (
+        build_ainv_facts_pack,
+    )
+
+    facts_pack = build_ainv_facts_pack(response)
+
+    run_id: Optional[uuid.UUID] = None
+    if persist:
+        # Plan 3a leaves this OFF (persist defaults False). Plan 3b flips the
+        # default, implements the persist service, and wires the real
+        # source_allocation_run_id (FK -> practical_asset_allocation_runs).
+        from app.domains.additional_investment.services.additional_investment_persist_service import (
+            persist_additional_investment_recommendation,
+        )
+
+        run_id = await persist_additional_investment_recommendation(
+            db,
+            acting_user_id,
+            response,
+            source_allocation_run_id=None,
+            chat_session_id=chat_session_id,
+            used_cached_allocation=False,
+            user_question=user_question,
+        )
+
+    return AdditionalInvestmentRunOutcome(
+        output=response,
+        facts_pack=facts_pack,
+        run_id=run_id,
+        used_cached_allocation=False,
+    )
