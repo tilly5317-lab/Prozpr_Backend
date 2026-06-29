@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.domains.ai_engine.services.flow import FLOWS, flow_additional_investment
-from app.domains.ai_engine.types import AIModule, ModuleOutput
+from app.domains.ai_engine.types import ModuleOutput
 
 _PAA_MODULE = (
     "app.domains.practical_asset_allocation.services."
@@ -33,14 +33,16 @@ class AdditionalInvestmentFlowTests(unittest.IsolatedAsyncioTestCase):
     def test_flows_row_points_at_flow_additional_investment(self):
         self.assertIs(FLOWS["additional_investment"], flow_additional_investment)
 
-    async def test_flow_runs_paa_then_additional_investment(self):
+    async def test_flow_calls_additional_investment_directly(self):
+        """The additional_investment orchestrator self-primes PAA, so the flow
+        calls the domain directly with an empty prior — it does NOT pre-run PAA
+        (which would compute the practical allocation twice per turn)."""
         turn = MagicMock(name="turn")
         ctx = MagicMock(name="ctx")
 
-        paa_output = ModuleOutput(payload="PAA_TARGET")
         ainv_output = ModuleOutput(text="Buy fund X with your fresh deploy amount.")
 
-        paa_run = AsyncMock(return_value=paa_output)
+        paa_run = AsyncMock()
         ainv_run = AsyncMock(return_value=ainv_output)
 
         fake_paa_mod = types.ModuleType(_PAA_MODULE)
@@ -56,13 +58,9 @@ class AdditionalInvestmentFlowTests(unittest.IsolatedAsyncioTestCase):
 
         # additional_investment owns the reply — returned unchanged.
         self.assertIs(result, ainv_output)
-        # PAA ran first with an empty prior dict.
-        paa_run.assert_awaited_once_with(turn, ctx, {})
-        # The allocation was passed forward into the asset-allocation slot
-        # (PAA is run once; not recomputed by the additional_investment domain).
-        ainv_run.assert_awaited_once_with(
-            turn, ctx, {AIModule.ASSET_ALLOCATION.value: paa_output}
-        )
+        # Called directly with an empty prior; PAA is NOT pre-run by the flow.
+        ainv_run.assert_awaited_once_with(turn, ctx, {})
+        paa_run.assert_not_awaited()
 
 
 if __name__ == "__main__":

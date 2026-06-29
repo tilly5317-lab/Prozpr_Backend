@@ -19,3 +19,4 @@ Deterministic Python scoring (risk capacity, OSI, savings-rate adjustment, clamp
 ## Don't read
 - `__pycache__/`.
 - `customer_test_output.json` / `.csv` — captured run artifacts, not schemas.
+- `Testing/` — pytest suite.

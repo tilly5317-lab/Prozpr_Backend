@@ -38,6 +38,8 @@ classifier_llm.py shared Haiku structured-output helper
 chat_dispatcher.py per-intent chat-handler registry + dispatch
 answer_formatter/ shared question-aware answer formatter
 visualizations/   chart-payload builders + registry
+persona.py        re-export of AI_Agents/src/persona.py (shared persona builder)
+schemas/          per-module Pydantic chat schemas
 ```
 
 ## Where the per-intent work lives (owning domains)

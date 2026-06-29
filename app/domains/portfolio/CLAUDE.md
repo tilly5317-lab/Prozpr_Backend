@@ -16,4 +16,4 @@
 
 ## Don't read
 
-- `__pycache__/`.
+- `__pycache__/`, `tests/`.

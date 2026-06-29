@@ -212,9 +212,11 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
       recommended_fund — the customer-facing scheme name (e.g. "HDFC Top 100").
                     Cite this VERBATIM; naming the funds is the point of the reply.
       sub_category  — SEBI category for context (e.g. "Large Cap Fund").
-      amount_inr / amount_indian — the one-time amount to put into this fund.
-      monthly_amount_inr / monthly_amount_indian — the per-month amount when
-                    cadence is sip_monthly (null for lumpsum).
+      amount_inr / amount_indian — the one-time amount to put into this fund
+                    (LUMPSUM only; null for a SIP).
+      monthly_amount_inr / monthly_amount_indian — the per-month amount to put
+                    into this fund (SIP only; null for a lumpsum). Exactly ONE of
+                    these two pairs is set per buy — cite that one.
 
 ACTION_MODE tells you the situation. ACTION_MODE is `compute` here — it is set
 by the system on a fresh first-turn recommendation (it is not produced by a
@@ -283,16 +285,21 @@ def build_ainv_facts_pack(output: AdditionalInvestmentOutput) -> dict[str, Any]:
 
     buys: list[dict[str, Any]] = []
     for b in output.buys:
-        amount_inr = float(b.amount_inr)
         monthly_inr = (
             float(b.monthly_amount_inr) if b.monthly_amount_inr is not None else None
         )
+        # Exactly one figure is meaningful per buy: a SIP buy carries only the
+        # per-month amount (amount_inr == monthly here, so don't double-surface it),
+        # a lumpsum buy carries only the one-time amount.
+        amount_inr = None if monthly_inr is not None else float(b.amount_inr)
         buys.append(
             {
                 "recommended_fund": b.recommended_fund,
                 "sub_category": b.sub_category,
                 "amount_inr": amount_inr,
-                "amount_indian": format_inr_indian(amount_inr),
+                "amount_indian": (
+                    format_inr_indian(amount_inr) if amount_inr is not None else None
+                ),
                 "monthly_amount_inr": monthly_inr,
                 "monthly_amount_indian": (
                     format_inr_indian(monthly_inr) if monthly_inr is not None else None
@@ -363,25 +370,24 @@ def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput) -> str:
     out.append("")
 
     if is_sip:
-        out.append("| Buy into | Monthly | One-time |")
-        out.append("| --- | ---: | ---: |")
+        out.append("| Buy into | Monthly |")
+        out.append("| --- | ---: |")
     else:
         out.append("| Buy into | Amount |")
         out.append("| --- | ---: |")
 
     for b in sorted(output.buys, key=lambda x: -float(x.amount_inr)):
-        amount_indian = format_inr_indian(float(b.amount_inr))
         if is_sip:
             monthly_indian = (
                 format_inr_indian(float(b.monthly_amount_inr))
                 if b.monthly_amount_inr is not None
                 else "—"
             )
-            out.append(
-                f"| {b.recommended_fund} | {monthly_indian} | {amount_indian} |"
-            )
+            out.append(f"| {b.recommended_fund} | {monthly_indian} |")
         else:
-            out.append(f"| {b.recommended_fund} | {amount_indian} |")
+            out.append(
+                f"| {b.recommended_fund} | {format_inr_indian(float(b.amount_inr))} |"
+            )
     out.append("")
 
     if note is not None:
@@ -432,12 +438,13 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     amount short-circuits to a clarify reply (amount + lumpsum/SIP). When the
     orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
     profile) the handler relays that gate text via ``format_relay_or_canned``
-    rather than formatting a BUY list. ChatHandlerResult has no ainv-specific id
-    field, so only ``text`` is set; persistence/telemetry of the run is handled
-    inside the orchestrator (Task 3a-T4) and the persist service (Task 3b).
+    rather than formatting a BUY list. On the success path the persisted run id
+    (set by the orchestrator when persist=True) is surfaced on
+    ``ChatHandlerResult.additional_investment_run_id`` for the HTTP layer; the
+    persistence itself is owned by the orchestrator and the persist service.
     """
     amount, cadence = await extract_deploy_request(ctx.user_question)
-    if amount is None:
+    if amount is None or amount <= 0:
         text = await format_relay_or_canned(
             ctx=ctx,
             module_name="additional_investment",
@@ -454,6 +461,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         deploy_amount_inr=amount,
         cadence=cadence,
         chat_ctx=ctx,
+        persist=True,  # Plan 3b: persist the recommendation row
     )
     if outcome.blocking_message:
         text = await format_relay_or_canned(
@@ -464,4 +472,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         return ChatHandlerResult(text=text)
 
     text = await _format_or_fallback_ainv(ctx, outcome.output)
-    return ChatHandlerResult(text=text)
+    return ChatHandlerResult(
+        text=text,
+        additional_investment_run_id=outcome.run_id,
+    )
