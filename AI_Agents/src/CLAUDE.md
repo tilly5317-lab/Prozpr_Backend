@@ -4,7 +4,9 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 
 ## Files at this level
 
-- `common.py` — cross-agent utilities; standard-library only, must not import any peer agent. Public exports: `format_inr_indian`, `read_text_bom_aware`, `RISK_CATEGORIES`, `category_for_effective_risk_score`. The `app/` layer re-imports `format_inr_indian` + `RISK_CATEGORIES` + `category_for_effective_risk_score` with NO parallel copy — edit here, app follows (`app/domains/ai_engine/common.py`, `app/domains/profile/models/risk_profile.py`).
+- `common.py` — cross-agent utilities; standard-library only, must not import any peer agent. The `app/` layer re-imports its helpers with NO parallel copy — edit here, app follows (`app/domains/ai_engine/common.py`, `app/domains/profile/models/risk_profile.py`).
+- `persona.py` — single source of truth for Ask PI's customer-facing voice, re-exported via `app/domains/ai_engine/persona.py` (edit here, app follows); build a surface's prompt with `build_system_prompt(...)`.
+- `reasoned_reply.py` — shared reasoned-reply helper for free-text surfaces: the thinking field is declared FIRST (load-bearing), discarded, never returned to the customer.
 
 ## Child modules
 
@@ -16,7 +18,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **market_commentary/** — scrapes Indian macro indicators, extracts a structured `MacroSnapshot` via Claude, then writes a markdown commentary doc to `Reference_docs/`. Entry: `main.py`.
 - **portfolio_query/** — answers client questions about their own portfolio from market commentary + client profile + holdings, with in/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **practical_asset_allocation/** — holdings-aware allocation. Wraps `asset_allocation_pydantic` with four extra corpus inputs; reimplements long-term with ELSS freeze, non-MF-equity NFA-banded cap, and v2 equity-subgroup slider. Entry: `pipeline.py`. See `practical_asset_allocation/CLAUDE.md`.
-- **additional_investment/** — pure-Python engine that deploys fresh money (lumpsum/SIP) into specific funds (BUY-only, holdings-aware); consumes the practical allocation's per-bucket subgroups + goal-funding status, emits a per-fund BUY list. Entry: `pipeline.py`. See `additional_investment/CLAUDE.md`.
+- **additional_investment/** — pure-Python engine that deploys fresh money (lumpsum/SIP) into specific funds (BUY-only, holding-agnostic — recommends from the ranking, ignores current holdings); consumes the practical allocation's per-bucket subgroups + goal-funding status, emits a per-fund BUY list. Entry: `pipeline.py`. See `additional_investment/CLAUDE.md`.
 - **risk_profiling/** — deterministic scoring of a client's risk profile (inputs → scores/flags) + an LLM-generated summary paragraph. Entry: `main.py`.
 - **chat_eval/** — (gitignored; dev-only) eval harness: replays a YAML question set through the chat pipeline, emits JSON/HTML reports. Entry: `run_eval.py`.
 
@@ -26,11 +28,10 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 
 - `intent_classifier/` names the `portfolio_query` intent in its prompt but does not import other `src/` modules — it returns a string label; downstream routing is handled outside `src/`.
 - `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (written by `market_commentary/`) but does not import the `market_commentary` module — the file is the contract.
-- `asset_allocation_pydantic/`'s `AllocationInput` carries fields produced by `risk_profiling/` (`effective_risk_score`, `osi`, `savings_rate_adjustment`) but does not import `risk_profiling/` — the caller wires them in.
-- `asset_allocation_pydantic/` `AllocationInput` carries a `market_commentary` score block populated from `market_commentary/`.
-- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` (steps 1-3, step5, selected step4 helpers, utils, models) — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1. Documented on both sides.
+- `asset_allocation_pydantic/`'s `AllocationInput` carries fields from `risk_profiling/` and a `market_commentary` score block from `market_commentary/`, but imports neither — the caller wires them in.
+- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1. Documented on both sides.
 - `Rebalancing/` imports `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec); `pipeline.run_rebalancing` calls it first and surfaces its output on `RebalancingComputeResponse.practical_allocation`.
-- `additional_investment/` is a pure engine that imports no peer agent — its `AdditionalInvestmentInput` carries data the app-layer adapter lifts from `practical_asset_allocation/` (per-bucket subgroups), `cashflow_statement/` (goal funding → `medium_term_fulfilled`), and the fund-ranking CSV; the models are the contract.
+- `additional_investment/` is a pure engine that imports no peer agent — its `AdditionalInvestmentInput` is the contract; the app-layer adapter lifts that data from `practical_asset_allocation/`, `cashflow_statement/`, and the fund-ranking CSV.
 - All other modules are independent of each other at the Python-import level.
 
 ## Conventions

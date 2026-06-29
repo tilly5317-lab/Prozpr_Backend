@@ -1,12 +1,25 @@
-from additional_investment.models import (  # noqa: F401
+"""Public facade for the additional-investment engine: the run entry point + its pydantic I/O models."""
+
+from .models import (
     Cadence,
-    BranchUsed,
+    TargetBucket,
     SubgroupBucketAmounts,
     RankedFund,
-    Holding,
     AdditionalInvestmentInput,
     SubgroupTarget,
     FundBuy,
     AdditionalInvestmentOutput,
 )
-from additional_investment.pipeline import run_additional_investment  # noqa: F401
+from .pipeline import run_additional_investment
+
+__all__ = [
+    "run_additional_investment",
+    "AdditionalInvestmentInput",
+    "AdditionalInvestmentOutput",
+    "SubgroupBucketAmounts",
+    "RankedFund",
+    "SubgroupTarget",
+    "FundBuy",
+    "Cadence",
+    "TargetBucket",
+]

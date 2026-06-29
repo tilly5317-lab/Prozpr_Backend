@@ -4,12 +4,12 @@ additional-investment engine.
 Per the AI-module rule, nothing else in the codebase imports the
 additional-investment engine — they call ``run(turn, ctx, prior)`` here.
 
-Sequence position: the brain runs this AFTER ``practical_asset_allocation`` for
-the "additional_investment" intent (``flow_additional_investment`` =
-[asset_allocation, additional_investment]). The additional-investment engine
-runs the practical (holdings-aware) allocation as its own first step and lifts
-those per-subgroup targets onto the deploy plan, so it does not consume
-``prior`` — the upstream module's payload is informational only.
+Sequence position: the "additional_investment" intent maps to a SINGLE-STEP flow
+(``flow_additional_investment`` = [additional_investment]); there is no upstream
+module, so ``prior`` is unused. The additional-investment orchestrator self-primes
+the practical (holdings-aware) allocation inline — running it once and persisting
+it inline to capture ``source_allocation_run_id`` — then lifts those per-subgroup
+targets onto the deploy plan.
 """
 
 from __future__ import annotations
@@ -32,7 +32,13 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
     return ModuleOutput(
         text=result.text,
         payload=result,  # the structured additional-investment chat result for the HTTP layer
-        persisted_run_id=None,  # 3a: AdditionalInvestmentRun persistence lands in 3b
+        # The run IS persisted (Plan 3b); we deliberately do NOT surface its id here.
+        # ModuleOutput.persisted_run_id is renamed to `asset_allocation_run_id` by the
+        # brain, so emitting an additional_investment_runs.id would mislabel it as an
+        # AA-run id. The id stays available on `payload` (ChatHandlerResult
+        # .additional_investment_run_id); it gets its own HTTP channel when the
+        # read/serve side (deferred Task 5/6) is built.
+        persisted_run_id=None,
         chart_payloads=result.chart_payloads,  # forward hook: the ainv engine does not populate this yet
     )
 

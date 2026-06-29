@@ -22,3 +22,4 @@ Library, not an agent — no pipeline, not an LLM tool. Imported cross-agent (e.
 
 ## Don't read
 - `__pycache__/`.
+- `Testing/` — pytest suite.

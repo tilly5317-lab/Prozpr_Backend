@@ -8,7 +8,7 @@ No business logic — only the infra every domain depends on.
 - `database.py` — `Base` (`DeclarativeBase`), async engine + session factory, `get_db()` dependency, `create_all_tables`, `dispose_engine`, `apply_postgres_schema_patches`.
 - `dependencies.py` — `get_current_user` JWT auth; `get_effective_user` family-member resolver (reads `X-Family-Member-Id` header); `get_ai_user_context` User-with-relations loader for AI handlers.
 - `security.py` — password hashing (`bcrypt`) + JWT encode/decode.
-- `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops background schedulers, each gated by its own env flag (`MFAPI_SCHEDULER_ENABLED`, `INDEX_TRI_SCHEDULER_ENABLED`).
+- `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops background schedulers, each gated by its own env flag (`MFAPI_SCHEDULER_ENABLED`; `BENCHMARK_SCHEDULER_ENABLED`, with `INDEX_TRI_SCHEDULER_ENABLED` as a legacy alias).
 - `exceptions.py` — centralised exception handlers via `register_exception_handlers(app)` (called once from `app/main.py`). Maps known errors to stable JSON: `ValidationError` → 422; DB auth / host-unreachable / connection-closed → 503; else → 500.
 
 ## Typical authenticated call
@@ -21,4 +21,4 @@ No business logic — only the infra every domain depends on.
 
 ## Don't read
 
-- `__pycache__/`.
+- `__pycache__/`, `tests/`.

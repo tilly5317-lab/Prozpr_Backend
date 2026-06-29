@@ -8,7 +8,7 @@ blended multi-asset / hybrid funds correctly (not 100% Equity):
   three surfaces agree.
 - TARGET is built here from the rebalancing plan's per-subgroup ``suggested_final``
   totals. The engine's ``multi_asset`` sleeve is a GENERIC multi-asset allocation
-  sized at 65/25/10 — so it is split by that composition (matching the engine
+  sized at 72.5/12.5/15 — so it is split by that composition (matching the engine
   ideal that chat shows), regardless of which specific funds the rebalancer picks
   to fill it (those can be hybrids, dynamic-allocation, or even plain equity funds).
   Splitting by the recommended funds' own categories would drop the sleeve's
@@ -28,7 +28,7 @@ from app.domains.mutual_funds.services.scheme_classification import (
 MULTI_ASSET_SUBGROUP = "multi_asset"
 
 # The engine sizes its multi_asset sleeve as a generic Multi-Asset Allocation —
-# its canonical sub_category — so we split the sleeve by that band (65/25/10),
+# its canonical sub_category — so we split the sleeve by that band (72.5/12.5/15),
 # which is exactly what the asset-allocation engine (and chat) report.
 _MULTI_ASSET_SLEEVE_SUBCATEGORY = "Multi-Asset Allocation Fund"
 
@@ -39,7 +39,7 @@ def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float
 
     Every subgroup maps via ``asset_class_for_subgroup`` EXCEPT ``multi_asset``,
     which is the engine's generic multi-asset sleeve and is split by the canonical
-    Multi-Asset Allocation composition (65/25/10) so the Invest target aligns with
+    Multi-Asset Allocation composition (72.5/12.5/15) so the Invest target aligns with
     the engine ideal shown in chat.
     """
     mix: dict[str, float] = {}

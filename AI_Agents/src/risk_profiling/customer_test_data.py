@@ -33,77 +33,80 @@ from risk_profiling.scoring import compute_all_scores
 #   annual_mortgage_payment         – yearly EMIs for home loan (₹)
 #   properties_owned      – 0, 1, or >1
 #   risk_willingness      – self-reported score 1-10
+#
+# This module computes the effective risk score from these inputs; the score
+# is an OUTPUT here, so it is intentionally not pinned per profile.
 
 CUSTOMER_PROFILES = [
-    # ── 1. Rajesh Sharma — Kolkata, West Bengal ────────────────────────────────
-    # Mid-career government bank officer, stable income, one flat purchased.
+    # ── 1. Aarav Gupta — Bangalore, Karnataka ─────────────────────────────────
+    # Software engineer at a startup, single, high saver, very aggressive.
     {
-        "investor_name": "Rajesh Sharma",
-        "age": 45,
-        "occupation_type": "public_sector",
-        "annual_income": 1_200_000,  # ₹12 LPA (grade-B officer)
-        "annual_expense": 720_000,  # ₹60k/month household
-        "financial_assets": 3_500_000,  # PF + FDs + some MF
-        "liabilities_excluding_mortgage": 150_000,  # small car loan balance
-        "annual_mortgage_payment": 180_000,  # ₹15k/month home EMI
-        "properties_owned": 1,
-        "risk_willingness": 6.0,  # moderate — comfortable but cautious
-    },
-    # ── 2. Priya Menon — Bangalore, Karnataka ─────────────────────────────────
-    # Software engineer in a mid-size IT firm, high saver, no property yet.
-    {
-        "investor_name": "Priya Menon",
-        "age": 31,
+        "investor_name": "Aarav Gupta",
+        "age": 26,
         "occupation_type": "private_sector",
-        "annual_income": 1_800_000,  # ₹18 LPA (senior SDE)
-        "annual_expense": 900_000,  # ₹75k/month (rent + lifestyle)
-        "financial_assets": 1_400_000,  # MF SIPs + ESOP value
-        "liabilities_excluding_mortgage": 80_000,  # credit card dues
-        "annual_mortgage_payment": 0,  # renting, no home loan
+        "annual_income": 1_800_000,  # ₹18 LPA (startup SDE)
+        "annual_expense": 600_000,  # ₹50k/month, single
+        "financial_assets": 450_000,  # just started investing
+        "liabilities_excluding_mortgage": 50_000,  # credit card dues
+        "annual_mortgage_payment": 0,  # renting
         "properties_owned": 0,
-        "risk_willingness": 8.0,  # growth-oriented, long horizon
+        "risk_willingness": 9.5,  # very high — long horizon, no dependents
     },
-    # ── 3. Amit Rathore — New Delhi ───────────────────────────────────────────
-    # Senior manager at an MNC, owns a flat in Vasant Vihar, moderate risk.
+    # ── 2. Lakshmi Iyer — Chennai, Tamil Nadu ─────────────────────────────────
+    # Retired bank manager and widow, lives off her corpus, capital preservation.
     {
-        "investor_name": "Amit Rathore",
-        "age": 39,
-        "occupation_type": "private_sector",
-        "annual_income": 2_200_000,  # ₹22 LPA
-        "annual_expense": 1_320_000,  # ₹1.1L/month (Delhi lifestyle)
-        "financial_assets": 4_000_000,  # diversified portfolio
-        "liabilities_excluding_mortgage": 300_000,  # car + personal loan
-        "annual_mortgage_payment": 360_000,  # ₹30k/month home EMI
+        "investor_name": "Lakshmi Iyer",
+        "age": 58,
+        "occupation_type": "retired_homemaker_student",
+        "annual_income": 600_000,  # ₹6 LPA (pension)
+        "annual_expense": 480_000,  # ₹40k/month
+        "financial_assets": 9_500_000,  # retirement corpus
+        "liabilities_excluding_mortgage": 0,  # debt-free
+        "annual_mortgage_payment": 0,  # owns her home outright
         "properties_owned": 1,
-        "risk_willingness": 7.0,
+        "risk_willingness": 2.0,  # very low — capital preservation
     },
-    # ── 4. Deepa Patel — Ahmedabad, Gujarat ───────────────────────────────────
-    # Runs a family textile trading business, high income, two properties.
+    # ── 3. Mohammed Faisal — Hyderabad, Telangana ─────────────────────────────
+    # Government school teacher, married with two children, moderate risk.
     {
-        "investor_name": "Deepa Patel",
-        "age": 43,
+        "investor_name": "Mohammed Faisal",
+        "age": 41,
+        "occupation_type": "public_sector",
+        "annual_income": 900_000,  # ₹9 LPA (teacher)
+        "annual_expense": 540_000,  # ₹45k/month household
+        "financial_assets": 1_800_000,  # PF + FDs + some MF
+        "liabilities_excluding_mortgage": 100_000,  # small personal loan
+        "annual_mortgage_payment": 0,  # renting, home purchase still a goal
+        "properties_owned": 0,
+        "risk_willingness": 5.5,  # balanced
+    },
+    # ── 4. Neha Reddy — Mumbai, Maharashtra ───────────────────────────────────
+    # Entrepreneur running a D2C skincare brand, irregular but growing income.
+    {
+        "investor_name": "Neha Reddy",
+        "age": 35,
         "occupation_type": "family_business",
-        "annual_income": 2_800_000,  # ₹28 LPA (business profit)
-        "annual_expense": 1_400_000,  # business + household spend
-        "financial_assets": 6_500_000,  # business surpluses invested
-        "liabilities_excluding_mortgage": 500_000,  # business credit line
-        "annual_mortgage_payment": 420_000,  # ₹35k/month for 2nd property
-        "properties_owned": 2,
-        "risk_willingness": 7.5,
+        "annual_income": 2_500_000,  # ₹25 LPA (business income, growing)
+        "annual_expense": 1_080_000,  # ₹90k/month
+        "financial_assets": 5_200_000,  # business surpluses invested
+        "liabilities_excluding_mortgage": 300_000,  # business credit line
+        "annual_mortgage_payment": 0,  # renting
+        "properties_owned": 0,
+        "risk_willingness": 8.0,  # growth-oriented
     },
-    # ── 5. Vikram Joshi — Mumbai, Maharashtra ─────────────────────────────────
-    # Insurance broker (commission-based), variable income, two properties.
+    # ── 5. Harpreet Singh — Ludhiana, Punjab ──────────────────────────────────
+    # Logistics business owner, married with one child in college, de-risking.
     {
-        "investor_name": "Vikram Joshi",
-        "age": 50,
-        "occupation_type": "commission_based",
-        "annual_income": 1_500_000,  # ₹15 LPA (variable commissions)
-        "annual_expense": 1_050_000,  # ₹87.5k/month Mumbai expenses
-        "financial_assets": 3_200_000,  # LIC + MF + FD
-        "liabilities_excluding_mortgage": 600_000,  # personal + car loan
-        "annual_mortgage_payment": 240_000,  # ₹20k/month for 2nd flat
-        "properties_owned": 2,
-        "risk_willingness": 5.5,  # moderate-conservative
+        "investor_name": "Harpreet Singh",
+        "age": 49,
+        "occupation_type": "family_business",
+        "annual_income": 3_500_000,  # ₹35 LPA (business profit)
+        "annual_expense": 960_000,  # ₹80k/month
+        "financial_assets": 6_800_000,  # business surpluses + MF + FD
+        "liabilities_excluding_mortgage": 200_000,  # vehicle loan balance
+        "annual_mortgage_payment": 240_000,  # ₹20k/month home EMI
+        "properties_owned": 1,
+        "risk_willingness": 4.0,  # moderate-conservative, nearing peak earning
     },
 ]
 

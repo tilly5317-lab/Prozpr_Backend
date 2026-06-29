@@ -17,3 +17,4 @@ Classifies into `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_
 
 ## Don't read
 - `__pycache__/`.
+- `Testing/` — pytest suite.

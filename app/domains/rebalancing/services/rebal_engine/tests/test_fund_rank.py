@@ -47,3 +47,27 @@ def test_get_rejection_reasons_for_known_isin():
     # / consistency_reason fields for this ISIN.
     assert "3 years" in text
     assert "top 25%" in text
+
+
+def test_every_ranked_row_exposes_non_empty_scheme_code():
+    """RankedFund (additional_investment) needs scheme_code; the CSV carries it
+    in a 'scheme_code' column between 'isin' and 'recommended_fund'. Every
+    recommended row must surface it as a non-empty string."""
+    ranking = get_fund_ranking()
+    assert ranking, "expected the production fund-rank CSV to load"
+    for subgroup, rows in ranking.items():
+        for r in rows:
+            assert isinstance(r.scheme_code, str), (
+                f"{subgroup} rank {r.rank} ({r.isin}): scheme_code not a str"
+            )
+            assert r.scheme_code.strip(), (
+                f"{subgroup} rank {r.rank} ({r.isin}): empty scheme_code"
+            )
+
+
+def test_first_row_low_beta_equities_pins_scheme_code():
+    """Pin the canonical row 0 scheme_code to catch an accidental CSV swap or a
+    column-misread (scheme_code vs isin)."""
+    first = get_fund_ranking()["low_beta_equities"][0]
+    assert first.isin == "INF109K016L0"
+    assert first.scheme_code == "120586"
