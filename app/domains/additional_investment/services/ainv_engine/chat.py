@@ -197,9 +197,10 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
            English; never surface the raw label.
   undeployed_inr / undeployed_indian — money that could NOT be placed (per-fund
            caps bound, or a subgroup lacked eligible funds). 0 when fully placed.
-  under_deploy_note — present ONLY when undeployed_inr > 0: a one-line plain-
-           English nudge explaining the leftover and that the emergency reserve
-           is always excluded from fresh deployment. Surface it when present.
+  under_deploy_note — present only when a MATERIAL amount couldn't be deployed
+           (trivial ₹100-rounding remainders are dropped) or when NOTHING could be
+           deployed at all. Surface its point when present; if buys is empty,
+           nothing could be placed — say so plainly and do NOT invent any fund.
 
   per_subgroup_target: list, one entry per subgroup the deploy was split into:
       subgroup    — internal engine grouping (e.g. "low_beta_equities"). DO NOT
@@ -225,17 +226,46 @@ classifier). Per-mode behavior:
                lumpsum, per-month for sip_monthly), then NAME the 1-3 biggest
                buys with their amounts (monthly_amount_indian when sip_monthly,
                else amount_indian), and give one plain-English line on why the
-               split leans the way it does (derived from target_bucket). Always
-               name at least the largest fund(s) — the customer asked where
-               their money is going. If undeployed_inr > 0, close with the
-               under_deploy_note. Length: 6-10 sentences (fewer when there is a
-               single buy).
+               split leans the way it does (derived from target_bucket). Name at
+               least the largest fund(s) when there are any — the customer asked
+               where their money is going; if buys is empty, nothing could be
+               deployed right now, so relay the under_deploy_note plainly and do
+               NOT fabricate funds. When under_deploy_note is present, close with
+               it. Length: 6-10 sentences (fewer when there is a single buy).
 """
 
 
 # ---------------------------------------------------------------------------
 # Facts pack
 # ---------------------------------------------------------------------------
+
+
+def _under_deploy_note(
+    deploy_inr: float, undeployed_inr: float, n_targets: int, has_buys: bool
+) -> str | None:
+    """Customer-facing note about money that couldn't be deployed — or None.
+
+    Suppresses the trivial ₹100-rounding remainder a multi-subgroup split almost
+    always leaves (under ~₹100 per subgroup, or 0.5% of the deploy). Returns a
+    DISTINCT message when NOTHING could be placed (the targeted horizon bucket had
+    no eligible funds) versus a genuine per-fund-cap / fund-scarcity shortfall.
+    """
+    if undeployed_inr <= 0:
+        return None
+    if not has_buys:
+        return (
+            f"I couldn't place any of your {format_inr_indian(deploy_inr)} right now — "
+            "there are no eligible funds to add to in the bucket this deploy targets. "
+            "Your emergency reserve is always kept out of fresh deployment."
+        )
+    threshold = max(100.0 * max(n_targets, 1), 0.005 * deploy_inr)
+    if undeployed_inr <= threshold:
+        return None
+    return (
+        f"{format_inr_indian(undeployed_inr)} of your {format_inr_indian(deploy_inr)} "
+        "couldn't be placed — per-fund caps or a shortage of eligible funds left a "
+        "remainder. Your emergency reserve is always kept out of fresh deployment."
+    )
 
 
 def build_ainv_facts_pack(output: AdditionalInvestmentOutput) -> dict[str, Any]:
@@ -289,13 +319,11 @@ def build_ainv_facts_pack(output: AdditionalInvestmentOutput) -> dict[str, Any]:
         "undeployed_inr": undeployed_inr,
         "undeployed_indian": format_inr_indian(undeployed_inr),
     }
-    if undeployed_inr > 0:
-        facts["under_deploy_note"] = (
-            f"{format_inr_indian(undeployed_inr)} of your "
-            f"{format_inr_indian(deploy_inr)} couldn't be placed — per-fund caps "
-            "or a shortage of eligible funds left a remainder, and your emergency "
-            "reserve is always kept out of fresh deployment."
-        )
+    note = _under_deploy_note(
+        deploy_inr, undeployed_inr, len(per_subgroup_target), bool(output.buys)
+    )
+    if note is not None:
+        facts["under_deploy_note"] = note
     return facts
 
 
@@ -308,8 +336,19 @@ def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput) -> str:
     """Render the engine output as a chat-ready markdown brief that NAMES the
     funds to buy. BUY-only — no sells, no tax math. Used when the formatter
     fails so the customer always sees where their money is going."""
-    deploy_indian = format_inr_indian(float(output.deploy_amount_inr))
+    deploy_inr = float(output.deploy_amount_inr)
+    deploy_indian = format_inr_indian(deploy_inr)
     is_sip = output.cadence == Cadence.SIP_MONTHLY
+    note = _under_deploy_note(
+        deploy_inr,
+        float(output.undeployed_inr),
+        len(output.per_subgroup_target),
+        bool(output.buys),
+    )
+
+    # Nothing to buy (empty target bucket / no eligible funds) — no table.
+    if not output.buys:
+        return (note or f"I couldn't deploy your {deploy_indian} right now.") + "\n"
 
     out: list[str] = []
     if is_sip:
@@ -345,12 +384,8 @@ def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput) -> str:
             out.append(f"| {b.recommended_fund} | {amount_indian} |")
     out.append("")
 
-    if float(output.undeployed_inr) > 0:
-        out.append(
-            f"_{format_inr_indian(float(output.undeployed_inr))} couldn't be placed "
-            "under the per-fund caps — small enough to top up later. Your emergency "
-            "reserve is kept out of fresh deployment._"
-        )
+    if note is not None:
+        out.append(f"_{note}_")
     return "\n".join(out).rstrip() + "\n"
 
 
