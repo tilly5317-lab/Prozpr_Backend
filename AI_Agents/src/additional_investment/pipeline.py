@@ -1,23 +1,30 @@
+"""Pipeline orchestrator for additional-investment deployment. Pure-sync, DB-free."""
+
 from __future__ import annotations
 
-from additional_investment.models import (
+from .models import (
     AdditionalInvestmentInput,
     AdditionalInvestmentOutput,
     Cadence,
 )
-from additional_investment.ratio import compute_targets
-from additional_investment.selection import select_funds
+from .ratio import compute_targets
+from .selection import select_funds
 
 
 def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInvestmentOutput:
-    branch, targets = compute_targets(
-        inp.subgroups, inp.medium_term_fulfilled, inp.deploy_amount_inr
+    """Deploy fresh money into specific funds: split by subgroup, select BUYs, frame SIP cadence.
+
+    Returns the BUY list plus deployed/undeployed accounting; `undeployed_inr` is
+    non-zero when caps or fund scarcity prevent fully deploying the requested amount.
+    """
+    bucket, targets = compute_targets(
+        inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
+        inp.deploy_amount_inr, inp.exclude_subgroups,
     )
     buys = select_funds(
         targets,
         inp.ranked_funds,
-        inp.holdings,
-        inp.resulting_corpus_inr,
+        inp.deploy_amount_inr,
         inp.cap_pct_by_subgroup,
         inp.default_cap_pct,
         inp.rounding_multiple_inr,
@@ -27,11 +34,13 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
         buys = [b.model_copy(update={"monthly_amount_inr": b.amount_inr}) for b in buys]
     deployed = sum(b.amount_inr for b in buys)
     return AdditionalInvestmentOutput(
-        branch_used=branch,
+        target_bucket=bucket,
         cadence=inp.cadence,
         deploy_amount_inr=inp.deploy_amount_inr,
         deployed_inr=deployed,
-        undeployed_inr=inp.deploy_amount_inr - deployed,
+        # Nearest-₹100 rounding can edge the total a little over the deploy amount;
+        # clamp so undeployed never goes negative (the output model requires ge=0).
+        undeployed_inr=max(0.0, inp.deploy_amount_inr - deployed),
         per_subgroup_target=targets,
         buys=buys,
     )
