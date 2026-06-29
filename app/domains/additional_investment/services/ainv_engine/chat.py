@@ -18,9 +18,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Literal, Optional
 
+from pydantic import BaseModel, Field
+
+from app.core.config import get_settings
 from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
+from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.ai_engine.turn_context import TurnContext
 from app.domains.ai_engine.answer_formatter import (
     format_relay_or_canned,
@@ -64,7 +68,7 @@ _UNIT_MULTIPLIER = {
 _AMOUNT_RE = re.compile(
     r"(?:rs\.?|inr|₹)?\s*"
     r"(\d[\d,]*(?:\.\d+)?)\s*"
-    r"(crores?|cr|lakhs?|lacs?|l|thousand|k)?",
+    r"(?:(crores?|cr|lakhs?|lacs?|l|thousand|k)(?![a-z]))?",
     re.IGNORECASE,
 )
 
@@ -100,6 +104,70 @@ def parse_deploy_request(question: str) -> tuple[float | None, Cadence]:
         return None, cadence
     value *= _UNIT_MULTIPLIER.get((match.group(2) or "").lower(), 1.0)
     return value, cadence
+
+
+# ---------------------------------------------------------------------------
+# LLM deploy-request extraction (Haiku; mirrors rebal_engine._detect_rebal_action)
+# ---------------------------------------------------------------------------
+
+
+class _DeployRequest(BaseModel):
+    """Structured extraction of the deploy amount + cadence from the question."""
+
+    amount_inr: Optional[float] = Field(
+        default=None,
+        description=(
+            "Total rupee amount the customer wants to deploy, as a plain number. "
+            "Resolve Indian shorthand: '5L'/'5 lakh' -> 500000, '50k' -> 50000, "
+            "'2 crore' -> 20000000, 'Rs 2,00,000' -> 200000. For a monthly SIP this "
+            "is the PER-MONTH amount. Null if the question names no amount."
+        ),
+    )
+    cadence: Literal["lumpsum", "sip_monthly"] = Field(
+        default="lumpsum",
+        description=(
+            "sip_monthly when the text reads recurring/monthly (SIP, per month, "
+            "every month, /month); otherwise lumpsum (a single one-time deployment)."
+        ),
+    )
+
+
+_DEPLOY_EXTRACT_SYSTEM = """You extract two fields from a customer's request to
+invest fresh money: the rupee AMOUNT and whether it is a one-time LUMPSUM or a
+monthly SIP. Indian money shorthand: k/thousand = x1,000; l/lac/lakh = x100,000;
+cr/crore = x10,000,000. Ignore numbers that are durations, counts, or years
+(e.g. "5 years", "3 funds", "in 2027") — only the money amount goes in amount_inr.
+A bare "monthly" describing salary/income/expenses is NOT a SIP; only a recurring
+INVESTMENT plan is. Examples:
+- "invest 5L as a lumpsum"             -> amount_inr=500000, cadence=lumpsum
+- "start a 25k monthly SIP"            -> amount_inr=25000,  cadence=sip_monthly
+- "put Rs 2,00,000 to work long term"  -> amount_inr=200000, cadence=lumpsum
+- "deploy 50000, I'm paid monthly"     -> amount_inr=50000,  cadence=lumpsum
+- "where should I put my money?"       -> amount_inr=null,   cadence=lumpsum
+"""
+
+
+async def extract_deploy_request(question: str) -> tuple[float | None, Cadence]:
+    """LLM extraction of (deploy amount INR, cadence) from free text.
+
+    Mirrors ``rebal_engine._detect_rebal_action``: a small Haiku structured-output
+    call via the shared ``classify_action`` helper. Falls back to the deterministic
+    regex ``parse_deploy_request`` when the Haiku call fails (non-deterministic LLM,
+    so the regex is the safety net).
+    """
+    try:
+        result = await classify_action(
+            action_model=_DeployRequest,
+            system_prompt=_DEPLOY_EXTRACT_SYSTEM,
+            user_block=f"Customer's request: {question}",
+            api_key=get_settings().get_anthropic_additional_investment_key(),
+            max_tokens=150,
+        )
+    except Exception as exc:  # broad, mirroring _detect_rebal_action's call site
+        logger.warning("extract_deploy_request failed (%s); using regex fallback", exc)
+        return parse_deploy_request(question)
+
+    return result.amount_inr, Cadence(result.cadence)
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +401,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     field, so only ``text`` is set; persistence/telemetry of the run is handled
     inside the orchestrator (Task 3a-T4) and the persist service (Task 3b).
     """
-    amount, cadence = parse_deploy_request(ctx.user_question)
+    amount, cadence = await extract_deploy_request(ctx.user_question)
     if amount is None:
         text = await format_relay_or_canned(
             ctx=ctx,
