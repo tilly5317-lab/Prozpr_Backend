@@ -65,7 +65,7 @@ conftest.py
 # Large data files (CSV)
 *.csv
 !AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
-!AI_Agents/Reference_docs/prozpr_fund_ranking_may_2026.csv
+!AI_Agents/Reference_docs/prozpr_fund_ranking_june_2026.csv
 
 # Alembic auto-generated (keep versions/, ignore stamps)
 # alembic/versions/ is tracked
@@ -117,12 +117,6 @@ AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
 # User-filed issue reports (Excel register + screenshots) — runtime artifacts
 issue_reports/
 /app/domains/portfolio/services/tests
-<<<<<<< HEAD
-/app/domains/general_chat/tests
-/app/domains/ai_engine/answer_formatter/tests
-/app/domains/ai_engine/answer_formatter/tests
-=======
->>>>>>> f742ab5e1e1f4322753613fa8ba48d23ee0abb82
 /app/core/tests
 /app/domains/rebalancing/services/tests
 /app/domains/rebalancing/services/rebal_engine/tests

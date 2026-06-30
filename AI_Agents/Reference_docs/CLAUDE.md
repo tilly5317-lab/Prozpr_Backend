@@ -8,7 +8,7 @@ Reference documents read at runtime by agents under `AI_Agents/src/`: skill-prom
 - `ARCHITECTURE.html` — styled HTML rendering of `ARCHITECTURE.md` (rendered Mermaid, ToC) for browser reading.
 - `market_commentary_latest.md` — daily Indian macro commentary. Written by `src/market_commentary/` (`main.MarketCommentaryAgent`, driven by `app/domains/market_commentary/services/market_commentary_engine.py`). Read by `src/portfolio_query/` for its commentary context block.
 - `market_commentary_latest.json` — `MacroSnapshot` cache backing the `.md` (TTL via `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`).
-- `prozpr_fund_ranking_may_2026.csv` — fund-ranking table. `rank ≥ 1` + `selection_reason` = recommended; rank-blank rows are evaluated-then-rejected, with per-row `*_reason` columns. Consumed by `app/domains/rebalancing/services/rebal_engine/fund_rank.py` (`get_fund_ranking`, `get_rejection_reasons`).
+- `prozpr_fund_ranking_june_2026_v2` — fund-ranking table. `rank ≥ 1` + `selection_reason` = recommended; rank-blank rows are evaluated-then-rejected, with per-row `*_reason` columns. Consumed by `app/domains/rebalancing/services/rebal_engine/fund_rank.py` (`get_fund_ranking`, `get_rejection_reasons`).
 
 **Thesis `.md` files** (below) are directional, client-safe documents — philosophy and approach only; they deliberately omit proprietary weights, bands, thresholds, and step mechanics. For engine-true numbers, read the code.
 

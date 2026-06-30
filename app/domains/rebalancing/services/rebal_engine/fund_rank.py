@@ -34,7 +34,7 @@ _CSV_PATH = (
     Path(__file__).resolve().parents[5]
     / "AI_Agents"
     / "Reference_docs"
-    / "prozpr_fund_ranking_may_2026.csv"
+    / "prozpr_fund_ranking_june_2026_v2"
 )
 
 
