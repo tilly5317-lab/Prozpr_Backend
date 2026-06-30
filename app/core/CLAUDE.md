@@ -9,7 +9,8 @@ No business logic — only the infra every domain depends on.
 - `dependencies.py` — `get_current_user` JWT auth; `get_effective_user` family-member resolver (reads `X-Family-Member-Id` header); `get_ai_user_context` User-with-relations loader for AI handlers.
 - `security.py` — password hashing (`bcrypt`) + JWT encode/decode.
 - `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops background schedulers, each gated by its own env flag (`MFAPI_SCHEDULER_ENABLED`, `INDEX_TRI_SCHEDULER_ENABLED`).
-- `exceptions.py` — centralised exception handlers via `register_exception_handlers(app)` (called once from `app/main.py`). Maps known errors to stable JSON: `ValidationError` → 422; DB auth / host-unreachable / connection-closed → 503; else → 500.
+- `exceptions.py` — centralised exception handlers via `register_exception_handlers(app)` (called once from `app/main.py`). Maps known errors to stable JSON: `ValidationError` → 422; DB auth / host-unreachable / connection-closed → 503; else → 500. The 5xx handler calls `observability.notice_error()` so handler-caught errors still reach New Relic.
+- `observability.py` — `init_newrelic()` boots the New Relic APM agent (called as the first line of `app/main.py`, before FastAPI/DB/httpx import so its hooks attach); `notice_error()` reports handler-caught exceptions. No-op unless `NEW_RELIC_LICENSE_KEY` is set. Static config in `../../newrelic.ini`; log forwarding ships stdlib `logging` to New Relic Logs.
 
 ## Typical authenticated call
 

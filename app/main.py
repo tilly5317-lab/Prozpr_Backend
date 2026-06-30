@@ -13,6 +13,13 @@ Each step's *how* lives in ``app.core`` — keep this file boring.
 
 from __future__ import annotations
 
+# New Relic must initialise BEFORE FastAPI/Starlette, the DB drivers, and httpx
+# are imported, so its import hooks can instrument them. No-op unless
+# NEW_RELIC_LICENSE_KEY is set. Keep this as the first executable line.
+from app.core.observability import init_newrelic
+
+init_newrelic()
+
 import logging
 
 from fastapi import FastAPI
