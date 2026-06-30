@@ -305,18 +305,35 @@ def _min_rows_for_chart_range(date_from: date, date_to: date) -> int:
     return max(30, min(500, span_days // 3))
 
 
+# How far the earliest stored NAV may sit *after* ``date_from`` before we treat it as
+# a leading gap worth backfilling. A NAV is published every business day, so a fund
+# genuinely held from ``date_from`` should have a stored point within a few days of it;
+# anything beyond a month means we're simply missing the front of its history.
+_LEADING_GAP_TOLERANCE_DAYS = 30
+
+
 async def ensure_nav_history_for_chart(
     db: AsyncSession,
     scheme_code: str,
     *,
     date_from: date,
     date_to: date,
+    require_from_start: bool = False,
 ) -> None:
     """Backfill ``mf_nav_history`` from mfapi.in when the DB is too sparse for charts.
 
     Only calls mfapi.in when stored history is clearly incomplete. Young funds that
     launched after ``date_from`` are not expected to have 10 years of rows — the
     target row count is based on ``max(date_from, fund_inception)``..``date_to``.
+
+    ``require_from_start``: set when the caller knows the fund was actually *held*
+    from ``date_from`` (e.g. the net-worth backfill passes the fund's first
+    transaction date). Then a leading gap — stored NAV that only starts well after
+    ``date_from``, typically because daily latest-NAV top-ups seeded a few recent
+    rows but the older history was never fetched — forces a full-history backfill.
+    Without this, ``coverage_start = max(date_from, g_earliest)`` would shrink the
+    "needed" window to the recent rows, the density check would pass, and the fund's
+    units would be valued at ₹0 for every month it was held before the stored window.
     """
     code = scheme_code.strip()
     if not code:
@@ -359,7 +376,13 @@ async def ensure_nav_history_for_chart(
         or 0
     )
 
-    if in_window >= min_rows:
+    # A long-held fund whose stored NAV only starts well after its first transaction
+    # has a leading gap: its units would value at ₹0 for the pre-window months. Only
+    # trusted when the caller vouches that date_from is a real hold-start.
+    leading_gap_days = (g_earliest - date_from).days if g_earliest else 0
+    has_leading_gap = require_from_start and leading_gap_days > _LEADING_GAP_TOLERANCE_DAYS
+
+    if in_window >= min_rows and not has_leading_gap:
         logger.debug(
             "scheme %s chart OK: %d rows in window (need %d from %s; inception %s)",
             code,
@@ -369,6 +392,16 @@ async def ensure_nav_history_for_chart(
             g_earliest,
         )
         return
+
+    if has_leading_gap:
+        logger.info(
+            "scheme %s leading-gap backfill: stored NAV starts %s, %d days after first "
+            "txn %s — fetching older history",
+            code,
+            g_earliest,
+            leading_gap_days,
+            date_from,
+        )
 
     logger.info(
         "scheme %s chart backfill: %d rows in [%s..%s] (inception=%s); need >= %d from %s",

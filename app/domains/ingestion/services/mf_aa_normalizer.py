@@ -12,6 +12,8 @@ from hashlib import sha256
 from typing import Optional
 
 from sqlalchemy import Select, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -261,7 +263,18 @@ async def normalize_single_import(
         )
         metadata_by_code = {m.scheme_code: m for m in metadata_rows}
 
-        pending_rows: list[tuple[MfTransaction, str]] = []
+        # Build candidate rows as plain dicts so we can bulk-insert via core with
+        # ON CONFLICT DO NOTHING. Two layers of de-duplication make the import
+        # idempotent and immune to the uq_mf_txn_source_fingerprint violation that
+        # previously rolled back the whole statement (and, in replace mode, left
+        # the user with no data):
+        #   1. an up-front per-batch set, so the INSERT never carries two rows
+        #      that fingerprint alike (a statement listing the same txn twice);
+        #   2. ON CONFLICT DO NOTHING, which skips rows already in the DB from a
+        #      prior import — no read-then-write race window, unlike a pre-SELECT.
+        candidates: list[dict] = []
+        batch_seen: set[str] = set()
+        skipped = 0
         for row in aa_import.transactions:
             scheme_code = _canonical_code(row, isin_to_amfi)
             if not scheme_code:
@@ -284,69 +297,53 @@ async def normalize_single_import(
                 nav=nav,
                 amount=amount,
             )
-            pending_rows.append(
-                (
-                    MfTransaction(
-                        user_id=aa_import.user_id,
-                        scheme_code=scheme_code,
-                        sip_mandate_id=None,
-                        folio_number=folio_number,
-                        transaction_type=tx_type,
-                        transaction_date=tx_date,
-                        units=units,
-                        nav=nav,
-                        amount=amount,
-                        isin=metadata_by_code.get(scheme_code).isin
-                        if metadata_by_code.get(scheme_code)
-                        else None,
-                        fund_name=(
-                            metadata_by_code.get(scheme_code).scheme_name
-                            if metadata_by_code.get(scheme_code)
-                            else None
-                        ),
-                        category=(
-                            metadata_by_code.get(scheme_code).category
-                            if metadata_by_code.get(scheme_code)
-                            else None
-                        ),
-                        sub_category=(
-                            metadata_by_code.get(scheme_code).sub_category
-                            if metadata_by_code.get(scheme_code)
-                            else None
-                        ),
-                        stamp_duty=_to_float(row.stamp_duty, default=0.0),
-                        source_system=MfTransactionSource.AA,
-                        source_import_id=aa_import.id,
-                        source_txn_fingerprint=fp,
-                    ),
-                    fp,
-                )
-            )
+            if fp in batch_seen:
+                skipped += 1  # same transaction appears twice in this statement
+                continue
+            batch_seen.add(fp)
 
-        fingerprints = [fp for _, fp in pending_rows]
-        existing_fps: set[str] = set()
-        if fingerprints:
-            existing_fps = set(
-                (
-                    await db.execute(
-                        select(MfTransaction.source_txn_fingerprint).where(
-                            MfTransaction.source_system == MfTransactionSource.AA,
-                            MfTransaction.source_txn_fingerprint.in_(fingerprints),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
+            meta = metadata_by_code.get(scheme_code)
+            candidates.append(
+                {
+                    "id": uuid.uuid4(),
+                    "user_id": aa_import.user_id,
+                    "scheme_code": scheme_code,
+                    "sip_mandate_id": None,
+                    "folio_number": folio_number,
+                    "transaction_type": tx_type,
+                    "transaction_date": tx_date,
+                    "units": units,
+                    "nav": nav,
+                    "amount": amount,
+                    "isin": meta.isin if meta else None,
+                    "fund_name": meta.scheme_name if meta else None,
+                    "category": meta.category if meta else None,
+                    "sub_category": meta.sub_category if meta else None,
+                    "stamp_duty": _to_float(row.stamp_duty, default=0.0),
+                    "source_system": MfTransactionSource.AA,
+                    "source_import_id": aa_import.id,
+                    "source_txn_fingerprint": fp,
+                }
             )
 
         inserted = 0
-        skipped = 0
-        for txn, fp in pending_rows:
-            if fp in existing_fps:
-                skipped += 1
-                continue
-            db.add(txn)
-            inserted += 1
+        if candidates:
+            insert_fn = (
+                pg_insert
+                if (db.bind is not None and db.bind.dialect.name == "postgresql")
+                else sqlite_insert
+            )
+            stmt = (
+                insert_fn(MfTransaction)
+                .values(candidates)
+                .on_conflict_do_nothing(
+                    index_elements=["source_system", "source_txn_fingerprint"]
+                )
+                .returning(MfTransaction.id)
+            )
+            inserted = len((await db.execute(stmt)).fetchall())
+        # Whatever wasn't inserted collided with a row already in the DB.
+        skipped += len(candidates) - inserted
 
         aa_import.status = MfAaImportStatus.NORMALIZED
         aa_import.normalized_at = datetime.now(timezone.utc)

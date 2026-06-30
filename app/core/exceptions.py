@@ -24,6 +24,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from app.core.observability import notice_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +60,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _on_unhandled(_: Request, exc: Exception) -> JSONResponse:
+        # Report to New Relic before we swallow the exception into JSON — the
+        # agent's automatic error capture can't see exceptions a handler catches.
+        notice_error()
         db_message = _classify_db_error(exc)
         if db_message is not None:
             logger.error("Database error: %s", exc)
