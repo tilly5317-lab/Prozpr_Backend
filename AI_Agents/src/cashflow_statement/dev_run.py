@@ -56,217 +56,27 @@ from cashflow_statement.agent.levers import propose_levers
 ARTIFACTS_DIR = Path(__file__).parent / "dev_artifacts"
 
 
-def profile_hni_multigoal() -> GoalPlanningInput:
-    """HNI, 40, multi-property + 3 custom goals. Plan should comfortably fund itself."""
-    return GoalPlanningInput(
-        profile=ClientProfile(
-            annual_income=4_000_000,
-            effective_tax_rate=0.25,
-            financial_assets=30_000_000,
-            financial_liabilities_excl_mortgage=1_000_000,
-            monthly_household_expense=150_000,
-            starting_monthly_investment=100_000,
-        ),
-        retirement=RetirementInput(
-            date_of_birth=date(1985, 6, 15),
-            retirement_age=60,
-            assumed_lifespan_years=85,
-        ),
-        current_properties=[
-            CurrentProperty(
-                name="primary_residence",
-                has_mortgage=True,
-                mortgage_emi=85_000,
-                mortgage_end_date=date(2032, 6, 30),
-            ),
-        ],
-        goal_properties=[
-            GoalProperty(
-                name="second_home",
-                target_pv=30_000_000,
-                goal_date=date(2030, 4, 1),
-                is_downpayment_only=True,
-                downpayment_pct=0.25,
-            ),
-            GoalProperty(
-                name="vacation_home",
-                target_pv=15_000_000,
-                goal_date=date(2035, 4, 1),
-                is_downpayment_only=False,
-            ),
-        ],
-        custom_goals=[
-            CustomGoal(
-                name="generic_custom",
-                goal_type=GoalType.custom,
-                goal_value_pv=2_000_000,
-                goal_date=date(2028, 9, 1),
-            ),
-            CustomGoal(
-                name="child_abroad_education",
-                goal_type=GoalType.child_abroad_education,
-                goal_value_pv=5_000_000,
-                goal_date=date(2038, 7, 1),
-            ),
-            CustomGoal(
-                name="child_marriage",
-                goal_type=GoalType.child_marriage,
-                goal_value_pv=3_000_000,
-                goal_date=date(2042, 12, 1),
-            ),
-        ],
-        one_off_inflows=[
-            OneOffEvent(
-                description="bonus_2027", amount=1_500_000, date=date(2027, 3, 31)
-            )
-        ],
-        one_off_outflows=[
-            OneOffEvent(
-                description="medical_2029", amount=1_000_000, date=date(2029, 6, 30)
-            )
-        ],
-        detail_level="full",
-    )
+# The five personas below mirror the canonical asset-allocation fixture
+# (Aarav, Lakshmi, Mohammed, Neha, Harpreet). Profile/income/expense/corpus and
+# the per-goal amounts match; the cashflow-specific extras are derived: DOB from
+# age, horizons converted to goal_dates as of mid-2026, and "Retirement" handled
+# structurally via RetirementInput rather than as a custom goal.
 
 
-def profile_young_saver() -> GoalPlanningInput:
-    """28yo professional, small corpus, long horizon — retirement + far-out child education only."""
-    return GoalPlanningInput(
-        profile=ClientProfile(
-            annual_income=1_500_000,
-            effective_tax_rate=0.15,
-            financial_assets=500_000,
-            financial_liabilities_excl_mortgage=0,
-            monthly_household_expense=40_000,
-            starting_monthly_investment=25_000,
-        ),
-        retirement=RetirementInput(
-            date_of_birth=date(1998, 3, 10),
-            retirement_age=60,
-            assumed_lifespan_years=85,
-        ),
-        current_properties=[],
-        goal_properties=[],
-        custom_goals=[
-            CustomGoal(
-                name="child_abroad_education",
-                goal_type=GoalType.child_abroad_education,
-                goal_value_pv=4_000_000,
-                goal_date=date(2046, 6, 1),
-            ),
-        ],
-        one_off_inflows=[],
-        one_off_outflows=[],
-        detail_level="full",
-    )
-
-
-def profile_mid_career_family() -> GoalPlanningInput:
-    """38yo, mortgaged home, two children (education + marriage), eyeing a second home."""
-    return GoalPlanningInput(
-        profile=ClientProfile(
-            annual_income=2_500_000,
-            effective_tax_rate=0.22,
-            financial_assets=8_000_000,
-            financial_liabilities_excl_mortgage=300_000,
-            monthly_household_expense=90_000,
-            starting_monthly_investment=60_000,
-        ),
-        retirement=RetirementInput(
-            date_of_birth=date(1988, 1, 20),
-            retirement_age=60,
-            assumed_lifespan_years=85,
-        ),
-        current_properties=[
-            CurrentProperty(
-                name="primary_residence",
-                has_mortgage=True,
-                mortgage_emi=55_000,
-                mortgage_end_date=date(2036, 1, 31),
-            ),
-        ],
-        goal_properties=[
-            GoalProperty(
-                name="second_home",
-                target_pv=12_000_000,
-                goal_date=date(2034, 4, 1),
-                is_downpayment_only=True,
-                downpayment_pct=0.20,
-            ),
-        ],
-        custom_goals=[
-            CustomGoal(
-                name="child1_education",
-                goal_type=GoalType.child_local_education,
-                goal_value_pv=3_000_000,
-                goal_date=date(2034, 7, 1),
-            ),
-            CustomGoal(
-                name="child2_education",
-                goal_type=GoalType.child_local_education,
-                goal_value_pv=3_000_000,
-                goal_date=date(2037, 7, 1),
-            ),
-            CustomGoal(
-                name="child1_marriage",
-                goal_type=GoalType.child_marriage,
-                goal_value_pv=2_500_000,
-                goal_date=date(2044, 11, 1),
-            ),
-        ],
-        one_off_inflows=[],
-        one_off_outflows=[],
-        detail_level="full",
-    )
-
-
-def profile_pre_retiree() -> GoalPlanningInput:
-    """55yo HNI, retirement-focused, modest aspirational goal."""
-    return GoalPlanningInput(
-        profile=ClientProfile(
-            annual_income=5_000_000,
-            effective_tax_rate=0.28,
-            financial_assets=40_000_000,
-            financial_liabilities_excl_mortgage=0,
-            monthly_household_expense=200_000,
-            starting_monthly_investment=150_000,
-        ),
-        retirement=RetirementInput(
-            date_of_birth=date(1971, 9, 5), retirement_age=62, assumed_lifespan_years=85
-        ),
-        current_properties=[],
-        goal_properties=[],
-        custom_goals=[
-            CustomGoal(
-                name="world_tour",
-                goal_type=GoalType.custom,
-                goal_value_pv=2_500_000,
-                goal_date=date(2033, 12, 1),
-            ),
-        ],
-        one_off_inflows=[
-            OneOffEvent(
-                description="property_sale", amount=8_000_000, date=date(2028, 6, 30)
-            )
-        ],
-        one_off_outflows=[],
-        detail_level="full",
-    )
-
-
-def profile_stretched_aspirer() -> GoalPlanningInput:
-    """32yo modest income chasing ambitious goals — plan likely shows shortfalls."""
+def profile_aarav_gupta() -> GoalPlanningInput:
+    """26, Bangalore software engineer, single, aggressive. Tiny corpus vs very
+    large goals → heavy shortfalls."""
     return GoalPlanningInput(
         profile=ClientProfile(
             annual_income=1_800_000,
-            effective_tax_rate=0.18,
-            financial_assets=1_500_000,
-            financial_liabilities_excl_mortgage=200_000,
-            monthly_household_expense=60_000,
-            starting_monthly_investment=20_000,
+            effective_tax_rate=0.30,
+            financial_assets=450_000,
+            financial_liabilities_excl_mortgage=50_000,
+            monthly_household_expense=50_000,
+            starting_monthly_investment=60_000,
         ),
         retirement=RetirementInput(
-            date_of_birth=date(1994, 7, 22),
+            date_of_birth=date(2000, 1, 1),
             retirement_age=60,
             assumed_lifespan_years=85,
         ),
@@ -274,44 +84,263 @@ def profile_stretched_aspirer() -> GoalPlanningInput:
         goal_properties=[
             GoalProperty(
                 name="first_home",
-                target_pv=15_000_000,
-                goal_date=date(2030, 4, 1),
+                target_pv=12_000_000,
+                goal_date=date(2036, 6, 1),
                 is_downpayment_only=True,
                 downpayment_pct=0.20,
             ),
         ],
         custom_goals=[
             CustomGoal(
-                name="child_abroad_education",
-                goal_type=GoalType.child_abroad_education,
-                goal_value_pv=6_000_000,
-                goal_date=date(2042, 7, 1),
+                name="buy_a_car",
+                goal_type=GoalType.custom,
+                goal_value_pv=1_200_000,
+                goal_date=date(2028, 6, 1),
             ),
             CustomGoal(
-                name="emergency_buffer",
+                name="wedding",
                 goal_type=GoalType.custom,
-                goal_value_pv=1_000_000,
-                goal_date=date(2028, 4, 1),
+                goal_value_pv=1_500_000,
+                goal_date=date(2031, 6, 1),
             ),
         ],
         one_off_inflows=[],
-        one_off_outflows=[
-            OneOffEvent(
-                description="parent_medical_2031",
-                amount=800_000,
-                date=date(2031, 9, 30),
-            )
+        one_off_outflows=[],
+        detail_level="full",
+    )
+
+
+def profile_lakshmi_iyer() -> GoalPlanningInput:
+    """58, retired bank manager and widow, lives off her corpus. Short horizons,
+    goals exceeding corpus → capital preservation under funding pressure."""
+    return GoalPlanningInput(
+        profile=ClientProfile(
+            annual_income=600_000,
+            effective_tax_rate=0.10,
+            financial_assets=9_500_000,
+            financial_liabilities_excl_mortgage=0,
+            monthly_household_expense=40_000,
+            starting_monthly_investment=0,
+        ),
+        retirement=RetirementInput(
+            date_of_birth=date(1968, 1, 1),
+            retirement_age=60,
+            assumed_lifespan_years=85,
+        ),
+        current_properties=[],
+        goal_properties=[
+            GoalProperty(
+                name="retirement_home",
+                target_pv=5_000_000,
+                goal_date=date(2028, 6, 1),
+                is_downpayment_only=False,
+            ),
         ],
+        custom_goals=[
+            CustomGoal(
+                name="medical_contingency",
+                goal_type=GoalType.custom,
+                goal_value_pv=1_500_000,
+                goal_date=date(2026, 12, 1),
+            ),
+            CustomGoal(
+                name="retirement_income_corpus",
+                goal_type=GoalType.custom,
+                goal_value_pv=8_000_000,
+                goal_date=date(2027, 6, 1),
+            ),
+            CustomGoal(
+                name="grandchild_education_gift",
+                goal_type=GoalType.custom,
+                goal_value_pv=1_000_000,
+                goal_date=date(2031, 6, 1),
+            ),
+        ],
+        one_off_inflows=[],
+        one_off_outflows=[],
+        detail_level="full",
+    )
+
+
+def profile_mohammed_faisal() -> GoalPlanningInput:
+    """41, Hyderabad government school teacher, married with two children. Six-goal
+    household across short/medium/long horizons — many-goal stress test."""
+    return GoalPlanningInput(
+        profile=ClientProfile(
+            annual_income=900_000,
+            effective_tax_rate=0.10,
+            financial_assets=1_800_000,
+            financial_liabilities_excl_mortgage=100_000,
+            monthly_household_expense=45_000,
+            starting_monthly_investment=25_000,
+        ),
+        retirement=RetirementInput(
+            date_of_birth=date(1985, 1, 1),
+            retirement_age=60,
+            assumed_lifespan_years=85,
+        ),
+        current_properties=[],
+        goal_properties=[
+            GoalProperty(
+                name="home_purchase",
+                target_pv=4_500_000,
+                goal_date=date(2036, 6, 1),
+                is_downpayment_only=True,
+                downpayment_pct=0.20,
+            ),
+        ],
+        custom_goals=[
+            CustomGoal(
+                name="emergency_fund",
+                goal_type=GoalType.custom,
+                goal_value_pv=300_000,
+                goal_date=date(2026, 12, 1),
+            ),
+            CustomGoal(
+                name="pilgrimage_hajj",
+                goal_type=GoalType.custom,
+                goal_value_pv=400_000,
+                goal_date=date(2030, 6, 1),
+            ),
+            CustomGoal(
+                name="child_education",
+                goal_type=GoalType.child_local_education,
+                goal_value_pv=4_000_000,
+                goal_date=date(2034, 6, 1),
+            ),
+            CustomGoal(
+                name="daughter_marriage",
+                goal_type=GoalType.child_marriage,
+                goal_value_pv=2_500_000,
+                goal_date=date(2038, 6, 1),
+            ),
+        ],
+        one_off_inflows=[],
+        one_off_outflows=[],
+        detail_level="full",
+    )
+
+
+def profile_neha_reddy() -> GoalPlanningInput:
+    """35, entrepreneur running a D2C skincare brand, irregular but growing income.
+    Large near-term business buffer competing with long-term goals."""
+    return GoalPlanningInput(
+        profile=ClientProfile(
+            annual_income=2_500_000,
+            effective_tax_rate=0.30,
+            financial_assets=5_200_000,
+            financial_liabilities_excl_mortgage=300_000,
+            monthly_household_expense=90_000,
+            starting_monthly_investment=80_000,
+        ),
+        retirement=RetirementInput(
+            date_of_birth=date(1991, 1, 1),
+            retirement_age=60,
+            assumed_lifespan_years=85,
+        ),
+        current_properties=[],
+        goal_properties=[
+            GoalProperty(
+                name="home_purchase",
+                target_pv=15_000_000,
+                goal_date=date(2032, 6, 1),
+                is_downpayment_only=True,
+                downpayment_pct=0.25,
+            ),
+        ],
+        custom_goals=[
+            CustomGoal(
+                name="business_expansion_buffer",
+                goal_type=GoalType.custom,
+                goal_value_pv=2_000_000,
+                goal_date=date(2027, 12, 1),
+            ),
+            CustomGoal(
+                name="luxury_car",
+                goal_type=GoalType.custom,
+                goal_value_pv=2_500_000,
+                goal_date=date(2029, 6, 1),
+            ),
+            CustomGoal(
+                name="child_education_abroad",
+                goal_type=GoalType.child_abroad_education,
+                goal_value_pv=12_000_000,
+                goal_date=date(2041, 6, 1),
+            ),
+        ],
+        one_off_inflows=[],
+        one_off_outflows=[],
+        detail_level="full",
+    )
+
+
+def profile_harpreet_singh() -> GoalPlanningInput:
+    """49, Ludhiana logistics business owner, married with one child in college.
+    Moderate-conservative; two competing property goals across medium horizons."""
+    return GoalPlanningInput(
+        profile=ClientProfile(
+            annual_income=3_500_000,
+            effective_tax_rate=0.30,
+            financial_assets=6_800_000,
+            financial_liabilities_excl_mortgage=200_000,
+            monthly_household_expense=80_000,
+            starting_monthly_investment=100_000,
+        ),
+        retirement=RetirementInput(
+            date_of_birth=date(1977, 1, 1),
+            retirement_age=60,
+            assumed_lifespan_years=85,
+        ),
+        current_properties=[
+            CurrentProperty(
+                name="primary_residence",
+                has_mortgage=True,
+                mortgage_emi=20_000,
+                mortgage_end_date=date(2032, 1, 31),
+            ),
+        ],
+        goal_properties=[
+            GoalProperty(
+                name="home_upgrade",
+                target_pv=6_000_000,
+                goal_date=date(2032, 6, 1),
+                is_downpayment_only=True,
+                downpayment_pct=0.40,
+            ),
+            GoalProperty(
+                name="rental_property",
+                target_pv=8_000_000,
+                goal_date=date(2034, 6, 1),
+                is_downpayment_only=True,
+                downpayment_pct=0.25,
+            ),
+        ],
+        custom_goals=[
+            CustomGoal(
+                name="child_higher_studies",
+                goal_type=GoalType.child_local_education,
+                goal_value_pv=3_500_000,
+                goal_date=date(2029, 6, 1),
+            ),
+            CustomGoal(
+                name="child_marriage",
+                goal_type=GoalType.child_marriage,
+                goal_value_pv=3_000_000,
+                goal_date=date(2033, 6, 1),
+            ),
+        ],
+        one_off_inflows=[],
+        one_off_outflows=[],
         detail_level="full",
     )
 
 
 PROFILES: list[tuple[str, str, callable]] = [
-    ("hni_multigoal", "HNI · Multi-goal (40yo)", profile_hni_multigoal),
-    ("young_saver", "Young Saver (28yo)", profile_young_saver),
-    ("mid_career_family", "Mid-Career Family (38yo)", profile_mid_career_family),
-    ("pre_retiree", "Pre-Retiree (55yo, HNI)", profile_pre_retiree),
-    ("stretched_aspirer", "Stretched Aspirer (32yo)", profile_stretched_aspirer),
+    ("aarav_gupta", "Aarav Gupta · Aggressive Starter (26)", profile_aarav_gupta),
+    ("lakshmi_iyer", "Lakshmi Iyer · Retired Widow (58)", profile_lakshmi_iyer),
+    ("mohammed_faisal", "Mohammed Faisal · Teacher, 6 goals (41)", profile_mohammed_faisal),
+    ("neha_reddy", "Neha Reddy · Entrepreneur (35)", profile_neha_reddy),
+    ("harpreet_singh", "Harpreet Singh · Business Owner (49)", profile_harpreet_singh),
 ]
 
 
