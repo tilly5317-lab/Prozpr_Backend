@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 # after the attempts are exhausted.
 _CONNECT_RETRIES = 3
 _CONNECT_BACKOFF_S = 0.5
+# Per-attempt connect timeout (TCP + TLS handshake + auth). Keeps a stalled
+# handshake from hanging the request for asyncpg's 60s default before retrying.
+_CONNECT_TIMEOUT_S = 10.0
 
 # Substrings that mark a connection error as transient and worth retrying.
 _TRANSIENT_CONNECT_MARKERS = (
@@ -68,6 +71,11 @@ def _is_transient_connect_error(exc: BaseException) -> bool:
     cur: BaseException | None = exc
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
+        # A connect/TLS-handshake timeout is retryable, but it surfaces as a bare
+        # TimeoutError (asyncio.TimeoutError aliases the builtin on 3.11+) with an
+        # empty message, so match the type — the text markers below would miss it.
+        if isinstance(cur, (asyncio.TimeoutError, TimeoutError)):
+            return True
         msg = str(cur).lower()
         if any(marker in msg for marker in _TRANSIENT_CONNECT_MARKERS):
             return True
@@ -94,11 +102,20 @@ def _get_engine() -> AsyncEngine:
     if _engine is None:
         url = get_settings().get_database_url()
         is_local = "localhost" in url or "127.0.0.1" in url
-        engine_kw: dict = (
-            {"poolclass": NullPool}
-            if is_local
-            else {"pool_pre_ping": True, "pool_recycle": 300}
-        )
+        if is_local:
+            engine_kw: dict = {"poolclass": NullPool}
+        else:
+            # Bound how long a single connect (TCP + TLS handshake + auth) may
+            # take. asyncpg's default is 60s, which turns a transient handshake
+            # stall — common on NAT64 / IPv6-mostly networks against RDS — into a
+            # 60s request hang then a 500. A short timeout fails fast so
+            # ``_connect_with_retry`` can retry and self-heal (a healthy connect
+            # here completes in ~2s).
+            engine_kw = {
+                "pool_pre_ping": True,
+                "pool_recycle": 300,
+                "connect_args": {"timeout": _CONNECT_TIMEOUT_S},
+            }
         _engine = create_async_engine(url, **engine_kw)
     return _engine
 
@@ -265,6 +282,22 @@ async def apply_postgres_schema_patches() -> None:
                 "ADD COLUMN IF NOT EXISTS mortgage_balance NUMERIC(18,2)"
             )
         )
+        # ORM/column drift: RiskProfile.investment_focus — the second behavioural
+        # question (investment focus / risk appetite) collected on profile/complete,
+        # which previously had no column and was silently dropped.
+        await conn.execute(
+            text(
+                "ALTER TABLE risk_profiles "
+                "ADD COLUMN IF NOT EXISTS investment_focus TEXT"
+            )
+        )
+        # The behavioural-question answers store the full option sentence (often
+        # >100 chars), so widen the original VARCHAR(100) columns to TEXT to avoid
+        # "value too long for type character varying(100)" on save.
+        for _col in ("investment_experience", "investment_focus", "drop_reaction"):
+            await conn.execute(
+                text(f"ALTER TABLE risk_profiles ALTER COLUMN {_col} TYPE TEXT")
+            )
         # Goals: keep legacy + cashflow columns in sync (all nullable; skip missing cols).
         goal_cols = {
             row[0]

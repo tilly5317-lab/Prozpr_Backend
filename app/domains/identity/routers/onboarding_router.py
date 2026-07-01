@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
+from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import (
     OtherInvestment,
     OtherInvestmentStatus,
@@ -26,6 +28,8 @@ from app.domains.identity.schemas.onboarding import (
     OtherAssetBulkCreate,
     OtherAssetResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
 
@@ -254,6 +258,7 @@ async def save_other_assets(
 @router.post("/complete", status_code=status.HTTP_204_NO_CONTENT)
 async def complete_onboarding(
     payload: OnboardingCompleteRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
@@ -263,6 +268,35 @@ async def complete_onboarding(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+    # True only the first time onboarding flips incomplete -> complete, so the
+    # team is notified exactly once per user (idempotent re-calls do not re-ping).
+    newly_completed = payload.is_complete and not user.is_onboarding_complete
+
     user.is_onboarding_complete = payload.is_complete
     user.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    # Notify the team of a completed signup (Slack + optional Google Sheet),
+    # without an admin dashboard. Only on the first completion AND only when the
+    # profile carries both a name and an email — an incomplete identity is not
+    # reported. Best-effort background task: runs after the 204, never fails it.
+    if newly_completed:
+        full_name = " ".join(
+            p for p in (user.first_name or "", user.last_name or "") if p
+        ).strip()
+        if full_name and user.email:
+            background_tasks.add_task(
+                notify_new_signup,
+                datetime.now(timezone.utc),
+                full_name,
+                user.email,
+                user.phone,
+                "Onboarding complete",
+            )
+        else:
+            logger.info(
+                "Onboarding completed for user %s but name/email missing — "
+                "signup notification skipped.",
+                user.id,
+            )

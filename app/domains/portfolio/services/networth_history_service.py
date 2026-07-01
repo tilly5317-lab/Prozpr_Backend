@@ -183,12 +183,39 @@ async def compute_user_networth_history(
         if progress is not None:
             await progress((idx + 1) / n_schemes)
 
+    # ── Anchor to the authoritative current portfolio ───────────────────────────
+    # The series above is replayed purely from the transaction ledger. When a CAS
+    # statement covers only a recent window (or holdings came from a non-ledger
+    # source), that ledger is *partial* — it understates both value and cost, while
+    # the dashboard headline (and the read-path's "today" point) use the true
+    # holdings totals. Left alone, the invested line tops out at the partial-ledger
+    # cost and then jumps to the real total at the latest point.
+    #
+    # Fix: add the pre-window "opening position" — the gap between the authoritative
+    # totals and the ledger's own latest day — held flat across the whole window, so
+    # the series is continuous and ends exactly at the headline. For a complete
+    # ledger the gap is ~0, so nothing changes.
+    open_value = 0.0
+    open_invested = 0.0
+    try:
+        pf = await revalue_primary_portfolio_at_latest_nav(db, user_id)
+    except Exception:  # noqa: BLE001 — never fail the series on a revalue hiccup
+        await db.rollback()
+        pf = None
+    if pf is not None:
+        auth_value = _f(pf.total_value)
+        auth_invested = _f(pf.total_invested)
+        if auth_invested > 0:
+            open_invested = max(0.0, auth_invested - invested_by_day.get(today, 0.0))
+        if auth_value > 0:
+            open_value = max(0.0, auth_value - value_by_day.get(today, 0.0))
+
     # Build one row per day across the full window.
     rows: list[UserPortfolioNavHistory] = []
     day = global_first
     while day <= today:
-        total = round(value_by_day.get(day, 0.0), 2)
-        invested = round(invested_by_day.get(day, 0.0), 2)
+        total = round(value_by_day.get(day, 0.0) + open_value, 2)
+        invested = round(invested_by_day.get(day, 0.0) + open_invested, 2)
         gain_pct = (
             round((total - invested) / invested * 100, 4) if invested > 0 else 0.0
         )
@@ -325,8 +352,16 @@ async def run_networth_backfill(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
             n = len(txns)
             for i, (scheme_code, first) in enumerate(txns):
                 try:
+                    # ``first`` is the fund's first transaction date, so it was held
+                    # from then — require NAV history back to it (closes the leading
+                    # gap left by daily latest-NAV top-ups, which otherwise zeroes the
+                    # fund's value for every month before the stored window).
                     await ensure_nav_history_for_chart(
-                        db, scheme_code, date_from=first, date_to=today
+                        db,
+                        scheme_code,
+                        date_from=first,
+                        date_to=today,
+                        require_from_start=True,
                     )
                 except Exception:  # noqa: BLE001 — best effort per scheme
                     logger.exception(
