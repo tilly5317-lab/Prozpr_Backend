@@ -19,3 +19,4 @@ Gathers 14 macro indicators via Claude + Anthropic web_search, extracts them int
 ## Don't read
 - `__pycache__/`.
 - `_archive/` — historical snapshots and retired scraper.
+- `test_chat_qa_reasoning.py` / `test_document_generator_reasoning.py` — root-level reasoning test scripts.

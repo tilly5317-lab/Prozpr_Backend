@@ -11,4 +11,4 @@ Gateway domain: composes a tailored reply when no specialist module owns the int
   - `general_chat_engine` — two-pass Anthropic engine: a `web_search`-enabled research pass, then a schema-forced compose pass. Also returns sub-reason-tailored canned replies for out-of-scope / stock-advice intents (`services/general_chat_engine.py`).
 
 ## Don't read
-- `__pycache__/`.
+- `__pycache__/`, `tests/`.

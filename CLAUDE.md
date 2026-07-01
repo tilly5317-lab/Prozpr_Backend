@@ -5,7 +5,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, cashflow_statement, Rebalancing, intent_classifier, market_commentary, portfolio_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library; integrated via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
+- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, practical_asset_allocation, cashflow_statement, Rebalancing, additional_investment, intent_classifier, market_commentary, portfolio_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library; via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
 - **alembic/** — Database migrations.
 - **migrations/** — Hand-written raw SQL migration scripts (under `sql/`) for asset-allocation schema changes; applied manually, distinct from the Alembic-managed `alembic/` migrations.
 - **notebooks/** — DEV-ONLY exploration Jupyter notebooks (e.g. a portfolio-vs-Nifty-50 benchmark prototype). Not imported by runtime.

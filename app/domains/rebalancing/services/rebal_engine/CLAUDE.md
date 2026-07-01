@@ -13,6 +13,7 @@ Cache-first orchestration → engine inputs → trade list → chat markdown. Re
 - `readiness.py` — engine-side readiness check.
 - `tax_aging.py` — per-lot ST/LT aging.
 - `chat.py` — the REBALANCING-intent chat handler.
+- `_disk_cache.py` — CSV-backed NAV/metadata disk cache (`_NAV_CSV`/`_META_CSV`); the engine's only price/metadata source.
 - `tests/` — pytest suite (per-module + e2e).
 
 ## Gotchas & invariants

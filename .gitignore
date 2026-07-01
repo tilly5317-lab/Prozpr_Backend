@@ -5,7 +5,7 @@ __pycache__/
 *$py.class
 *.so
 *.pyc
-
+.effo
 # Virtual environment (must not be tracked)
 .venv/
 .venv-mac/
@@ -117,13 +117,13 @@ AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
 # User-filed issue reports (Excel register + screenshots) — runtime artifacts
 issue_reports/
 /app/domains/portfolio/services/tests
-<<<<<<< HEAD
 /app/domains/general_chat/tests
 /app/domains/ai_engine/answer_formatter/tests
-/app/domains/ai_engine/answer_formatter/tests
-=======
->>>>>>> f742ab5e1e1f4322753613fa8ba48d23ee0abb82
 /app/core/tests
 /app/domains/rebalancing/services/tests
 /app/domains/rebalancing/services/rebal_engine/tests
 /app/domains/asset_allocation/services/aa_engine/tests
+/app/domains/additional_investment/services/tests
+/app/domains/additional_investment/services/ainv_engine/tests
+/AI_Agents/src/additional_investment/Master_testing
+/app/domains/rebalancing/services/rebal_engine/tests

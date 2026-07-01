@@ -5,15 +5,17 @@ FastAPI application package, organised **domain-first**: every business capabili
 ## Child modules
 
 - **core/** — cross-cutting infra (`config`, `database`, `dependencies`, `security`, `lifespan`, `exceptions`). No domain logic. See `core/CLAUDE.md`.
-- **domains/** — one folder per business domain (19), each with the same four sub-folders so the shape is predictable:
+- **domains/** — one folder per business domain (21), each with the same four sub-folders so the shape is predictable:
   - **identity/** — user, auth, OTP, family members, linked accounts, onboarding
   - **profile/** — risk, tax, investment, constraints, personal finance, properties
   - **goals/** — financial goals, contributions, holdings
   - **portfolio/** — portfolio + allocations + holdings + history + NAV history
+  - **benchmarks/** — benchmark index data (e.g. Nifty50 TRI), scheduler-fed
   - **mutual_funds/** — MF metadata, NAV, txns, SIPs, snapshots, watchlists, AA imports, mfapi.in
   - **equities/** — company metadata, prices, transactions
   - **asset_allocation/** — allocation runs, buckets, aggregates, targets
   - **rebalancing/** — rebalancing runs, trades, warnings, fund rows, subgroup summaries
+  - **additional_investment/** — additional-investment chat/engine (deploy amount + cadence extractor)
   - **cashflow/** — cashflow plan engine: assumptions, one-off events, plan runs, headlines
   - **ingestion/** — CAMS-CAS PDF, SimBanks, Finvu (legacy) ingest adapters
   - **advisory/** — IPS, meeting notes, discovery helpers
@@ -24,9 +26,9 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **market_commentary/** — gateway to `AI_Agents.market_commentary`; generates the macro doc consumed downstream
   - **practical_asset_allocation/** — holdings-aware allocation (variant of `asset_allocation`); first step of the rebalancing flow
   - **general_chat/** — Anthropic-backed fallback chat (web-search research + composed reply) when no specialist owns the intent
-  - **support/** — in-app issue reports: persists the row, stores an optional screenshot, emails support via SMTP
+  - **support/** — in-app issue reports: logs to the Google Sheet register (+ optional screenshot/email)
 - **routers/** — thin top-level package: `health.py`, `tags.py` (OpenAPI tag metadata), and the aggregator `__init__.py` that imports each domain's `routers/` package and exposes `all_routers` for `main.py`. The `ai_modules/` subfolder holds docs only.
-- **services/** — cross-domain AI-bridge glue (`ai_bridge/`, e.g. the rebalancing `input_builder`); domain-owned services live under each domain instead.
+- **services/** — cross-domain helpers (not domain-owned): `ai_bridge/` (rebalancing `input_builder` etc.), `chat_core/` (chat kernel), `effective_risk_profile/` (resolved profile), `mf/` (MF helpers), `visualization_tools/` (chart builders).
 
 ## Files at this level
 

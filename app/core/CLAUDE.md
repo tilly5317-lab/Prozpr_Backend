@@ -22,4 +22,4 @@ No business logic — only the infra every domain depends on.
 
 ## Don't read
 
-- `__pycache__/`.
+- `__pycache__/`, `tests/`.

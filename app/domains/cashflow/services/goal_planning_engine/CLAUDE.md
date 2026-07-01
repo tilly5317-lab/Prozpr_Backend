@@ -7,6 +7,7 @@ ORM `User` → `GoalPlanningInput` → `cashflow_statement` engine → `facts_pa
 - `service.py` — `compute_goal_planning_snapshot`: runs `compute_full_projection`, persists the plan run, builds `facts_pack` + deterministic `fallback_text`.
 - `input_builder.py` — `build_goal_planning_input_for_user`: maps profile + properties + active goals to `GoalPlanningInput`.
 - `readiness.py` — `evaluate_cashflow_readiness` + `REQUIRED_CASHFLOW_FIELDS`; backs `GET /cashflow/readiness` and the builder's gate.
+- `cashflow_trace.py` — structured `[AILAX_TRACE]` logging of each engine run (trigger→inputs→processing→output).
 - `tests/` — pytest suite (chat, input_builder, service).
 
 ## Gotchas & invariants

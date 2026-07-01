@@ -100,6 +100,19 @@ async def flow_general_chat(turn, ctx) -> ModuleOutput:
     return await run_general_chat(turn, ctx, {})
 
 
+async def flow_additional_investment(turn, ctx) -> ModuleOutput:
+    # Deploy fresh money (lumpsum/SIP) into specific funds. Unlike flow_rebalancing,
+    # this flow does NOT pre-run practical asset allocation: the additional_investment
+    # orchestrator self-primes PAA inside its own run (it needs the persisted
+    # allocation RUN for source_allocation_run_id, not just the targets), so
+    # pre-running it here would compute the allocation twice.
+    from app.domains.additional_investment.services.additional_investment_module_service import (
+        run as run_additional_investment,
+    )
+
+    return await run_additional_investment(turn, ctx, {})
+
+
 # ---------------------------------------------------------------------------
 # The switch: intent name -> flow. Unknown intents fall back to general_chat.
 # Adding/altering an intent = edit one row here + its flow above. The brain
@@ -113,6 +126,7 @@ FLOWS = {
     "rebalancing": flow_rebalancing,
     "goal_planning": flow_goal_planning,
     "general_market_query": flow_market,
+    "additional_investment": flow_additional_investment,
 }
 
 # When the cashflow save-flow is open from a prior turn, the brain routes here

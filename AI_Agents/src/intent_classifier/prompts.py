@@ -7,33 +7,32 @@ Your sole job is to read a customer's question (and any recent conversation hist
 ## Intent Definitions
 
 ### 1. asset_allocation
-The customer wants to **take action** on their own portfolio or investable money — they want advice on how to invest, rebalance, or restructure what they hold. This covers asset-class, sub-asset-group, and sub-category level decisions (e.g., equity vs debt mix, large-cap vs mid-cap allocation, broad fund-mix shape). Specific named-fund swaps and individual fund picks belong to `rebalancing`, not asset_allocation. The hallmark is that the question is **personal and actionable for THIS customer** — it references their portfolio, their money, their SIP, their holdings, or their situation.
+The customer wants to **take action** on their own portfolio or investable money — they want advice on how to invest, rebalance, or restructure what they hold. This covers asset-class, sub-asset-group, and sub-category level decisions (e.g., equity vs debt mix, large-cap vs mid-cap allocation, broad fund-mix shape). Specific named-fund swaps belong to `rebalancing`; picking specific funds for new money belongs to `additional_investment`; neither is asset_allocation. The hallmark is that the question is **personal and actionable for THIS customer** — it references their portfolio, their money, their SIP, their holdings, or their situation.
 
 Triggers when the customer is asking for a recommendation or decision on:
 - Overall asset allocation for their portfolio (equity / debt / gold / real estate split)
 - Whether **their** existing portfolio is aligned with their goals, plan, or target allocation ("is my portfolio aligned with my goals?", "is what I hold right for my plan?")
-- Adding a specific amount of their own money to an investment (e.g. "I have ₹5L…")
 - Whether an asset class or sub-category (e.g., large-cap vs mid-cap, equity vs debt mix) is right **for them**, given their profile
-- SIP-amount decisions for new investments at the asset-class / sub-category level (NOT specific fund picks)
 - Whether **they** are over- or under-invested in any asset class
 - Any "should I…?" question that refers to the customer's own money, portfolio, or situation
 
 Example questions:
-- "I have ₹5L to invest — where should I put it?"
+- "Should I be more aggressive given my age?"
 - "Should I add midcap to my portfolio?"
 - "Is gold a good addition for my allocation?"
 - "How is my portfolio looking? Is it aligned with the goals?" (compound: descriptive opener + alignment ask; alignment is the substantive part → asset_allocation)
 - "Is my current allocation right for my retirement plan?"
 
-**Goal-mention does not flip intent.** A question that mentions a goal as context but whose primary ask is "where should I invest" or "is my portfolio aligned" stays in `asset_allocation`. Examples:
-- "I have ₹50k/month and want ₹10 crore in 15 years — where should I invest?" → `asset_allocation` (primary ask is allocation; goal is context)
+**A goal mention is context, not the intent.** Look at the primary ask: a policy/mix or alignment question ("should I add midcap", "is my portfolio aligned") stays in `asset_allocation`; a "where do I invest this amount" or fund-deployment ask is `additional_investment` even when a goal is mentioned. Examples:
+- "I have ₹50k/month and want ₹10 crore in 15 years — where should I invest?" → `additional_investment` (a stated amount to deploy; goal is context, no feasibility ask)
 - "Should I add midcap to my portfolio for my retirement goal?" → `asset_allocation`
 - "Is my portfolio aligned with my goals?" → `asset_allocation` (alignment ask = comparing actual vs. ideal; this is what AA does)
 
-**Not asset_allocation — these go to `rebalancing`:**
-- "Should I switch from Axis Bluechip to Mirae Asset Large Cap?" → `rebalancing` (named fund-to-fund swap)
-- "Which large-cap fund should I pick?" → `rebalancing` (specific fund pick)
-- "Which mutual fund is best for me?" → `rebalancing`
+**Not asset_allocation:**
+- "Should I switch from Axis Bluechip to Mirae Asset Large Cap?" → `rebalancing` (named fund-to-fund swap of existing holdings)
+- "Which large-cap fund should I invest in?" → `additional_investment` (specific fund pick for new money)
+- "Which mutual fund is best for me?" → `additional_investment` (fund selection for new money)
+- "I have ₹5L — where should I invest it?" → `additional_investment` (a specific new amount to deploy)
 
 ---
 
@@ -132,7 +131,7 @@ Example questions:
 
 Key distinction from portfolio_query: general_market_query is about **the market in general**, not the customer's own holdings.
 
-Key distinction from asset_allocation: `asset_allocation` requires a **personal hook** — the customer's portfolio, their money, their SIP, their situation ("should I add midcap to my portfolio", "I have ₹5L, where to invest"). Generic timing/valuation questions with no personal hook ("is it a good time to invest in midcap") are market-commentary questions and belong here.
+Key distinction from asset_allocation: `asset_allocation` requires a **personal hook** — the customer's portfolio, their money, their SIP, their situation ("should I add midcap to my portfolio", "is my equity/debt mix right for me"). Generic timing/valuation questions with no personal hook ("is it a good time to invest in midcap") are market-commentary questions and belong here.
 
 ---
 
@@ -144,7 +143,6 @@ Triggers when the customer is asking:
 - For the specific trades, switches, or redemptions to bring their portfolio in line with the plan (action)
 - For a buy/sell list, exit list, or tax-aware sequencing of transactions
 - Specific fund-name-to-fund-name swaps or scheme-level decisions ("switch from Axis Bluechip to Mirae Large Cap")
-- Picking a specific fund within an asset class or sub-category ("which large-cap fund should I pick?")
 - Switching, exiting, or consolidating **their** mutual fund schemes (fund-level operation)
 - "How do I move from my current portfolio to the recommended one?"
 - To rebalance / "do the rebalancing"
@@ -159,8 +157,6 @@ Example questions:
 - "What trades should I make to align with my plan?"
 - "Show me what to buy and sell to fix my portfolio."
 - "Should I switch from Axis Bluechip to Mirae Asset Large Cap?"
-- "Which large-cap fund should I pick?"
-- "Which mutual fund is best for me?"
 - "I'm overweight in equity, what should I do?" / "I'm overweight in small caps." — over/under-weight diagnostics against the customer's current portfolio are rebalancing asks (they require an actual-vs-target gap to answer, which is the rebalancing engine's job).
 - "Should I trim my small caps?" / "Should I reduce my X allocation?" — action asks on a specific holding belong to rebalancing, not asset_allocation.
 
@@ -169,10 +165,35 @@ Key distinction from asset_allocation:
 - `rebalancing` measures **distance from the target** ("how far off am I?") and produces the trades to close that gap.
 - A diagnostic "should I rebalance?" question always belongs to `rebalancing` — answering it requires the actual-vs-target comparison the rebalancing engine produces, which `asset_allocation` does not do.
 - A "should I rebalance to be more aggressive?" question is a target-change ask in disguise → `asset_allocation` (the customer wants to redefine the target, not measure the current gap).
+- A fund pick for **new** money ("which large-cap fund should I invest in?", "which fund is best for me?") is `additional_investment`, not rebalancing — rebalancing is for **switching/trimming existing** holdings.
 
 ---
 
-### 7. out_of_scope
+### 7. additional_investment
+The customer has **money to deploy right now** — a specific lumpsum or a SIP amount — and wants to know **where to put it / which funds to buy**. This is the "put my new money to work" intent: deploying a stated amount and/or selecting specific funds for fresh money. The hallmark is **new money + a deployment or fund-selection ask**, answered as fresh BUYs (never selling existing holdings).
+
+Triggers when the customer is asking:
+- Where to invest a specific amount they have or are adding ("I have ₹5L — where should I invest it?", "I got a bonus, where do I put it?")
+- How to deploy a SIP / monthly investment ("I want to start a SIP of ₹50k/month — where?", "split my ₹30k SIP across funds")
+- Which specific fund(s) to buy with new money ("which large-cap fund should I invest in?", "which mutual fund is best for me?", "recommend a fund for my ₹2L")
+- A fund pick at the specific-fund level for NEW money (this is what distinguishes it from asset_allocation's mix-level answer)
+
+Example questions:
+- "I have ₹5L to invest — which funds should I buy?"
+- "I have ₹5L — where should I invest it?"
+- "I want to do a SIP of ₹50,000 a month — where should it go?"
+- "Which large-cap fund should I invest in?"
+- "Which mutual fund is best for me?"
+
+Key distinction from `asset_allocation`: asset_allocation answers the **target mix** as a policy question ("what should my equity/debt split be?", "is my allocation right?", "should I add midcap?") — it does NOT name funds and does NOT require a specific new amount. additional_investment answers **"deploy THIS money / which funds"** — it involves new money to deploy, specific fund selection, or both. If the customer states an amount to invest, or asks which fund to buy, it is additional_investment.
+
+Key distinction from `rebalancing`: rebalancing **moves existing money** to fix drift — it buys AND sells, with tax-aware sequencing ("rebalance my portfolio", "switch from Axis to Mirae", "I'm overweight small caps"). additional_investment only **adds new money** (BUY-only); it never sells. A fund-to-fund **swap** of existing holdings is rebalancing; picking a fund for **new** money is additional_investment.
+
+Key distinction from `goal_planning`: goal_planning answers **feasibility** ("at ₹50k/month, can I hit ₹2cr by 2040?", "am I on track?"). additional_investment answers **where to deploy**. If a question pairs feasibility with deployment ("can I hit ₹10cr AND where do I invest?"), feasibility leads → goal_planning. A pure "where do I invest this ₹X / SIP" with no feasibility ask is additional_investment.
+
+---
+
+### 8. out_of_scope
 The question does not fit any of the categories above.
 
 This includes: insurance queries, tax-specific advice, crypto, legal or estate planning queries, or anything else Prozpr does not currently handle (note: questions about the customer's own linked bank/demat/MF accounts are `portfolio_query`, NOT out_of_scope — see "Routing edge cases" below).
@@ -270,7 +291,7 @@ These cases are easy to misclassify. Apply these rules explicitly:
    - "Should I rebalance and what's the weather?" → `rebalancing` (the rebalancing question is substantive; weather is noise).
    - "What's my allocation? Also tell me a joke." → `portfolio_query`.
 
-4. **Identity / chat-summary / security questions → `out_of_scope`** with the appropriate subreason (see §7). The general chat layer will tailor the reply by subreason; the classifier's job is just to flag them correctly.
+4. **Identity / chat-summary / security questions → `out_of_scope`** with the appropriate subreason (see §8). The general chat layer will tailor the reply by subreason; the classifier's job is just to flag them correctly.
 
 ### Output format
 

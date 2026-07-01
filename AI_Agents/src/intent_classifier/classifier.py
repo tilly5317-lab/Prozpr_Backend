@@ -33,6 +33,7 @@ _IntentLiteral = Literal[
     "portfolio_query",
     "general_market_query",
     "rebalancing",
+    "additional_investment",
     "out_of_scope",
 ]
 
@@ -132,13 +133,14 @@ def _build_user_turn(input: ClassificationInput) -> str:
 
 class IntentClassifier:
     """
-    Classifies a customer's financial question into one of seven intents:
+    Classifies a customer's financial question into one of eight intents:
       - asset_allocation
       - goal_planning
       - stock_advice   (redirects to mutual funds)
       - portfolio_query
       - general_market_query
-      - rebalancing   (named-fund swaps / specific fund picks)
+      - rebalancing   (named-fund swaps / drift trades on existing holdings)
+      - additional_investment   (deploy new money / fresh fund selection, BUY-only)
       - out_of_scope
 
     stock_advice and out_of_scope each populate out_of_scope_message with
