@@ -68,6 +68,7 @@ class FundRankRow:
     isin: str
     fund_name: str
     selection_reason: str = ""
+    scheme_code: str = ""
 
 
 @cache
@@ -104,6 +105,7 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
                     isin=row["isin"],
                     fund_name=row["recommended_fund"],
                     selection_reason=(row.get("selection_reason") or "").strip(),
+                    scheme_code=(row.get("scheme_code") or "").strip(),
                 )
             )
     for subgroup in by_sg:

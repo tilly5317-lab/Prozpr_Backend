@@ -321,6 +321,11 @@ class Settings:
         return Settings._anthropic_key("REBALANCING_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
+    def get_anthropic_additional_investment_key() -> str | None:
+        """Additional-investment chat extractor (deploy amount + cadence)."""
+        return Settings._anthropic_key("ADDITIONAL_INVESTMENT_API_KEY", "ANTHROPIC_API_KEY")
+
+    @staticmethod
     def get_anthropic_answer_formatter_key() -> str | None:
         """Shared answer-formatter LLM call (used by AA + rebalancing chat formatters)."""
         return Settings._anthropic_key("ANSWER_FORMATTER_API_KEY", "ANTHROPIC_API_KEY")

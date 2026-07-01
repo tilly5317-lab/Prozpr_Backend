@@ -6,6 +6,7 @@ Reference documents read at runtime by agents under `AI_Agents/src/`: skill-prom
 
 - `ARCHITECTURE.md` — hand-authored architecture walkthrough of `AI_Agents/`: per-agent contracts, deterministic-vs-LLM split, cross-agent data-flow, conventions, landmines. Companion to top-level `docs/ARCHITECTURE.md`.
 - `ARCHITECTURE.html` — styled HTML rendering of `ARCHITECTURE.md` (rendered Mermaid, ToC) for browser reading.
+- `CHAT_FLOW.html` — styled HTML guide to the AI chat flow (rendered Mermaid) for browser reading.
 - `market_commentary_latest.md` — daily Indian macro commentary. Written by `src/market_commentary/` (`main.MarketCommentaryAgent`, driven by `app/domains/market_commentary/services/market_commentary_engine.py`). Read by `src/portfolio_query/` for its commentary context block.
 - `market_commentary_latest.json` — `MacroSnapshot` cache backing the `.md` (TTL via `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`).
 - `prozpr_fund_ranking_may_2026.csv` — fund-ranking table. `rank ≥ 1` + `selection_reason` = recommended; rank-blank rows are evaluated-then-rejected, with per-row `*_reason` columns. Consumed by `app/domains/rebalancing/services/rebal_engine/fund_rank.py` (`get_fund_ranking`, `get_rejection_reasons`).

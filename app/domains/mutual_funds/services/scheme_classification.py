@@ -530,25 +530,35 @@ def classify_holding(
 # normalized first. Weights within each row sum to 1.0.
 ASSET_CLASS_LOOKTHROUGH_WEIGHTS: dict[str, dict[str, float]] = {
     "Multi-Asset Allocation Fund": {
-        ASSET_CLASS_EQUITY: 0.65,
-        ASSET_CLASS_DEBT: 0.25,
-        ASSET_CLASS_OTHERS: 0.10,
+        ASSET_CLASS_EQUITY: 0.725,
+        ASSET_CLASS_DEBT: 0.125,
+        ASSET_CLASS_OTHERS: 0.15,
     },
     "Aggressive Hybrid Fund (Equity 65-80%, Debt 20-35%)": {
-        ASSET_CLASS_EQUITY: 0.70,
-        ASSET_CLASS_DEBT: 0.30,
+        ASSET_CLASS_EQUITY: 0.725,
+        ASSET_CLASS_DEBT: 0.175,
+        ASSET_CLASS_OTHERS: 0.10,
     },
     "Dynamic Asset Allocation Fund": {
-        ASSET_CLASS_EQUITY: 0.65,
-        ASSET_CLASS_DEBT: 0.35,
+        ASSET_CLASS_EQUITY: 0.50,
+        ASSET_CLASS_DEBT: 0.50,
     },
     "Balanced Hybrid Fund (Equity 40-60%, Debt 40-60%)": {
         ASSET_CLASS_EQUITY: 0.50,
         ASSET_CLASS_DEBT: 0.50,
     },
     "Conservative Hybrid Fund (Equity 10-25%, Debt 75-90%)": {
-        ASSET_CLASS_EQUITY: 0.20,
-        ASSET_CLASS_DEBT: 0.80,
+        ASSET_CLASS_EQUITY: 0.175,
+        ASSET_CLASS_DEBT: 0.825,
+    },
+    # Flexi Cap is a pure-equity SEBI category (single-class in SUBCAT_TO_MAPPING
+    # → medium_beta_equities); modeled here with a debt+others sleeve so the
+    # asset-class look-through reflects its real-world cash/debt holdings. The
+    # subgroup-level rebalancing still treats it as 100% equity.
+    "Flexi Cap Fund": {
+        ASSET_CLASS_EQUITY: 0.725,
+        ASSET_CLASS_DEBT: 0.175,
+        ASSET_CLASS_OTHERS: 0.10,
     },
 }
 

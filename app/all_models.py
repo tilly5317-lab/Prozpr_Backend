@@ -75,6 +75,9 @@ from app.domains.rebalancing.models import (  # noqa: F401
     rebalancing_trade,
     rebalancing_warning,
 )
+from app.domains.additional_investment.models import (  # noqa: F401
+    additional_investment_run,
+)
 from app.domains.cashflow.models import (  # noqa: F401
     enums as cashflow_enums,
     assumptions,
