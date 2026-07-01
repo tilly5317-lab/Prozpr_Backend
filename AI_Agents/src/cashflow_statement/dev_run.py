@@ -47,7 +47,6 @@ from cashflow_statement import (
     CurrentProperty,
     GoalProperty,
     CustomGoal,
-    OneOffEvent,
     GoalType,
 )
 from cashflow_statement.agent.levers import propose_levers
