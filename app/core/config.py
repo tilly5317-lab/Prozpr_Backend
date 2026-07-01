@@ -418,6 +418,31 @@ class Settings:
         v = (_getenv("ISSUE_SHEET_TOKEN") or "").strip()
         return v or None
 
+    # ── New-signup team notification (identity domain): Slack + optional Sheet ──
+    @staticmethod
+    def get_slack_signup_webhook_url() -> str | None:
+        """Slack Incoming Webhook URL that posts each new signup to a team
+        channel (e.g. #signups) — the primary "everyone gets notified" channel.
+        When unset, the Slack ping is skipped (signup still succeeds)."""
+        v = (_getenv("SLACK_SIGNUP_WEBHOOK_URL") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_signup_sheet_webhook_url() -> str | None:
+        """Optional Google Apps Script web-app URL that appends one row per
+        signup to a shared 'New Signups' Google Sheet (the sortable
+        'all users in one place' view). When unset, the sheet append is
+        skipped — Slack remains the primary channel."""
+        v = (_getenv("SIGNUP_SHEET_WEBHOOK_URL") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_signup_sheet_token() -> str | None:
+        """Shared secret the signup-sheet Apps Script checks so strangers
+        cannot post junk rows if the webhook URL ever leaks."""
+        v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
+        return v or None
+
     @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""

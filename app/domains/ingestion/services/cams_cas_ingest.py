@@ -37,9 +37,7 @@ from app.domains.mutual_funds.models import (
     MfAaImportStatus,
     MfAaSummary,
     MfAaTransaction,
-    MfTransaction,
 )
-from app.domains.mutual_funds.models.user_mf_latest_snapshot import UserMfLatestSnapshot
 from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
     resolve_asset_bucket,
@@ -49,16 +47,12 @@ from app.domains.mutual_funds.services.scheme_resolver import (
     canonical_scheme_code,
 )
 from app.domains.portfolio.models.portfolio import (
-    Portfolio,
     PortfolioAllocation,
     PortfolioHolding,
 )
-from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
-from app.domains.portfolio.models.user_portfolio_nav_history import (
-    UserPortfolioNavHistory,
-)
 from app.domains.identity.models.user import User
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
+from app.domains.ingestion.services.user_data_reset import reset_user_financial_data
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
 )
@@ -823,10 +817,14 @@ async def _backfill_user_profile(
 ) -> list[str]:
     """Fill empty identity fields on the user's row from the CAS investor block.
 
-    The CAS carries the investor's legal name, email, PAN and (a) postal address —
-    when the user signed up with only a phone number these are blank, so ``/profile``
-    and ``/auth/me`` come back empty. We back-fill **blanks only**: anything the
-    user has already entered is left untouched. Returns the list of fields filled.
+    The CAS carries the investor's email, PAN and (a) postal address — when the
+    user signed up with only a phone number these are blank, so ``/profile`` and
+    ``/auth/me`` come back empty. We back-fill **blanks only**: anything the user
+    has already entered is left untouched. Returns the list of fields filled.
+
+    The investor NAME is deliberately NOT taken from the CAS — the name the user
+    enters at sign-up is authoritative. (The CAS legal name is still recorded in
+    the ``mf_aa_imports`` audit row; it just never lands on the user profile.)
     """
     user = (
         await db.execute(select(User).where(User.id == user_id))
@@ -838,16 +836,7 @@ async def _backfill_user_profile(
     folios = parsed.get("folios") or []
     filled: list[str] = []
 
-    first, middle, last = _split_name(investor.get("name"))
-    if first and not _clean(user.first_name):
-        user.first_name = first
-        filled.append("first_name")
-    if middle and not _clean(user.middle_name):
-        user.middle_name = middle
-        filled.append("middle_name")
-    if last and not _clean(user.last_name):
-        user.last_name = last
-        filled.append("last_name")
+    # NOTE: the investor name is intentionally NOT back-filled from the CAS.
 
     address = _clean(investor.get("address"), limit=500)
     if address and not _clean(user.address):
@@ -884,57 +873,22 @@ async def _backfill_user_profile(
     return filled
 
 
-# --------------------------------------------------------------------------- entry point
+def _total_market_value(parsed: dict[str, Any]) -> float:
+    """Sum the current market value across every scheme in the parsed CAS.
 
-
-async def reset_user_cams_data(db: AsyncSession, user_id: uuid.UUID) -> None:
-    """Wipe everything derived from a prior CAMS import so a fresh upload is the sole truth.
-
-    Clears, for ``user_id``: the normalized transaction ledger (``mf_transactions``), the
-    raw AA-import audit rows (``mf_aa_imports`` → cascades to summaries + staging
-    transactions), the mutual-fund holdings and bucket allocations on every portfolio they
-    own, the daily net-worth series (``user_portfolio_nav_history``), the derived per-fund
-    snapshots, and any stale net-worth backfill jobs (so a fresh one recomputes cleanly).
-
-    Equity / other holdings from non-CAMS sources are left untouched. Does NOT commit — the
-    caller (``ingest_cams_pdf``) owns the surrounding transaction so the wipe + re-ingest
-    land atomically.
+    Mirrors the per-scheme valuation used by :func:`_populate_children` so we can
+    cheaply tell, before any DB writes, whether the statement has live holdings.
     """
-    portfolio_ids = list(
-        (await db.execute(select(Portfolio.id).where(Portfolio.user_id == user_id)))
-        .scalars()
-        .all()
-    )
+    total = 0.0
+    for folio in parsed.get("folios") or []:
+        for scheme in folio.get("schemes") or []:
+            value = _num((scheme.get("valuation") or {}).get("value"))
+            if value > 0:
+                total += value
+    return total
 
-    # Transactions first (they reference imports via SET-NULL FK; delete before imports).
-    await db.execute(delete(MfTransaction).where(MfTransaction.user_id == user_id))
-    await db.execute(
-        delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id)
-    )
-    await db.execute(
-        delete(UserPortfolioNavHistory).where(
-            UserPortfolioNavHistory.user_id == user_id
-        )
-    )
-    await db.execute(
-        delete(PortfolioNetworthJob).where(PortfolioNetworthJob.user_id == user_id)
-    )
-    if portfolio_ids:
-        await db.execute(
-            delete(PortfolioHolding).where(
-                PortfolioHolding.portfolio_id.in_(portfolio_ids),
-                PortfolioHolding.instrument_type == "mutual_fund",
-            )
-        )
-        await db.execute(
-            delete(PortfolioAllocation).where(
-                PortfolioAllocation.portfolio_id.in_(portfolio_ids)
-            )
-        )
-    # Imports last — DB-level ON DELETE CASCADE clears mf_aa_summaries / mf_aa_transactions.
-    await db.execute(delete(MfAaImport).where(MfAaImport.user_id == user_id))
-    await db.flush()
-    logger.info("reset CAMS-derived data for user %s before fresh ingest", user_id)
+
+# --------------------------------------------------------------------------- entry point
 
 
 async def ingest_cams_pdf(
@@ -948,15 +902,41 @@ async def ingest_cams_pdf(
 ) -> CamsIngestResult:
     """Parse a CAMS/KFintech CAS PDF and persist it. Caller is responsible for the final commit.
 
-    When ``replace_existing`` is set, every CAMS-derived record for the user is wiped first
-    (see :func:`reset_user_cams_data`) so the new statement fully replaces the old one and
-    all downstream figures are recomputed from scratch — instead of the default incremental
-    merge that only appends new (de-duplicated) transactions.
+    A CAS is a *complete* snapshot of the user's mutual-fund holdings, so EVERY upload
+    first wipes the user's entire financial/computed footprint
+    (:func:`reset_user_financial_data` — portfolio, holdings, the MF ledger + audit
+    trail, asset-allocation / practical-allocation / rebalancing runs, cashflow plans
+    and inputs, net-worth history, advisory notes/IPS) and rebuilds it from this
+    statement alone. This guarantees no stale, cached state from a prior upload can
+    leak through. Profile/onboarding, goals, chats, notifications, account links and
+    family relationships are preserved; global reference data (fund metadata, NAV
+    history, benchmarks) is never touched.
+
+    ``replace_existing`` is retained for API compatibility but no longer changes
+    behaviour — the full reset now runs unconditionally on every upload.
     """
     parsed = await asyncio.to_thread(_parse_cas_pdf, file_bytes, password)
 
-    if replace_existing:
-        await reset_user_cams_data(db, user_id)
+    # Reject statement variants we can't build a real portfolio from — BEFORE any
+    # DB writes, and before the reset wipes the user's prior data:
+    #   * a Summary CAS has holdings but NO transaction history; and
+    #   * a statement with no current holdings (net value 0) has nothing invested.
+    if (_clean(parsed.get("cas_type")) or "").upper() == "SUMMARY":
+        raise CamsPdfParseError(
+            "This is a Summary CAMS / KFintech statement (holdings only, with no "
+            "transaction history). Please generate and upload the Detailed "
+            "Consolidated Account Statement instead."
+        )
+    if _total_market_value(parsed) <= 0:
+        raise CamsPdfParseError(
+            "This statement shows no current mutual-fund holdings (net value ₹0). "
+            "Please upload a statement that includes your active investments."
+        )
+
+    # Clean slate on every upload: a CAS fully replaces prior MF state, so wipe all
+    # derived/computed data (keeping profile, goals, chats) and rebuild from scratch —
+    # no incremental merge, no cache to go stale. ``replace_existing`` is now moot.
+    await reset_user_financial_data(db, user_id)
 
     aa_import = _build_import_row(user_id, parsed, source_filename)
     db.add(aa_import)

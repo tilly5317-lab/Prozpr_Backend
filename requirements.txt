@@ -24,6 +24,10 @@ apscheduler>=3.10.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.22
 
+# Observability — New Relic APM, error tracking, and log forwarding.
+# No-op unless NEW_RELIC_LICENSE_KEY is set (see app/core/observability.py).
+newrelic>=9.7.0
+
 # CAMS / KFintech Consolidated Account Statement (CAS) PDF parsing
 # (uploaded by users in place of the sidelined Finvu account-aggregator fetch).
 # pymupdf is casparser's preferred backend — more robust decryption of the

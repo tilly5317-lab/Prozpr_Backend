@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -53,11 +54,13 @@ class RiskProfile(Base):
     # For effective risk score OSI mapping (public_sector | private_sector | ...)
     occupation_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     risk_capacity: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    investment_experience: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True
-    )
+    # The behavioural-question answers store the full option sentence, which can run
+    # well past 100 chars — use TEXT so the answer is never truncated.
+    investment_experience: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Behavioural "investment focus" answer (capital-preservation … maximise-growth).
+    investment_focus: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     investment_horizon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    drop_reaction: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    drop_reaction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     max_drawdown: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     comfort_assets: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 

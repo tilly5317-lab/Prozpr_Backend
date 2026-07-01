@@ -204,17 +204,18 @@ async def get_user_nav_history(
     db: AsyncSession, user_id: uuid.UUID, *, horizon: str
 ) -> list[UserPortfolioNavHistory]:
     """Return rows for the chosen horizon, recomputing on demand if empty."""
-    days = HORIZON_DAYS.get(horizon.upper(), HORIZON_DAYS["1Y"])
-    cutoff = date.today() - timedelta(days=days)
-
-    stmt = (
-        select(UserPortfolioNavHistory)
-        .where(
-            UserPortfolioNavHistory.user_id == user_id,
-            UserPortfolioNavHistory.recorded_date >= cutoff,
-        )
-        .order_by(UserPortfolioNavHistory.recorded_date.asc())
+    horizon_u = horizon.upper()
+    stmt = select(UserPortfolioNavHistory).where(
+        UserPortfolioNavHistory.user_id == user_id
     )
+    # MAX = true since-inception: no cutoff, return the full stored series. The
+    # series itself is built from the first transaction to today by the net-worth
+    # backfill, so this spans the user's entire history (not a fixed 5-year window).
+    if horizon_u != "MAX":
+        days = HORIZON_DAYS.get(horizon_u, HORIZON_DAYS["1Y"])
+        cutoff = date.today() - timedelta(days=days)
+        stmt = stmt.where(UserPortfolioNavHistory.recorded_date >= cutoff)
+    stmt = stmt.order_by(UserPortfolioNavHistory.recorded_date.asc())
     rows = (await db.execute(stmt)).scalars().all()
     # No synthetic fallback: the series is now built from real units × NAV by the
     # net-worth backfill job. When empty, the dashboard shows the "Fetch Net Worth
