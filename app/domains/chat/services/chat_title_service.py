@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 _TITLE_MODEL = "claude-haiku-4-5-20251001"
 _TITLE_TIMEOUT_S = 6.0
 _MAX_TITLE_LEN = 60
+# Structured output forces a `_ChatTitle` tool call; the cap must cover the
+# tool-call JSON framing *and* the title text. 40 was too low — the call was
+# truncated mid-tool-call (empty args → validation error → always fell back).
+_TITLE_MAX_TOKENS = 256
 
 # Human labels for the classifier intents, used by the deterministic fallback.
 _INTENT_LABELS: dict[str, str] = {
@@ -89,7 +93,7 @@ async def generate_chat_title(first_message: str, intent_name: str | None) -> st
         llm = ChatAnthropic(
             model=_TITLE_MODEL,
             api_key=api_key,
-            max_tokens=40,
+            max_tokens=_TITLE_MAX_TOKENS,
         ).with_structured_output(_ChatTitle)
         user_block = (
             f"Detected topic: {intent_name or 'general'}\n"
