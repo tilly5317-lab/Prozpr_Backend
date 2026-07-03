@@ -6,6 +6,7 @@ Market Commentary | June 2026
 
 ## Executive Summary
 
+h;dfvnkjc s
 - **Monetary Policy on Hold:** The RBI is maintaining a neutral stance with the repo rate steady at 5.25%, while inflation at 3.93% sits comfortably within its 2–6% band, leaving space for easing if growth slows further.
 
 - **Equity Valuations Diverge by Market Cap:** The Nifty 50 is trading at a fair valuation of 20.4x, but mid-cap and small-cap indices have become expensive at 33.5x and 33.6x respectively, signalling stretched risk/reward in smaller-cap segments.
