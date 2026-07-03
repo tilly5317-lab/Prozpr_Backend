@@ -480,7 +480,7 @@ def is_income_plus_arbitrage_fund(scheme_name: Optional[str]) -> bool:
 
     Detection is name-based. Canonical names contain "Income Plus Arbitrage"
     (the rebalancing fund-ranking CSV at
-    ``AI_Agents/Reference_docs/prozpr_fund_ranking_may_2026.csv`` uses this
+    ``AI_Agents/Reference_docs/prozpr_fund_ranking_june_2026_v2`` uses this
     same signal — top-ranked entries are HDFC / ICICI / Bandhan / ABSL
     "Income Plus Arbitrage Active FOF" schemes).
     """
