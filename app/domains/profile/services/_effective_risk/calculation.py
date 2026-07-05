@@ -53,8 +53,7 @@ def compute_effective_risk_document(
     inp: EffectiveRiskComputationInput,
 ) -> dict[str, Any]:
     """Run scoring + LLM summary via AI_Agents and return the persisted JSON doc."""
-    from common import anthropic_api_key_env  # noqa: E402
-    from risk_profiling import risk_profiling_chain  # noqa: E402
+    from risk_profiling import run_risk_profiling  # noqa: E402
     from risk_profiling.scoring import OSI_MAP  # noqa: E402
 
     from app.core.config import get_settings
@@ -72,9 +71,11 @@ def compute_effective_risk_document(
         "risk_willingness": max(1.0, min(10.0, float(inp.risk_willingness))),
     }
     # Attribute the summary LLM call to the risk-profiling key (falls back to
-    # the shared ANTHROPIC_API_KEY when unset).
-    with anthropic_api_key_env(get_settings().get_anthropic_risk_profiling_key()):
-        return risk_profiling_chain.invoke(payload)
+    # the shared ANTHROPIC_API_KEY when unset). Passed explicitly — the old
+    # env-mutation scoping raced under async concurrency (audit F8).
+    return run_risk_profiling(
+        payload, api_key=get_settings().get_anthropic_risk_profiling_key()
+    )
 
 
 def risk_willingness_from_risk_level(risk_level: Optional[int]) -> Optional[float]:

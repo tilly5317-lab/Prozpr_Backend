@@ -73,11 +73,6 @@ class ChatSendMessageResponse(BaseModel):
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
 
 
-class UploadStatementResponse(BaseModel):
-    session_id: uuid.UUID
-    message: str
-
-
 class ChatAiModuleRunResponse(BaseModel):
     """One row from chat AI module telemetry (grep logs: PROZPR_AI_MODULE_RUN)."""
 

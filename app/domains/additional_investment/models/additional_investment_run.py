@@ -32,7 +32,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, List, Optional
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     Enum as SAEnum,
     Float,
@@ -135,9 +134,6 @@ class AdditionalInvestmentRun(Base):
         JSONB, nullable=True
     )
     user_question: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
-    used_cached_allocation: Mapped[Optional[bool]] = mapped_column(
-        Boolean, nullable=True
-    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

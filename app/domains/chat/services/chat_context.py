@@ -18,6 +18,23 @@ from app.domains.chat.models.chat import ChatMessage
 # the context window or balloon token cost.
 _HISTORY_DEFAULT_LIMIT = 20
 
+# Per-message char cap for LLM history. Every prompt history block (intent
+# classifier, per-module action detectors, answer formatter) is built from this
+# function's output, so this is the single chokepoint that bounds prompt size.
+# 24,000 chars (~6K tokens) is above anything written legitimately — user
+# messages are schema-capped at 8,000 chars and even the longest formatter
+# replies (goal-planning tables, ~6K output tokens) fit — so this only fires on
+# rows that bypassed the write-path caps. Display paths read messages directly
+# from the ORM and are unaffected.
+_MAX_MESSAGE_CHARS = 24_000
+_TRUNCATION_MARKER = " …[truncated]"
+
+
+def _capped(content: str) -> str:
+    if len(content) <= _MAX_MESSAGE_CHARS:
+        return content
+    return content[:_MAX_MESSAGE_CHARS] + _TRUNCATION_MARKER
+
 
 async def load_conversation_history(
     session_id: uuid.UUID,
@@ -25,7 +42,13 @@ async def load_conversation_history(
     *,
     limit: int = _HISTORY_DEFAULT_LIMIT,
 ) -> list[dict[str, str]]:
-    """Return the most recent ``limit`` messages for this session in chronological order."""
+    """Return the most recent ``limit`` messages for this session in chronological order.
+
+    Each entry is ``{"role", "content", "intent"}`` — ``intent`` is the turn's
+    classified intent on assistant rows (None on user rows and pre-column
+    history). Prompt builders read only role/content; the intent classifier's
+    history scrub keys on ``intent``.
+    """
     stmt = (
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
@@ -35,4 +58,7 @@ async def load_conversation_history(
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
     rows.reverse()  # chronological so prompts read naturally
-    return [{"role": msg.role.value, "content": msg.content} for msg in rows]
+    return [
+        {"role": msg.role.value, "content": _capped(msg.content), "intent": msg.intent}
+        for msg in rows
+    ]

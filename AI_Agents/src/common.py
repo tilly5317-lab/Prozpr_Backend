@@ -10,39 +10,18 @@ so there is exactly one source of truth for these helpers.
 
 from __future__ import annotations
 
-import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 _ONE_LAKH = 100_000.0
 _ONE_CRORE = 10_000_000.0
 
-
-@contextmanager
-def anthropic_api_key_env(api_key: str | None) -> Iterator[None]:
-    """Temporarily set ``ANTHROPIC_API_KEY`` for the duration of a block.
-
-    Agent LLM wrappers build ``ChatAnthropic`` without an explicit ``api_key``,
-    so they read ``ANTHROPIC_API_KEY`` from the environment at construction
-    time. The app layer uses this to attribute each module's spend to its own
-    key: set the module key, run the LLM call, then restore the previous value
-    so the shared-fallback contract holds for the next module. A falsy
-    ``api_key`` is a no-op (the module falls back to the ambient key).
-    """
-    if not api_key:
-        yield
-        return
-    prev = os.environ.get("ANTHROPIC_API_KEY")
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    try:
-        yield
-    finally:
-        if prev is None:
-            os.environ.pop("ANTHROPIC_API_KEY", None)
-        else:
-            os.environ["ANTHROPIC_API_KEY"] = prev
+# NOTE: ``anthropic_api_key_env`` (a contextmanager that mutated
+# ``os.environ["ANTHROPIC_API_KEY"]`` around agent calls) was removed in the
+# 2026-07 chat audit (F8): process-global env mutation races under async
+# concurrency. Per-module key attribution is now explicit — every agent LLM
+# builder accepts ``api_key`` (None → ambient env fallback) and the app layer
+# passes its module key directly.
 
 
 def read_text_bom_aware(path: str | Path) -> str:

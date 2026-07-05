@@ -6,9 +6,10 @@ allocation engine — they call ``run(turn, ctx, prior)`` here.
 
 Sequence position:
   - "rebalancing" intent → sequence = [practical_asset_allocation, rebalancing]
-    (the rebalancing module reads our payload from
-    ``prior[AIModule.ASSET_ALLOCATION]`` — practical allocation takes the
-    asset-allocation slot in this flow).
+    Coupling is via the DB, not ``prior``: this module PERSISTS a fresh
+    allocation run, and the rebalancing engine's cache-first lookup (90-day
+    TTL) reads it as the rebalance target. The payload this module returns is
+    informational only — rebalancing_module_service does not consume it.
 
 The text + ids surface back to the chat reply only when this is the LAST module
 in the sequence. As an intermediate step (rebalancing), the rebalancing module

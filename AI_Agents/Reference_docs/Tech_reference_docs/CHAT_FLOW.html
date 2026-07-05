@@ -175,7 +175,7 @@
     <div class="header-strip">
       <div></div>
       <div class="meta">
-        Prozpr · Non-technical flow guide<br />Validated against the live code on 2026-06-19
+        Prozpr · Non-technical flow guide<br />Validated against the live code on 2026-07-05
       </div>
     </div>
     <article id="content"></article>
@@ -194,7 +194,7 @@
 Every time a customer sends a message, it goes through the **same five steps**, managed by a single coordinator we call the **ChatBrain**:
 
 1. **Remember** — load the recent conversation so the AI has context.
-2. **Understand** — decide *what kind* of question this is (one of seven types).
+2. **Understand** — decide *what kind* of question this is (one of eight types).
 3. **Route** — send it to the matching "recipe" (we call these **flows**).
 4. **Work** — one or more **specialist modules** do the actual thinking.
 5. **Reply** — a shared **Answer Writer** turns the result into a friendly, on-brand message, which is saved and sent back.
@@ -203,9 +203,9 @@ Every time a customer sends a message, it goes through the **same five steps**, 
 flowchart TD
     A["Customer sends a message"] --> B["Remember: load recent conversation history"]
     B --> C{"Understand: what kind of question is this?"}
-    C -->|"asks us to pick a stock"| Z1["Instant canned reply: we focus on funds, not single stocks"]
-    C -->|"off-topic / gibberish / security"| Z2["Instant canned reply: gentle redirect"]
-    C -->|"one of the 5 real question types"| D["Route: pick the matching flow recipe"]
+    C -->|"asks us to pick a stock"| Z1["Quick redirect: we focus on funds, not single stocks — re-worded to fit the question"]
+    C -->|"off-topic / gibberish / security"| Z2["Quick redirect: canned or tailored, depending on the reason"]
+    C -->|"one of the 6 real question types"| D["Route: pick the matching flow recipe"]
     D --> E["Work: run the specialist module(s) in order"]
     E --> F["Reply: Answer Writer phrases it in Prozpr's voice"]
     Z1 --> G["Save the reply and send it to the customer"]
@@ -222,21 +222,21 @@ flowchart TD
 
 ## 2. Step 1 — Understanding the question
 
-Before the AI can help, it has to figure out **what the customer actually wants**. This is the job of the **Intent Classifier** — a small, fast AI model that reads the new message plus the recent conversation and assigns it exactly **one** of seven labels (called *intents*).
+Before the AI can help, it has to figure out **what the customer actually wants**. This is the job of the **Intent Classifier** — a small, fast AI model that reads the new message plus the recent conversation and assigns it exactly **one** of eight labels (called *intents*).
 
 Think of it as a smart receptionist: it doesn't answer the question itself, it just decides *which desk* the question belongs at, and how confident it is.
 
 A few important properties:
 
-- It can **only** ever return one of the seven known labels — it is technically prevented from inventing a new one. This keeps routing predictable.
+- It can **only** ever return one of the eight known labels — it is technically prevented from inventing a new one. This keeps routing predictable.
 - It looks at **recent history**, so follow-up questions ("what about with more risk?") are understood in context, not in isolation.
-- For two of the seven labels, the classifier *also* writes the reply itself (a polite canned message) — see the next section.
+- Two of the eight labels (stock advice and out-of-scope) skip the specialists. The classifier supplies a standard message for them — but for most of these the **Answer Writer** then re-words it so it acknowledges the customer's actual question. See the next section.
 
 ---
 
 ## 3. The question types
 
-Here are all seven question types the AI recognises, what the customer is really asking in each, and what happens next.
+Here are all eight question types the AI recognises, what the customer is really asking in each, and what happens next.
 
 | Question type (intent) | The customer is asking… | What the AI does |
 |---|---|---|
@@ -245,13 +245,14 @@ Here are all seven question types the AI recognises, what the customer is really
 | **Portfolio query** | "What's in my portfolio? What's my biggest holding?" | Answers factually from their actual holdings. *Read-only.* |
 | **General market query** | "What's happening in the markets right now?" | Pulls fresh market data and explains it in plain language. |
 | **Rebalancing** | "Rebalance my portfolio / swap these funds." | Works out the ideal mix, then the exact buy/sell trades. *Saved.* |
-| **Stock advice** | "Which individual stock should I buy?" | **Instant canned reply** — Prozpr advises on funds, not single stocks. |
-| **Out of scope** | Off-topic, gibberish, security questions, "summarise this chat" | **Instant canned reply** — a gentle redirect back to what Prozpr can help with. |
+| **Additional investment** | "I have ₹5 lakh fresh to invest — which funds?" / "Which small-cap fund should I buy?" | Works out where the new money fits best in their plan and recommends specific funds to buy; category asks get an honest, named-picks answer. *Saved.* |
+| **Stock advice** | "Which individual stock should I buy?" | **Polite redirect** — Prozpr advises on funds, not single stocks — *re-worded to fit the customer's question*. |
+| **Out of scope** | Off-topic, gibberish, security questions, "summarise this chat" | **Gentle redirect** back to what Prozpr can help with. Each *reason* (gibberish, identity question, security probe, chat-summary ask, off-topic) gets its own appropriate message; general off-topic ones are re-worded to fit the question. |
 | *(General chat)* | Catch-all / safety net | A friendly conversational reply. Also writes the final answer for market questions (see below). |
 
 > The last row, **general chat**, isn't something the classifier picks directly. It's the system's safety net and the "writer" used at the end of a market question. (More on this in the gaps section.)
 
-The two **canned-reply** types (stock advice and out of scope) are special: they're answered *immediately* by the receptionist and never reach a specialist. That keeps off-topic and unsupported requests fast and consistent.
+The last two types are special: **no specialist plans anything for them**. But they're not always word-for-word canned any more. For stock-advice and general off-topic questions, the shared Answer Writer re-words the standard redirect so it briefly acknowledges what the customer actually asked before steering back. Truly unanswerable inputs — gibberish, security probes, identity questions, "summarise this chat" — keep a fixed, pre-written reply: fast and consistent.
 
 ---
 
@@ -268,8 +269,9 @@ flowchart LR
     IC -->|asset allocation| F1["Asset Allocation"]
     IC -->|goal planning| F2["Goal Planning (Cashflow)"]
     IC -->|portfolio query| F3["Portfolio Query — read only"]
-    IC -->|stock advice| F4["Canned redirect"]
-    IC -->|out of scope| F5["Canned redirect"]
+    IC -->|additional investment| F6["Additional Investment — fresh money → fund picks"]
+    IC -->|stock advice| F4["Redirect reply (re-worded to fit)"]
+    IC -->|out of scope| F5["Redirect reply (canned or tailored)"]
 
     IC -->|general market query| M1["Market Commentary"] --> M2["General Chat writes the reply"]
     IC -->|rebalancing| R1["Practical Allocation (holdings-aware ideal mix)"] --> R2["Rebalancing builds the trade plan"]
@@ -289,7 +291,7 @@ When a flow chains two specialists, the first specialist's output is passed forw
 Each specialist is a self-contained expert. Here's what each one does *for the customer*, in plain English.
 
 ### Intent Classifier (the receptionist)
-Reads the question and recent history and labels it as one of the seven types, with a confidence score. It doesn't solve anything — it decides where the question goes. For "stock advice" and "out of scope", it also writes the polite canned reply on the spot.
+Reads the question and recent history and labels it as one of the eight types, with a confidence score. It doesn't solve anything — it decides where the question goes. For "stock advice" and "out of scope" it also supplies a standard redirect message — though for most of those, the Answer Writer then re-words it to fit the customer's actual question.
 
 ### Asset Allocation
 Answers **"what should I invest in?"** It looks at the customer's financial profile — income, savings, goals, time horizons, and risk tolerance — and produces a target **mix of asset classes** (how much in equity, debt, gold, cash).
@@ -308,6 +310,23 @@ Turns a target mix into an **actual trade plan**. Given the ideal mix (from Prac
 
 It is **tax-aware**. It knows how long each holding has been owned and what tax would apply if sold, and it chooses the order of sales to keep the customer's tax bill as low as possible (for example, favouring holdings that trigger lower tax, and using past losses to offset gains where possible). It also respects per-fund limits. The customer sees a readable summary of the recommended trades, *why* each one is suggested, and the tax impact. The recommendation is **saved**.
 
+### Additional Investment
+Answers **"I have fresh money — where should it go?"** Given a lumpsum or a monthly SIP amount, it works out where the new money fits best in the customer's plan and recommends specific funds to **buy** (it never sells anything).
+
+For a **lumpsum**, it first compares the customer's actual holdings against their ideal mix and directs the new money into the areas that are *below target* — topping up the gaps rather than spreading it thinly. For a **SIP** (or when holdings aren't available), it follows the ideal mix for the customer's nearest unfunded goal horizon. Recommendations are **saved**.
+
+**When the customer names a fund category** ("which small-cap fund should I buy?", "gold funds only"), the reply answers the literal question honestly — it names our **top-rated funds in that category** — and then tells the truth about where that category stands in *their* plan, whichever it is:
+
+- the plan **already buys it** (points at that buy),
+- that part of their portfolio was **funded through other funds**,
+- they're **already at or above their ideal** there — so this money adds none, with a caution against overweighting,
+- it's a category we **never deploy fresh chat money into** (e.g. ELSS, because of its 3-year lock-in — the picks are still named, the policy is stated), or
+- we simply **don't rank funds in that category** — said plainly, nothing invented.
+
+Every category answer carries the same standing caveat: concentrating in one category isn't what we'd recommend — the plan spreads money across the customer's goals. If they name a category but no amount, the reply gives the picks and asks how much they'd like to invest.
+
+**It also remembers the conversation.** A follow-up like *"small-cap funds only"* after *"I want to invest 5 lakhs"* reuses the ₹5 lakh from earlier — the customer isn't asked again. And it's careful about *which* numbers qualify: a salary, a goal target, or a what-if figure mentioned earlier is **never** mistaken for money to invest; when in doubt, it simply asks.
+
 ### Goal Planning (Cashflow)
 Answers big life-goal questions: **"Can I retire at 55?"**, **"Can I afford my child's education and a house?"** The customer provides their financial situation (age, income, expenses, savings, existing loans) and describes their goals with target dates and amounts.
 
@@ -324,7 +343,7 @@ Gathers a current snapshot of the **Indian market** — around 14 macro indicato
 In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. If gathering fresh data takes too long (more than ~2 minutes), the system **doesn't make the customer wait** — it falls back to the most recent saved snapshot and continues, so the customer still gets an answer.
 
 ### General Chat
-The friendly **catch-all writer**. It handles conversational questions that don't need a specialist, and it writes the **final answer for market questions** (using the commentary that Market Commentary just gathered). It reads the question, the conversation history, and any market context, then replies naturally and personally. If the market context happens to be missing or causes a hiccup, it simply answers from the question alone — the conversation never breaks.
+The friendly **catch-all writer**. It handles conversational questions that don't need a specialist, and it writes the **final answer for market questions** (using the commentary that Market Commentary just gathered). It reads the question, the conversation history, and any market context — and it can also run a quick **web search of its own** to ground the reply in fresh facts before writing. If the market context happens to be missing or causes a hiccup, it simply answers from the question alone — the conversation never breaks.
 
 ---
 
@@ -431,7 +450,32 @@ sequenceDiagram
 
 ### Example E — "Which stock should I buy?"
 
-**Path:** understand → *stock advice* → **instant canned reply** explaining Prozpr focuses on funds, not single stocks. No specialist runs. ✅
+**Path:** understand → *stock advice* → no specialist plans anything; the Answer Writer re-words the standard "we focus on funds, not single stocks" message so it acknowledges the customer's question, then steers back. ✅
+
+### Example F — "I want to invest another ₹5 lakh — which funds?"
+
+**Path:** understand → *additional investment* → the module reads the amount and cadence (₹5 lakh, one-time) from the question → compares current holdings against the ideal mix → recommends specific funds that top up the below-target areas → Answer Writer explains the picks → saved reply. ✅
+
+### Example G — "Which small-cap fund should I buy?" (a two-turn conversation)
+
+```mermaid
+sequenceDiagram
+    participant C as Customer
+    participant B as ChatBrain
+    participant AI as Additional Investment
+    participant AF as Answer Writer
+    C->>B: "Which small-cap fund should I buy?"
+    B->>AI: category ask, but no amount yet
+    AI-->>AF: top small-cap picks + the standing caveat
+    AF-->>C: names the picks, asks "how much, lumpsum or SIP?"
+    C->>B: "5 lakhs, one time"
+    B->>AI: amount now known — and it remembers "small-cap" from the last turn
+    AI-->>AF: the real plan + where small-cap honestly stands in it
+    AF-->>C: full plan + "you're already at your ideal in small-cap — this adds none; here are the picks anyway, but we'd caution against overweighting"
+```
+
+**Path (turn 1):** understand → *additional investment* → category named but no amount → reply names the top-rated small-cap funds, gives the caveat, and asks for the amount. **Nothing invented, no dead end.**
+**Path (turn 2):** the module reuses the small-cap ask from the previous turn, builds the real plan for ₹5 lakh, and tells the truth about the category — even when the honest answer is "your plan adds nothing here." ✅ *(This exact conversation is live-validated — it was previously the flow's worst failure case.)*
 
 ---
 
@@ -450,7 +494,7 @@ sequenceDiagram
 
 ### What we confirmed is healthy
 - **One uniform path for everyone.** Every customer chat message goes through the same ChatBrain turn. No alternate live routes exist.
-- **Every question type is handled.** All seven types the receptionist can return map cleanly to either a specialist flow or a canned reply — nothing falls through the cracks.
+- **Every question type is handled.** All eight types the receptionist can return map cleanly to either a specialist flow or a redirect reply — nothing falls through the cracks.
 - **The two specialist chains are wired correctly.** Market → General Chat, and Practical Allocation → Rebalancing both hand their results forward correctly.
 - **Graceful degradation works.** If market data is slow, or the Answer Writer fails, the customer still gets a sensible answer.
 
@@ -458,7 +502,7 @@ sequenceDiagram
 The original review flagged two issues around the two-turn "what-if → save" feature: a routing gate that could misfire (sending the *"save it"* follow-up to **Goal Planning** regardless of which specialist raised it, which could also leave a chat stuck), and a stale Goal Planning code comment about that gate. **Both were resolved on 2026-06-19 by removing the "save it" feature outright.** What-if exploration stays — single-turn, with no save offer — and durably saving an explored scenario is deferred to a future build. The underlying `awaiting_save` routing gate remains in the code as **inert plumbing** for that future flow: no handler raises it today, so it can no longer misroute or trap a conversation.
 
 ### Issue 1 — no dedicated "small talk" lane (minor / product question)
-"General chat" exists as a safety net, but the receptionist never routes to it directly — it always picks one of the seven concrete types. Genuinely conversational messages ("thanks!", "what can you help me with?") therefore get sorted into the nearest bucket (often "out of scope"). This is a **product decision**, not a bug — flagging it in case a friendlier catch-all is wanted.
+"General chat" exists as a safety net, but the receptionist never routes to it directly — it always picks one of the eight concrete types. Genuinely conversational messages ("thanks!", "what can you help me with?") therefore get sorted into the nearest bucket (often "out of scope"). This is a **product decision**, not a bug — flagging it in case a friendlier catch-all is wanted.
 
 ---
 
@@ -468,7 +512,7 @@ The original review flagged two issues around the two-turn "what-if → save" fe
 |---|---|
 | **ChatBrain** | The coordinator that runs every chat turn — understand, route, work, reply. |
 | **Turn** | One round of the conversation: the customer's message in, the AI's reply out. |
-| **Intent** | The *type* of question, as labelled by the receptionist (e.g. "asset allocation"). There are seven. |
+| **Intent** | The *type* of question, as labelled by the receptionist (e.g. "asset allocation"). There are eight. |
 | **Intent Classifier** | The "receptionist" AI that labels each question. |
 | **Flow** | A recipe that says which specialist module(s) to run for a given question type, and in what order. |
 | **Module / specialist** | A self-contained expert that does one job (e.g. Rebalancing, Goal Planning). |

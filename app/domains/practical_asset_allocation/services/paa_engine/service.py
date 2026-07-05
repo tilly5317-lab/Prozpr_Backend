@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from app.domains.ai_engine.common import ensure_ai_agents_path, trace_line
 from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
+    CorpusPin,
     build_practical_allocation_input_for_user,
 )
 
@@ -51,18 +52,21 @@ async def compute_practical_allocation_result(
     user_question: str,
     *,
     chat_ctx: "TurnContext",
+    corpus_pin: CorpusPin | None = None,
 ) -> PracticalAllocationRunOutcome:
     """Build inputs, run the practical pipeline, and return the outcome.
 
     Tolerant of partial profiles — the underlying asset_allocation input
     builder degrades missing fields to documented defaults, so the engine can
-    always produce an answer.
+    always produce an answer. ``corpus_pin`` (deficit-fill lumpsum path) pins
+    the corpus scalars to holdings-derived values instead of the profile.
     """
     trace_line("module: practical_asset_allocation — building inputs")
 
     try:
         practical_input, build_debug = build_practical_allocation_input_for_user(
             chat_ctx,
+            corpus_pin=corpus_pin,
         )
     except Exception as exc:
         logger.exception("practical_asset_allocation input build failed: %s", exc)
