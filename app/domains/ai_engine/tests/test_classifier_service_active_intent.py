@@ -11,15 +11,11 @@ from app.domains.intent_classifier.services.intent_classifier_engine import (
 )
 
 
-async def _wrap_sync(fn, *args, **kwargs):
-    return fn(*args, **kwargs)
-
-
 class ActiveIntentForwardingTests(unittest.TestCase):
     def test_active_intent_forwarded_to_classification_input(self):
         captured = {}
 
-        def fake_classify(self, inp):
+        async def fake_aclassify(inp):
             captured["active_intent"] = inp.active_intent
             return MagicMock(
                 intent=MagicMock(value="asset_allocation"),
@@ -29,14 +25,11 @@ class ActiveIntentForwardingTests(unittest.TestCase):
                 out_of_scope_message=None,
             )
 
-        with (
-            patch(
-                "app.domains.intent_classifier.services.intent_classifier_engine._get_classifier"
-            ) as gc,
-            patch.object(asyncio, "to_thread", new=_wrap_sync),
-        ):
+        with patch(
+            "app.domains.intent_classifier.services.intent_classifier_engine._get_classifier"
+        ) as gc:
             classifier = MagicMock()
-            classifier.classify = lambda inp: fake_classify(classifier, inp)
+            classifier.aclassify = fake_aclassify
             gc.return_value = classifier
 
             asyncio.run(

@@ -9,7 +9,12 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
+from app.domains.ai_engine.chat_dispatcher import (
+    ChatHandlerResult,
+    consume_speculative_detect,
+    register,
+    register_speculative_detector,
+)
 from app.domains.ai_engine.common import build_detect_history_block
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.rebalancing.services.rebal_engine.service import (
@@ -335,6 +340,16 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------
 
 
+@register_speculative_detector("rebalancing")
+async def _speculative_detect(ctx: TurnContext) -> RebalanceAction | None:
+    """Follow-up action detect, started by the brain concurrently with the
+    intent classifier (audit F4). Pure read — same call `handle` would make."""
+    last_run = ctx.last_agent_runs.get("rebalancing")
+    if last_run is None:
+        return None
+    return await _detect_rebal_action(last_run, ctx)
+
+
 @register("rebalancing")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     last_run = ctx.last_agent_runs.get("rebalancing")
@@ -369,9 +384,12 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             rebalancing_response=outcome.response,
         )
 
-    # Follow-up → classify.
+    # Follow-up → classify. Prefer the brain's speculative detect result;
+    # serial detect is the fallback when speculation didn't run or failed.
     try:
-        action = await _detect_rebal_action(last_run, ctx)
+        action = await consume_speculative_detect(ctx)
+        if action is None:
+            action = await _detect_rebal_action(last_run, ctx)
     except Exception as exc:
         logger.warning("detect_rebal_action failed (%s); falling back to narrate", exc)
         action = RebalanceAction(mode="narrate")

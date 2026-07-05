@@ -47,9 +47,12 @@ async def flow_asset_allocation(turn, ctx) -> ModuleOutput:
 
 async def flow_rebalancing(turn, ctx) -> ModuleOutput:
     # Practical (holdings-aware) asset allocation first, then rebalance to it.
-    # Practical allocation replaces the ideal asset_allocation in this flow; it
-    # takes the asset-allocation slot, so the rebalancing domain still reads the
-    # target from ``prior[ASSET_ALLOCATION]`` rather than computing its own.
+    # COUPLING IS VIA THE DB, NOT ``prior``: the PAA step PERSISTS a fresh
+    # allocation run, and the rebalancing engine's cache-first lookup (90-day
+    # TTL) reads that run as its target. The ``prior`` dict passed below is
+    # informational only — rebalancing_module_service does not consume it.
+    # Removing the PAA step would NOT save compute; it would silently
+    # rebalance against a stale (up to 90 days old) allocation.
     from app.domains.practical_asset_allocation.services.practical_asset_allocation_module_service import (
         run as run_practical_asset_allocation,
     )
@@ -128,7 +131,3 @@ FLOWS = {
     "general_market_query": flow_market,
     "additional_investment": flow_additional_investment,
 }
-
-# When the cashflow save-flow is open from a prior turn, the brain routes here
-# regardless of this turn's classified intent.
-AWAITING_SAVE_FLOW = flow_goal_planning

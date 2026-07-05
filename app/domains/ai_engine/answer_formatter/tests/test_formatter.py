@@ -127,7 +127,7 @@ def test_invoke_llm_raises_formatter_failure_when_response_truncated():
         response_metadata = {"stop_reason": "max_tokens"}
 
     class _BoundLLM:
-        def invoke(self, _msgs):
+        async def ainvoke(self, _msgs):
             return _FakeMessage()
 
     class _FakeLLM:
@@ -156,7 +156,7 @@ def test_invoke_llm_returns_answer_field():
         response_metadata = {"stop_reason": "tool_use"}
 
     class _BoundLLM:
-        def invoke(self, _msgs):
+        async def ainvoke(self, _msgs):
             return _FakeMessage()
 
     class _FakeLLM:

@@ -1,14 +1,14 @@
 # deploy/ — DEPLOY-ONLY
 
-Deployment artifacts (Dockerfile context, CI/CD config, infrastructure definitions). Not imported by runtime code.
+Deployment artifacts. Today just `nginx-api-location.conf.sample` (reverse-proxy location-block sample); the Dockerfile lives at the repo root, not here.
 
 ## Imported by active code?
 
-NO — deploy assets are consumed by CI/CD or container build tooling, not Python runtime.
+NO — deploy assets are consumed by ops/build tooling, not Python runtime.
 
 ## When to touch this
 
-When changing deploy infra (Docker image, CI pipeline, k8s manifests). Don't put runtime code here.
+When changing deploy infra. Don't put runtime code here.
 
 ## Don't read unless
 

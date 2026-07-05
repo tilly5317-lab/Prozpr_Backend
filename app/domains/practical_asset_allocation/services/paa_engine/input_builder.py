@@ -37,27 +37,54 @@ from practical_asset_allocation.pipeline import (  # type: ignore[import-not-fou
 )
 
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class CorpusPin:
+    """Explicit corpus override for the practical allocation (deficit-fill path).
+
+    Pins the ideal to actual holdings + fresh money instead of the
+    profile-declared corpus (spec 2026-07-03, additional_investment lumpsum).
+    Threaded as an explicit parameter — NOT the additional_cash_inr
+    chat-override — so the what-if key never leaks into the normal flow."""
+
+    total_corpus: float
+    mf_corpus: float
+    non_mf_equity_corpus: float
+    elss_corpus: float
+
+
 def build_practical_allocation_input_for_user(
     ctx: "TurnContext",
+    corpus_pin: CorpusPin | None = None,
 ) -> tuple[PracticalAllocationInput, Dict[str, Any]]:
     """Return ``(PracticalAllocationInput, debug)`` for the User in ``ctx``."""
     base_input, debug = build_goal_allocation_input_for_user(ctx)
 
+    shared = {k: getattr(base_input, k) for k in AllocationInput.model_fields}
+    if corpus_pin is not None:
+        shared["total_corpus"] = corpus_pin.total_corpus
+
     practical_input = PracticalAllocationInput(
-        # Every shared AllocationInput field, verbatim (total_corpus included).
-        **{k: getattr(base_input, k) for k in AllocationInput.model_fields},
-        # Practical-only scalars. No data source yet → defaults; "stocks"
-        # (non-MF equity) and ELSS are 0, so the whole corpus is treated as MF.
-        mf_corpus=base_input.total_corpus,
-        non_mf_equity_corpus=0.0,
-        elss_corpus=0.0,
+        # Every shared AllocationInput field, verbatim (total_corpus included —
+        # overridden above when a CorpusPin is supplied).
+        **shared,
+        # Practical-only scalars. Default source is the profile (stocks/ELSS 0 →
+        # whole corpus treated as MF); a CorpusPin supplies holdings-derived
+        # values for all four (deficit-fill lumpsum path).
+        mf_corpus=(corpus_pin.mf_corpus if corpus_pin else base_input.total_corpus),
+        non_mf_equity_corpus=(corpus_pin.non_mf_equity_corpus if corpus_pin else 0.0),
+        elss_corpus=(corpus_pin.elss_corpus if corpus_pin else 0.0),
         max_non_mf_equity_pct_client_input=None,
     )
 
     debug = {
         **debug,
-        "mf_corpus": base_input.total_corpus,
-        "non_mf_equity_corpus": 0.0,
-        "elss_corpus": 0.0,
+        "corpus_pinned": corpus_pin is not None,
+        "total_corpus": practical_input.total_corpus,
+        "mf_corpus": practical_input.mf_corpus,
+        "non_mf_equity_corpus": practical_input.non_mf_equity_corpus,
+        "elss_corpus": practical_input.elss_corpus,
     }
     return practical_input, debug

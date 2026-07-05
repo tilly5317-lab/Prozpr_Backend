@@ -1,11 +1,13 @@
 """Materialise an AdditionalInvestmentInput from TurnContext + allocation output.
 
-Mirrors rebal_engine/input_builder.py, but for the HOLDING-AGNOSTIC, BUY-only
-additional-investment engine: money is plain ``float`` (allocation family, not
-Decimal), and there is NO holdings path at all — no DB ledger, no NAV pricing,
-no per-holding classify/force-exit mapping. The engine recommends purely from
-the ranked-fund list, and the per-fund caps key off the DEPLOY amount, so the
-builder reads no existing-corpus total and computes no resulting-corpus figure.
+Mirrors rebal_engine/input_builder.py, but for the BUY-only additional-investment
+engine: money is plain ``float`` (allocation family, not Decimal). There is no
+holdings path on the LEGACY (SIP / single-bucket) path; the lumpsum deficit path
+receives a pre-aggregated ``current_value_by_subgroup`` map from the service
+(see ``holdings_snapshot.py``) — the builder itself still reads no DB ledger and
+no NAV. The engine recommends purely from the ranked-fund list, and the per-fund
+caps key off the DEPLOY amount, so the builder reads no existing-corpus total
+and computes no resulting-corpus figure.
 ALL practical-allocation subgroup rows are passed through verbatim; the two
 synthetic rows (ELSS + non-MF equity) are NOT hand-dropped here — the builder
 sets ``exclude_subgroups`` and the engine gives them zero weight and renormalises
@@ -89,6 +91,7 @@ async def build_additional_investment_input_for_user(
     *,
     deploy_amount_inr: float,
     cadence: Cadence,
+    current_value_by_subgroup: dict[str, float] | None = None,
 ) -> tuple[AdditionalInvestmentInput, dict[str, Any]]:
     """Return ``(input, debug_dict)`` for ``run_additional_investment(...)``.
 
@@ -108,8 +111,19 @@ async def build_additional_investment_input_for_user(
         for row in allocation_output.aggregated_subgroups
     ]
 
-    # 2. Goal-funding flags (nearest-unfunded-bucket targeting: short → medium → long).
-    short_term_fulfilled, medium_term_fulfilled = await _goal_funding_flags(user, asof)
+    # 2. Goal-funding flags — LEGACY path only (SIP, or lumpsum without a
+    #    holdings map). The deficit path skips the cashflow projection entirely:
+    #    its only consumer here was the nearest-unfunded label, which deficit
+    #    mode derives from the deployed money instead (spec 2026-07-03).
+    deficit_mode = (
+        cadence is Cadence.LUMPSUM and current_value_by_subgroup is not None
+    )
+    if deficit_mode:
+        short_term_fulfilled, medium_term_fulfilled = False, False
+    else:
+        short_term_fulfilled, medium_term_fulfilled = await _goal_funding_flags(
+            user, asof
+        )
 
     # 3. Ranked funds: flatten the per-subgroup ranking, carrying scheme_code (T2).
     ranking = get_fund_ranking()
@@ -145,8 +159,12 @@ async def build_additional_investment_input_for_user(
         cap_pct_by_subgroup=cap_pct_by_subgroup,
         default_cap_pct=OTHERS_FUND_CAP_PCT,
         exclude_subgroups=set(_EXCLUDE_SUBGROUPS),
+        current_value_by_subgroup=(
+            current_value_by_subgroup if deficit_mode else None
+        ),
     )
     debug = {
+        "deployment_mode": "deficit_fill" if deficit_mode else "single_bucket",
         "subgroup_count": len(subgroups),
         "ranked_fund_count": len(ranked_funds),
         "short_term_fulfilled": short_term_fulfilled,

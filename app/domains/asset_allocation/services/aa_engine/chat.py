@@ -40,7 +40,12 @@ from app.domains.asset_allocation.services.aa_engine.service import (
     build_fallback_brief,
     compute_allocation_result,
 )
-from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
+from app.domains.ai_engine.chat_dispatcher import (
+    ChatHandlerResult,
+    consume_speculative_detect,
+    register,
+    register_speculative_detector,
+)
 from app.domains.ai_engine.common import (
     build_detect_history_block,
     trace_line,
@@ -320,6 +325,17 @@ by the classifier). Per-mode behavior:
 # ---------------------------------------------------------------------------
 
 
+@register_speculative_detector("asset_allocation")
+async def _speculative_detect(ctx: TurnContext) -> ChatAction | None:
+    """Follow-up action detect, started by the brain concurrently with the
+    intent classifier (audit F4). Pure read — same call `handle` would make."""
+    last_alloc = ctx.last_agent_runs.get("asset_allocation")
+    if last_alloc is None:
+        return None
+    action = await _detect_action(last_alloc, ctx)
+    return _coerce_misclassified_redirect_action(ctx.user_question, action, last_alloc)
+
+
 @register("asset_allocation")
 async def handle(ctx: TurnContext) -> ChatHandlerResult:
     """Sole entry point for chat turns in this intent family."""
@@ -329,12 +345,16 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         # First turn (or no persisted snapshot in this session) → run engine.
         return await _first_turn_run_engine(ctx)
 
-    # Follow-up turn → decide what to do.
+    # Follow-up turn → decide what to do. Prefer the brain's speculative
+    # detect result (already includes the coerce step); serial detect is the
+    # fallback when speculation didn't run or failed.
     try:
-        action = await _detect_action(last_alloc, ctx)
-        action = _coerce_misclassified_redirect_action(
-            ctx.user_question, action, last_alloc
-        )
+        action = await consume_speculative_detect(ctx)
+        if action is None:
+            action = await _detect_action(last_alloc, ctx)
+            action = _coerce_misclassified_redirect_action(
+                ctx.user_question, action, last_alloc
+            )
     except Exception as exc:
         logger.error(
             "detect_action_failed error_class=%s",
@@ -694,12 +714,21 @@ async def _detect_action(
     slim = _slim_snapshot(last_alloc.output_payload)
     snapshot_json = json.dumps(slim, default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
+        # Trim structurally first (drop per-goal detail — the mode classifier
+        # doesn't need it) so the classifier gets valid JSON; hard-slice only
+        # as a last resort (a mid-string cut sends malformed JSON).
+        slim["buckets"] = [
+            {k: v for k, v in b.items() if k != "goals"}
+            for b in slim.get("buckets") or []
+        ]
+        trimmed_json = json.dumps(slim, default=str)
         logger.info(
-            "detect_action_snapshot_truncated original_len=%d budget=%d",
+            "detect_action_snapshot_trimmed original_len=%d trimmed_len=%d budget=%d",
             len(snapshot_json),
+            len(trimmed_json),
             _DETECT_SNAPSHOT_BUDGET,
         )
-        snapshot_json = snapshot_json[:_DETECT_SNAPSHOT_BUDGET]
+        snapshot_json = trimmed_json[:_DETECT_SNAPSHOT_BUDGET]
 
     history_block = build_detect_history_block(ctx.conversation_history)
     history_section = (

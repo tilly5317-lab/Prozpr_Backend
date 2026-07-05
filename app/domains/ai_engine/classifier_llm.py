@@ -7,7 +7,6 @@ Replaces the duplicated _detect_action / _detect_rebal_action LLM call paths.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Type, TypeVar
 
@@ -51,4 +50,6 @@ async def classify_action(
         ),
         HumanMessage(content=user_block),
     ]
-    return await asyncio.to_thread(llm.invoke, messages)
+    # Native async (not to_thread): lets caller timeouts/cancellation actually
+    # cancel the HTTP call — a cancelled thread would keep running.
+    return await llm.ainvoke(messages)
