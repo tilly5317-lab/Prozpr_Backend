@@ -28,6 +28,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Conventions
 
 - **LLM calls go through LangChain.** All Claude calls must use `langchain-anthropic` (`ChatAnthropic` directly or via LCEL chains). Do not import `anthropic` for `messages.create` — the only permitted raw `anthropic` imports are exception classes (e.g. `from anthropic import AuthenticationError`) for `except` clauses, since those live only in the SDK.
+- **Logics docs track the engines.** `AI_Agents/Reference_docs/Logics_reference_docs/*.md` ground customer-facing chat answers; an engine-logic or production-wiring change (including toggling a feature in an input builder) isn't complete until the matching thesis doc is updated and version-bumped.
 
 ## Testing
 

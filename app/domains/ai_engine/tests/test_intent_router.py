@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -18,10 +18,10 @@ class _DummyAction(BaseModel):
 async def test_classify_action_calls_haiku_with_structured_output() -> None:
     from app.domains.ai_engine.classifier_llm import classify_action
 
-    fake_llm_invoke = MagicMock(
+    fake_llm_ainvoke = AsyncMock(
         return_value=_DummyAction(mode="redirect", redirect_reason="x"),
     )
-    structured_llm = MagicMock(invoke=fake_llm_invoke)
+    structured_llm = MagicMock(ainvoke=fake_llm_ainvoke)
 
     fake_chat_anthropic = MagicMock()
     fake_chat_anthropic.with_structured_output = MagicMock(return_value=structured_llm)

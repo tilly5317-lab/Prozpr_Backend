@@ -1,11 +1,12 @@
-"""Chat HTTP routes — session CRUD, message send, statement upload."""
+"""Chat HTTP routes — session CRUD and message send."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -30,7 +31,6 @@ from app.domains.chat.schemas.chat import (
     ChatSessionRatingUpdate,
     ChatSessionResponse,
     ChatSessionUpdate,
-    UploadStatementResponse,
 )
 from app.domains.ai_engine import ChatBrain, ChatTurnInput
 from app.domains.chat.services.chat_context import load_conversation_history
@@ -38,11 +38,6 @@ from app.domains.chat.services.chat_title_service import generate_chat_title
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
-
-# Hard cap on statement uploads. Anything bigger is rejected before we allocate
-# memory — keeps an oversized (or malicious) upload from crashing the server.
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-_UPLOAD_CHUNK_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +198,23 @@ async def send_message(
 
     conversation_history = await load_conversation_history(session_id, db)
 
+    # First-turn auto-title: start the Haiku call CONCURRENTLY with the brain
+    # so titling adds no latency to the reply (it used to block for up to 6s
+    # after the brain finished). The intent hint is dropped — it isn't known
+    # yet, and the message text dominates the title anyway. Only on the very
+    # first message and while the title is still a default, so a manual or
+    # earlier title is never overwritten. generate_chat_title never raises.
+    title_task: asyncio.Task | None = None
+    if not conversation_history and (session.title or "") in (
+        "",
+        "New Chat",
+        "New conversation",
+        "Pi Chat",
+    ):
+        title_task = asyncio.create_task(
+            generate_chat_title(payload.content, intent_name=None)
+        )
+
     # Persist user message.
     user_msg = ChatMessage(
         session_id=session_id, role=ChatMessageRole.user, content=payload.content
@@ -227,26 +239,23 @@ async def send_message(
     if insp.detached or insp.transient:
         db.add(user_msg)
 
-    # Persist assistant reply.
+    # Persist assistant reply, tagged with the turn's classified intent so the
+    # classifier's history scrub can identify canned-redirect turns by tag
+    # (not by matching message text).
     assistant_msg = ChatMessage(
         session_id=session_id,
         role=ChatMessageRole.assistant,
         content=brain_result.content,
+        intent=brain_result.intent,
     )
     db.add(assistant_msg)
 
-    # First-turn auto-title: name the session by what was discussed. Only on the
-    # very first message (empty history) and while the title is still a default,
-    # so it stays stable for the rest of the conversation. Best-effort — the
-    # generator never raises (deterministic fallback), and on a session detached
-    # by a brain rollback this simply won't persist, which is fine.
-    if not conversation_history and (session.title or "") in (
-        "",
-        "New Chat",
-        "New conversation",
-        "Pi Chat",
-    ):
-        session.title = await generate_chat_title(payload.content, brain_result.intent)
+    # Collect the auto-title started before the brain (usually done by now, so
+    # this await is ~free). Best-effort — the generator never raises
+    # (deterministic fallback), and on a session detached by a brain rollback
+    # this simply won't persist, which is fine.
+    if title_task is not None:
+        session.title = await title_task
 
     await db.commit()
     await db.refresh(user_msg)
@@ -314,53 +323,3 @@ async def delete_session(
     await db.commit()
 
 
-@router.post(
-    "/sessions/{session_id}/upload-statement",
-    response_model=UploadStatementResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def upload_statement(
-    session_id: uuid.UUID,
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(get_effective_user),
-):
-    """Upload an investment statement; raw text is stored as a user message for AI processing."""
-    session = await _get_user_session(session_id, db, current_user.id)
-
-    # Reject early if Content-Length already signals oversize.
-    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large; maximum is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
-        )
-
-    # Stream in chunks with a hard cap (Content-Length can be missing or lie).
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > MAX_UPLOAD_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large; maximum is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
-            )
-        chunks.append(chunk)
-    raw_text = b"".join(chunks).decode(errors="ignore")
-
-    db.add(
-        ChatMessage(
-            session_id=session.id,
-            role=ChatMessageRole.user,
-            content=f"[Uploaded statement: {file.filename}]\n\n{raw_text}",
-        )
-    )
-    await db.commit()
-
-    return UploadStatementResponse(
-        session_id=session_id,
-        message="Statement uploaded successfully and will be incorporated into your profile.",
-    )

@@ -24,19 +24,22 @@ _SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 
 
 @cache
-def _get_summary_chain():
-    """Build (and cache) the summary chain on first call.
+def _get_summary_chain(api_key: str | None = None):
+    """Build (and cache, per key) the summary chain.
 
-    ``ChatAnthropic`` reads ``ANTHROPIC_API_KEY`` from the environment at
-    construction time, so it is built lazily here rather than at import: the
-    app layer sets the risk-profiling key around the chain invoke, and the
-    first call bakes that key into the cached chain.
+    ``api_key=None`` falls back to the ambient ``ANTHROPIC_API_KEY`` at
+    construction time. Callers wanting per-module spend attribution pass their
+    key explicitly (see ``run_risk_profiling``) — never via process-global env
+    mutation, which both raced under async concurrency and was ignored after
+    the first call anyway (the cached chain kept whatever key it was built with).
     """
-    llm = ChatAnthropic(model=_SUMMARY_MODEL, max_tokens=400)
+    llm = ChatAnthropic(model=_SUMMARY_MODEL, max_tokens=400, api_key=api_key)
     return summary_prompt | llm.with_structured_output(RiskProfileSummary)
 
 
-def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
+def _generate_summary(
+    data: Dict[str, Any], api_key: str | None = None
+) -> Dict[str, Any]:
     calc = data["calculations"]
     inp = data["inputs"]
 
@@ -51,7 +54,7 @@ def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
     dbt = calc["current_debt_percent"]
     debt_str = "N/A (no financial assets)" if dbt >= 999.0 else f"{dbt:.0f}%"
 
-    result = _get_summary_chain().invoke(
+    result = _get_summary_chain(api_key).invoke(
         {
             "age": inp["age"],
             "effective_risk_score": data["output"]["effective_risk_score"],
@@ -79,3 +82,15 @@ def _generate_summary(data: Dict[str, Any]) -> Dict[str, Any]:
 risk_profiling_chain = RunnableLambda(compute_all_scores) | RunnableLambda(
     _generate_summary
 )
+
+
+def run_risk_profiling(
+    payload: Dict[str, Any], api_key: str | None = None
+) -> Dict[str, Any]:
+    """Score + summarize with an explicitly attributed API key.
+
+    Same behaviour as ``risk_profiling_chain.invoke(payload)`` but threads
+    ``api_key`` into the summary LLM instead of relying on ambient env state.
+    The app layer calls this; the LCEL chain remains for dev tooling.
+    """
+    return _generate_summary(compute_all_scores(payload), api_key=api_key)

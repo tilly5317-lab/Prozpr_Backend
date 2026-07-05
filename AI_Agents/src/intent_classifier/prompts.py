@@ -296,7 +296,9 @@ These cases are easy to misclassify. Apply these rules explicitly:
 ### Output format
 
 - Always return a confidence score between 0.0 and 1.0.
-- Keep reasoning concise — one or two sentences explaining why you chose that intent.
+- Keep `reasoning` to ONE short phrase, at most 12 words (e.g. "personal
+  deployment ask for a stated new amount"). Never write sentences of analysis —
+  the rules above do the deciding; this field is only a routing label.
 
 """
 

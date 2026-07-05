@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -64,6 +63,7 @@ _INTENT_LABELS: dict[str, str] = {
     "portfolio_query": "Portfolio Query",
     "general_market_query": "General Market Query",
     "rebalancing": "Rebalancing",
+    "additional_investment": "Additional Investment",
     "out_of_scope": "Out of Scope",
 }
 
@@ -163,6 +163,11 @@ async def _classify_via_openai(
     )
 
 
+# Intents whose replies are refusal-style redirects; their turns are scrubbed
+# from classifier history so the LLM doesn't anchor on refusals.
+_CANNED_REDIRECT_INTENTS = frozenset({"out_of_scope", "stock_advice"})
+
+
 def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str, str]]:
     """Drop (user, assistant) pairs where the assistant returned a canned redirect.
 
@@ -170,6 +175,14 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
     there (out_of_scope, goal_planning-not-yet-built, or stock_advice-redirect),
     the LLM anchors on it and biases subsequent turns toward the same refusal.
     Other agents still see the full history — this trim is classifier-only.
+
+    Detection is two-tier:
+    - Rows written since chat_messages.intent shipped carry the turn's intent —
+      match on the tag. This also catches the LLM-tailored redirects, whose
+      text never matched any prefix.
+    - Untagged rows (intent is None — pre-column history) fall back to the
+      legacy message-prefix matching below. That prefix list is FROZEN: new
+      copy variants must not be added — new rows are always tagged.
     """
     # Lazily import the tailored OOS replies + the goal-planning sentinel so
     # we don't pull in the LLM-call modules at classifier import time.
@@ -178,7 +191,7 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
     )
     from app.domains.ai_engine.services.brain import _GOAL_PLANNING_SENTINEL
 
-    canned_prefixes = (
+    legacy_prefixes = (
         OUT_OF_SCOPE_MESSAGE,
         _LEGACY_OUT_OF_SCOPE_PREFIX,
         _LEGACY_GOAL_PLANNING_PREFIX,
@@ -188,12 +201,16 @@ def _strip_canned_redirect_turns(history: list[dict[str, str]]) -> list[dict[str
     )
     drop: set[int] = set()
     for i, m in enumerate(history):
-        content = m.get("content") or ""
         if m.get("role") != "assistant":
             continue
-        is_canned = any(content.startswith(p) for p in canned_prefixes) or (
-            _GOAL_PLANNING_SENTINEL in content
-        )
+        tagged_intent = m.get("intent")
+        if tagged_intent is not None:
+            is_canned = tagged_intent in _CANNED_REDIRECT_INTENTS
+        else:
+            content = m.get("content") or ""
+            is_canned = any(content.startswith(p) for p in legacy_prefixes) or (
+                _GOAL_PLANNING_SENTINEL in content
+            )
         if is_canned:
             drop.add(i)
             if i > 0 and history[i - 1].get("role") == "user":
@@ -210,6 +227,12 @@ def _apply_rebalancing_keyword_override(
     A safety net for when the LLM labels "rebalance my portfolio" as
     asset_allocation / portfolio_query: an explicit rebalance utterance should
     route to the rebalancing engine, not a fresh ideal-allocation design.
+
+    Deliberate consequence (product decision 2026-07-04): this override WINS
+    over the classifier prompt's "rebalance to be more aggressive = target
+    change → asset_allocation" rule whenever the word "rebalance" appears.
+    Pinned by the eval-gate case ``aa/rebalance-to-be-aggressive``; the prompt
+    rule still governs paraphrases without the word.
     """
     if result.intent == Intent.REBALANCING:
         return result
@@ -257,7 +280,7 @@ async def classify_user_message(
             conversation_history=history,
             active_intent=active,
         )
-        result = await asyncio.to_thread(_get_classifier().classify, inp)
+        result = await _get_classifier().aclassify(inp)
         return _apply_rebalancing_keyword_override(customer_question, result)
     except Exception as exc:
         logger.warning(

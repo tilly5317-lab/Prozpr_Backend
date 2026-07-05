@@ -7,7 +7,7 @@ from .models import (
     AdditionalInvestmentOutput,
     Cadence,
 )
-from .ratio import compute_targets
+from .ratio import compute_deficit_targets, compute_targets, dominant_bucket
 from .selection import select_funds
 
 
@@ -17,10 +17,21 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     Returns the BUY list plus deployed/undeployed accounting; `undeployed_inr` is
     non-zero when caps or fund scarcity prevent fully deploying the requested amount.
     """
-    bucket, targets = compute_targets(
-        inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
-        inp.deploy_amount_inr, inp.exclude_subgroups,
-    )
+    if inp.cadence is Cadence.LUMPSUM and inp.current_value_by_subgroup is not None:
+        # Deficit fill (spec 2026-07-03): deploy into the gaps between the
+        # post-investment ideal (caller ran PAA at corpus + deploy) and current
+        # holdings. target_bucket becomes the dominant horizon of the deployed
+        # money — a truthful label, not the split driver.
+        targets = compute_deficit_targets(
+            inp.subgroups, inp.current_value_by_subgroup,
+            inp.deploy_amount_inr, inp.exclude_subgroups,
+        )
+        bucket = dominant_bucket(targets, inp.subgroups)
+    else:
+        bucket, targets = compute_targets(
+            inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
+            inp.deploy_amount_inr, inp.exclude_subgroups,
+        )
     buys = select_funds(
         targets,
         inp.ranked_funds,

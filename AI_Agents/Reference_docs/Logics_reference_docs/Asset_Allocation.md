@@ -1,7 +1,7 @@
 # Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
-*Thesis version 1.3 · Internal & client reference · Last updated: May 2026*
+*Thesis version 1.4 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -17,8 +17,8 @@ We take care of the overall wealth of our clients by understanding their profess
 
 | Principle | What it means in practice |
 | --- | --- |
-| **1. Alignment with your horizon** | You may need money in the near term, the medium term, or for long-term wealth creation. We ring-fence emergencies and known short-term needs before any market exposure is decided. We have seen many cases where an asset–liability or investment–cashflow mismatch causes permanent loss of capital — for example, selling equity when cash is needed urgently but markets are down. We avoid that scenario by construction. |
-| **2. Blend your risk capacity and appetite** | Our approach blends your willingness to take risk with your ability to take risk. We assess what you can afford to risk from your income, expenses, age, savings rate, property, occupation stability and liabilities, and combine it with our read of your experience and psychology. When the two diverge sharply, we flag it rather than over-fit to either. The result is a customised portfolio, not a standard product. |
+| **1. Alignment with your horizon** | You may need money in the near term, the medium term, or for long-term wealth creation. We ring-fence known short-term needs before any market exposure is decided. We have seen many cases where an asset–liability or investment–cashflow mismatch causes permanent loss of capital — for example, selling equity when cash is needed urgently but markets are down. We avoid that scenario by construction. |
+| **2. Blend your risk capacity and appetite** | Our approach blends your willingness to take risk with your ability to take risk. We assess what you can afford to risk from your age, income and expenses, debt and property, and combine it with our read of your experience and psychology. When the two diverge sharply, we flag it rather than over-fit to either. The result is a customised portfolio, not a standard product. |
 | **3. Allocate according to your goals** | Goals vary by life stage and need — wealth creation, regular income, children's education, buying a house — and by *when* each must be met. We lean on less volatile assets for high-priority near-term goals, a balance of equity and debt for medium-term goals, and a fully diversified mix for long-term life goals. The blend can include large-, mid-, small-cap and international equities, value and sector funds, dynamic-duration bonds, arbitrage funds, and gold/silver. You get full visibility into how the portfolio is positioned for each goal. |
 | **4. Superior returns with the right selection** | We select funds by evaluating thousands of candidates against past returns, consistency, drawdowns, portfolio quality, manager longevity, fund-house reputation and more — over a long history. This allows selection without human bias, targeting better post-tax returns than the market for equity and better than fixed deposits for debt. Where active management does not add value, we use passive funds for their lower cost. |
 | **5. Dynamic management with contrarian calls on market cycles** | Markets move through up- and down-cycles. We evaluate valuations across asset classes, protect against excessive froth, and lean in when valuations cheapen. We are not timing markets for short-term gains; we are protecting the portfolio at extremes. The approach is dynamic and factors in market cycles and valuations rather than being static. |
@@ -33,11 +33,11 @@ Every Ask PI recommendation is the output of four deliberate, auditable steps. W
 
 ### Step 1 — Score risk capacity and risk willingness
 
-We form a view on your *ability* to take risk (from age, finances, occupation stability and liabilities) and your *willingness* to take it (from onboarding), then combine them — with willingness leading and capacity anchoring. Where the two diverge meaningfully, we flag it for a conversation before allocation runs. The result is the single risk score that drives the rest of the build. The full reasoning lives in `Risk_Profiling.md`.
+We form a view on your *ability* to take risk (from your age, income and expenses, debt and property) and your *willingness* to take it (from onboarding), then combine them — with willingness leading and capacity anchoring. Where the two diverge meaningfully, we flag it for a conversation rather than silently splitting the difference. The result is the single risk score that drives the rest of the build. The full reasoning lives in `Risk_Profiling.md`.
 
 ### Step 2 — Carve-outs for short-term needs: protect the near term first
 
-- **Emergency fund:** a few months of household expenses in liquid, low-volatility funds for clients with active income, and a larger cushion when the client is living off the portfolio. This is reserved before any other bucket is allocated.
+- **Emergency fund (off by default today):** your default plan does NOT carve out an emergency reserve — it puts your full corpus to work against your goals. The approach supports reserving a few months of household expenses in liquid, low-volatility funds ahead of every other bucket, and you can see that effect on your plan as a what-if in chat; it just isn't part of the standard plan today.
 - **Short-term goals:** near-term outflows are kept entirely in fixed income so the money is available on demand. We favour the most tax-efficient fixed-income structure for your tax situation, leaning toward arbitrage-style funds for higher-tax clients and plain debt otherwise.
 - **Negative net financial assets:** when near-term liabilities exceed liquid assets, the shortfall is added to the protected pool and kept in debt before any equity exposure is contemplated.
 
@@ -57,7 +57,7 @@ In the medium term we blend equity for higher returns with fixed income to reduc
 
 The remaining corpus is allocated across **equities**, **debt** and **others** based on your risk profile. Conservative profiles cap equity tightly; aggressive profiles raise the equity ceiling and, at the very top of the scale, can bring the debt floor close to zero.
 
-- **Intergenerational-transfer view:** when a long-term goal is explicitly about passing wealth to the next generation — and the holder is at a life stage where the heir's horizon genuinely dominates — we lift the growth posture to reflect the longer effective horizon.
+- **Intergenerational-transfer view:** when a long-term goal is explicitly about passing wealth to the next generation — and the holder is at a life stage where the heir's horizon genuinely dominates — we lift the growth posture to reflect the longer effective horizon. (This view is part of the approach but is not yet switched on in the current product — today the standard long-term posture applies.)
 - **Market-view overlay:** we analyse business cycles and segment valuations, take a house view on relative attractiveness across asset classes and subgroups, and nudge allocations *within* the relevant bands. Views never breach the bands.
 
 #### Step 4b — Subgroup allocation: where exactly the money goes
@@ -71,14 +71,21 @@ The remaining corpus is allocated across **equities**, **debt** and **others** b
 
 - Class totals reconcile to 100%; every subgroup sits inside its band; subgroup sums reconcile to their parent class.
 - Allocations are presented in clean, round percentages and rupee amounts — no fictitious precision.
-- A final validation confirms every position rolls up correctly and stays inside its guardrail before anything is delivered.
+- Guardrails are enforced by construction — every market-view nudge is clamped inside its band as it is computed — and a final reconciliation checks that every position rolls up correctly.
+
+## Exploring and changing your plan in chat
+
+- **What-if questions are live but hypothetical.** Ask "what if my risk score were 7?", "what if I add ₹50 lakh?", or "what if I switch tax regime?" and the full plan recomputes on the spot for comparison — but the result is never saved.
+- **Chat does not save changes.** Saying "save this" or "lock it in" in chat does not persist anything. To change your plan durably, update your Profile — the plan regenerates from the updated inputs.
+- **The numbers you see are holdings-aware.** Chat shows the practical allocation built on these ideal targets (see `Practical_Asset_Allocation.md`), so the displayed mix reflects the portfolio you actually own, not just the theory.
+- **When the plan recomputes.** A fresh plan runs when you start a new conversation, when you explicitly ask for a full redo, or when your profile changes.
 
 ## Why a customer should trust this approach
 
 | Question | Our answer |
 | --- | --- |
-| **Why is my equity at X% and not higher?** | Usually one or more of: (a) a lower risk profile — we can identify which input (age, income, occupation stability, liabilities, etc.) is driving it; (b) short- and medium-term goals being funded first, which need less volatile assets and crowd out equity; (c) a currently cautious house view on equities, nudging the allocation toward the lower end of its band. |
-| **Why so much in liquid / short debt?** | Same triage: a lower risk profile leaning to debt, significant near-term goals consuming the corpus, or a larger emergency cushion (bigger for clients living off the portfolio). |
+| **Why is my equity at X% and not higher?** | Usually one or more of: (a) a lower risk profile — we can identify which input (age, income and expenses, debt, property) is driving it; (b) short- and medium-term goals being funded first, which need less volatile assets and crowd out equity; (c) a currently cautious house view on equities, nudging the allocation toward the lower end of its band. |
+| **Why so much in liquid / short debt?** | Same triage: a lower risk profile leaning to debt, or significant near-term goals consuming the corpus — near-term money is kept in fixed income by construction. |
 | **Why hybrid (multi-asset) funds in particular?** | Tax efficiency on the debt portion, built-in diversification across equity styles and sometimes international assets and commodities, and lower churn because the manager rebalances within the fund. |
 | **Why won't you just chase the hot sector?** | Sector exposure is bounded by design and only ever a modest slice. We don't chase hot sectors; we allocate to sectors whose valuations have cheapened or that have genuine structural tailwinds. |
 | **What changes when markets change?** | Our market view nudges allocations toward conviction *within* the bands — never beyond them. We can always explain why the view is set the way it is. |
@@ -89,4 +96,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Allocation Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Allocation Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly*

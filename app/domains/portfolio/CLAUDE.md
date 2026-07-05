@@ -12,7 +12,7 @@
 - Two daily-series builders, easy to confuse: `nav_history_service` SYNTHESISES a placeholder NAV curve (interpolated `return_1y/3y/5y` + noise, NOT transaction-true); `networth_history_service` is the REAL `mf_transaction` × `mf_nav_history` series — extend the latter (`services/nav_history_service.py`, `services/networth_history_service.py`).
 - Net-worth backfill is a two-phase background job (`run_networth_backfill`): Phase A ensures NAV history back to each fund's first txn, Phase B computes the series; writes a polled `portfolio_networth_jobs` row (`services/networth_history_service.py`).
 - Portfolio XIRR direction is driven by `transaction_type` (BUY/SWITCH_IN outflow, SELL/SWITCH_OUT inflow), NOT the amount's sign (`abs(amount)` is magnitude). A prior bug matched non-existent "REDEEM" types (`services/portfolio_query_service.py`, `_compute_portfolio_xirr`).
-- Canonical portfolio XIRR is `mutual_funds.xirr_service.compute_portfolio_xirr` (what `benchmark_service` reuses). `portfolio_query_service._xirr` is a divergent hand-rolled Newton-Raphson — prefer the shared service for new portfolio code (`services/portfolio_query_service.py`).
+- Canonical portfolio XIRR is `mutual_funds.services.xirr_service.compute_portfolio_xirr` (what `benchmark_service` reuses). `portfolio_query_service._xirr` is a divergent hand-rolled Newton-Raphson — prefer the shared service for new portfolio code (`services/portfolio_query_service.py`).
 
 ## Don't read
 
