@@ -91,6 +91,13 @@ class ChatMessage(Base):
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Classified intent of the turn that produced this ASSISTANT message
+    # (NULL on user rows and on rows written before this column shipped).
+    # Written by chat_router.send_message; read by the intent classifier's
+    # history scrub to drop canned-redirect turns by tag instead of matching
+    # message-text prefixes, and picked up by ChatMessageResponse.intent so
+    # reloaded sessions keep per-message intent.
+    intent: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

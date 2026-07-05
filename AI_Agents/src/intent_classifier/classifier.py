@@ -77,7 +77,10 @@ class _LLMOutput(BaseModel):
         description="True if the message continues the previous conversation topic; false if it starts a new topic.",
     )
     reasoning: str = Field(
-        description="One or two sentences explaining why this intent was chosen."
+        description=(
+            "Why this intent was chosen — one short phrase, at most 12 words. "
+            "Never write multi-sentence analysis."
+        )
     )
     out_of_scope_subreason: Optional[_OutOfScopeSubreasonLiteral] = Field(
         default=None,
@@ -159,25 +162,18 @@ class IntentClassifier:
         llm = ChatAnthropic(
             model=model,
             api_key=resolved_key,
-            max_tokens=512,
+            # `reasoning` is capped to a ≤12-word phrase (schema + prompt), so
+            # normal output is well under 100 tokens. 1024 stays as pure headroom:
+            # hitting max_tokens truncates the tool call, which raises a
+            # ValidationError and drops the turn to the OpenAI fallback — and
+            # headroom costs nothing (billing is per generated token).
+            max_tokens=1024,
         )
         self.chain = llm.with_structured_output(_LLMOutput)
 
-    def classify(self, input: ClassificationInput) -> ClassificationResult:
-        """
-        Classify the customer's intent.
-
-        Args:
-            input: ClassificationInput with the customer question and optional conversation history.
-
-        Returns:
-            ClassificationResult with intent, confidence, reasoning, and (if out_of_scope)
-            a customer-facing message.
-
-        Raises:
-            anthropic.APIError: On API-level failures.
-        """
-        messages = [
+    @staticmethod
+    def _messages(input: ClassificationInput) -> list:
+        return [
             # cache_control marks the static system prompt for Anthropic's server-side
             # prompt caching — after the first call, this block costs ~10% of normal rate.
             SystemMessage(
@@ -192,7 +188,8 @@ class IntentClassifier:
             HumanMessage(content=_build_user_turn(input)),
         ]
 
-        raw: _LLMOutput = self.chain.invoke(messages)
+    @staticmethod
+    def _shape(raw: _LLMOutput) -> ClassificationResult:
         intent = Intent(raw.intent)
 
         _canned_responses = {
@@ -216,3 +213,30 @@ class IntentClassifier:
             out_of_scope_message=_canned_responses.get(intent),
             out_of_scope_subreason=subreason,
         )
+
+    def classify(self, input: ClassificationInput) -> ClassificationResult:
+        """
+        Classify the customer's intent.
+
+        Args:
+            input: ClassificationInput with the customer question and optional conversation history.
+
+        Returns:
+            ClassificationResult with intent, confidence, reasoning, and (if out_of_scope)
+            a customer-facing message.
+
+        Raises:
+            anthropic.APIError: On API-level failures.
+        """
+        raw: _LLMOutput = self.chain.invoke(self._messages(input))
+        return self._shape(raw)
+
+    async def aclassify(self, input: ClassificationInput) -> ClassificationResult:
+        """Async variant of :meth:`classify` (native ``ainvoke``, no thread).
+
+        Preferred in async servers: cancellation (e.g. a caller timeout)
+        actually cancels the HTTP call, where a thread-offloaded sync invoke
+        would keep running after cancellation.
+        """
+        raw: _LLMOutput = await self.chain.ainvoke(self._messages(input))
+        return self._shape(raw)

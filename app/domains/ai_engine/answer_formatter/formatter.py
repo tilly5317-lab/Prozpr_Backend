@@ -7,7 +7,6 @@ shared format_with_telemetry wrapper used by per-module chat bridges.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -63,6 +62,10 @@ _FORMATTER_FACTS_NOTES = (
     "`tax_rules.ltcg_rate_equity_pct`, `tax_rules.ltcg_annual_exemption_indian`). If asked HOW a "
     "computed figure was derived and the FACTS_PACK lacks the underlying rate or threshold, "
     'describe the result without inventing the method (e.g. "the system estimates ₹X in tax").\n'
+    "- A LOGIC_REFERENCE section may follow the flow instructions: Prozpr's published methodology "
+    "(philosophy only). Ground 'how/why does the approach work' answers in it and nothing else; "
+    "keep every figure sourced from the FACTS_PACK. If asked for a threshold, cap or weight that "
+    "appears in neither, say it's a policy parameter we don't publish — never estimate one.\n"
     "- The whole-number asset-class rule applies to every mix field in the FACTS_PACK: "
     "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
     "`your_actual_holdings_today_pct` (show a separate **Cash** label when a `cash` key is present).\n"
@@ -98,9 +101,17 @@ def assemble_prompt(
     body_prompt: str,
     history: list[dict[str, Any]],
     profile: dict[str, Any],
+    logic_reference: str | None = None,
 ) -> _Prompt:
     """Build the (system, user) prompt pair. Pure — no LLM call."""
-    system = "\n\n".join([FORMATTER_HOUSE_STYLE, body_prompt])
+    system_parts = [FORMATTER_HOUSE_STYLE, body_prompt]
+    if logic_reference:
+        system_parts.append(
+            "LOGIC_REFERENCE — Prozpr's published methodology for this module "
+            "(philosophy only; it deliberately contains no proprietary thresholds, "
+            "caps or weights):\n\n" + logic_reference
+        )
+    system = "\n\n".join(system_parts)
     history_lines = [
         f"{m.get('role', 'user')}: {m.get('content', '')}" for m in (history or [])[-6:]
     ]
@@ -129,6 +140,7 @@ async def format_answer(
     body_prompt: str,
     history: list[dict[str, Any]],
     profile: dict[str, Any],
+    logic_reference: str | None = None,
 ) -> str:
     """Async Haiku call. Raises FormatterFailure on any failure mode.
 
@@ -142,6 +154,7 @@ async def format_answer(
         body_prompt=body_prompt,
         history=history,
         profile=profile,
+        logic_reference=logic_reference,
     )
     try:
         text = await _invoke_llm(prompt["system"], prompt["user"])
@@ -219,7 +232,9 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
         ),
         HumanMessage(content=user_text),
     ]
-    raw = await asyncio.to_thread(llm.invoke, messages)
+    # Native async (not to_thread): lets the flow timeout actually cancel the
+    # HTTP call — a cancelled thread would keep running to completion.
+    raw = await llm.ainvoke(messages)
     stop_reason = getattr(raw, "response_metadata", {}).get("stop_reason")
     if stop_reason == "max_tokens":
         # Mid-response truncation looks worse than the deterministic fallback brief.
@@ -238,7 +253,12 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
 # itself decoupled. Neither chat_core.turn_context nor ai_module_telemetry
 # imports from answer_formatter, so there is no circular dependency.
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run  # noqa: E402
+from app.domains.ai_engine.logic_docs import LOGIC_DOC_MODES, get_logic_reference  # noqa: E402
 from app.domains.ai_engine.turn_context import TurnContext  # noqa: E402
+from app.domains.ai_engine.usage_tracking import (  # noqa: E402
+    jsonable_llm_usage,
+    track_formatter_llm_usage,
+)
 
 
 async def format_with_telemetry(
@@ -266,43 +286,55 @@ async def format_with_telemetry(
     started = time.monotonic()
     formatter_succeeded = False
     formatter_error_class: str | None = None
-    try:
-        text = await format_answer(
-            question=ctx.user_question,
-            action_mode=action_mode,
-            module_name=module_name,
-            facts_pack=facts_pack,
-            body_prompt=body_prompt,
-            history=ctx.conversation_history or [],
-            profile=profile,
-        )
-        formatter_succeeded = True
-    except FormatterFailure as exc:
-        formatter_error_class = type(exc).__name__
-        logger.error(
-            "formatter_failed module=%s mode=%s error_class=%s reason=%s",
-            module_name,
-            action_mode,
-            formatter_error_class,
-            exc,
-        )
-        text = build_fallback()
-    finally:
-        latency_ms = int((time.monotonic() - started) * 1000)
-        await record_ai_module_run(
-            ctx.db,
-            user_id=ctx.effective_user_id,
-            session_id=ctx.session_id,
-            module=module_name,
-            reason=f"formatter:{action_mode}",
-            duration_ms=latency_ms,
-            formatter_invoked=True,
-            formatter_succeeded=formatter_succeeded,
-            formatter_latency_ms=latency_ms,
-            formatter_error_class=formatter_error_class,
-            action_mode=action_mode,
-            emit_standard_log=False,
-        )
+    # Methodology-shaped modes (educate/narrate) carry the module's client-safe
+    # Logics thesis doc so "how/why does the approach work" answers ground in
+    # published methodology instead of the LLM's general knowledge.
+    logic_reference = (
+        get_logic_reference(module_name) if action_mode in LOGIC_DOC_MODES else None
+    )
+    # Formatter-scoped usage tracker; nests inside the brain's turn-level
+    # tracker (both handlers see the call — the turn row still gets the total).
+    with track_formatter_llm_usage() as usage_cb:
+        try:
+            text = await format_answer(
+                question=ctx.user_question,
+                action_mode=action_mode,
+                module_name=module_name,
+                facts_pack=facts_pack,
+                body_prompt=body_prompt,
+                history=ctx.conversation_history or [],
+                profile=profile,
+                logic_reference=logic_reference,
+            )
+            formatter_succeeded = True
+        except FormatterFailure as exc:
+            formatter_error_class = type(exc).__name__
+            logger.error(
+                "formatter_failed module=%s mode=%s error_class=%s reason=%s",
+                module_name,
+                action_mode,
+                formatter_error_class,
+                exc,
+            )
+            text = build_fallback()
+        finally:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            llm_usage = jsonable_llm_usage(usage_cb.usage_metadata)
+            await record_ai_module_run(
+                ctx.db,
+                user_id=ctx.effective_user_id,
+                session_id=ctx.session_id,
+                module=module_name,
+                reason=f"formatter:{action_mode}",
+                duration_ms=latency_ms,
+                extra={"llm_usage": llm_usage} if llm_usage else None,
+                formatter_invoked=True,
+                formatter_succeeded=formatter_succeeded,
+                formatter_latency_ms=latency_ms,
+                formatter_error_class=formatter_error_class,
+                action_mode=action_mode,
+                emit_standard_log=False,
+            )
     return text
 
 

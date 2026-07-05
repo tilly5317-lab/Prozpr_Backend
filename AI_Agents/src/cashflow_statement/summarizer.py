@@ -146,6 +146,7 @@ def summarize_plan(
     output: GoalPlanningOutput,
     levers: list[Lever] | None = None,
     model: str = SUMMARIZER_MODEL,
+    api_key: str | None = None,
 ) -> PlanSummary:
     """Run the LLM narrative pass over an engine output and attach deterministic
     `next_steps` from the lever engine.
@@ -153,9 +154,13 @@ def summarize_plan(
     `next_steps` is NOT LLM-generated: it is `[l.description for l in levers]`.
     Pass `levers=None` (or an empty list) when none have been computed; the
     summary will show no next steps rather than hallucinated ones.
+
+    ``api_key`` attributes the call to the caller's per-module key; None falls
+    back to the ambient ``ANTHROPIC_API_KEY``. Pass it explicitly — never via
+    process-global env mutation, which races under async concurrency.
     """
     facts = _build_facts(output)
-    llm = ChatAnthropic(model=model, temperature=0)
+    llm = ChatAnthropic(model=model, temperature=0, api_key=api_key)
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),

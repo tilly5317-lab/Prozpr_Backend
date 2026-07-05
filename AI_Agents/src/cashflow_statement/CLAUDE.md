@@ -11,10 +11,10 @@ Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile,
 ## Files at this level
 
 - `models.py` — all public Pydantic contracts (inputs, outputs, agent types, enums). The single source of truth for the engine↔agent boundary.
-- `__init__.py` — public API re-exports; the bridge layer imports only from here.
+- `__init__.py` — public API re-exports; the app layer (cashflow domain services) imports only from here.
 - `summarizer.py` — Haiku LCEL chain turning a `GoalPlanningOutput` into a customer-facing `PlanSummary`. Rupee values are pre-formatted to Indian notation; the LLM copies them verbatim, never doing its own arithmetic.
 - `dev_run.py` — developer smoke-test; runs the engine on a sample profile and writes `dev_artifacts/data.json` + `data.js`. Run as `python -m cashflow_statement.dev_run` from `src/`.
-- `viewer.html` — static HTML viewer for `dev_artifacts/data.js`; end-user display logic, not docs.
+- `Cash_flow.html` — static HTML viewer for `dev_artifacts/data.js`; end-user display logic, not docs. (`dev_run.py` still prints the old `viewer.html` name.)
 
 ## Conventions
 
@@ -33,4 +33,4 @@ Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile,
 ## Don't read
 
 - `__pycache__/`, `.pytest_cache/`, `dev_artifacts/` — build/output caches.
-- `viewer.html` — end-user display logic; read only if changing the viewer.
+- `Cash_flow.html` — end-user display logic; read only if changing the viewer.

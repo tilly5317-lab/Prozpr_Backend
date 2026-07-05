@@ -95,25 +95,29 @@ _DOC_TOOL = reasoned_reply_tool(
 
 
 @cache
-def _get_doc_llm():
-    """Build (and cache) the document-generation LLM on first call.
+def _get_doc_llm(api_key: Optional[str] = None):
+    """Build (and cache, per key) the document-generation LLM.
 
-    Lazy (not at import) so ``ChatAnthropic`` reads ``ANTHROPIC_API_KEY`` at
-    call time — ``MarketCommentaryAgent`` scopes the market-commentary key
-    around the run.
+    ``api_key=None`` falls back to the ambient ``ANTHROPIC_API_KEY`` at
+    construction time. ``MarketCommentaryAgent`` passes its key explicitly —
+    never via process-global env mutation, which races under async concurrency.
     """
-    llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS)
+    llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS, api_key=api_key)
     return llm.bind_tools(
         [_DOC_TOOL], tool_choice={"type": "tool", "name": "return_commentary_document"}
     )
 
 
-def generate_document(snapshot: MacroSnapshot, date: Optional[datetime] = None) -> str:
+def generate_document(
+    snapshot: MacroSnapshot,
+    date: Optional[datetime] = None,
+    api_key: Optional[str] = None,
+) -> str:
     """Generate a 2-page Markdown market commentary from a MacroSnapshot."""
     prompt_vars = _build_prompt_vars({"snapshot": snapshot, "date": date})
     messages = DOCUMENT_GENERATION_PROMPT.format_messages(**prompt_vars)
     document = extract_reasoned_reply(
-        _get_doc_llm().invoke(messages), answer_field="document"
+        _get_doc_llm(api_key).invoke(messages), answer_field="document"
     )
     if not document:
         raise RuntimeError("Document generation returned no `document` field.")

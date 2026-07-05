@@ -98,17 +98,28 @@ async def log_chat_turn_flow_summary(
     steps: list[str],
     duration_ms: int | None = None,
     intent_confidence: float | None = None,
+    llm_usage: dict[str, Any] | None = None,
 ) -> None:
-    """One readable line per chat turn (grep: AILAX_CHAT_FLOW). Also stored as module=chat_flow."""
+    """One readable line per chat turn (grep: AILAX_CHAT_FLOW). Also stored as module=chat_flow.
+
+    ``llm_usage`` is the per-model token aggregate for the whole turn (from
+    ``usage_tracking.track_turn_llm_usage``); persisted under
+    ``extra["llm_usage"]`` on the chat_flow row.
+    """
+    from app.domains.ai_engine.usage_tracking import usage_totals
+
     text = " → ".join(steps)
+    tokens_in, tokens_out = usage_totals(llm_usage)
     logger.info(
-        "AILAX_CHAT_FLOW user_id=%s session_id=%s intent=%s confidence=%s | %s | duration_ms=%s",
+        "AILAX_CHAT_FLOW user_id=%s session_id=%s intent=%s confidence=%s | %s | duration_ms=%s tokens_in=%s tokens_out=%s",
         user_id,
         session_id,
         intent,
         f"{intent_confidence:.2f}" if intent_confidence is not None else None,
         text,
         duration_ms,
+        tokens_in,
+        tokens_out,
     )
     await record_ai_module_run(
         db,
@@ -119,5 +130,6 @@ async def log_chat_turn_flow_summary(
         intent_detected=intent,
         intent_confidence=intent_confidence,
         duration_ms=duration_ms,
+        extra={"llm_usage": llm_usage} if llm_usage else None,
         emit_standard_log=False,
     )

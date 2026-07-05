@@ -2,10 +2,12 @@
 
 Per-session cross-turn state for chat handlers. One row per chat session.
 
-``awaiting_save`` is a generic cross-turn gate (when set, ``ChatBrain``
-routes the next turn back to the gate's flow regardless of the classifier
-verdict). No handler sets it today; it remains as plumbing for a future
-durable-save flow.
+``awaiting_save`` is CURRENTLY UNUSED: nothing writes it and, since the
+2026-07 audit (F11), nothing reads it either — the per-turn load and the
+``ChatBrain`` routing override were removed as dead code. The table/model
+stay so a future durable-save flow can revive the gate without a migration;
+if that flow is abandoned, drop this model and the vestigial
+``TurnContext.awaiting_save`` field together.
 """
 
 from __future__ import annotations

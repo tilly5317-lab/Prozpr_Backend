@@ -64,7 +64,12 @@ def _ctx(
         conversation_history=[],
         client_context=None,
         session_id=uuid.uuid4(),
-        db=MagicMock(),
+        # flush must be awaitable: telemetry writes (record_ai_module_run) go
+        # through this mock whenever a path reaches the formatter, and reach
+        # `await db.flush()` once app.all_models has configured the mappers —
+        # which any earlier-collected test importing it does. A plain MagicMock
+        # made that order-dependent (TypeError on await).
+        db=MagicMock(flush=AsyncMock()),
         effective_user_id=uuid.uuid4(),
         last_agent_runs=last_runs,
         active_intent="asset_allocation",

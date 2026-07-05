@@ -98,7 +98,6 @@ async def compute_goal_planning_snapshot(
         )
         raise
 
-    from common import anthropic_api_key_env
     from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
     from cashflow_statement.summarizer import summarize_plan
@@ -110,9 +109,13 @@ async def compute_goal_planning_snapshot(
     summary = None
     try:
         # Attribute the summarizer LLM call to the goal-planning key (falls back
-        # to the shared ANTHROPIC_API_KEY when unset).
-        with anthropic_api_key_env(get_settings().get_anthropic_goal_planning_key()):
-            summary = await asyncio.to_thread(summarize_plan, output)
+        # to the shared ANTHROPIC_API_KEY when unset). Passed explicitly — the
+        # old env-mutation scoping raced under async concurrency (audit F8).
+        summary = await asyncio.to_thread(
+            summarize_plan,
+            output,
+            api_key=get_settings().get_anthropic_goal_planning_key(),
+        )
     except Exception:
         logger.warning(
             "summarize_plan failed; proceeding without narrative", exc_info=True

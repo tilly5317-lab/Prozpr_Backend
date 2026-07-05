@@ -3,7 +3,8 @@
 Money amounts are plain `float` (rupees), deliberately matching the allocation
 family this engine composes with (asset_allocation_pydantic / practical_asset_allocation),
 not the `Decimal` used by Rebalancing — there is no tax-lot arithmetic here and
-buys are rounded down to ₹100 multiples, so float precision is bounded.
+buys are rounded to the NEAREST ₹100 multiple (halves up — see
+selection.py:_round_to_multiple), so float precision is bounded.
 """
 
 from __future__ import annotations
@@ -64,12 +65,19 @@ class AdditionalInvestmentInput(BaseModel):
     deploy_amount_inr: float = Field(gt=0)
     cadence: Cadence
     subgroups: list[SubgroupBucketAmounts]
-    # Goal-funding status (from the caller). The deposit targets the nearest unfunded
-    # goal: short-term if unfulfilled, else medium-term if unfulfilled, else long-term
-    # (which also catches the all-funded case — keep building long-term). long_term_fulfilled
-    # is intentionally not needed: long-term is always the fallback target.
-    short_term_fulfilled: bool
-    medium_term_fulfilled: bool
+    # Goal-funding status (from the caller). Drives ONLY the legacy single-bucket
+    # path (SIP, or lumpsum without a holdings map): the deposit targets the
+    # nearest unfunded goal. Defaults exist because the deficit path ignores
+    # them (deficit-fill needs no goal flags — the post-investment ideal already
+    # encodes goal priority). long_term_fulfilled is intentionally not needed:
+    # long-term is always the fallback target.
+    short_term_fulfilled: bool = False
+    medium_term_fulfilled: bool = False
+    # Current holdings value per canonical asset subgroup (scheme_classification
+    # vocabulary). When set AND cadence is LUMPSUM, the engine runs DEFICIT FILL:
+    # deploy into max(0, ideal_total - current) gaps, proportionally. None (the
+    # default) preserves legacy behavior exactly.
+    current_value_by_subgroup: Optional[dict[str, float]] = None
     ranked_funds: list[RankedFund]
     # Per-fund concentration cap, as a percent of the DEPLOY amount (this SIP/lumpsum),
     # keyed by subgroup (e.g. debt 30, multi_asset 20, others 10). A subgroup's share
