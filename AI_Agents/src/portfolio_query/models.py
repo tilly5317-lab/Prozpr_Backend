@@ -105,3 +105,12 @@ class PortfolioContext(BaseModel):
     sub_category_allocations: list[SubCategoryAllocationRow] = Field(
         default_factory=list
     )
+    # Itemization metadata: ``holdings`` lists only the largest holdings by
+    # value (the app layer caps itemization to bound prompt size). Counts are
+    # computed over the FULL portfolio before the cap, so count questions stay
+    # exact; the omitted_* fields describe the non-itemized tail (None when
+    # nothing was omitted).
+    total_holdings_count: int | None = None
+    holdings_count_by_type: dict[str, int] | None = None
+    omitted_holdings_count: int | None = None
+    omitted_holdings_value_inr: float | None = None

@@ -55,6 +55,10 @@ _MARKET_COMMENTARY_PATH = (
     / "market_commentary_latest.md"
 )
 
+# Keep the commentary under this limit so it can't dominate the prompt
+# (mirrors general_chat's _MAX_COMMENTARY_CHARS).
+_MAX_COMMENTARY_CHARS = 7000
+
 
 def _load_market_commentary() -> str:
     if not _MARKET_COMMENTARY_PATH.exists():
@@ -67,7 +71,7 @@ def _load_market_commentary() -> str:
         raise ValueError(
             f"Market commentary file at {_MARKET_COMMENTARY_PATH} is empty"
         )
-    return text.strip()
+    return text.strip()[:_MAX_COMMENTARY_CHARS]
 
 
 def _enrich_inr_fields(obj: Any) -> Any:
@@ -91,8 +95,18 @@ def _enrich_inr_fields(obj: Any) -> Any:
 
 
 def _dump_enriched_json(model: Any) -> str:
-    """Serialise a pydantic model to JSON with ``*_indian`` siblings injected."""
-    return json.dumps(_enrich_inr_fields(model.model_dump()), indent=2, default=str)
+    """Serialise a pydantic model to JSON with ``*_indian`` siblings injected.
+
+    Compact on purpose: no indentation and ``exclude_none`` — pretty-printing
+    and explicit nulls inflate the prompt ~20-25% at zero information gain (the
+    skill prompt already treats absent fields as unknown/null).
+    """
+    return json.dumps(
+        _enrich_inr_fields(model.model_dump(exclude_none=True)),
+        separators=(",", ":"),
+        ensure_ascii=False,  # literal ₹ (1 char) beats ₹ escapes (6 chars)
+        default=str,
+    )
 
 
 # Tool schema forced on the portfolio_query LLM call. Anthropic returns a

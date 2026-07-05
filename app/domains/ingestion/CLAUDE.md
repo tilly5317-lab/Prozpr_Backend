@@ -5,7 +5,7 @@
 - **(no models/)** — writes into other domains' tables (`mutual_funds`, `portfolio`); owns no ORM of its own.
 - **schemas/** — cams / mf_aa / finvu / simbanks payloads.
 - **routers/** — `/mf-ingest` (CAMS PDF upload, AA-import normalize, mfapi.in refresh/backfill), `/simbanks`.
-- **services/** — `cams_cas_ingest`, `mf_aa_normalizer`, `simbanks_service` (ConnectHub XML), `finvu_portfolio_sync` (DEPRECATED).
+- **services/** — `cams_cas_ingest`, `mf_aa_normalizer`, `simbanks_service` (ConnectHub XML), `user_data_reset` (full per-user wipe for a clean CAMS re-ingest), `finvu_portfolio_sync` (DEPRECATED).
 
 ## Gotchas & invariants
 
