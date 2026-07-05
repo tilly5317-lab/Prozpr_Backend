@@ -128,3 +128,11 @@ issue_reports/
 /app/domains/additional_investment/services/ainv_engine/tests
 /AI_Agents/src/additional_investment/Master_testing
 /app/domains/rebalancing/services/rebal_engine/tests
+/app/domains/chat/services/tests
+/app/domains/ai_engine/tests
+/app/domains/practical_asset_allocation/services/paa_engine/tests
+/app/domains/intent_classifier/services/tests
+/app/domains/asset_allocation/services/aa_engine/tests
+/app/domains/additional_investment/models/tests
+/app/domains/asset_allocation/services/aa_engine/tests
+/app/domains/asset_allocation/services/aa_engine/tests

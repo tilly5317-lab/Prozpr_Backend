@@ -99,9 +99,10 @@ async def generate_chat_title(first_message: str, intent_name: str | None) -> st
             f"Detected topic: {intent_name or 'general'}\n"
             f"Customer's first message:\n{message[:600]}"
         )
+        # Native async so the timeout actually cancels the HTTP call (a
+        # thread-offloaded invoke would keep running after wait_for gives up).
         result = await asyncio.wait_for(
-            asyncio.to_thread(
-                llm.invoke,
+            llm.ainvoke(
                 [
                     SystemMessage(content=_SYSTEM_PROMPT),
                     HumanMessage(content=user_block),

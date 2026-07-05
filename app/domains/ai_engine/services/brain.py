@@ -21,6 +21,8 @@ function + one row in ``FLOWS``. The brain never changes.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import importlib
 import logging
 import time
 
@@ -29,7 +31,6 @@ import httpx
 from app.domains.ai_engine.common import trace_line, trace_response_preview
 from app.domains.ai_engine.services.flow import (
     FLOWS,
-    AWAITING_SAVE_FLOW,
     flow_general_chat,
 )
 from app.domains.ai_engine.turn_context import (
@@ -41,6 +42,10 @@ from app.domains.ai_engine.chat_types import (
     ChatTurnInput,
 )
 from app.domains.ai_engine.types import IntentDecision, ModuleOutput
+from app.domains.ai_engine.usage_tracking import (
+    jsonable_llm_usage,
+    track_turn_llm_usage,
+)
 from app.domains.chat.services.ai_module_telemetry import log_chat_turn_flow_summary
 from app.domains.intent_classifier.services import intent_classifier_service
 
@@ -72,6 +77,49 @@ _CLASSIFIER_ONLY_INTENTS: frozenset[str] = frozenset(
     }
 )
 
+# Intents whose chat modules register a speculative follow-up action detector
+# (audit F4). Values are the module paths whose import triggers the
+# @register_speculative_detector side effect — lazy, mirroring flow.py's
+# convention, so the brain stays free of module-level domain deps.
+_SPECULATIVE_DETECT_MODULES: dict[str, str] = {
+    "asset_allocation": "app.domains.asset_allocation.services.aa_engine.chat",
+    "rebalancing": "app.domains.rebalancing.services.rebal_engine.chat",
+}
+
+
+def _retrieve_task_result(task: asyncio.Task) -> None:
+    """Done-callback: retrieve a discarded task's exception so asyncio never
+    logs 'Task exception was never retrieved' for speculation we abandoned."""
+    if not task.cancelled():
+        task.exception()
+
+
+def _start_speculative_detect(ctx: TurnContext) -> asyncio.Task | None:
+    """Kick off the active intent's action detector concurrently with the
+    classifier. Returns None whenever speculation doesn't apply (no active
+    intent, no registered detector, no prior module run to follow up on)."""
+    intent = ctx.active_intent
+    module_path = _SPECULATIVE_DETECT_MODULES.get(intent or "")
+    if module_path is None:
+        return None
+    # A detector only helps on FOLLOW-UP turns; first turns run the engine.
+    if intent not in ctx.last_agent_runs:
+        return None
+    try:
+        importlib.import_module(module_path)  # @register side effect
+        from app.domains.ai_engine.chat_dispatcher import speculative_detector_for
+
+        detector = speculative_detector_for(intent)
+        if detector is None:
+            return None
+        task = asyncio.create_task(detector(ctx))
+        task.add_done_callback(_retrieve_task_result)
+        return task
+    except Exception:
+        # Speculation is an optimization — never let it break the turn.
+        logger.exception("failed to start speculative detect for %r", intent)
+        return None
+
 
 def _is_llm_auth_failure(exc: BaseException) -> bool:
     """Anthropic/OpenAI rejected credentials — expected until .env keys are valid."""
@@ -98,6 +146,15 @@ class ChatBrain:
     """Orchestrates one chat turn. Stateless: safe to instantiate per request."""
 
     async def run_turn(self, turn: ChatTurnInput) -> ChatBrainResult:
+        # The usage tracker wraps the WHOLE turn: every LangChain LLM call in
+        # any module (classifier, action detectors, engines, formatter) reports
+        # into one per-turn aggregate, persisted on the chat_flow telemetry row
+        # by _finalize. Works through asyncio.to_thread and asyncio.wait_for
+        # (contextvars propagate into threads and child tasks).
+        with track_turn_llm_usage() as usage_cb:
+            return await self._run_turn(turn, usage_cb)
+
+    async def _run_turn(self, turn: ChatTurnInput, usage_cb) -> ChatBrainResult:
         sid = turn.session_id
         uid = turn.effective_user_id
         db = turn.db
@@ -105,6 +162,7 @@ class ChatBrain:
         t_all = time.perf_counter()
 
         intent: IntentDecision | None = None
+        spec_task: asyncio.Task | None = None
 
         try:
             trace_line("--- ChatBrain.run_turn ---")
@@ -114,8 +172,17 @@ class ChatBrain:
             ctx: TurnContext = await build_turn_context(turn)
             trace_line(
                 f"turn_context: last_runs={list(ctx.last_agent_runs.keys())} "
-                f"active_intent={ctx.active_intent} awaiting_save={ctx.awaiting_save}"
+                f"active_intent={ctx.active_intent}"
             )
+
+            # ---- 1b. Speculative follow-up action-detect (audit F4) ---------
+            # Runs concurrently with the classifier; attached below only if the
+            # classifier confirms the active intent, else discarded in finally.
+            spec_task = _start_speculative_detect(ctx)
+            if spec_task is not None:
+                trace_line(
+                    f"speculative detect started for active_intent={ctx.active_intent}"
+                )
 
             # ---- 2. Intent classification (always first) --------------------
             ic_out = await intent_classifier_service.run(turn, ctx, {})
@@ -125,6 +192,19 @@ class ChatBrain:
                 f"intent classifier: {intent.name} "
                 f"(confidence={intent.confidence:.2f}, reasoning={intent.reasoning!r})"
             )
+
+            # ---- 2b. Attach or discard the speculative detect ---------------
+            if spec_task is not None:
+                if intent.name == ctx.active_intent:
+                    ctx = dataclasses.replace(ctx, speculative_detect=spec_task)
+                    flow.append("speculative detect: attached")
+                    trace_line("speculative detect: attached (intent unchanged)")
+                else:
+                    flow.append(
+                        f"speculative detect: discarded "
+                        f"({ctx.active_intent} → {intent.name})"
+                    )
+                    trace_line("speculative detect: discarded (intent changed)")
 
             # ---- 3. Classifier-only intents: tailor the redirect, else canned -
             if intent.name in _CLASSIFIER_ONLY_INTENTS and intent.raw is not None:
@@ -145,6 +225,7 @@ class ChatBrain:
                         db=db,
                         uid=uid,
                         sid=sid,
+                        usage_cb=usage_cb,
                     )
 
             # ---- 4. Pick the flow -------------------------------------------
@@ -187,6 +268,7 @@ class ChatBrain:
                     db=db,
                     uid=uid,
                     sid=sid,
+                    usage_cb=usage_cb,
                 )
 
             # ---- 6. The flow's result owns the reply ------------------------
@@ -199,6 +281,7 @@ class ChatBrain:
                 uid=uid,
                 sid=sid,
                 final=final,
+                usage_cb=usage_cb,
             )
 
         except Exception as exc:
@@ -228,22 +311,23 @@ class ChatBrain:
                 db=db,
                 uid=uid,
                 sid=sid,
+                usage_cb=usage_cb,
             )
+        finally:
+            # Any speculation that was never consumed (intent changed, canned
+            # short-circuit, error path) is cancelled so it can't linger.
+            if spec_task is not None and not spec_task.done():
+                spec_task.cancel()
 
     # ---------------------------------------------------------------------
     # internals
     # ---------------------------------------------------------------------
 
     def _flow_for(self, intent: IntentDecision, ctx: TurnContext):
-        """Pick the flow for this turn.
-
-        - ``ctx.awaiting_save`` (the cashflow save gate) wins over the
-          classifier and routes back to the goal-planning flow.
-        - Otherwise look up ``intent.name`` in ``FLOWS``.
-        - Unknown intents fall through to ``flow_general_chat``.
-        """
-        if ctx.awaiting_save:
-            return AWAITING_SAVE_FLOW
+        """Pick the flow for this turn: ``intent.name`` looked up in ``FLOWS``;
+        unknown intents fall through to ``flow_general_chat``. (The old
+        ``awaiting_save`` override was removed in the 2026-07 audit — nothing
+        set the gate since the save-flow removal.)"""
         return FLOWS.get(intent.name, flow_general_chat)
 
     async def _finalize(
@@ -257,6 +341,7 @@ class ChatBrain:
         uid,
         sid,
         final: ModuleOutput | None = None,
+        usage_cb=None,
     ) -> ChatBrainResult:
         """Shape the assistant reply + write end-of-turn telemetry."""
         ms = int((time.perf_counter() - t0) * 1000)
@@ -265,6 +350,9 @@ class ChatBrain:
             text,
             max_chars=1200,
         )
+        # All LLM calls for this turn have completed by now (success, timeout,
+        # or error path), so the tracker holds the turn's full aggregate.
+        llm_usage = jsonable_llm_usage(usage_cb.usage_metadata) if usage_cb else None
         try:
             await asyncio.wait_for(
                 log_chat_turn_flow_summary(
@@ -275,6 +363,7 @@ class ChatBrain:
                     intent_confidence=intent.confidence if intent else None,
                     steps=flow,
                     duration_ms=ms,
+                    llm_usage=llm_usage,
                 ),
                 timeout=_TELEMETRY_TIMEOUT_S,
             )

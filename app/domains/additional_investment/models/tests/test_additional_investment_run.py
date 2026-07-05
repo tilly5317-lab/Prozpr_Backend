@@ -56,7 +56,6 @@ def _make_run() -> AdditionalInvestmentRun:
         undeployed_inr=200,
         request_input={"deploy_amount_inr": 100000.0},
         user_question="Where should I invest 1 lakh monthly?",
-        used_cached_allocation=True,
         targets=[
             AdditionalInvestmentTarget(
                 subgroup="large_cap", ratio=0.6, target_inr=60000
@@ -97,7 +96,6 @@ async def test_run_persists_columns_and_enum_round_trip(db_session: AsyncSession
     assert float(stored.deployed_inr) == 99800.0
     assert float(stored.undeployed_inr) == 200.0
     assert stored.engine_version == "ainv-1.0.0"
-    assert stored.used_cached_allocation is True
     assert stored.request_input == {"deploy_amount_inr": 100000.0}
     assert stored.user_question == "Where should I invest 1 lakh monthly?"
 

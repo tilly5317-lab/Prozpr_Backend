@@ -7,7 +7,7 @@ Gathers 14 macro indicators via Claude + Anthropic web_search, extracts them int
 
 ## Files
 - `main.py` — agent, web-search extraction, `CacheManager`.
-- `document_generator.py` — `document_generation_chain`; `MacroSnapshot` → markdown.
+- `document_generator.py` — `generate_document` / `DocumentGenerator`; `MacroSnapshot` → markdown (forced tool-use via `reasoned_reply`).
 - `models.py` — `MacroSnapshot` (indicator fields, `data_gaps`, `document_md`).
 - `prompts.py` — extraction + doc-gen prompts. `chat_qa.py` — optional Q&A over the commentary.
 - `README.md` — human guide. `_archive/` — retired scraper + old snapshots, not active source.

@@ -26,8 +26,15 @@ if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 
 from app.domains.ai_engine.common import ensure_ai_agents_path, trace_line
+from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+    HoldingsSnapshot,
+    load_holdings_snapshot,
+)
 from app.domains.additional_investment.services.ainv_engine.input_builder import (
     build_additional_investment_input_for_user,
+)
+from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
+    CorpusPin,
 )
 from app.domains.practical_asset_allocation.services.paa_engine.service import (
     compute_practical_allocation_result,
@@ -68,7 +75,9 @@ _MSG_INCOMPLETE_PROFILE = (
 
 # Stamped onto every persisted AdditionalInvestmentRun.engine_version. Bump when
 # the additional-investment engine's output contract changes.
-AINV_ENGINE_VERSION = "ainv-1.0.0"
+# 2.0.0: lumpsum deployments switched from single-bucket targeting to
+# holdings-aware deficit fill (spec 2026-07-03); SIP unchanged.
+AINV_ENGINE_VERSION = "ainv-2.0.0"
 
 
 @dataclass(frozen=True)
@@ -85,15 +94,15 @@ class AdditionalInvestmentRunOutcome:
 
     ``run_id`` is None whenever ``persist=False`` (the only mode in Plan 3a);
     Plan 3b flips ``persist`` and fills it with the persisted run's id.
-    ``used_cached_allocation`` is always False today — the practical-allocation
-    service recomputes fresh each call (no cache layer yet); the field exists
-    for parity with ``RebalancingRunOutcome`` and future caching.
     """
 
     output: "AdditionalInvestmentOutput | None"
     run_id: "uuid.UUID | None" = None
-    used_cached_allocation: bool = False
     blocking_message: str | None = None
+    # Deficit-fill facts for the chat formatter (lumpsum only): one row per
+    # deployed subgroup {subgroup, ideal_inr, current_inr, gap_inr, buy_inr}.
+    # None on the SIP / legacy path.
+    deficit_facts: "list[dict] | None" = None
 
 
 async def compute_additional_investment_result(
@@ -107,6 +116,7 @@ async def compute_additional_investment_result(
     cadence: Cadence,
     chat_ctx: "TurnContext",
     persist: bool = False,
+    focus_category: Optional[str] = None,
 ) -> AdditionalInvestmentRunOutcome:
     """Prime allocation → build input → run the engine.
 
@@ -122,10 +132,34 @@ async def compute_additional_investment_result(
     """
     trace_line("module: additional_investment — start")
 
+    # Deficit fill (spec 2026-07-03), lumpsum only: the ideal is PAA at actual
+    # holdings + fresh money, so both the corpus and the per-subgroup `current`
+    # side come from ONE holdings snapshot. SIP keeps the legacy profile-corpus
+    # path (snapshot never loads there). No fallback by product decision
+    # (2026-07-04, CAMS upload mandatory): a snapshot failure propagates.
+    snapshot: HoldingsSnapshot | None = None
+    corpus_pin: CorpusPin | None = None
+    if cadence is Cadence.LUMPSUM:
+        snapshot = await load_holdings_snapshot(db, acting_user_id)
+        corpus_pin = CorpusPin(
+            total_corpus=snapshot.total_inr + deploy_amount_inr,
+            mf_corpus=snapshot.total_inr
+            - snapshot.non_mf_equity_inr
+            + deploy_amount_inr,
+            non_mf_equity_corpus=snapshot.non_mf_equity_inr,
+            elss_corpus=snapshot.elss_inr,
+        )
+        trace_line(
+            f"additional_investment holdings snapshot: total={snapshot.total_inr}, "
+            f"elss={snapshot.elss_inr}, stocks={snapshot.non_mf_equity_inr}, "
+            f"unknown={snapshot.unknown_inr}"
+        )
+
     paa_outcome = await compute_practical_allocation_result(
         user,
         user_question,
         chat_ctx=chat_ctx,
+        corpus_pin=corpus_pin,
     )
     if paa_outcome.result is None:
         # Pre-check failed (practical allocation could not be produced /
@@ -142,6 +176,9 @@ async def compute_additional_investment_result(
             paa_outcome.result,
             deploy_amount_inr=deploy_amount_inr,
             cadence=cadence,
+            current_value_by_subgroup=(
+                snapshot.by_subgroup if snapshot is not None else None
+            ),
         )
     except ValueError as exc:
         # The goal-funding step (cashflow) HARD-REFUSES an incomplete profile,
@@ -175,6 +212,31 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
+    # Deficit-fill facts for the chat formatter (lumpsum only): ideal vs current
+    # vs deployed per subgroup, so the reply can narrate WHERE the gaps were.
+    deficit_facts: list[dict] | None = None
+    if snapshot is not None:
+        rows_by = {r.subgroup: r for r in paa_outcome.result.aggregated_subgroups}
+        buys_by: dict[str, float] = {}
+        for b in response.buys:
+            buys_by[b.asset_subgroup] = (
+                buys_by.get(b.asset_subgroup, 0.0) + float(b.amount_inr)
+            )
+        deficit_facts = []
+        for t in response.per_subgroup_target:
+            row = rows_by.get(t.subgroup)
+            ideal = float(row.total) if row is not None else 0.0
+            current = snapshot.by_subgroup.get(t.subgroup, 0.0)
+            deficit_facts.append(
+                {
+                    "subgroup": t.subgroup,
+                    "ideal_inr": ideal,
+                    "current_inr": current,
+                    "gap_inr": max(0.0, ideal - current),
+                    "buy_inr": buys_by.get(t.subgroup, 0.0),
+                }
+            )
+
     # Persist the BUY-only recommendation. Gated like compute_rebalancing_result:
     # counterfactual / no-session paths (persist=False or no chat session) skip
     # the write. Money stays float — persist writes Numeric(18,2) directly.
@@ -184,6 +246,19 @@ async def compute_additional_investment_result(
     # persist the practical run inline here to capture it — the only practical
     # persist in the ainv path (it does not route through paa_engine/chat.py), so
     # no double-write. The id is always produced, so the FK column is NOT NULL.
+
+    # Mode + category metadata merged over the engine-input dump at persist
+    # time (spec 2026-07-03 / 2026-07-04). None when there is nothing to add.
+    request_extras: Optional[dict] = None
+    _extras: dict = {}
+    if snapshot is not None:
+        _extras["deployment_mode"] = "deficit_fill"
+        _extras["base_corpus_inr"] = snapshot.total_inr
+    if focus_category:
+        _extras["focus_category"] = focus_category
+    if _extras:
+        request_extras = _extras
+
     run_id: Optional[uuid.UUID] = None
     if persist and chat_session_id is not None:
         # Best-effort (mirrors paa_engine/chat.py): the BUY list is already
@@ -204,9 +279,9 @@ async def compute_additional_investment_result(
                 response,
                 source_allocation_run_id=source_allocation_run_id,
                 chat_session_id=chat_session_id,
-                used_cached_allocation=False,
                 user_question=user_question,
                 request=inp,
+                request_extras=request_extras,
             )
         except Exception:  # noqa: BLE001 — best-effort persist, never blocks the reply
             logger.exception(
@@ -219,5 +294,5 @@ async def compute_additional_investment_result(
     return AdditionalInvestmentRunOutcome(
         output=response,
         run_id=run_id,
-        used_cached_allocation=False,
+        deficit_facts=deficit_facts,
     )

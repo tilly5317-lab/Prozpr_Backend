@@ -46,9 +46,9 @@ async def persist_additional_investment_recommendation(
     *,
     source_allocation_run_id: uuid.UUID,
     chat_session_id: Optional[uuid.UUID] = None,
-    used_cached_allocation: bool = False,
     user_question: Optional[str] = None,
     request: Optional[AdditionalInvestmentInput] = None,
+    request_extras: Optional[dict[str, Any]] = None,
 ) -> uuid.UUID:
     """Write the engine output and return the new ``AdditionalInvestmentRun`` id.
 
@@ -67,9 +67,14 @@ async def persist_additional_investment_recommendation(
 
     # ``request`` is optional but recommended so the per-call engine input is
     # captured for audit. Serialise to JSON-safe primitives for the JSONB column.
+    # ``request_extras`` (deficit-fill mode metadata) is MERGED over the dump —
+    # the stored dict is a superset of the engine input, no longer a pure
+    # round-trippable model dump (spec 2026-07-03).
     request_input: Optional[dict[str, Any]] = (
         request.model_dump(mode="json") if request is not None else None
     )
+    if request_extras:
+        request_input = {**(request_input or {}), **request_extras}
 
     run = AdditionalInvestmentRun(
         user_id=user_id,
@@ -84,7 +89,6 @@ async def persist_additional_investment_recommendation(
         deploy_amount_inr=output.deploy_amount_inr,
         deployed_inr=output.deployed_inr,
         undeployed_inr=output.undeployed_inr,
-        used_cached_allocation=used_cached_allocation,
         user_question=user_question,
         request_input=request_input,
     )

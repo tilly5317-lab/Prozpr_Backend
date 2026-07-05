@@ -360,6 +360,35 @@ def _build_subcategory_rows(
     return rows
 
 
+# Itemize at most this many holdings (largest by value) in the LLM prompt.
+# Counts and the omitted-tail rollup below keep count / "do I hold X?" questions
+# answerable; the skill prompt documents the contract. Most retail portfolios
+# are well under this, so the cap only fires on outliers.
+_MAX_ITEMIZED_HOLDINGS = 30
+
+
+def _itemize_holdings(
+    all_holdings: list[Holding],
+) -> tuple[list[Holding], int | None, float | None]:
+    """Largest-by-value slice + (omitted_count, omitted_value) for the tail."""
+    if len(all_holdings) <= _MAX_ITEMIZED_HOLDINGS:
+        return all_holdings, None, None
+    ranked = sorted(
+        all_holdings, key=lambda h: h.current_value_inr or 0.0, reverse=True
+    )
+    itemized = ranked[:_MAX_ITEMIZED_HOLDINGS]
+    tail = ranked[_MAX_ITEMIZED_HOLDINGS:]
+    omitted_value = round(sum(h.current_value_inr or 0.0 for h in tail), 2)
+    return itemized, len(tail), omitted_value
+
+
+def _count_by_type(all_holdings: list[Holding]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for h in all_holdings:
+        counts[h.instrument_type or "unknown"] += 1
+    return dict(counts)
+
+
 def _build_portfolio_context(user: Any) -> PortfolioContext | None:
     portfolios = list(getattr(user, "portfolios", []) or [])
     if not portfolios:
@@ -374,14 +403,23 @@ def _build_portfolio_context(user: Any) -> PortfolioContext | None:
     total_value = float(getattr(primary, "total_value", 0) or 0)
     xirr_pct = _compute_portfolio_xirr(user, total_value)
 
+    all_holdings = _build_holdings(orm_holdings)
+    itemized, omitted_count, omitted_value = _itemize_holdings(all_holdings)
+
     return PortfolioContext(
         total_value_inr=_f(primary, "total_value"),
         total_invested_inr=_f(primary, "total_invested"),
         total_gain_percentage=_f(primary, "total_gain_percentage"),
         xirr_pct=xirr_pct,
-        holdings=_build_holdings(orm_holdings),
+        holdings=itemized,
         allocations=_build_allocation_rows(orm_allocations),
+        # Sub-category rollups aggregate the FULL holdings list, not the
+        # itemized slice — category questions stay exact under the cap.
         sub_category_allocations=_build_subcategory_rows(orm_holdings, total_value),
+        total_holdings_count=len(all_holdings),
+        holdings_count_by_type=_count_by_type(all_holdings),
+        omitted_holdings_count=omitted_count,
+        omitted_holdings_value_inr=omitted_value,
     )
 
 

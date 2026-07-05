@@ -12,7 +12,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from common import anthropic_api_key_env, read_text_bom_aware
+from common import read_text_bom_aware
 
 from .document_generator import generate_document
 from .models import MacroSnapshot
@@ -68,16 +68,17 @@ def _to_snapshot(extraction: _MacroExtraction) -> MacroSnapshot:
 
 
 @cache
-def _get_extraction_llm():
-    """Build (and cache) the web-search extraction LLM on first call.
+def _get_extraction_llm(api_key: str | None = None):
+    """Build (and cache, per key) the web-search extraction LLM.
 
-    Built lazily (not at import) so ``ChatAnthropic`` reads
-    ``ANTHROPIC_API_KEY`` at call time — ``MarketCommentaryAgent`` scopes the
-    market-commentary key around the run, and the first call bakes it in.
+    ``api_key=None`` falls back to the ambient ``ANTHROPIC_API_KEY`` at
+    construction time. ``MarketCommentaryAgent`` passes its key explicitly —
+    never via process-global env mutation, which races under async concurrency.
     """
     return ChatAnthropic(
         model=_EXTRACTION_MODEL,
         max_tokens=_EXTRACTION_MAX_TOKENS,
+        api_key=api_key,
     ).bind_tools(
         [
             {
@@ -90,7 +91,7 @@ def _get_extraction_llm():
     )
 
 
-def run_websearch_extraction() -> MacroSnapshot:
+def run_websearch_extraction(api_key: str | None = None) -> MacroSnapshot:
     """Gather all 14 macro indicators via Claude + Anthropic web_search.
 
     Claude plans and issues its own searches, disambiguates known failure modes
@@ -99,7 +100,7 @@ def run_websearch_extraction() -> MacroSnapshot:
     MacroSnapshot if the model does not finalise (so the caller's cache-fallback
     path kicks in).
     """
-    response = _get_extraction_llm().invoke(
+    response = _get_extraction_llm(api_key).invoke(
         [
             SystemMessage(content=EXTRACTION_SYSTEM_PROMPT_WEBSEARCH),
             HumanMessage(
@@ -177,9 +178,9 @@ class MarketCommentaryAgent:
         output_dir: str = ".",
         generate_document: bool = True,
     ) -> None:
-        # Scoped around the LLM calls in run()/run_from_cache() rather than
-        # mutating the global env at construction, so each module keeps its own
-        # key attribution (and the shared-fallback contract) intact.
+        # Passed explicitly into each LLM builder (None → ambient
+        # ANTHROPIC_API_KEY), so each module keeps its own key attribution
+        # without process-global env mutation.
         self._api_key = api_key
         self.output_dir = output_dir
         self._cache_path = os.path.join(output_dir, _CACHE_FILENAME)
@@ -223,8 +224,9 @@ class MarketCommentaryAgent:
             except OSError:
                 pass  # fall through to regeneration
 
-        with anthropic_api_key_env(self._api_key):
-            regenerated_md = generate_document(snapshot, date or datetime.utcnow())
+        regenerated_md = generate_document(
+            snapshot, date or datetime.utcnow(), api_key=self._api_key
+        )
         try:
             os.makedirs(self.output_dir, exist_ok=True)
             with open(
@@ -242,8 +244,7 @@ class MarketCommentaryAgent:
             MacroSnapshot with the latest macro-economic indicator values.
         """
         # Step 1+2: Claude with web_search gathers and extracts all 14 indicators.
-        with anthropic_api_key_env(self._api_key):
-            snapshot = run_websearch_extraction()
+        snapshot = run_websearch_extraction(api_key=self._api_key)
 
         # Step 3: fallback to cache if all indicator fields are null
         if self._is_snapshot_empty(snapshot):
@@ -260,8 +261,7 @@ class MarketCommentaryAgent:
         # Step 5: generate and write the 2-page Markdown commentary
         if self._generate_document:
             now = datetime.utcnow()
-            with anthropic_api_key_env(self._api_key):
-                document_md = generate_document(snapshot, now)
+            document_md = generate_document(snapshot, now, api_key=self._api_key)
             snapshot.document_md = document_md
             self._write_document(document_md)
 
