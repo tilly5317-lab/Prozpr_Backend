@@ -6,14 +6,16 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
+from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import PersonalFinanceProfile
 from app.domains.identity.models.user import User
 from app.domains.identity.schemas.auth import (
@@ -94,6 +96,39 @@ async def _email_taken(
     return (await db.execute(stmt)).first() is not None
 
 
+def _identity_complete(user: User) -> bool:
+    """A signup becomes 'reportable' once the user has both a name and an email
+    — exactly the fields captured on the name / PIN / email setup page."""
+    full_name = " ".join(
+        p for p in (user.first_name or "", user.last_name or "") if p
+    ).strip()
+    return bool(full_name and user.email)
+
+
+def _maybe_notify_new_signup(
+    background_tasks: BackgroundTasks, user: User, was_complete_before: bool
+) -> None:
+    """Fire the one-time new-signup team notification (Slack + optional Sheet)
+    the first time a user's identity becomes complete — i.e. the moment they
+    submit the name / PIN / email page. Idempotent by design: a no-op if the
+    identity was already complete before this request, or is still incomplete
+    after it, so each user is reported exactly once. Best-effort background
+    task: runs after the response, never fails the request."""
+    if was_complete_before or not _identity_complete(user):
+        return
+    full_name = " ".join(
+        p for p in (user.first_name or "", user.last_name or "") if p
+    ).strip()
+    background_tasks.add_task(
+        notify_new_signup,
+        datetime.now(timezone.utc),
+        full_name,
+        user.email,
+        user.phone,
+        "Signup",
+    )
+
+
 @router.post("/check-mobile", response_model=MobileStatusResponse)
 async def check_mobile(
     payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)
@@ -112,11 +147,19 @@ async def check_mobile(
 @router.post(
     "/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED
 )
-async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
+async def signup(
+    payload: SignUpRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     phone = full_phone(payload.country_code, payload.mobile)
     result = await db.execute(select(User).where(User.phone == phone))
     existing = result.scalar_one_or_none()
     if existing:
+        # Whether the team was already told about this user — captured before we
+        # apply the new identity fields so we can report exactly once, the first
+        # time name + email land (see `_maybe_notify_new_signup`).
+        was_complete_before = _identity_complete(existing)
         # A user actively setting their name / email / PIN must never be
         # dropped, even if a record for this phone already exists (e.g. one
         # created earlier via OTP). Persist the supplied identity fields.
@@ -134,6 +177,7 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
             existing.password_hash = hash_password(payload.password)
         await _save_inline_onboarding_profile(db, existing, payload)
         await db.commit()
+        _maybe_notify_new_signup(background_tasks, existing, was_complete_before)
         access_token = create_access_token(existing.id, existing.phone)
         return SignUpResponse(
             user_id=existing.id,
@@ -168,6 +212,10 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
         )
     await db.refresh(user)
+
+    # Brand-new row, so nothing was reported before: notify the team now if the
+    # setup page supplied a name + email (it always does on the happy path).
+    _maybe_notify_new_signup(background_tasks, user, was_complete_before=False)
 
     access_token = create_access_token(user.id, user.phone)
 
@@ -267,6 +315,7 @@ async def me(current_user: CurrentUser = Depends(get_current_user)):
 @router.put("/me", response_model=CurrentUserResponse)
 async def update_me(
     payload: UserUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -276,6 +325,11 @@ async def update_me(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+    # The setup page calls this right after /signup as a safety net; report the
+    # signup here too if name + email first become complete on this call (a
+    # no-op when /signup already reported it — see `_maybe_notify_new_signup`).
+    was_complete_before = _identity_complete(user)
 
     updates = payload.model_dump(exclude_unset=True)
     new_email = updates.get("email")
@@ -293,6 +347,8 @@ async def update_me(
 
     await db.commit()
     await db.refresh(user)
+
+    _maybe_notify_new_signup(background_tasks, user, was_complete_before)
 
     return CurrentUserResponse(
         id=user.id,
