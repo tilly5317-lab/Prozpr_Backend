@@ -156,5 +156,12 @@ def notify_new_signup(
         f"*Email:* {email or '-'}\n"
         f"*When:* {when}"
     )
-    _post_to_slack(text)
+    # Keep our own test signups out of the team Slack channel — a name
+    # containing "test" (covers "Testing", "TestTING", "test user", …) is us
+    # exercising the flow, not a real user. The Google Sheet still logs the row
+    # so nothing is silently lost.
+    if "testing" in (name or "").lower():
+        logger.info("Signup name contains 'test' — Slack ping skipped.")
+    else:
+        _post_to_slack(text)
     _append_to_signup_sheet(created_at, display_name, email, phone, source)
