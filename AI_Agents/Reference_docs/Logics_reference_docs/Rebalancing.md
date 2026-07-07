@@ -1,7 +1,7 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -20,7 +20,7 @@ A rebalance is a **disciplined return to the plan** — not a reaction to market
 | **1. Rebalance to the plan, not to the market** | The targets we measure against are the goal-based allocation we computed for *you*. We do not raise equity because equity has run, and we do not cut equity because equity has fallen. If your goals and risk profile have not changed, the target shape has not changed, and rebalancing simply pulls the portfolio back onto that shape. |
 | **2. Don't trade for trading's sake** | Every trade costs friction (exit loads, transaction taxes, spreads) and capital-gains tax. We refuse to pay those costs for cosmetic alignment. A holding that is already close to its target is left alone. The "close enough" threshold is a deliberate policy choice, reviewed over time — not folklore. |
 | **3. Quality bar trumps comfort** | Two things make a fund a must-sell regardless of how small the drift looks: our research team has explicitly marked it for exit (typically because they have replaced it or it failed an ongoing screen), or its quality rating has fallen below our floor. We do not keep a sub-standard fund around just because exiting it is inconvenient or tax-expensive. A fund that has merely slipped off our active recommended list without an exit call is treated more gently — see Step 2. |
-| **4. Concentration caps over single-fund bets** | No single fund is allowed to dominate the portfolio. Wider-mandate funds are allowed a larger share than narrow ones, but all are capped. When a top-ranked fund in a category hits its cap, the overflow walks to the next-ranked fund we have conviction in, within the same asset subgroup. Caps protect you from single-manager risk; the rank ladder makes sure displaced money still goes somewhere we believe in. |
+| **4. Concentration caps over single-fund bets** | No single fund is allowed to dominate the portfolio. Wider-mandate funds are allowed a larger share than narrow ones, but all are capped. When a top-ranked fund in a category hits its cap, the overflow walks to the next-ranked fund we have conviction in, within the same asset subgroup. The cap is deliberately generous for smaller portfolios: we don't shatter a modest corpus into tiny fund fragments, and we don't recommend a sell — with its tax cost — just to satisfy a percentage on a small holding. Caps protect you from single-manager risk; the rank ladder makes sure displaced money still goes somewhere we believe in. |
 | **5. Tax-aware selling, cheapest units first** | When we sell — to trim, to exit, or to fund a buy — which units leave is the single biggest lever on the tax bill. We always sell the tax-cheapest units first: long-term lots lead (long-term capital gains are taxed at 12.5% above a ₹1,25,000 annual exemption), and lots sitting on a realised loss are cheaper still (losses offset gains and unlock more rebalancing). Routine trims go one step further: they only ever touch long-term units — short-term units are sold only when a fund must be exited outright. A delisted or low-rated fund still gets sold even if it's the most tax-expensive — but among funds we *could* sell, the tax-cheap ones always go first. |
 | **6. Respect your short-term-gains budget; put losses to work** | If you tell us how much short-term capital gain you're willing to realise this year, we stop adding new short-term gains once that budget is hit and defer the rest. In a second pass, carryforward losses from prior years plus losses realised in this run are pooled, and as much of the deferred demand as those losses can absorb is converted into actual sells. This is the central tax move of the engine: losses don't cut tax on past returns, but they unlock additional rebalancing without raising this year's tax bill. |
 | **7. The engine never invents cash** | We treat every rebalance as a closed system: every buy is funded from a sell, so total buys never exceed total sells. If demanded buys exceed allowed sells, buys are scaled down proportionally and the shortfall is reported, never hidden. If a must-exit fund raises more cash than the buys need, the surplus is released to you as cash and reported. Fresh inflows and goal outflows are handled by a separate allocation step *before* rebalancing — we don't pretend to find money that isn't on the table. |
@@ -38,7 +38,7 @@ Before anything is traded, the practical allocation step translates your ideal t
 
 ### Step 1 — Size each fund under concentration caps
 
-Each asset subgroup in your plan maps to one or more recommended funds, ordered by rank. No single fund may dominate; when a top-ranked fund's target exceeds its cap, the overflow walks to the next-ranked fund in the same subgroup. Sizing only redistributes across funds that already exist in your plan — we never invent new positions — and if overflow can't be absorbed, it's flagged rather than silently dropped.
+Each asset subgroup in your plan maps to one or more recommended funds, ordered by rank. No single fund may dominate; when a top-ranked fund's target exceeds its cap, the overflow walks to the next-ranked fund in the same subgroup. The cap has a sensible minimum, so smaller portfolios keep a handful of meaningful positions instead of many small fragments. Sizing only redistributes across funds that already exist in your plan — we never invent new positions — and if overflow can't be absorbed, it's flagged rather than silently dropped.
 
 ### Step 2 — Compare to present holdings: hold, top up, trim or exit
 
@@ -80,4 +80,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask PI · Rebalancing Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Rebalancing Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*

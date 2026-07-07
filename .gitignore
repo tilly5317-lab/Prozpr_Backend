@@ -136,3 +136,6 @@ issue_reports/
 /app/domains/additional_investment/models/tests
 /app/domains/asset_allocation/services/aa_engine/tests
 /app/domains/asset_allocation/services/aa_engine/tests
+/app/domains/rebalancing/services/rebal_engine/tests
+/app/domains/rebalancing/services/rebal_engine/tests
+/app/domains/rebalancing/services/rebal_engine/tests

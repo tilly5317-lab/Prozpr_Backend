@@ -89,6 +89,24 @@ class AdditionalInvestmentInput(BaseModel):
     # split entirely, so their share renormalises onto the remaining subgroups —
     # e.g. non_mf_equities (direct stocks, no funds) and tax_efficient_equities (ELSS lock-in).
     exclude_subgroups: set[str] = Field(default_factory=set)
+    # SIP-only (spec 2026-07-05): BUY-trade ISINs of the customer's latest
+    # persisted rebalancing run, keyed by asset subgroup, ordered by BUY amount
+    # desc. The SIP selector mirrors these funds (equal split per subgroup);
+    # a missing subgroup — or None — falls back to that subgroup's rank-1
+    # ranked fund. Ignored on the LUMPSUM paths.
+    rebal_buy_isins_by_subgroup: Optional[dict[str, list[str]]] = None
+    # SIP per-fund cap floor in rupees (amendment 2026-07-06): each SIP buy is
+    # capped at max(cap_pct × deploy_amount, this floor). The floor keeps a
+    # small monthly amount concentrated in few funds; the percentage keeps a
+    # large one from over-concentrating. 0 disables the floor (cap is then
+    # just the percentage). Caller sources the value from Rebalancing config
+    # (AINV_SIP_FUND_CAP_FLOOR_INR). Ignored on the LUMPSUM paths.
+    sip_fund_cap_floor_inr: float = Field(default=0.0, ge=0)
+    # Lumpsum per-fund cap floor in rupees (amendment 2026-07-06): same
+    # max(cap_pct × deploy_amount, floor) rule for BOTH lumpsum modes
+    # (deficit-fill and legacy no-holdings). Caller sources
+    # AINV_LUMPSUM_FUND_CAP_FLOOR_INR. Ignored on the SIP path.
+    lumpsum_fund_cap_floor_inr: float = Field(default=0.0, ge=0)
 
 
 # ── Output models ──

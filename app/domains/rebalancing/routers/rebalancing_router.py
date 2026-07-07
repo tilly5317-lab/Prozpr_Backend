@@ -148,7 +148,7 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
 
     CURRENT comes from the portfolio holdings (the shared ``current_asset_class_mix``
     used by the dashboard + chat). TARGET comes from the plan's per-subgroup totals,
-    with the engine's generic ``multi_asset`` sleeve split by the 72.5/12.5/15
+    with the engine's generic ``multi_asset`` sleeve split by the 65/25/10
     composition the engine sized it as — matching the engine ideal shown in chat.
     """
     holdings = list(run.portfolio.holdings) if run.portfolio else []

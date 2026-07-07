@@ -8,7 +8,7 @@ from .models import (
     Cadence,
 )
 from .ratio import compute_deficit_targets, compute_targets, dominant_bucket
-from .selection import select_funds
+from .selection import select_funds, select_funds_sip
 
 
 def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInvestmentOutput:
@@ -32,17 +32,32 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
             inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
             inp.deploy_amount_inr, inp.exclude_subgroups,
         )
-    buys = select_funds(
-        targets,
-        inp.ranked_funds,
-        inp.deploy_amount_inr,
-        inp.cap_pct_by_subgroup,
-        inp.default_cap_pct,
-        inp.rounding_multiple_inr,
-    )
     if inp.cadence is Cadence.SIP_MONTHLY:
+        # SIP mirrors the latest rebalancing plan's BUY funds (spec 2026-07-05):
+        # equal split per subgroup, rank-walk fallback/overflow, per-fund cap
+        # of max(cap_pct × deploy, sip_fund_cap_floor_inr) — amendment 2026-07-06.
+        buys = select_funds_sip(
+            targets,
+            inp.ranked_funds,
+            inp.rebal_buy_isins_by_subgroup,
+            inp.deploy_amount_inr,
+            inp.cap_pct_by_subgroup,
+            inp.default_cap_pct,
+            inp.sip_fund_cap_floor_inr,
+            inp.rounding_multiple_inr,
+        )
         # deploy_amount_inr is the MONTHLY amount; per-fund amounts are monthly.
         buys = [b.model_copy(update={"monthly_amount_inr": b.amount_inr}) for b in buys]
+    else:
+        buys = select_funds(
+            targets,
+            inp.ranked_funds,
+            inp.deploy_amount_inr,
+            inp.cap_pct_by_subgroup,
+            inp.default_cap_pct,
+            inp.rounding_multiple_inr,
+            cap_floor_inr=inp.lumpsum_fund_cap_floor_inr,
+        )
     deployed = sum(b.amount_inr for b in buys)
     return AdditionalInvestmentOutput(
         target_bucket=bucket,

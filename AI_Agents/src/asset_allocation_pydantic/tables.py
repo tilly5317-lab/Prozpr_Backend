@@ -89,16 +89,17 @@ PHASE5_EQUITY_SUBGROUP_BOUNDS: dict[float, dict[str, tuple[int, int]]] = {
 
 # ── Medium-term horizon × risk bucket → (equity_pct, debt_pct) ─────────────────
 # Source: references/medium-term-goals.md lines 34-38
+# Horizon (clamped years) → month band: 2 → 24-35mo, 3 → 36-47mo, 4 → 48-59mo.
 MEDIUM_TERM_SPLIT: dict[tuple[int, str], tuple[int, int]] = {
-    (5, "Low"): (50, 50),
-    (5, "Medium"): (70, 30),
-    (5, "High"): (80, 20),
-    (4, "Low"): (35, 65),
-    (4, "Medium"): (50, 50),
-    (4, "High"): (65, 35),
-    (3, "Low"): (0, 100),
-    (3, "Medium"): (0, 100),
-    (3, "High"): (0, 100),
+    (2, "Low"): (0, 100),
+    (2, "Medium"): (0, 100),
+    (2, "High"): (0, 100),
+    (3, "Low"): (35, 65),
+    (3, "Medium"): (50, 50),
+    (3, "High"): (65, 35),
+    (4, "Low"): (50, 50),
+    (4, "Medium"): (70, 30),
+    (4, "High"): (80, 20),
 }
 
 
@@ -161,11 +162,12 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
 # short-term:   months <  MEDIUM_TERM_BOUNDARY_MONTHS
 # medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <  LONG_TERM_BOUNDARY_MONTHS
 # long-term:    months >= LONG_TERM_BOUNDARY_MONTHS
-MEDIUM_TERM_BOUNDARY_MONTHS: int = 36
-LONG_TERM_BOUNDARY_MONTHS: int = 72
+MEDIUM_TERM_BOUNDARY_MONTHS: int = 24
+LONG_TERM_BOUNDARY_MONTHS: int = 60
 # Medium-term horizon (years) clamp used to pick a row from MEDIUM_TERM_SPLIT.
-MEDIUM_TERM_HORIZON_MIN: int = 3
-MEDIUM_TERM_HORIZON_MAX: int = 5
+# Bands: 24-35mo → 2, 36-47mo → 3, 48-59mo → 4 (60mo+ is long-term).
+MEDIUM_TERM_HORIZON_MIN: int = 2
+MEDIUM_TERM_HORIZON_MAX: int = 4
 
 # Tax-rate thresholds (%) for routing debt allocations.
 #
