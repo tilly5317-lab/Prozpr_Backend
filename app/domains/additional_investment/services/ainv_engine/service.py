@@ -42,6 +42,12 @@ from app.domains.practical_asset_allocation.services.paa_engine.service import (
 from app.domains.practical_asset_allocation.services.practical_allocation_persist_service import (
     persist_practical_allocation_run,
 )
+from app.domains.cashflow.services.cashflow_persist_service import (
+    mark_stale as mark_cashflow_stale,
+)
+from app.domains.profile.services.personal_finance_write_service import (
+    set_starting_monthly_investment,
+)
 from app.domains.additional_investment.services.additional_investment_persist_service import (
     persist_additional_investment_recommendation,
 )
@@ -129,6 +135,12 @@ async def compute_additional_investment_result(
 
     Persistence is gated behind ``persist`` (False in Plan 3a; Plan 3b flips the
     default and calls ``persist_additional_investment_recommendation``).
+
+    When ``persist`` and ``cadence is SIP_MONTHLY``, the deploy amount is also
+    written to the canonical ``starting_monthly_investment`` — so a SIP the
+    customer sets in chat shows up on the Invest page AND in their goal plan.
+    This is the single place that sync happens; both callers (chat handler and the
+    Invest-page create service) get it, and both own the commit.
     """
     trace_line("module: additional_investment — start")
 
@@ -237,9 +249,10 @@ async def compute_additional_investment_result(
                 }
             )
 
-    # Persist the BUY-only recommendation. Gated like compute_rebalancing_result:
-    # counterfactual / no-session paths (persist=False or no chat session) skip
-    # the write. Money stays float — persist writes Numeric(18,2) directly.
+    # Persist the BUY-only recommendation whenever persist=True (persist=False
+    # counterfactual paths skip the write). A null chat_session_id is allowed —
+    # the Invest-page create endpoint persists an unlinked run. Money stays float
+    # — persist writes Numeric(18,2) directly.
     #
     # source_allocation_run_id (Option B): the practical allocation run the deploy
     # is derived from. compute_practical_allocation_result returns no run id, so we
@@ -260,11 +273,15 @@ async def compute_additional_investment_result(
         request_extras = _extras
 
     run_id: Optional[uuid.UUID] = None
-    if persist and chat_session_id is not None:
+    if persist:
+        # ``chat_session_id`` is None for a non-chat create (the Invest-page
+        # "Start a SIP" endpoint): the run still persists, just unlinked to a
+        # chat session (the FK column is nullable). In the chat path it is always
+        # set, so this is unchanged there.
         # Best-effort (mirrors paa_engine/chat.py): the BUY list is already
         # computed, so a persistence failure is logged loudly (surfaces in alerts)
-        # but never denies the user the recommendation. Flush only — the chat
-        # router owns the commit.
+        # but never denies the user the recommendation. Flush only — the caller
+        # (chat router / create service) owns the commit.
         try:
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
@@ -283,6 +300,19 @@ async def compute_additional_investment_result(
                 request=inp,
                 request_extras=request_extras,
             )
+
+            if cadence is Cadence.SIP_MONTHLY:
+                # A monthly SIP set here IS the customer's monthly SIP, wherever
+                # they set it (chat or the Invest page). Write the canonical
+                # `starting_monthly_investment` so the goal planner, goals timeline
+                # and IPS all move with it, and invalidate the cached goal-plan run
+                # since a SIP is a cashflow input. Both enlist in the caller's
+                # transaction, so the plan and the amount land together or not at
+                # all. Lumpsum is a one-off deployment, not a SIP — never synced.
+                await set_starting_monthly_investment(
+                    db, acting_user_id, deploy_amount_inr
+                )
+                await mark_cashflow_stale(db, acting_user_id, commit=False)
         except Exception:  # noqa: BLE001 — best-effort persist, never blocks the reply
             logger.exception(
                 "Failed to persist additional_investment run for session=%s — "
