@@ -14,7 +14,8 @@ WHAT IS DELETED (everything derived from / computed off a portfolio):
     snapshots, watchlists, user-scoped funds);
   * equity transactions;
   * asset-allocation runs (+ buckets / targets / aggregates), practical-allocation
-    runs, rebalancing runs (+ trades / warnings / fund rows / summaries / totals);
+    runs, rebalancing runs (+ trades / warnings / fund rows / summaries / totals),
+    additional-investment runs (+ targets / buys) — including the Invest page's SIP plan;
   * cashflow input assumptions, one-off events, and every plan run + its rows;
   * advisory artefacts — meeting notes and the Investment Policy Statement.
 
@@ -36,6 +37,8 @@ both corrupt other users and fail the RESTRICT FKs that the ledger holds against
 FK ORDERING (why this exact sequence):
   * ``rebalancing_runs`` holds a RESTRICT FK (``source_allocation_run_id``) onto
     ``asset_allocation_runs`` — rebalancing must be deleted *before* asset allocation.
+  * ``additional_investment_runs`` holds a RESTRICT FK (``source_allocation_run_id``) onto
+    ``practical_asset_allocation_runs`` — it must be deleted *before* practical allocation.
   * children (run rows, buckets, plan rows, AA-import staging) are deleted before
     their parents so a missing/altered ON DELETE CASCADE (the DB is stamped at a lost
     Alembic revision) can never leave orphans or raise a constraint error.
@@ -75,6 +78,10 @@ _RESET_STATEMENTS: tuple[str, ...] = (
     "DELETE FROM asset_allocation_run_targets WHERE run_id IN (SELECT id FROM asset_allocation_runs WHERE user_id = :uid)",
     "DELETE FROM asset_allocation_aggregate WHERE run_id IN (SELECT id FROM asset_allocation_runs WHERE user_id = :uid)",
     "DELETE FROM asset_allocation_runs WHERE user_id = :uid",
+    # ── additional investment (children, then runs — MUST precede practical_asset_allocation_runs) ──
+    "DELETE FROM additional_investment_targets WHERE run_id IN (SELECT id FROM additional_investment_runs WHERE user_id = :uid)",
+    "DELETE FROM additional_investment_buys WHERE run_id IN (SELECT id FROM additional_investment_runs WHERE user_id = :uid)",
+    "DELETE FROM additional_investment_runs WHERE user_id = :uid",
     # ── practical asset allocation ──
     "DELETE FROM practical_asset_allocation_runs WHERE user_id = :uid",
     # ── cashflow (plan-run rows, then plan runs, then inputs) ──

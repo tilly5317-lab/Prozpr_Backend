@@ -20,6 +20,9 @@ from app.domains.advisory.routers.discovery_router import router as discovery_ro
 from app.domains.rebalancing.routers.rebalancing_router import (
     router as rebalancing_router,
 )
+from app.domains.additional_investment.routers.additional_investment_router import (
+    router as additional_investment_router,
+)
 from app.domains.advisory.routers.ips_router import router as ips_router
 from app.domains.identity.routers.linked_accounts_router import (
     router as linked_accounts_router,
@@ -45,6 +48,7 @@ all_routers = [
     notifications_router,
     discovery_router,
     rebalancing_router,
+    additional_investment_router,
     ips_router,
     linked_accounts_router,
     family_router,
