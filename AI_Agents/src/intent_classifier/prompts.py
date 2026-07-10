@@ -193,7 +193,30 @@ Key distinction from `goal_planning`: goal_planning answers **feasibility** ("at
 
 ---
 
-### 8. out_of_scope
+### 8. mutual_fund_query
+The customer wants to understand a **specific mutual fund** — why we recommend it, its historical returns, or how it compares to peers or to another named fund. This is a fund **information / explanation** ask about a named fund (or one referenced from the recent conversation, e.g. "the fund you recommended", "it", "this fund"), NOT a request to buy, sell, or change anything.
+
+Triggers when the customer is asking:
+- Why we recommend / picked a specific fund ("why Parag Parikh Flexi Cap?", "why did you suggest this fund?")
+- A specific fund's past performance / returns ("what are Parag Parikh's returns?", "how has this fund done over 3 years?")
+- How a specific fund compares to peers or to another named fund ("how does it compare to peers?", "Parag Parikh vs HDFC Flexi Cap")
+- Details about a fund we recommended, or a fund the customer holds ("tell me about the Kotak Technology fund", "is this fund any good?")
+
+Example questions:
+- "Why do you recommend Parag Parikh Flexi Cap Fund?"
+- "What are its historical returns and how does it compare to peers?"
+- "When it's lagging, why still suggest this fund?"
+- "Compare Parag Parikh Flexi Cap and HDFC Flexi Cap."
+
+Key distinction from `portfolio_query`: portfolio_query is about the customer's **own holdings** as a whole ("what do I hold?", "how is my portfolio doing?", "my equity allocation"). mutual_fund_query is about **one specific fund** — typically one we recommended or that they're asking us to explain — regardless of whether they hold it. "How is my portfolio performing?" is portfolio_query; "how has *this fund* performed?" is mutual_fund_query.
+
+Key distinction from `additional_investment`: additional_investment is **"which fund should I buy with my money"** (fresh money + a selection ask). mutual_fund_query is **"tell me about / explain THIS fund"** — no money to deploy, no buy ask; it explains or compares a fund that is already named or was recommended.
+
+Key distinction from `general_market_query`: general_market_query is about **the market / macro or asset classes in general** ("how are mid-cap funds doing this year?", "what's the market outlook?"). mutual_fund_query is about a **single, specific, named fund** — its reason, returns, or a like-for-like peer comparison.
+
+---
+
+### 9. out_of_scope
 The question does not fit any of the categories above.
 
 This includes: insurance queries, tax-specific advice, crypto, legal or estate planning queries, or anything else Prozpr does not currently handle (note: questions about the customer's own linked bank/demat/MF accounts are `portfolio_query`, NOT out_of_scope — see "Routing edge cases" below).

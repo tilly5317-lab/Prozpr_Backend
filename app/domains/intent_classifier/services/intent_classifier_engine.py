@@ -64,6 +64,7 @@ _INTENT_LABELS: dict[str, str] = {
     "general_market_query": "General Market Query",
     "rebalancing": "Rebalancing",
     "additional_investment": "Additional Investment",
+    "mutual_fund_query": "Mutual Fund Query",
     "out_of_scope": "Out of Scope",
 }
 

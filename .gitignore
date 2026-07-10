@@ -72,8 +72,6 @@ conftest.py
 # alembic/versions/ is tracked
 
 # Superpowers (local only)
-docs/superpowers/
-**/docs/superpowers/
 **/.claude/agents/
 **/.claude/hooks/
 
@@ -139,3 +137,8 @@ issue_reports/
 /app/domains/rebalancing/services/rebal_engine/tests
 /app/domains/rebalancing/services/rebal_engine/tests
 /app/domains/rebalancing/services/rebal_engine/tests
+docs/superpowers/specs/db-schema.md
+docs/superpowers/specs/2026-05-09-projection-run-tables.md
+docs/superpowers/specs/2026-05-10-projection-input-tables.md
+docs/superpowers/specs/2026-05-10-rebalancing-input-tables.md
+docs/superpowers/specs/2026-05-10-rebalancing-output-tables.md

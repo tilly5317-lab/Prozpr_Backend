@@ -6,9 +6,36 @@ from .models import (
     AdditionalInvestmentInput,
     AdditionalInvestmentOutput,
     Cadence,
+    FundBuy,
+    SubgroupTarget,
 )
 from .ratio import compute_deficit_targets, compute_targets, dominant_bucket
 from .selection import select_funds, select_funds_sip
+
+
+def _reconcile_rounding_dust(
+    buys: list[FundBuy],
+    targets: list[SubgroupTarget],
+    deploy_amount: float,
+    rounding_multiple: int,
+) -> list[FundBuy]:
+    """Push the residual left by nearest-₹100 per-fund rounding into the largest
+    buy so a lumpsum deploys to the exact requested amount.
+
+    Bounded to at most one rounding step per subgroup target: a shortfall larger
+    than that is a genuine cap / fund-scarcity gap and must stay in
+    ``undeployed_inr`` (the caller relies on that signal), not be masked here.
+    """
+    if not buys:
+        return buys
+    residual = deploy_amount - sum(b.amount_inr for b in buys)
+    if 0 < residual < rounding_multiple * max(len(targets), 1):
+        top = max(range(len(buys)), key=lambda i: buys[i].amount_inr)
+        buys = list(buys)
+        buys[top] = buys[top].model_copy(
+            update={"amount_inr": buys[top].amount_inr + residual}
+        )
+    return buys
 
 
 def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInvestmentOutput:
@@ -57,6 +84,11 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
             inp.default_cap_pct,
             inp.rounding_multiple_inr,
             cap_floor_inr=inp.lumpsum_fund_cap_floor_inr,
+        )
+        # Reconcile nearest-₹100 rounding dust so the lumpsum deploys to the exact
+        # requested amount; genuine cap/scarcity shortfalls stay in undeployed_inr.
+        buys = _reconcile_rounding_dust(
+            buys, targets, inp.deploy_amount_inr, inp.rounding_multiple_inr
         )
     deployed = sum(b.amount_inr for b in buys)
     return AdditionalInvestmentOutput(

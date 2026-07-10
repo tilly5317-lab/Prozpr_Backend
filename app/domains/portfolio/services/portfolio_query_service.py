@@ -24,6 +24,10 @@ from anthropic import AuthenticationError as AnthropicAuthenticationError
 
 from app.core.config import get_settings
 from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.portfolio.services.allocation_rollup import (
+    current_asset_class_mix,
+    holding_single_asset_class,
+)
 
 ensure_ai_agents_path()
 
@@ -268,14 +272,11 @@ def _build_client_context(user: Any) -> ClientContext:
 
 
 def _holding_asset_class(holding: Any) -> str | None:
-    md = getattr(holding, "fund_metadata", None)
-    if md is not None:
-        cat = getattr(md, "category", None)
-        if cat:
-            return str(cat)
-    # Fallback for non-MF holdings (stocks, ETFs, etc.) — coarse but honest.
-    itype = getattr(holding, "instrument_type", None)
-    return str(itype) if itype else None
+    # Canonical single 3-bucket class (Equity/Debt/Others) via scheme_classification
+    # — the same source the dashboard donut and rebalancing use, so the review
+    # chat can't disagree with them. NOT the raw AMFI `category` column, which
+    # mislabels equity-index FoFs as "Others".
+    return holding_single_asset_class(holding)
 
 
 def _holding_sub_category(holding: Any) -> str | None:
@@ -314,19 +315,49 @@ def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
     return out
 
 
-def _build_allocation_rows(orm_allocations: Iterable[Any]) -> list[AllocationRow]:
+_FUND_ASSET_CLASSES: frozenset[str] = frozenset({"Equity", "Debt", "Others"})
+
+
+def _build_allocation_rows(
+    orm_holdings: Iterable[Any],
+    orm_allocations: Iterable[Any],
+    total_value: float,
+) -> list[AllocationRow]:
+    """Top-level Equity/Debt/Others rows DERIVED from holdings via the canonical
+    classifier (single source, with the multi-asset look-through split), plus any
+    non-fund balances (e.g. Cash) carried forward from the persisted allocations.
+
+    Deriving from holdings — rather than reading ``PortfolioAllocation.asset_class``
+    — keeps this in lockstep with the dashboard donut and rebalancing, and avoids
+    stale stored classifications drifting out of sync with the live classifier.
+    """
+    if total_value <= 0:
+        return []
     out: list[AllocationRow] = []
-    for a in orm_allocations:
-        ac = getattr(a, "asset_class", None)
-        if not ac:
+    mix = current_asset_class_mix(list(orm_holdings))
+    for ac, amount in sorted(mix.items(), key=lambda kv: -kv[1]):
+        if amount <= 0:
             continue
         out.append(
             AllocationRow(
-                asset_class=str(ac),
-                percentage=float(getattr(a, "allocation_percentage", 0) or 0),
-                amount_inr=_f(a, "amount"),
+                asset_class=ac,
+                percentage=round(100.0 * amount / total_value, 2),
+                amount_inr=round(amount, 2),
             )
         )
+    # Cash (and any other non-fund balance) has no holding to derive from — carry
+    # it forward from the persisted allocation rows so the mix still sums to 100%.
+    for a in orm_allocations:
+        ac = getattr(a, "asset_class", None)
+        if ac and str(ac) not in _FUND_ASSET_CLASSES:
+            amt = float(getattr(a, "amount", 0) or 0)
+            out.append(
+                AllocationRow(
+                    asset_class=str(ac),
+                    percentage=round(100.0 * amt / total_value, 2),
+                    amount_inr=amt,
+                )
+            )
     return out
 
 
@@ -412,7 +443,7 @@ def _build_portfolio_context(user: Any) -> PortfolioContext | None:
         total_gain_percentage=_f(primary, "total_gain_percentage"),
         xirr_pct=xirr_pct,
         holdings=itemized,
-        allocations=_build_allocation_rows(orm_allocations),
+        allocations=_build_allocation_rows(orm_holdings, orm_allocations, total_value),
         # Sub-category rollups aggregate the FULL holdings list, not the
         # itemized slice — category questions stay exact under the cap.
         sub_category_allocations=_build_subcategory_rows(orm_holdings, total_value),
