@@ -34,6 +34,7 @@ _MODULE_DOCS: dict[str, tuple[str, ...]] = {
     "asset_allocation": ("Asset_Allocation.md", "Risk_Profiling.md"),
     "goal_planning": ("Cashflow_Statement.md",),
     "additional_investment": ("Additional_Investment.md",),
+    "mutual_fund_query": ("Mutual_Fund_Query.md",),
 }
 
 # Action modes whose questions are about mechanism/meaning — the only modes
