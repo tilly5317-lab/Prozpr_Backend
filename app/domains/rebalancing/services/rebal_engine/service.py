@@ -210,6 +210,7 @@ def build_rebal_facts_pack(
     response: "RebalancingComputeResponse",
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
+    constraint_impact: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -471,6 +472,8 @@ def build_rebal_facts_pack(
         pack["more_holdings_count"] = more_holdings_count
     if goal_buckets:
         pack["goal_buckets"] = goal_buckets
+    if constraint_impact is not None:
+        pack["constraint_impact"] = constraint_impact
     return pack
 
 
