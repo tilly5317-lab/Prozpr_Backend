@@ -350,10 +350,10 @@ Each subsection gives you the same four answers: input → output, how it thinks
 ### 5.1 `intent_classifier/` — what is the user asking?
 
 - **In:** `ClassificationInput` (question + conversation history + optional active intent).
-- **Out:** `ClassificationResult` (one of 8 intents, confidence, reasoning, optional `out_of_scope_subreason`).
-- **How it thinks:** [classifier.py](../../src/intent_classifier/classifier.py) builds an LCEL chain over Claude Haiku with structured output. The system prompt in [prompts.py](../../src/intent_classifier/prompts.py) enumerates the eight intents and gives examples; reasoning is capped at ~12 words so it can't eat the token budget. The chain returns a parsed `ClassificationResult`. That's it — one model call.
+- **Out:** `ClassificationResult` (one of 9 intents, confidence, reasoning, optional `out_of_scope_subreason`).
+- **How it thinks:** [classifier.py](../../src/intent_classifier/classifier.py) builds an LCEL chain over Claude Haiku with structured output. The system prompt in [prompts.py](../../src/intent_classifier/prompts.py) enumerates the nine intents and gives examples; reasoning is capped at ~12 words so it can't eat the token budget. The chain returns a parsed `ClassificationResult`. That's it — one model call.
 - **LLM:** Claude Haiku, structured output, Anthropic prompt caching on the system prompt.
-- **The eight intents** are the enum in [models.py](../../src/intent_classifier/models.py): `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `rebalancing`, `additional_investment`, `out_of_scope`. **The enum is the source of truth.** If a doc says any other count, trust the enum.
+- **The nine intents** are the enum in [models.py](../../src/intent_classifier/models.py): `asset_allocation`, `goal_planning`, `stock_advice`, `portfolio_query`, `general_market_query`, `rebalancing`, `additional_investment`, `mutual_fund_query`, `out_of_scope`. **The enum is the source of truth.** If a doc says any other count, trust the enum.
 - **Out-of-scope has sub-reasons.** `OutOfScopeSubreason` (same `models.py`): `gibberish`, `identity_or_meta`, `security_or_credentials`, `chat_summary`, `off_topic`, `other`. The app layer picks a different canned/tailored reply per sub-reason.
 - **Why no imports of other agents:** the classifier returns a label, nothing else. Routing — what to actually do with `asset_allocation` — happens outside `src/`, in `app/domains/ai_engine`'s FLOWS table.
 
@@ -621,7 +621,7 @@ The four things to internalise:
 
 ## 8. Landmines
 
-1. **The intent count keeps growing — trust the enum.** Currently **eight** intents (`additional_investment` joined in July 2026), plus the `OutOfScopeSubreason` sub-enum. Older docs/comments say six or seven. The enum in [models.py](../../src/intent_classifier/models.py) is the only source of truth.
+1. **The intent count keeps growing — trust the enum.** Currently **nine** intents (`additional_investment` then `mutual_fund_query` joined in July 2026), plus the `OutOfScopeSubreason` sub-enum. Older docs/comments say six or seven. The enum in [models.py](../../src/intent_classifier/models.py) is the only source of truth.
 
 2. **`Reference_docs/market_commentary_latest.md` is a contract.** Two agents depend on its existence and shape. If you regenerate it during testing, do not commit the result. If you change its structure, search for `_load_market_commentary` first.
 
