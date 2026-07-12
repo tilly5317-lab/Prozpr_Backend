@@ -54,6 +54,7 @@ class RebalanceAction(BaseModel):
         "recompute",
         "clarify",
         "redirect",
+        "consolidate",
     ]
     overrides: Optional[dict[str, Any]] = Field(
         default=None,
@@ -65,6 +66,21 @@ class RebalanceAction(BaseModel):
     )
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
+    target_fund_count: Optional[int] = Field(
+        default=None,
+        description=(
+            "For consolidate. Max number of NEW-BUY funds the customer wants "
+            "(not the portfolio's total fund count)."
+        ),
+    )
+    allowed_categories: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "For consolidate. The customer's fund-category words verbatim "
+            "(e.g. ['large cap', 'mid cap']) to restrict new buys to. Extract "
+            "the words as-is; do not guess internal keys."
+        ),
+    )
 
 
 _INVALID_OVERRIDE_TEMPLATE = (
@@ -113,6 +129,24 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
   Compose a concise clarification question in `clarification_question`.
+- "consolidate" — they want FEWER new-buy funds, or the new money restricted
+  to specific fund categories. This reshapes only the BUY side of the plan
+  (sells and tax are untouched). Two optional fields:
+    target_fund_count: int — "reduce my trades", "fewer funds", "keep it to 5
+      funds" → the max number of NEW-BUY funds. If they say a number, set it.
+      "exactly N funds for my whole portfolio" is NOT supported, but still emit
+      consolidate with target_fund_count=N (the handler adds an honesty note).
+    allowed_categories: list[str] — "only largecap", "just mid and small cap",
+      "put it all in gold" → the customer's category WORDS verbatim
+      (["large cap"], ["mid cap", "small cap"]). Extract the words as-is; never
+      invent internal keys.
+  If they clearly want fewer funds but give NO count and NO categories ("reduce
+  my trades, too many"), emit consolidate with BOTH fields null — the handler
+  asks once. HISTORY-FILL: if the recent conversation shows we JUST asked how
+  many funds (or which categories) and this message supplies it ("5 funds",
+  "largecap only"), emit consolidate with that field filled — do NOT re-ask.
+  NOTE: "show me the full/original plan again" / "undo that" is NOT consolidate
+  — it's narrate (there is no stored constraint to remove).
 - "redirect" — they want something we can't do from chat (lock specific funds,
   edit holdings, hypothetical "what if" with override inputs OUTSIDE the
   allow-list above — e.g. "what if I delayed by 3 months" — those aren't
@@ -148,6 +182,15 @@ counterfactual_explore (hypothetical with at least one concrete value):
   in short-term losses?"                    → counterfactual_explore, overrides=
                                               {effective_tax_rate: 20,
                                                carryforward_st_loss_inr: 50000}
+
+consolidate (fewer buys, or buys restricted to categories):
+- "reduce my trades, it's too many"         → consolidate, both fields null
+                                              (no count given — handler asks once)
+- "consolidate into 5 funds"                → consolidate, target_fund_count=5
+- "only invest in largecap and midcap"      → consolidate,
+                                              allowed_categories=["large cap","mid cap"]
+- (we just asked "how many funds?") "5"     → consolidate, target_fund_count=5
+                                              (history-fill — do not re-ask)
 
 recompute:
 - "rebalance my portfolio"                  → recompute
@@ -209,6 +252,19 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
     prefer the aggregated ``buckets`` field — fund-level detail is only
     needed when the question is fund-specific.
 
+  constraint_impact: optional — present ONLY on a consolidate turn (the
+    customer asked for fewer funds or category-restricted buys). Fields:
+      target_mix_pct: {equity, debt, others} — the ideal target mix.
+      unconstrained_mix_pct / constrained_mix_pct — the plan's asset-class mix
+        before vs after applying their constraint.
+      largest_deviations: [[label, delta_pct], ...] — biggest asset-class moves
+        vs target (may all be ~0 for an intra-equity ask like "only largecap").
+      buy_mix_by_category: {unconstrained: {cat: pct}, constrained: {cat: pct}}
+        — how the NEW-BUY money splits across fund categories, before vs after.
+        This ALWAYS moves when the constraint bites; use it when the
+        asset-class deltas are flat.
+      risk_profile: the customer's risk profile label (may be null).
+
   goal_buckets: optional list — present when the rebalancing was driven by the
     customer's goals. One entry per bucket the customer has goals in:
       bucket             — "emergency" / "short_term" / "medium_term" / "long_term"
@@ -262,6 +318,20 @@ produced by the classifier). Per-mode behavior:
                hypothetical for comparison, not the saved recommendation;
                reference the saved recommendation as the baseline but
                don't reprint it in full. Length: 6-10 sentences.
+  consolidate — the customer asked for fewer new-buy funds and/or buys
+               restricted to categories; FACTS_PACK reflects the reshaped
+               buys and carries constraint_impact. FIRST confirm you did
+               exactly what they asked (name the funds now being bought and
+               the count). THEN add ONE grounded caution, picking the lens
+               that actually moved: if largest_deviations shows a real
+               asset-class shift, cite it ("this pushes you ~X% further from
+               your target debt allocation"); if the asset-class deltas are
+               flat, use buy_mix_by_category ("your new money now goes 100%
+               into large-cap, where the plan spread it across N categories").
+               Never refuse; never invent a percentage not in the block.
+               Remind them the sells and tax are unchanged from the plan if
+               relevant. This is a chat-only view — their saved plan is
+               unchanged. Length: 6-10 sentences.
 """
 
 _REDIRECT_TEMPLATE = (
@@ -280,6 +350,11 @@ _NARRATE_DEGRADED_FALLBACK = (
     "from your current holdings."
 )
 
+_CONSOLIDATE_CLARIFY = (
+    "Happy to consolidate. How many funds would you like the new investments "
+    "spread across — for example, up to 3 or up to 5?"
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -293,11 +368,14 @@ async def _format_or_fallback_rebal(
     fallback_brief: str,
     action_mode: str,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
+    constraint_impact: Optional[dict[str, Any]] = None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_rebal_facts_pack(response, goal_buckets=goal_buckets),
+        facts_pack=build_rebal_facts_pack(
+            response, goal_buckets=goal_buckets, constraint_impact=constraint_impact,
+        ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
         action_mode=action_mode,
@@ -415,6 +493,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
+
+    if action.mode == "consolidate":
+        return await _consolidate(ctx, action)
 
     # narrate / educate / recompute — all go through formatter; recompute also re-runs.
     if action.mode == "recompute":
@@ -543,6 +624,116 @@ async def _counterfactual_explore(
         fallback_brief=outcome.formatted_text or "",
         action_mode="counterfactual_explore",
         goal_buckets=outcome.goal_buckets,
+    )
+    return ChatHandlerResult(
+        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Consolidation helper (buy-side reshape — stateless, chat-only, no persist)
+# ---------------------------------------------------------------------------
+
+
+async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandlerResult:
+    """Reshape the BUY side of a freshly-computed plan per the customer's
+    constraint (fewer funds / only certain categories) and narrate it. Runs the
+    engine ONCE with persist=False; nothing is stored. Sells and tax untouched.
+    """
+    from Rebalancing.consolidation import (  # type: ignore[import-not-found]
+        ConsolidationConstraints,
+        constraints_active,
+        reshape_response,
+    )
+    from app.domains.mutual_funds.services.category_resolver import resolve_categories
+    from app.domains.rebalancing.services.rebal_engine.constraint_impact import (
+        build_constraint_impact,
+    )
+
+    # Canonicalise the customer's category words via the shared resolver.
+    allowed: tuple[str, ...] | None = None
+    if action.allowed_categories:
+        resolved, unresolved = resolve_categories(action.allowed_categories)
+        if unresolved and not resolved:
+            return ChatHandlerResult(
+                text=(
+                    f"I couldn't match {', '.join(unresolved)} to a fund category "
+                    "we invest in. Did you mean large-cap, mid-cap, small-cap, "
+                    "hybrid, gold, or overseas equity?"
+                ),
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
+        allowed = tuple(resolved) if resolved else None
+
+    constraints = ConsolidationConstraints(
+        target_fund_count=action.target_fund_count,
+        allowed_categories=allowed,
+    )
+
+    # Incomplete ask ("fewer funds", no count/category) → ask ONCE, stateless.
+    if not constraints_active(constraints):
+        return ChatHandlerResult(
+            text=_CONSOLIDATE_CLARIFY,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+
+    # Run the engine ONCE, compute-only (no RebalancingRun written).
+    outcome = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=False,
+        chat_ctx=ctx,
+    )
+    if outcome.blocking_message is not None:
+        text = await _blocking_text(ctx, outcome.blocking_message)
+        return ChatHandlerResult(
+            text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        )
+    if outcome.response is None:
+        return ChatHandlerResult(
+            text=_NARRATE_DEGRADED_FALLBACK,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+
+    reshaped, err = reshape_response(outcome.response, constraints)
+    if err == "category_not_in_plan":
+        cats = ", ".join(action.allowed_categories or [])
+        return ChatHandlerResult(
+            text=(
+                f"Your current plan doesn't buy into {cats}, so there's nothing "
+                "there to redirect the new money into. Want to see the plan as it "
+                "stands, or pick a different category?"
+            ),
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+
+    impact = build_constraint_impact(
+        outcome.response,
+        reshaped,
+        risk_profile=getattr(ctx.user_ctx, "risk_profile", None),
+    )
+    # Fallback brief must reflect the RESHAPED plan, not the original — else a
+    # formatter failure would show the un-consolidated trades (grounding bug).
+    try:
+        consolidated_brief = build_fallback_rebal_brief(
+            reshaped, used_cached_allocation=False
+        )
+    except (AttributeError, TypeError, ValueError):
+        consolidated_brief = _NARRATE_DEGRADED_FALLBACK
+    text = await _format_or_fallback_rebal(
+        ctx=ctx,
+        response=reshaped,
+        fallback_brief=consolidated_brief,
+        action_mode="consolidate",
+        goal_buckets=outcome.goal_buckets,
+        constraint_impact=impact,
     )
     return ChatHandlerResult(
         text=text, snapshot_id=None, rebalancing_recommendation_id=None

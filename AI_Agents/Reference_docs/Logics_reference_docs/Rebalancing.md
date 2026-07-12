@@ -1,7 +1,7 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -59,6 +59,18 @@ Carryforward losses from prior years, plus losses realised in the first pass, fo
 ### Step 6 — Presentation: trades, totals and rationale
 
 We output the final trade list, each line with a plain-English reason, plus totals (gross buys and sells, realised gains and losses) and any warnings (unabsorbed overflow, deferred demand, scaled-down buys). Frozen tax-saving units and untradeable direct holdings are shown but carry no trade lines; over-concentrated direct stocks get a single "reduce by this amount" instruction. Every changed line traces back to a documented rule.
+
+## Shaping the plan on request — "fewer funds" and "only these categories"
+
+A customer can ask us to reshape a plan we've just shown: *"that's too many trades — keep it to five funds,"* or *"put all the new money into large-cap."* We honour these, but only on the **buy side**, and always with real numbers.
+
+- **We never re-run the engine to satisfy the ask.** The sells and the tax stay exactly as first computed — because the sells are driven by tax-aware rules and your target mix, not by which funds you'd prefer to buy. Re-solving the plan around "only large-cap" would start selling everything else to chase that target, which could hand you an avoidable tax bill. Instead we take the buy budget the plan already freed up and **redistribute only that**.
+- **Fewer funds** keeps the funds the plan weighted most and folds the smaller buys into them proportionally — so you get *fewer, larger* positions, not the same money sprinkled thinner. The total amount invested is unchanged.
+- **Only certain categories** sends the whole buy budget into the funds you named (as long as the plan actually buys in those categories), split in proportion to what the plan already intended there. Nothing is left sitting in cash.
+- **We always say what it costs you.** Concentrating your buys pulls you away from the ideal mix, so the reply names the trade-off honestly — e.g. "done, but your new money now goes entirely into large-cap, where the plan had spread it across six categories." We comply and caution; we don't quietly refuse, and we don't pretend a constraint is free.
+- **This is a conversation, not a saved change.** A reshaped view lives in the chat; your saved plan on the Invest page is untouched until you act on it.
+
+What we don't do yet (we say so plainly when asked): rebuild your **whole portfolio** down to an exact number of funds (that needs selling good holdings purely to hit a count), or treat a one-off "only large-cap" as a standing preference for future rebalances.
 
 ## Why a customer should trust this approach
 
