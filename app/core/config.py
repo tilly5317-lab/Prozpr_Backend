@@ -443,6 +443,57 @@ class Settings:
         v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
         return v or None
 
+    # ── Fintech Primitives (execution domain): sandbox order execution ──────
+    @staticmethod
+    def get_fp_base_url() -> str:
+        return (_getenv("FP_BASE_URL") or "https://s.finprim.com").strip().rstrip("/")
+
+    @staticmethod
+    def get_fp_tenant() -> str | None:
+        v = (_getenv("FP_TENANT") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_key() -> str | None:
+        v = (_getenv("FP_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_secret() -> str | None:
+        v = (_getenv("FP_API_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_enabled() -> bool:
+        """FP order execution is inert unless the tenant credentials are set."""
+        return bool(
+            Settings.get_fp_tenant()
+            and Settings.get_fp_api_key()
+            and Settings.get_fp_api_secret()
+        )
+
+    @staticmethod
+    def get_fp_preverify_tenant() -> str:
+        return (_getenv("FP_PREVERIFY_TENANT") or "cybrillarta").strip()
+
+    @staticmethod
+    def get_fp_preverify_client_id() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_ID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_preverify_client_secret() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_preverify_enabled() -> bool:
+        """The Pre-Verification (KYC) service has its own tenant + creds."""
+        return bool(
+            Settings.get_fp_preverify_client_id()
+            and Settings.get_fp_preverify_client_secret()
+        )
+
     @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""

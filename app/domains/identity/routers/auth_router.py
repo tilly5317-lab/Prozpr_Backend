@@ -5,6 +5,7 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -30,6 +31,8 @@ from app.domains.identity.schemas.auth import (
     full_phone,
 )
 from app.core.security import create_access_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -129,6 +132,22 @@ def _maybe_notify_new_signup(
     )
 
 
+async def _ensure_fp_investment_profile(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Create the user's investment-profile shell (``fp_exec_accounts`` row,
+    ``kyc_status='pending'``) at signup itself. The FP-side investor profile is
+    minted later, once the KYC page collects a PAN — the sandbox requires every
+    field inline at CREATE. Best-effort: never fails the signup."""
+    try:
+        from app.domains.execution.services.fp_service import ensure_account_row
+
+        await ensure_account_row(db, user_id)
+    except Exception:  # noqa: BLE001 — signup must never break on this
+        # A failed flush poisons the session; roll it back so the rest of the
+        # signup response can still be built.
+        await db.rollback()
+        logger.warning("FP investment-profile init skipped for %s", user_id)
+
+
 @router.post("/check-mobile", response_model=MobileStatusResponse)
 async def check_mobile(
     payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)
@@ -177,6 +196,7 @@ async def signup(
             existing.password_hash = hash_password(payload.password)
         await _save_inline_onboarding_profile(db, existing, payload)
         await db.commit()
+        await _ensure_fp_investment_profile(db, existing.id)
         _maybe_notify_new_signup(background_tasks, existing, was_complete_before)
         access_token = create_access_token(existing.id, existing.phone)
         return SignUpResponse(
@@ -212,6 +232,8 @@ async def signup(
             status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
         )
     await db.refresh(user)
+
+    await _ensure_fp_investment_profile(db, user.id)
 
     # Brand-new row, so nothing was reported before: notify the team now if the
     # setup page supplied a name + email (it always does on the happy path).
