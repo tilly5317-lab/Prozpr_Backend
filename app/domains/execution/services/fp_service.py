@@ -29,15 +29,22 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.dependencies import CurrentUser
 from app.domains.execution.models import FpExecAccount, FpExecOrder
 from app.domains.execution.schemas.fp_schemas import (
+    FpFundScheme,
+    FpFundSchemesResponse,
     FpKycRequest,
     FpKycResponse,
     FpKycSetupResponse,
     FpLumpsumRequest,
+    FpRedemptionPlanRequest,
+    FpRedemptionRequest,
     FpSetupRequest,
     FpSipRequest,
+    FpSwitchPlanRequest,
+    FpSwitchRequest,
 )
 from app.domains.execution.services.fp_client import (
     FpError,
@@ -66,6 +73,16 @@ _SANDBOX_BANK_IFSC = "HDFC0000001"
 _KYC_POLL_ATTEMPTS = 5
 _KYC_POLL_DELAY_S = 1.5
 
+# order kind -> FP resource path, used by refresh_order to re-read state.
+_ORDER_PATHS = {
+    "LUMPSUM": "/v2/mf_purchases",
+    "SIP": "/v2/mf_purchase_plans",
+    "REDEMPTION": "/v2/mf_redemptions",
+    "SWITCH": "/v2/mf_switches",
+    "SWP": "/v2/mf_redemption_plans",
+    "STP": "/v2/mf_switch_plans",
+}
+
 
 def _fp_http(exc: FpError, prefix: str) -> HTTPException:
     """FP 4xx -> 422 with FP's field messages (user-fixable); else 502."""
@@ -93,6 +110,23 @@ def _fp_http(exc: FpError, prefix: str) -> HTTPException:
         else status.HTTP_502_BAD_GATEWAY
     )
     return HTTPException(status_code=code, detail=detail)
+
+
+def _sell_side_http(exc: FpError, action: str) -> HTTPException:
+    """Like ``_fp_http`` but, when FP rejects a sell/switch for a missing/unknown
+    folio, explains the sandbox reality (no folio ever settles here) instead of
+    surfacing FP's terse "folio does not exist"."""
+    http = _fp_http(exc, action + " failed")
+    detail = str(http.detail)
+    if "folio" in detail.lower():
+        detail = (
+            action + " can't complete on the FP sandbox: there is no settled folio to "
+            "sell from. A folio is only created once a purchase settles, and no order "
+            "ever settles on this sandbox (KYC-on-record wall), so holdings to redeem/"
+            "switch never exist here. FP said: " + detail
+        )
+        return HTTPException(status_code=http.status_code, detail=detail)
+    return http
 
 
 def _summarize_kyc(pv: dict) -> FpKycResponse:
@@ -507,6 +541,168 @@ async def place_sip(
     )
 
 
+def _apply_quantity(
+    body: dict,
+    amount: float | None,
+    units: float | None,
+    all_units: bool,
+    label: str,
+) -> None:
+    """Attach exactly one of amount / units / all_units to a sell/switch body
+    (FP accepts one). Raises 422 if none supplied."""
+    if all_units:
+        body["all_units"] = True
+    elif units:
+        body["units"] = units
+    elif amount:
+        body["amount"] = amount
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide amount, units, or all_units for a " + label + ".",
+        )
+
+
+async def place_redemption(
+    db: AsyncSession, user: CurrentUser, payload: FpRedemptionRequest, user_ip: str
+) -> FpExecOrder:
+    """Sell — FP ``mf_redemptions``. Proceeds credit to the payout bank in
+    2-3 working days; no payment leg."""
+    account = await _require_account(db, user.id)
+    isin, scheme_code, scheme_name = await _resolve_isin(db, payload.scheme_code)
+    body = {
+        "mf_investment_account": account.fp_investment_account_id,
+        "scheme": isin,
+        "user_ip": user_ip,
+    }
+    if payload.folio_number:
+        body["folio_number"] = payload.folio_number
+    _apply_quantity(body, payload.amount, payload.units, payload.all_units, "redemption")
+    async with get_fp_client() as client:
+        try:
+            resp = await client.request("POST", "/v2/mf_redemptions", json=body)
+        except FpError as exc:
+            raise _sell_side_http(exc, "Redemption") from exc
+    return await _record_order(
+        db,
+        user.id,
+        kind="REDEMPTION",
+        isin=isin,
+        scheme_code=scheme_code,
+        scheme_name=scheme_name,
+        amount=float(payload.amount or 0),
+        resp=resp or {},
+    )
+
+
+async def place_switch(
+    db: AsyncSession, user: CurrentUser, payload: FpSwitchRequest, user_ip: str
+) -> FpExecOrder:
+    """Switch scheme->scheme within one AMC — FP ``mf_switches``. Internal move,
+    no payment, no bank round-trip."""
+    account = await _require_account(db, user.id)
+    from_isin, from_code, from_name = await _resolve_isin(db, payload.from_scheme_code)
+    to_isin, _to_code, to_name = await _resolve_isin(db, payload.to_scheme_code)
+    body = {
+        "mf_investment_account": account.fp_investment_account_id,
+        "from_scheme": from_isin,
+        "to_scheme": to_isin,
+        "user_ip": user_ip,
+    }
+    if payload.folio_number:
+        body["folio_number"] = payload.folio_number
+    _apply_quantity(body, payload.amount, payload.units, payload.all_units, "switch")
+    async with get_fp_client() as client:
+        try:
+            resp = await client.request("POST", "/v2/mf_switches", json=body)
+        except FpError as exc:
+            raise _sell_side_http(exc, "Switch") from exc
+    return await _record_order(
+        db,
+        user.id,
+        kind="SWITCH",
+        isin=from_isin,
+        scheme_code=from_code,
+        scheme_name=(from_name or from_isin) + " -> " + (to_name or to_isin),
+        amount=float(payload.amount or 0),
+        resp=resp or {},
+    )
+
+
+async def place_redemption_plan(
+    db: AsyncSession, user: CurrentUser, payload: FpRedemptionPlanRequest, user_ip: str
+) -> FpExecOrder:
+    """SWP — systematic withdrawal (FP ``mf_redemption_plans``)."""
+    account = await _require_account(db, user.id)
+    isin, scheme_code, scheme_name = await _resolve_isin(db, payload.scheme_code)
+    body: dict = {
+        "mf_investment_account": account.fp_investment_account_id,
+        "scheme": isin,
+        "frequency": "monthly",
+        "installment_day": payload.installment_day,
+        "number_of_installments": payload.number_of_installments,
+        "systematic": True,
+        "user_ip": user_ip,
+    }
+    if payload.folio_number:
+        body["folio_number"] = payload.folio_number
+    _apply_quantity(body, payload.amount, payload.units, False, "SWP")
+    async with get_fp_client() as client:
+        try:
+            resp = await client.request("POST", "/v2/mf_redemption_plans", json=body)
+        except FpError as exc:
+            raise _sell_side_http(exc, "SWP") from exc
+    return await _record_order(
+        db,
+        user.id,
+        kind="SWP",
+        isin=isin,
+        scheme_code=scheme_code,
+        scheme_name=scheme_name,
+        amount=float(payload.amount or 0),
+        resp=resp or {},
+        installment_day=payload.installment_day,
+        number_of_installments=payload.number_of_installments,
+    )
+
+
+async def place_switch_plan(
+    db: AsyncSession, user: CurrentUser, payload: FpSwitchPlanRequest, user_ip: str
+) -> FpExecOrder:
+    """STP — systematic transfer scheme->scheme (FP ``mf_switch_plans``)."""
+    account = await _require_account(db, user.id)
+    from_isin, from_code, from_name = await _resolve_isin(db, payload.from_scheme_code)
+    to_isin, _to_code, to_name = await _resolve_isin(db, payload.to_scheme_code)
+    body = {
+        "mf_investment_account": account.fp_investment_account_id,
+        "from_scheme": from_isin,
+        "to_scheme": to_isin,
+        "amount": payload.amount,
+        "frequency": "monthly",
+        "installment_day": payload.installment_day,
+        "number_of_installments": payload.number_of_installments,
+        "systematic": True,
+        "user_ip": user_ip,
+    }
+    async with get_fp_client() as client:
+        try:
+            resp = await client.request("POST", "/v2/mf_switch_plans", json=body)
+        except FpError as exc:
+            raise _sell_side_http(exc, "STP") from exc
+    return await _record_order(
+        db,
+        user.id,
+        kind="STP",
+        isin=from_isin,
+        scheme_code=from_code,
+        scheme_name=(from_name or from_isin) + " -> " + (to_name or to_isin),
+        amount=float(payload.amount),
+        resp=resp or {},
+        installment_day=payload.installment_day,
+        number_of_installments=payload.number_of_installments,
+    )
+
+
 async def execute_sip_plan(
     db: AsyncSession, user: CurrentUser, user_ip: str
 ) -> tuple[list[FpExecOrder], list[str]]:
@@ -682,6 +878,83 @@ async def execute_rebalance_buys(
     return orders, failed
 
 
+async def list_fund_schemes(
+    db: AsyncSession, verify: bool = False
+) -> FpFundSchemesResponse:
+    """The active, transactable funds on the FP tenant, enriched from our own
+    scheme catalogue. On sandbox this is the small tenant-enabled ICICI set
+    (``Settings.get_fp_sandbox_schemes``) — everything else 400s at order time.
+    With ``verify=True`` each ISIN is confirmed live against FP's
+    ``mf_scheme_plans`` (best-effort; a failed lookup marks the fund unavailable
+    with the FP reason rather than failing the whole call)."""
+    settings = get_settings()
+    isins = settings.get_fp_sandbox_schemes()
+    gateway = settings.get_fp_scheme_gateway()
+
+    result = await db.execute(
+        select(MfFundMetadata).where(MfFundMetadata.isin.in_(isins))
+    )
+    meta_by_isin = {m.isin: m for m in result.scalars().all() if m.isin}
+
+    do_verify = verify and settings.fp_enabled()
+    client = get_fp_client() if do_verify else None
+    schemes: list[FpFundScheme] = []
+    try:
+        for isin in isins:
+            m = meta_by_isin.get(isin)
+            item = FpFundScheme(
+                isin=isin,
+                scheme_code=m.scheme_code if m else None,
+                scheme_name=m.scheme_name if m else None,
+                amc_name=m.amc_name if m else None,
+                category=m.category if m else None,
+                sub_category=m.sub_category if m else None,
+                plan_type=(m.plan_type.value if m and m.plan_type else None),
+                option_type=(m.option_type.value if m and m.option_type else None),
+                is_active=bool(m.is_active) if m else True,
+                available_for_transaction=True,
+            )
+            if m is None:
+                item.note = "Not in local catalogue; ISIN passes through to FP."
+            if client is not None:
+                try:
+                    plan = await client.request(
+                        "GET", "/v2/mf_scheme_plans/" + gateway + "/" + isin
+                    )
+                    item.fp_verified = True
+                    if isinstance(plan, dict):
+                        for key in (
+                            "min_initial_investment",
+                            "purchase_minimum_amount",
+                            "min_amount",
+                        ):
+                            if plan.get(key) is not None:
+                                try:
+                                    item.fp_min_amount = float(plan[key])
+                                except (TypeError, ValueError):
+                                    pass
+                                break
+                except FpError as exc:
+                    item.fp_verified = False
+                    item.available_for_transaction = False
+                    item.note = _fp_http(exc, "FP scheme lookup").detail
+            schemes.append(item)
+    finally:
+        if client is not None:
+            await client.aclose()
+
+    return FpFundSchemesResponse(
+        count=len(schemes),
+        verified=do_verify,
+        source=(
+            "FP live scheme lookup (mf_scheme_plans)"
+            if do_verify
+            else "tenant-enabled set, enriched from mf_fund_metadata"
+        ),
+        schemes=schemes,
+    )
+
+
 async def list_orders(db: AsyncSession, user_id: uuid.UUID) -> list[FpExecOrder]:
     result = await db.execute(
         select(FpExecOrder)
@@ -703,7 +976,7 @@ async def refresh_order(
     order = result.scalars().first()
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found.")
-    path = "/v2/mf_purchase_plans" if order.kind == "SIP" else "/v2/mf_purchases"
+    path = _ORDER_PATHS.get(order.kind, "/v2/mf_purchases")
     async with get_fp_client() as client:
         try:
             resp = await client.request("GET", path + "/" + order.fp_id)

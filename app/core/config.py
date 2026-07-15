@@ -473,6 +473,46 @@ class Settings:
         )
 
     @staticmethod
+    def get_fp_sandbox_schemes() -> list[str]:
+        """ISINs known to be transactable on the FP sandbox tenant. The sandbox
+        only enables a handful of ICICI schemes — any other ISIN 400s with
+        "scheme is not available for transaction". Override via
+        ``FP_SANDBOX_SCHEMES`` (comma-separated ISINs) as FP enables more."""
+        raw = (_getenv("FP_SANDBOX_SCHEMES") or "").strip()
+        if raw:
+            return [s.strip().upper() for s in raw.split(",") if s.strip()]
+        return [
+            "INF109K01423",
+            "INF109KC1TY0",
+            "INF109KC1TV6",
+            "INF109KC1TU8",
+            "INF109K01605",
+            "INF109KC11U2",
+            "INF109KC19T7",
+        ]
+
+    @staticmethod
+    def get_fp_scheme_gateway() -> str:
+        """Gateway segment for FP scheme-plan lookups
+        (``/v2/mf_scheme_plans/{gateway}/{isin}``). Override via
+        ``FP_SCHEME_GATEWAY``."""
+        return (_getenv("FP_SCHEME_GATEWAY") or "cybrillapoa").strip()
+
+    @staticmethod
+    def fp_test_reports_enabled() -> bool:
+        """Whether the SIMULATED FP folios/holdings/returns reports are served.
+        The sandbox can't produce real folios (nothing settles), so these are
+        demo-only test data. Default: on for the sandbox host, off elsewhere;
+        force with ``FP_TEST_REPORTS_ENABLED=true|false``. Must stay OFF in
+        production — it fabricates holdings."""
+        raw = (_getenv("FP_TEST_REPORTS_ENABLED") or "").strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
+        return "s.finprim.com" in Settings.get_fp_base_url()
+
+    @staticmethod
     def get_fp_preverify_tenant() -> str:
         return (_getenv("FP_PREVERIFY_TENANT") or "cybrillarta").strip()
 

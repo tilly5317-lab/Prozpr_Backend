@@ -64,7 +64,11 @@ class FpExecAccount(Base):
 
 
 class FpExecOrder(Base):
-    """One FP order: lumpsum (``mfp_…``) or SIP plan (``mfpp_…``)."""
+    """One FP order. ``kind`` is one of:
+    LUMPSUM (mf_purchases) · SIP (mf_purchase_plans) · REDEMPTION (mf_redemptions)
+    · SWITCH (mf_switches) · SWP (mf_redemption_plans) · STP (mf_switch_plans).
+    For SWITCH/STP, ``isin`` holds the out-scheme and ``scheme_name`` records
+    'out -> in'; the full FP response is in ``raw``."""
 
     __tablename__ = "fp_exec_orders"
 
@@ -79,7 +83,7 @@ class FpExecOrder(Base):
     )
 
     fp_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # LUMPSUM | SIP
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # see class docstring
     state: Mapped[str] = mapped_column(String(40), nullable=False)  # FP verbatim
 
     scheme_code: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)

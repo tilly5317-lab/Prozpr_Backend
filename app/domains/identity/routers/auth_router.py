@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from starlette.requests import ClientDisconnect
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -247,24 +248,43 @@ async def signup(
     )
 
 
+# Default country code, matching the app's login form (`+91`). Lets the Swagger
+# "Authorize" box — which only has a single username field — accept a bare
+# registered mobile number (e.g. 9876543210) and resolve it to the stored
+# +91XXXXXXXXXX, so authorizing works the same way it does in the app.
+_DEFAULT_COUNTRY_CODE = "91"
+
+
+def _phone_candidates(raw: str) -> list[str]:
+    """Resolve a login username into the full phone(s) to try. Accepts the app's
+    ``+91XXXXXXXXXX`` / ``countrycode,mobile`` forms AND a bare national mobile
+    (no country code, as typed in Swagger's single username box)."""
+    if "," in raw:
+        return [full_phone(*(p.strip() for p in raw.split(",", 1)))]
+    v = raw.strip()
+    had_plus = v.startswith("+")
+    digits = "".join(c for c in v if c.isdigit())
+    if not digits:
+        return []
+    candidates = ["+" + digits]
+    # Bare national number, no country code entered -> default to +91 like the app.
+    if not had_plus and len(digits) <= 10:
+        candidates.append("+" + _DEFAULT_COUNTRY_CODE + digits)
+    # de-dupe, keep only plausibly-complete numbers (matches the old >= 10 floor)
+    return [c for c in dict.fromkeys(candidates) if len(c) >= 10]
+
+
 async def _login_with_phone_password(
     phone: str, password: str | None, db: AsyncSession
 ) -> LoginResponse:
-    if "," in phone:
-        parts = phone.split(",", 1)
-        full = full_phone(parts[0].strip(), parts[1].strip())
-    else:
-        v = phone.strip()
-        digits = "".join(c for c in v if c.isdigit())
-        full = "+" + digits if digits else ""
-
-    if len(full) < 10:
+    candidates = _phone_candidates(phone)
+    if not candidates:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
-    result = await db.execute(select(User).where(User.phone == full))
-    user = result.scalar_one_or_none()
+    result = await db.execute(select(User).where(User.phone.in_(candidates)))
+    user = result.scalars().first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -292,13 +312,22 @@ async def token(request: Request, db: AsyncSession = Depends(get_db)):
     content_type = (
         (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     )
-    if content_type == "application/json":
-        body = await request.json()
-        payload = LoginRequest(**body)
-        phone = full_phone(payload.country_code, payload.mobile)
-        return await _login_with_phone_password(phone, payload.password, db)
+    # The body may fail to arrive if the client (browser / Swagger / a proxy
+    # probe) closes the connection mid-request — surface that as a quiet 400
+    # rather than an unhandled 500 traceback (there's no client left to read it).
+    try:
+        if content_type == "application/json":
+            body = await request.json()
+            payload = LoginRequest(**body)
+            phone = full_phone(payload.country_code, payload.mobile)
+            return await _login_with_phone_password(phone, payload.password, db)
+        form = await request.form()
+    except ClientDisconnect:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client disconnected before sending credentials.",
+        )
 
-    form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password")
     if not username:
