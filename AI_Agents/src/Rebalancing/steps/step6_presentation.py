@@ -16,6 +16,7 @@ from decimal import Decimal
 from ..config import (
     ENGINE_VERSION,
     EXIT_FLOOR_RATING,
+    FUND_CAP_FLOOR_INR,
     LTCG_ANNUAL_EXEMPTION_INR,
     LTCG_RATE_EQUITY_PCT,
     MULTI_FUND_CAP_PCT,
@@ -50,6 +51,7 @@ def _build_knob_snapshot() -> KnobSnapshot:
     return KnobSnapshot(
         multi_fund_cap_pct=MULTI_FUND_CAP_PCT,
         others_fund_cap_pct=OTHERS_FUND_CAP_PCT,
+        fund_cap_floor_inr=FUND_CAP_FLOOR_INR,
         rebalance_min_change_pct=REBALANCE_MIN_CHANGE_PCT,
         exit_floor_rating=EXIT_FLOOR_RATING,
         ltcg_annual_exemption_inr=LTCG_ANNUAL_EXEMPTION_INR,

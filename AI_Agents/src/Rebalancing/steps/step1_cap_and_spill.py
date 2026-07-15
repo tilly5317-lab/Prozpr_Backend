@@ -17,7 +17,7 @@ from decimal import Decimal
 
 # Per-fund cap lookup moved to tables.cap_pct_for; config constants are still
 # read inside that helper.
-from ..config import FORCE_EXIT_RANK
+from ..config import FORCE_EXIT_RANK, FUND_CAP_FLOOR_INR
 from ..models import (
     FundRowAfterStep1,
     FundRowInput,
@@ -62,8 +62,15 @@ def apply(
         spill_in = [Decimal(0)] * len(ranked)
 
         for i, r in enumerate(ranked):
-            max_pct = cap_pct_for(r.asset_subgroup)
-            cap_amount = Decimal(str(max_pct)) / Decimal(100) * corpus
+            # Per-fund cap = max(pct × corpus, rupee floor) — the floor keeps
+            # a small portfolio out of sub-₹1L fund fragments (amendment
+            # 2026-07-06). max_pct reports the EFFECTIVE cap when the floor
+            # wins, so the audit trail matches the amounts.
+            cap_amount = max(
+                Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
+                FUND_CAP_FLOOR_INR,
+            )
+            max_pct = _pct_of_corpus(cap_amount, corpus)
 
             own_capped = min(r.target_amount_pre_cap, cap_amount)
             with_spill = r.target_amount_pre_cap + spill_in[i]

@@ -7,6 +7,7 @@ from .dates import fy_for_date, fy_end_after, eomonth, year_fraction
 from .retirement import retirement_corpus_pv
 from .xirr import xirr
 from .twr import twr_wealth_index
+from .returns import cagr
 
 __all__ = [
     "future_value",
@@ -25,4 +26,5 @@ __all__ = [
     "retirement_corpus_pv",
     "xirr",
     "twr_wealth_index",
+    "cagr",
 ]
