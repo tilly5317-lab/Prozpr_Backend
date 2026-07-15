@@ -51,6 +51,9 @@ from app.domains.profile.services.personal_finance_write_service import (
 from app.domains.additional_investment.services.additional_investment_persist_service import (
     persist_additional_investment_recommendation,
 )
+from app.domains.rebalancing.services.rebalancing_read_service import (
+    latest_buy_trades_by_subgroup,
+)
 
 ensure_ai_agents_path()
 
@@ -83,7 +86,14 @@ _MSG_INCOMPLETE_PROFILE = (
 # the additional-investment engine's output contract changes.
 # 2.0.0: lumpsum deployments switched from single-bucket targeting to
 # holdings-aware deficit fill (spec 2026-07-03); SIP unchanged.
-AINV_ENGINE_VERSION = "ainv-2.0.0"
+# 3.0.0: SIP selection mirrors the latest persisted rebalancing run's BUY
+# funds (equal split, rank-1 fallback, no caps) — spec 2026-07-05.
+# 3.1.0: SIP per-fund cap re-introduced as max(cap_pct × monthly amount,
+# AINV_SIP_FUND_CAP_FLOOR_INR); overflow walks down the ranking — amendment
+# 2026-07-06.
+# 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
+# (both deficit-fill and legacy modes) — same amendment.
+AINV_ENGINE_VERSION = "ainv-3.2.0"
 
 
 @dataclass(frozen=True)
@@ -182,6 +192,26 @@ async def compute_additional_investment_result(
             blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
         )
 
+    # SIP mirrors the customer's latest rebalancing plan (spec 2026-07-05).
+    # Enhancement, never a gate: any read failure degrades to the rank-1
+    # fallback instead of blocking the recommendation.
+    rebal_run_id: Optional[uuid.UUID] = None
+    rebal_buys: Optional[dict[str, list[str]]] = None
+    if cadence is Cadence.SIP_MONTHLY:
+        try:
+            rebal = await latest_buy_trades_by_subgroup(db, acting_user_id)
+        except Exception:  # noqa: BLE001 — degrade, never gate
+            logger.exception(
+                "additional_investment: latest rebalancing-run read failed — "
+                "falling back to rank-1 SIP selection"
+            )
+            rebal = None
+        if rebal is not None:
+            rebal_run_id, rebal_buys = rebal
+            trace_line(
+                f"additional_investment SIP mirrors rebalancing run {rebal_run_id}"
+            )
+
     try:
         inp, debug = await build_additional_investment_input_for_user(
             chat_ctx,
@@ -191,6 +221,7 @@ async def compute_additional_investment_result(
             current_value_by_subgroup=(
                 snapshot.by_subgroup if snapshot is not None else None
             ),
+            rebal_buy_isins_by_subgroup=rebal_buys,
         )
     except ValueError as exc:
         # The goal-funding step (cashflow) HARD-REFUSES an incomplete profile,
@@ -269,6 +300,11 @@ async def compute_additional_investment_result(
         _extras["base_corpus_inr"] = snapshot.total_inr
     if focus_category:
         _extras["focus_category"] = focus_category
+    if rebal_run_id is not None:
+        # str(), not the raw UUID: request_extras merges into the request_input
+        # JSONB and json.dumps cannot serialise UUID (audit F4 — the best-effort
+        # persist except would swallow the failure silently).
+        _extras["sip_rebal_run_id"] = str(rebal_run_id)
     if _extras:
         request_extras = _extras
 

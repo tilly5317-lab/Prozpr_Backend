@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>practical_asset_allocation — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Deterministic engine</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `practical_asset_allocation` — the ideal plan, re-shaped around what you already own
+
+> **One line:** take the clean *ideal* allocation and translate it into the portfolio the customer can actually hold today — ELSS units frozen under lock-in, direct stocks capped by wealth band, and the leftover growth pool split across the same equity styles. Same output shape as the ideal engine, plus one `corpus_breakdown` block that makes the immovable holdings visible.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the "translation layer, not a tax optimiser" thesis), see [Logics_reference_docs/Practical_Asset_Allocation.md](../Logics_reference_docs/Practical_Asset_Allocation.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(pure Python, no LLM)</div></div>
+  <div class="cell"><div class="k">Model(s)</div><div class="v">none — never calls an LLM</div></div>
+  <div class="cell"><div class="k">Caller</div><div class="v">Rebalancing flow step 1 +<br/>additional_investment deficit-fill</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_practical_allocation</code></div></div>
+  <div class="cell"><div class="k">Steps</div><div class="v">5 (steps 1–3 reused, step 4 rewritten, step 5 wrapped)</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">fully deterministic<br/>same input → same output</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v"><code>asset_allocation_pydantic</code><br/>(the FIRST blessed edge)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer does</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/practical_asset_allocation/`](../../src/practical_asset_allocation/) and is, by design, a **single [`pipeline.py`](../../src/practical_asset_allocation/pipeline.py)** — models, orchestrator, and the long-term R157–R222 math all in one file (not yet split into per-step modules, and deliberately so).
+
+The *ideal* engine, [`asset_allocation_pydantic`](../../src/asset_allocation_pydantic/pipeline.py), answers *how to invest a fresh rupee*. This module answers the messier question: *how to invest the rupees you already own*, given that
+
+- some are locked in **ELSS** funds under a 3-year SEBI lock-in (can't sell, must count toward the growth target),
+- some sit in **direct stocks / PMS** the rebalancer can't trade fund-by-fund (cap them, surface the excess), and
+- everything else follows the *same* growth-fund discipline as the ideal plan.
+
+It adds four corpus inputs (`mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`) to the ideal `AllocationInput`, reuses steps 1–3 verbatim, **reimplements step 4** to be holdings-aware, then wraps step 5 to add two frozen rows. The output is **shape-parity** with `GoalAllocationOutput` plus one extras block.
+
+```mermaid
+flowchart LR
+    IN([PracticalAllocationInput<br/>AllocationInput + 4 corpus scalars]) --> FREEZE["<b>ELSS freeze</b><br/>rebalancing_corpus =<br/>total − elss"]
+    FREEZE --> S123["<b>Steps 1–3</b><br/>emergency / short / medium<br/>(upstream, verbatim)"]
+    S123 --> S4["<b>Step 4 — rewritten</b><br/>ELSS floor · NFA-banded<br/>non-MF cap · v2 slider"]
+    S4 --> S5["<b>Step 5 wrapped</b><br/>aggregate + 2 frozen rows"]
+    S5 --> OUT([PracticalAllocationOutput<br/>7 shared fields + corpus_breakdown])
+```
+
+The defining design decision: **the ideal portfolio is the destination, not the starting line.** The practical layer only re-shapes the *path* to it — it never picks stocks, never realises gains, and never emits a trade. It decides *targets*; the [Rebalancing](../../src/Rebalancing/pipeline.py) engine (which imports this module) decides *trades*.
+
+---
+
+## 2. Where it sits
+
+This is the **first explicit cross-agent import** under `AI_Agents/src/` (spec §B.1): `pipeline.py` imports models, steps 1–3 + 5, selected `step4_long_term` helpers, the shared `equity_subgroup_slider`, `tables`, and `utils.round_to_100` from `asset_allocation_pydantic`. Those upstream names are a **contract** — a rename there is a cross-module change. `Rebalancing` then imports `run_practical_allocation` from *here* (the next blessed edge).
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream (import)** | [`asset_allocation_pydantic`](../../src/asset_allocation_pydantic/pipeline.py) | steps 1–3, step 5, `phase1_bounds`/`phase2_asset_class_pcts`/`phase4_multi_asset`/`phase5_equity_subgroups`, the slider, tables, `round_to_100` |
+| **App gateway** | [`practical_asset_allocation_module_service.py`](../../../app/domains/practical_asset_allocation/services/practical_asset_allocation_module_service.py) | the ONLY blessed caller in `app/`: `run(turn, ctx, prior)` → dispatches to the `paa_engine` chat handler |
+| **Input builder** | [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | reuses asset_allocation's `build_goal_allocation_input_for_user` for the shared fields, then adds the four corpus scalars (overridable via `CorpusPin`) |
+| **Compute** | [`paa_engine/service.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/service.py) | `compute_practical_allocation_result(...)` runs the engine off-thread (`asyncio.to_thread`) — no LLM, no await inside the engine |
+| **Downstream (import)** | [`Rebalancing/pipeline.py`](../../src/Rebalancing/pipeline.py) | calls `run_practical_allocation` first; its output becomes the rebalance target |
+
+> **The engine touches no DB.** Corpus scalars, goals, risk score, and market-commentary block are all *wired in by the app layer* — caller-supplied data is **not** an import edge. If you're looking for "where does `elss_corpus` come from", it is the input builder + holdings snapshot, never this module.
+
+### What `ctx` must carry (chat path)
+
+The app gateway dispatches through the chat kernel, so the turn `ctx` (loaded once per turn) must provide what `input_builder` reads:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `ctx.db` | `AsyncSession` | goals, holdings, risk profile, NFA lookups (app layer only) |
+| `ctx.user_ctx` | pre-loaded `User` graph (holdings, goals, risk) | the shared profile / goal / risk fields, via the reused asset_allocation builder. **The corpus split is NOT computed here** — this module's `input_builder` defaults to MF-only (`mf_corpus = total_corpus`; non-MF equity, ELSS = 0.0). A real MF / non-MF / ELSS split arrives only via a `CorpusPin` from `additional_investment`. |
+| market-commentary block | wired into `AllocationInput` | the view tilts (`phase2`, subgroup gates) — a peer's data, not a peer import |
+
+---
+
+## 3. Input contract
+
+`PracticalAllocationInput` **extends** `AllocationInput` — every ideal field (age, goals, `effective_risk_score`, `market_commentary`, `net_financial_assets`, `multi_asset_composition`, …) is inherited unchanged. It adds four holdings-aware scalars:
+
+| Field | Type | Notes |
+|---|---|---|
+| `mf_corpus` | `float ≥ 0` | total MF holdings **including** ELSS |
+| `non_mf_equity_corpus` | `float ≥ 0` (default 0.0) | direct stocks + PMS — non-MF equity the rebalancer can't trade per-fund |
+| `elss_corpus` | `float ≥ 0` (default 0.0) | ELSS MF holdings (a **subset of** `mf_corpus`); frozen under 3-year lock-in |
+| `max_non_mf_equity_pct_client_input` | `float?` (default `None`) | advisor override for the NFA-banded cap (Option A — client override wins over the computed band) |
+
+The three implicit corpus quantities are *derived, not inputs* (see the class docstring):
+
+```
+cash               = total_corpus − mf_corpus − non_mf_equity_corpus
+mf_non_elss        = mf_corpus − elss_corpus
+rebalancing_corpus = total_corpus − elss_corpus
+```
+
+> Without a `CorpusPin`, the app-layer builder defaults to **MF-only**: `mf_corpus = total_corpus`, `non_mf_equity_corpus = elss_corpus = 0.0`. Today the only source of a real pin is `additional_investment`'s deficit-fill lumpsum path.
+
+---
+
+## 4. Output contract
+
+`PracticalAllocationOutput` carries the **same seven fields** as `GoalAllocationOutput` — `client_summary`, `bucket_allocations`, `aggregated_subgroups`, `future_investments_summary`, `grand_total`, `all_amounts_in_multiples_of_100`, `asset_class_breakdown` — so any consumer that already reads the ideal output handles this with **zero change**. It adds one block:
+
+| Field | Type | Notes |
+|---|---|---|
+| `corpus_breakdown` | `CorpusBreakdown` | the practical-only extras (below) |
+
+`CorpusBreakdown` (all rupee amounts are whole `int` — the engine works in floats internally and rounds at the boundary):
+
+| Field | Meaning |
+|---|---|
+| `total_corpus_inr`, `mf_corpus_inr`, `elss_corpus_inr` | echoes of the inputs |
+| `non_mf_equity_input_inr` | what the customer said they hold in direct stocks |
+| `rebalancing_corpus_inr` | `total − elss` (ELSS is frozen out of the trade plan) |
+| `non_mf_equity_actual_inr` | ≤ input — what the engine could absorb under the cap |
+| `excess_direct_stocks_inr` | `input − actual`; drives the **SELL_DIRECT_STOCKS** recommendation downstream in Rebalancing |
+| `max_non_mf_equity_pct_computed` | the NFA-banded fraction used (0.0–1.0), or the advisor override if given (the field is named `_computed` but is populated with the *considered* value) |
+| `lt_equities_amount_inr` | long-term equity budget (Excel R177) — the denominator for the cap |
+| `non_mf_equity_cap_inr` | absolute INR ceiling = `max_pct × lt_equities_amount` |
+
+One more parity subtlety: `aggregated_subgroups` can gain **up to two extra rows** the ideal engine never emits — `tax_efficient_equities` (ELSS in the `long_term` column) and `non_mf_equities` (non-MF actual in `long_term`). Each row is appended only when its amount is `> 0` (so the MF-only default case adds neither). When present, they also appear in the structured `asset_class_breakdown`, rolled up as **equity**.
+
+---
+
+## 5. How it thinks
+
+`run_practical_allocation` is a five-move pipeline. Moves 1–3 and 5 are thin; **move 4 (`_run_practical_long_term`, Excel R157–R222) is the whole point of the module.**
+
+| # | Step | Where | What it does |
+|---|---|---|---|
+| 0 | **ELSS freeze** | [`pipeline.py` `run_practical_allocation`](../../src/practical_asset_allocation/pipeline.py) | `rebalancing_corpus = total_corpus − elss_corpus`; if negative → `InfeasibleGoalError` (edge α). Build a sub-`AllocationInput` with `total_corpus = rebalancing_corpus`. |
+| 1–3 | **emergency / short / medium** | `step1_emergency` · `step2_short_term` · `step3_medium_term` (upstream, verbatim) | run on the *rebalancing* corpus — locked ELSS is never available to fund the near-term buckets. |
+| 4 | **long-term, rewritten** | [`_run_practical_long_term`](../../src/practical_asset_allocation/pipeline.py) | ELSS floor → practical others-gate → amounts → **NFA-banded non-MF cap** → multi-asset block → **v2 average-based equity slider**. See below. |
+| 5 | **aggregate + freeze** | [`_step5_aggregation_with_frozen`](../../src/practical_asset_allocation/pipeline.py) | wraps upstream `step5_aggregation.run` (against `total_corpus`, not the rebalancing corpus) and appends the two frozen rows so `grand_total` reconciles to the *full* corpus. |
+
+### The three holdings-aware moves inside step 4
+
+1. **ELSS as a floor, not a fund.** `total_long_term_corpus = remaining + elss` — the locked amount is added back and counted toward the long-term equity budget (R158). `min_equity_elss_pct = elss / total_long_term_corpus` becomes a *floor* on the equity % (R171): even if the risk-driven bounds want less equity, ELSS drags it up.
+2. **NFA-banded non-MF equity cap** (`_nfa_banded_max_non_mf_equity_pct`, R182): `> ₹5 Cr → 75% · > ₹2 Cr → 60% · > ₹1 Cr → 50% · else 33%`. The absorbed amount is `min(input, equities_amount − elss, max_pct × equities_amount)`. Whatever the customer holds **above** that ceiling becomes `excess_direct_stocks` — a number to reduce, never a stock-by-stock instruction.
+3. **v2 average-based equity slider** (shared `apply_equity_subgroup_slider`): the leftover MF equity is split across the same styles as the ideal engine, but the per-subgroup share % that decides which slivers to drop is measured against the **total** equity pool `residual_equity_corpus_final + multi_asset_amount + non_mf_equity_actual` (Excel R194+R187+R181), **not** just the MF residual — so a small leftover pool consolidates into fewer meaningful positions.
+
+### A run, end to end (worked example)
+
+A customer with locked ELSS and a chunky direct-stock book. Watch the corpus flow through freeze → cap → residual. *(All figures below are **illustrative**, not real DB/holdings rows — don't grep for them.)*
+
+<div class="step-panel">
+  <div class="label">Input · PracticalAllocationInput (illustrative)</div>
+<pre><code>total_corpus           = 1,00,00,000   # ₹1 Cr
+mf_corpus              =   60,00,000
+elss_corpus            =   10,00,000   # subset of mf_corpus, locked
+non_mf_equity_corpus   =   25,00,000   # direct stocks
+net_financial_assets   = 1,20,00,000   # → NFA band ">1Cr" → 50%</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 0 · ELSS freeze</div>
+<pre><code>rebalancing_corpus = 1,00,00,000 − 10,00,000 = 90,00,000
+# steps 1–3 run on 90,00,000; say they consume 30,00,000
+# → long-term remaining_corpus = 60,00,000</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 4 · long-term (holdings-aware)</div>
+<pre><code>total_long_term_corpus  = 60,00,000 + 10,00,000 (ELSS back) = 70,00,000
+allocation_2_equity_pct = 70%           # (ELSS floor already satisfied)
+equities_amount         = 49,00,000     # R177 budget = lt_equities_amount
+
+# NFA-banded non-MF cap (band ">1Cr" → 50%)
+max_equities_shares     = 0.50 × 49,00,000 = 24,50,000
+available_after_elss    = 49,00,000 − 10,00,000 = 39,00,000
+non_mf_equity_actual    = min(25,00,000, 39,00,000, 24,50,000) = 24,50,000
+excess_direct_stocks    = 25,00,000 − 24,50,000 = 50,000   → SELL_DIRECT_STOCKS
+
+residual_equity (MF)    = 49,00,000 − 24,50,000 − 10,00,000 = 14,50,000
+# → the v2 slider splits THIS 14,50,000 across equity styles</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Output · corpus_breakdown (the extras block)</div>
+<pre><code>{ "elss_corpus_inr": 10,00,000,          // frozen row: tax_efficient_equities
+  "non_mf_equity_actual_inr": 24,50,000, // frozen row: non_mf_equities
+  "excess_direct_stocks_inr": 50,000,    // the ONLY "reduce" signal
+  "max_non_mf_equity_pct_computed": 0.50,
+  "lt_equities_amount_inr": 49,00,000,
+  "non_mf_equity_cap_inr": 24,50,000 }</code></pre>
+</div>
+
+The ELSS ₹10 L and the absorbed direct stocks ₹24.5 L show up as **frozen rows** in `aggregated_subgroups`, so `grand_total` reconciles to the full ₹1 Cr — nothing is silently dropped. The ₹50 k excess is the single number the rebalancer acts on.
+
+---
+
+## 6. Where the LLM is
+
+**Nowhere. This module never calls an LLM.** Every number is produced by deterministic arithmetic over the input — the same input always yields the same output, which is exactly what a *target* allocation feeding a downstream trade engine must guarantee.
+
+| Part | Deterministic? | Why it matters |
+|---|---|---|
+| ELSS freeze, steps 1–3, step 5 | yes — reused upstream pure-Python | reproducible; unit-testable with no I/O |
+| step 4 (cap, floor, slider) | yes — pure arithmetic + shared slider | Rebalancing depends on byte-stable targets across reruns |
+| customer-facing *narration* | **not here** | the chat brain's shared answer formatter narrates the output; this engine only produces structured numbers |
+
+That reproducibility is load-bearing: the app gateway **persists** each run and the rebalancing engine's cache-first lookup (90-day TTL) reads it back as the rebalance target. A non-deterministic allocation would make the cached target drift out from under the trade plan.
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`pipeline.py`](../../src/practical_asset_allocation/pipeline.py) | **the whole engine** — `PracticalAllocationInput`, `CorpusBreakdown`, `PracticalAllocationOutput`, `run_practical_allocation`, `_run_practical_long_term` (R157–R222), `_step5_aggregation_with_frozen`, `_build_asset_class_breakdown`, `_build_output`, the NFA-band helper, `InfeasibleGoalError` |
+| [`__init__.py`](../../src/practical_asset_allocation/__init__.py) | public re-exports (`run_practical_allocation`, the I/O models, `CorpusBreakdown`, `InfeasibleGoalError`) — the caller's contract surface |
+| [`CLAUDE.md`](../../src/practical_asset_allocation/CLAUDE.md) | context-layer notes (first cross-agent import; int/float vs Decimal boundary) |
+| [`Testing/`](../../src/practical_asset_allocation/Testing/) | pytest suite (gitignored) — the spec §B.9 scenarios + per-task long-term tests |
+| `Master_testing/` | dev sweep: all 5 canonical profiles through **both** ideal and practical engines → `results/` HTML + JSON (gitignored artifacts) |
+
+App-layer companions (not part of the engine, but where its inputs come from and where its output lands):
+
+| File | Role |
+|---|---|
+| [`practical_asset_allocation_module_service.py`](../../../app/domains/practical_asset_allocation/services/practical_asset_allocation_module_service.py) | the `run(turn, ctx, prior)` AI-module gateway (the only blessed caller) |
+| [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | builds `PracticalAllocationInput` — shared fields + 4 corpus scalars (+ `CorpusPin`) |
+| [`paa_engine/service.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/service.py) | `compute_practical_allocation_result` (runs the engine off-thread) + fallback brief |
+| [`paa_engine/chat.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/chat.py) | `@register("practical_asset_allocation")` first-turn handler; persists best-effort |
+
+---
+
+## 8. Invariants & landmines
+
+- **Emit plain `int`/`float`, never `Decimal`.** Practical amounts are int/float-rounded. Downstream Rebalancing rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_targets_to_rank1`). Pre-wrapping in `Decimal` here breaks that seam. (Per module CLAUDE.md.)
+- **Rebalancing runs on the *rebalancing* corpus; step 5 reconciles on the *total*.** Steps 1–3 and step 4 see `total_corpus − elss_corpus`. But `_step5_aggregation_with_frozen` calls upstream `step5_aggregation.run(total_corpus, …)` and appends the two frozen rows, so `grand_total` matches the *full* corpus (± ₹500 tolerance). Don't "simplify" either denominator — they are deliberately different.
+- **ELSS is frozen, never a fresh buy.** `elss_amount_frozen` is counted toward the long-term equity budget (as a floor) and surfaced as `tax_efficient_equities`, but the engine never routes new money into it, and it is *excluded* from the slider's share denominator.
+- **The NFA-band default (33%) fires when `net_financial_assets is None`.** `_nfa_banded_max_non_mf_equity_pct(None)` returns the bottom band defensively. If your caller can pass a real NFA, pass it — a `None` silently gives the tightest cap.
+- **Advisor override wins (Option A).** When `max_non_mf_equity_pct_client_input` is set, it replaces the computed band outright — the internal `_computed` still records the band, but `_considered` (the override) is what's used and echoed into `corpus_breakdown.max_non_mf_equity_pct_computed`.
+- **The slider's share denominator is the TOTAL equity pool, not the MF residual.** `residual_equity_corpus_final + multi_asset_amount + non_mf_equity_actual` (Excel R194+R187+R181). Using just the residual would drop the wrong subgroups. This is the practical engine's key divergence from the ideal slider — the shared helper takes it as `share_denominator`.
+- **First blessed cross-agent import — upstream names are a contract.** A rename of any imported `asset_allocation_pydantic` symbol (steps, phase helpers, slider, `round_to_100`) is a cross-module change requiring a sweep here and in Rebalancing.
+- **Persist is best-effort, never blocking** (app layer). `paa_engine/chat.py` swallows a persistence failure so it can't block the reply or the downstream rebalancing step.
+- **Two subgroups don't exist upstream.** `tax_efficient_equities` and `non_mf_equities` are added to a *local* copy of `SUBGROUP_TO_ASSET_CLASS` as equity inside `_build_asset_class_breakdown`. Don't expect them in the shared table.
+
+---
+
+## 9. Extend & test
+
+- **Change the cap bands / gate thresholds** → the module-level constants at the top of [`pipeline.py`](../../src/practical_asset_allocation/pipeline.py) (`NFA_BAND_*`, `PRACTICAL_OTHERS_GATE_*`). Because these are production-wiring logic that grounds customer answers, bump [Logics_reference_docs/Practical_Asset_Allocation.md](../Logics_reference_docs/Practical_Asset_Allocation.md) (per the repo's "Logics docs track the engines" rule) — describe the *approach*, not the proprietary numbers.
+- **Tests** live at two levels (verify with `ls`; both are gitignored but on disk):
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | engine scenarios | [`Testing/test_scenarios_b9.py`](../../src/practical_asset_allocation/Testing/) + `test_long_term_part1..6.py`, `test_step5_with_frozen.py`, `test_build_output_smoke.py` | spec §B.9: regression-vs-ideal, ELSS bands, non-MF cap, v2 slider, mid-sequence underfunding |
+  | app input builder | [`paa_engine/tests/test_input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/tests/test_input_builder.py) | corpus-scalar assembly + `CorpusPin` override |
+
+  Run with the mac venv:
+  ```
+  .venv-mac/bin/python -m pytest AI_Agents/src/practical_asset_allocation/Testing \
+      app/domains/practical_asset_allocation/services/paa_engine/tests -v
+  ```
+- **Run one allocation in isolation — no DB, no LLM.** The engine is pure; hand-build an input and call it directly. The `trace` dict is the single-step JSON seam — pass any dict and it's filled in-place with every intermediate (steps 1–5, the long-term R157–R222 state) without affecting the return value:
+
+  ```python
+  from practical_asset_allocation import PracticalAllocationInput, run_practical_allocation
+
+  inp = PracticalAllocationInput(**shared_fields, mf_corpus=6_000_000,
+                                 elss_corpus=1_000_000, non_mf_equity_corpus=2_500_000)
+  trace = {}
+  out = run_practical_allocation(inp, trace=trace)
+  print(trace["step4_long_term"]["non_mf_equity_actual"])   # inspect the cap
+  ```
+
+  For a full ideal-vs-practical comparison over the canonical profiles: `cd AI_Agents/src && python -m practical_asset_allocation.Master_testing.runner` → self-contained `results/results.html`.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cashflow_statement — goal-planning engine + LangGraph agent — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Hybrid · engine + LangGraph agent (Sonnet)</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `cashflow_statement` — will this household's money reach its goals?
+
+> **One line:** given a household's profile, retirement plan, properties, and goals, this module projects the money **month by month to the end of the horizon** and answers one question honestly — *are the goals funded, and if not, by how much and what would close the gap?* The arithmetic is 100% deterministic Python; the LLM only ever narrates numbers it was handed.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the planning thesis, inflation/ROI approach), see [Logics_reference_docs/Cashflow_Statement.md](../Logics_reference_docs/Cashflow_Statement.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Hybrid — pure-Python engine<br/>+ the ONE LangGraph agent</div></div>
+  <div class="cell"><div class="k">Models</div><div class="v">Agent node: <strong>Sonnet</strong> <code>claude-sonnet-4-6</code><br/>Extractor + Summarizer: <strong>Haiku</strong> <code>claude-haiku-4-5</code></div></div>
+  <div class="cell"><div class="k">Trigger intent</div><div class="v"><code>goal_planning</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>compute_full_projection</code><br/>(agent entry: <code>run_cashflow_statement</code>)</div></div>
+  <div class="cell"><div class="k">Steps / passes</div><div class="v">8 engine stages<br/>· 4-node StateGraph (15-iter cap)</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">engine fully deterministic<br/>LLM narrates, never computes</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v"><code>financial_primitives</code><br/>(library, not a peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer does</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/cashflow_statement/`](../../src/cashflow_statement/) and owns the **`goal_planning`** chat intent — anything about goal feasibility, retirement adequacy, shortfalls, or "what if" counterfactuals:
+
+- *"Am I on track to retire at 60?"* → **feasibility**
+- *"Can I afford a ₹2 crore house in 2032 and still fund my kid's college?"* → **new goal + projection**
+- *"What if I bump my SIP?"* / *"How do I fix the shortfall?"* → **what-if + levers**
+
+It has **two faces**. The **engine** ([`engine/pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)) is an 8-stage pure-Python projection validated against an Excel baseline — no LLM, no I/O, fully reproducible. The **agent** ([`agent/graph.py`](../../src/cashflow_statement/agent/graph.py)) is a LangGraph `StateGraph` — the *only* LangGraph agent in the whole `AI_Agents` package — that turns natural language into engine inputs, runs the engine as a tool, and proposes deterministic levers.
+
+The defining design decision mirrors every other Prozpr module: **the LLM never produces a number.** The engine does all the math; rupee values are pre-formatted to Indian notation before they reach any model, which is told to copy them verbatim. A confidently-wrong corpus figure is treated as a worse failure than a plain one.
+
+```mermaid
+flowchart TB
+    Q([goal_planning question]) --> GW["<b>App gateway</b><br/>build GoalPlanningInput from<br/>profile + goals + properties"]
+    GW --> ENG["<b>Engine · 8 stages</b><br/>compute_full_projection<br/>(pure Python, deterministic)"]
+    ENG --> OUT[("GoalPlanningOutput<br/>headline · goals · cashflow")]
+    OUT --> SUM["<b>Summarizer (Haiku LCEL)</b><br/>narrate pre-formatted ₹ facts"]
+    SUM --> R([facts_pack → chat formatter])
+    ENG -. "wrapped by (agent path,<br/>test-only today)" .-> AG["<b>LangGraph agent</b><br/>NL → tools → engine → levers"]
+```
+
+> **The production chat path runs the engine directly, not the agent.** See §2 — this is the single most important thing to know before you touch this module.
+
+---
+
+## 2. Where it sits
+
+The engine is a near-peer: within `src/` it imports **no other agent**, only the shared [`financial_primitives`](../../src/financial_primitives/) numeric-kernel library (TVM, Indian-FY dates, `eomonth`) — a library, not a blessed cross-agent edge. Everything database-shaped is the app layer's job.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `goal_planning` intent routes here |
+| **Gateway** | [`cashflow_module_service.run(turn, ctx, prior)`](../../../app/domains/cashflow/services/cashflow_module_service.py) | the ONLY module-level entry the brain calls; delegates to the chat dispatcher (`dispatch_chat("goal_planning", ctx)`) |
+| **Bridge + engine run** | [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) `compute_goal_planning_snapshot` | builds `GoalPlanningInput` from the ORM `User`, runs `compute_full_projection`, calls `summarize_plan`, persists the run, emits `facts_pack` |
+| **Input build** | `goal_planning_engine/input_builder.py` | profile + properties + active goals → `GoalPlanningInput`; **hard-refuses** incomplete profiles (`missing_required_inputs:<keys>`) rather than zero-filling |
+| **Non-chat entry** | [`cashflow_compute_service.run_cashflow_projection_for_user`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | REST/detail path (the `/cashflow` router + the `additional_investment` input builder both call it) — same engine, wraps output as a `GoalPlanningSnapshot` |
+
+<div class="callout danger">
+  <div class="title">⚠ The LangGraph agent is orphaned on the production path</div>
+  <p>Despite being the codebase's only LangGraph agent, <code>run_cashflow_statement</code> / <code>cashflow_statement_graph</code> is <strong>not invoked by any production caller</strong> — grep the app and every reference outside the module's own definition and its lazy re-export is test-only (a monkeypatch in <code>goal_planning_engine/tests/</code>). The live chat path (<code>service.py</code>) calls <code>compute_full_projection</code> (the pure engine) plus <code>summarize_plan</code> (Haiku LCEL) directly. The agent — tools, levers, overrides, what-ifs — is fully built and unit-tested but currently dark. If you're debugging a live goal-planning turn, the agent graph is <em>not</em> in the call stack. Don't assume ARCHITECTURE.html's "responder consumes the snapshot" flow is wired; today the snapshot comes straight from the engine.</p>
+</div>
+
+### What `ctx` must carry
+
+The bridge signature is `compute_goal_planning_snapshot(*, user, user_question, chat_session_id, anchor_date, db)`. The chat handler pulls these off the turn context:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `ctx` user graph | pre-loaded `User` (profile → goals → properties → holdings) | the sole source of engine inputs; the input builder maps it to `GoalPlanningInput` |
+| `ctx.db` | `AsyncSession` | portfolio-value lookup (folded into starting corpus) + persisting the plan run; `None` ⇒ `ValueError` |
+| `anchor_date` | `date` | the engine's notion of "today" (past-goal validation, FY math) — chat passes `date.today()` |
+| `user_question` | `str` | classified upstream; the engine itself is question-agnostic (it always projects the full plan) |
+
+---
+
+## 3. Input contract
+
+The load-bearing input is `GoalPlanningInput` in [`models.py`](../../src/cashflow_statement/models.py) — the single source of truth for the engine↔agent boundary.
+
+| Field | Type | Notes |
+|---|---|---|
+| `profile` | `ClientProfile` | income, `effective_tax_rate` (blended, **not** marginal), assets, liabilities, monthly expense, optional starting SIP |
+| `retirement` | `RetirementInput` | DOB, `retirement_age`, `assumed_lifespan_years` (no defaults — the engine never guesses when a household retires), optional corpus override in today's ₹ |
+| `assumptions` | `Assumptions` | all inflation / ROI / growth rates + horizon knobs; every rate has a documented default |
+| `current_properties` | `list[CurrentProperty]` | existing homes; `has_mortgage=True` requires `mortgage_emi` + `mortgage_end_date` (validated) |
+| `goal_properties` | `list[GoalProperty]` | future purchases; cash or `is_downpayment_only` mortgage path (XOR `upfront_amount` / `downpayment_pct`) |
+| `custom_goals` | `list[CustomGoal]` | life goals; PV **or** FV value, `goal_type` picks the inflation rate |
+| `one_off_inflows` / `one_off_outflows` | `list[OneOffEvent]` | dated lump sums; an outflow past the projection end is **dropped with a warning** |
+| `detail_level` | `"default" \| "full"` | `"full"` returns the month-by-month `monthly_cashflow` |
+| `model_retirement` | `bool` | **True** (agent/dev, the default): inject retirement as a goal + stop salary income at retirement. **False** (product path): retirement modelled only if the user adds it as an explicit goal. Either way the **horizon** still runs to `max(last_goal, retirement_date)` |
+
+Cross-cutting validators live on the models: goal names must be unique case-insensitively; past-dated goals raise before any compute (`validate_input_only` in [`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)).
+
+---
+
+## 4. Output contract
+
+The engine returns `GoalPlanningOutput`; the agent path returns `GoalPlanningSnapshot` (a subclass adding per-turn metadata). Both in [`models.py`](../../src/cashflow_statement/models.py).
+
+| Field | Type | Notes |
+|---|---|---|
+| `engine_version` | `str` | `"0.3.0"`; **bump on any math change** so cached plan runs auto-recompute |
+| `headline` | `HeadlineStatus` | the top line: `is_feasible` (canonical: all goals funded **and** `corpus_closing >= 0`), `total_shortfall_fv`, `corpus_today`, `surplus_or_shortfall_today` (PV view) |
+| `retirement` | `RetirementSnapshot` | corpus required (FV at retirement + PV today), years-to-retirement, real ROI |
+| `goals` | `list[GoalFundingStatus]` | per-goal `is_funded` / `funded_amount` / `shortfall_fv` / `corpus_required_fv` |
+| `one_off_outflow_status` | `list[OneOffFundingStatus]` | per one-off funded/shortfall |
+| `annual_cashflow` | `list[AnnualCashflowRow]` | per-FY P&L **and** corpus evolution (reconciles per row) |
+| `monthly_cashflow` | `list[MonthlyCashflowRow]?` | present only when `detail_level == "full"` |
+| `fund_flow_summary` | `FundFlowSummary` | horizon bridge: opening + invest + ROI + one-offs − goals = closing |
+| `goal_property_details` | `list[GoalPropertyDetail]` | resolved EMI / interest / payoff per property goal |
+| `warnings` | `list[str]` | soft issues (e.g. dropped late one-off) |
+
+**Snapshot-only extras** (`GoalPlanningSnapshot`): `extracted_events_this_turn`, `actions_taken_this_turn` (tool audit log), `levers`, `validation_issues`, `error_log`, and `summary: PlanSummary | None` (the LLM narrative written by the agent's `finalize` node).
+
+---
+
+## 5. How it thinks
+
+### The engine — 8 deterministic stages
+
+`compute_full_projection` runs the stages in strict order; each stage's output feeds the next. Every stage is one file under [`engine/`](../../src/cashflow_statement/engine/), pure Python, no LLM.
+
+| # | Stage | Entry (file) | What it does |
+|---|---|---|---|
+| 1 | profile | `build_initial_context` — [`profile.py`](../../src/cashflow_statement/engine/profile.py) | builds the internal `RunContext` (starting corpus, tax, "today", horizon cap) |
+| 2 | retirement | `compute_retirement_snapshot` — [`retirement.py`](../../src/cashflow_statement/engine/retirement.py) | corpus required at retirement (FV) + PV-today; sets income-stop when `model_retirement` |
+| 3 | mortgages | `build_existing_mortgages` — [`mortgages.py`](../../src/cashflow_statement/engine/mortgages.py) | projects existing-home EMI outflows through each end date |
+| 4 | properties | `build_goal_properties` / `build_goal_property_details` — [`properties.py`](../../src/cashflow_statement/engine/properties.py) | future purchases: cash vs mortgage, downpayment FV, amortization |
+| 5 | goals_table | `build_goals_table` — [`goals_table.py`](../../src/cashflow_statement/engine/goals_table.py) | unifies retirement + property + custom goals into one internal goal list (inflates PV→FV) |
+| 6 | cashflow | `project_cashflow` + `derive_annual_cashflow` — [`cashflow.py`](../../src/cashflow_statement/engine/cashflow.py) | month-by-month P&L (income, tax, expense, EMI, savings) across the horizon |
+| 7 | funding | `compute_funding` — [`funding.py`](../../src/cashflow_statement/engine/funding.py) | walks the monthly cashflow, evolves **one shared corpus pool**, pays goals, splits shortfalls proportionally |
+| 8 | summary | `build_headline_status` + `build_fund_flow_summary` — [`summary.py`](../../src/cashflow_statement/engine/summary.py) | rolls the funded monthly view into the headline + horizon bridge |
+
+Internal types (`RunContext`, `MortgageSchedule`, `GoalInternal`, `FundingResult`, …) live in [`engine/_types.py`](../../src/cashflow_statement/engine/_types.py) and are **not** re-exported — only [`models.py`](../../src/cashflow_statement/models.py) types cross the boundary.
+
+### A projection, stage by stage (worked example)
+
+An illustrative household — *watch the numbers move; nothing here is an LLM guess.* *(All values below are illustrative, not real DB rows.)*
+
+<div class="step-panel">
+  <div class="label">Input · GoalPlanningInput (abridged)</div>
+<pre><code>profile:   income ₹40L/yr, tax 0.20, assets ₹80L, expense ₹1.2L/mo, SIP ₹50k/mo
+retirement: DOB 1986-06-01, retire_age 60, lifespan 85
+custom_goals: [ "college" — child_local_education, PV ₹50L, 2040-04-01 ]
+model_retirement: false          # product path
+anchor_date: 2026-07-12</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Stage 2 · retirement → RetirementSnapshot</div>
+<pre><code>retirement_date: 2046-06-01   years_to_retirement: 19.9
+annual_household_expense_at_retirement: ₹43.8L  (₹14.4L today, inflated 6%/yr, EOMONTH/365)
+corpus_required_used (FV):  ₹6,84,00,000   ← rounded to nearest ₹1,000
+corpus_required_pv_today:   ₹2,13,50,000</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Stage 5 · goals_table → inflate PV to the goal date</div>
+<pre><code>college: goal_value_pv ₹50,00,000  →  goal_value_fv ₹1,13,20,000
+         (14 yrs @ 6% child_local_education inflation; FV anchor rounded to ₹1,000)</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Stages 6–8 · cashflow → funding → summary → HeadlineStatus</div>
+<pre><code>is_feasible: false
+corpus_today: ₹80,00,000   corpus_closing: -₹41,00,000
+total_shortfall_fv: ₹96,00,000
+goals[college]: is_funded=false, shortfall_fv ₹34,00,000</code></pre>
+</div>
+
+Every figure is arithmetic over the inputs. `is_feasible` is the canonical verdict (all goals funded **and** closing corpus ≥ 0) — here it's `false`, so the summarizer (or, on the agent path, `propose_levers`) has something concrete to explain.
+
+### The narration passes — LCEL, not LangGraph
+
+Two of the three LLM touchpoints are plain **LCEL** chains (`prompt | llm.with_structured_output(...)`), a single linear pass with no state or looping:
+
+- **`summarize_plan`** ([`summarizer.py`](../../src/cashflow_statement/summarizer.py)) — Haiku turns a `GoalPlanningOutput` into a `PlanSummary`. `_build_facts` pre-formats **every rupee value** into Indian notation (`₹X.XX crore`); Haiku is told to quote those strings verbatim and do no arithmetic. `next_steps` is **not** LLM-generated — it's `[l.description for l in levers]`, so on the production path (no levers) it's empty.
+- **`extract_event`** ([`agent/extractor.py`](../../src/cashflow_statement/agent/extractor.py)) — Haiku parses one NL message into an `ExtractedFinancialEvent`, with a rapidfuzz collision check (`token_set_ratio ≥ 85`) that promotes a near-duplicate goal name to a mutation. Agent-only.
+
+### The agent — a 4-node StateGraph (LangGraph)
+
+The agent ([`agent/graph.py`](../../src/cashflow_statement/agent/graph.py)) is the stateful counterpart: a loop that lets **Sonnet** call engine tools until it has what it needs, capped at 15 iterations, no checkpointer (each invocation is a fresh state).
+
+```mermaid
+flowchart LR
+    IB["ingest_baseline<br/>validate overrides,<br/>reset per-turn fields"] --> AG
+    AG["agent<br/>Sonnet + 6 bound tools"] -->|tool_calls| TN["tools<br/>ToolNode"]
+    TN --> AG
+    AG -->|no tool_calls| FN["finalize<br/>ensure engine output<br/>+ summarize_plan"]
+    FN --> E([GoalPlanningSnapshot])
+```
+
+The six tools ([`agent/tools.py`](../../src/cashflow_statement/agent/tools.py)): `extract_financial_event`, `apply_override`, `clear_overrides`, `mutate_goal`, `compute_projection`, `propose_levers`. Each has a pure-Python `*_impl` (unit-testable without LangGraph) plus a `@tool` wrapper returning a `Command` that propagates state mutations. The agent node is a **router**, not a writer — its final message is discarded; only the structured snapshot flows onward (per [`agent/prompts.py`](../../src/cashflow_statement/agent/prompts.py)). `propose_levers` runs the deterministic A–F lever search in [`agent/levers.py`](../../src/cashflow_statement/agent/levers.py) — each lever bisects/steps one parameter (SIP, defer, reduce, retire-later, step-up, expense) and re-runs the engine until feasible, so even the "recommendations" are engine-verified, not model opinion.
+
+---
+
+## 6. Where the LLM is
+
+| Part | Deterministic or LLM | Model |
+|---|---|---|
+| 8-stage projection engine | **deterministic** — pure Python, Excel-parity | none |
+| A–F lever search (`levers.py`) | **deterministic** — bisection over engine re-runs | none |
+| `summarize_plan` (LCEL) | LLM — *narrates* pre-formatted ₹ facts | Haiku `claude-haiku-4-5-20251001` |
+| `extract_event` (LCEL, agent-only) | LLM — NL → structured event | Haiku `claude-haiku-4-5-20251001` |
+| agent node (LangGraph, agent-only) | LLM — *routes* to tools, writes no prose | Sonnet `claude-sonnet-4-6` |
+
+The engine **never calls an LLM**, and that is the whole point: a goal plan must be reproducible and auditable. Run it twice on the same input and you get byte-identical numbers — no temperature, no drift, testable against a fixed Excel baseline. The LLMs sit strictly *around* the numbers: one names goals from words, one narrates finished figures. Neither is allowed to compute, because a hallucinated corpus figure quoted with confidence is the failure this whole design exists to prevent — the rupee values are pre-formatted precisely so the model's only job is to copy.
+
+> On the agent-node default: [`graph.py`](../../src/cashflow_statement/agent/graph.py) `build_graph(model="claude-sonnet-4-6")` wins — `nodes.AGENT_MODEL_DEFAULT` (Haiku) is only the fallback default of `make_agent_node`, which the compiled graph overrides. So the compiled agent runs on **Sonnet** (the stale "Haiku-driven" phrasing in `run_cashflow_statement`'s docstring notwithstanding).
+
+---
+
+## 7. File map
+
+**Engine (pure Python, no LLM):**
+
+| File | Role |
+|---|---|
+| [`engine/pipeline.py`](../../src/cashflow_statement/engine/pipeline.py) | `compute_full_projection` — the 8-stage orchestrator + `validate_input_only`; owns `ENGINE_VERSION` |
+| [`engine/profile.py`](../../src/cashflow_statement/engine/profile.py) · [`retirement.py`](../../src/cashflow_statement/engine/retirement.py) · [`mortgages.py`](../../src/cashflow_statement/engine/mortgages.py) · [`properties.py`](../../src/cashflow_statement/engine/properties.py) | stages 1–4 |
+| [`engine/goals_table.py`](../../src/cashflow_statement/engine/goals_table.py) · [`cashflow.py`](../../src/cashflow_statement/engine/cashflow.py) · [`funding.py`](../../src/cashflow_statement/engine/funding.py) · [`summary.py`](../../src/cashflow_statement/engine/summary.py) | stages 5–8 |
+| [`engine/dates.py`](../../src/cashflow_statement/engine/dates.py) | `_round_thousand`, near/medium-term cutoffs; re-exports `eomonth` / `fy_for_date` / `fy_end_after` from `financial_primitives` |
+| [`engine/_types.py`](../../src/cashflow_statement/engine/_types.py) | internal types (`RunContext`, `GoalInternal`, …) — **not** exported |
+| [`engine/exceptions.py`](../../src/cashflow_statement/engine/exceptions.py) | engine error types |
+
+**Agent (needs `langgraph`; lazy-loaded):**
+
+| File | Role |
+|---|---|
+| [`agent/graph.py`](../../src/cashflow_statement/agent/graph.py) | the `StateGraph`, `run_cashflow_statement`, error-snapshot fallback |
+| [`agent/nodes.py`](../../src/cashflow_statement/agent/nodes.py) | `ingest_baseline` / `agent` / `finalize` node fns + baseline-summary formatting |
+| [`agent/tools.py`](../../src/cashflow_statement/agent/tools.py) | the six tools (`*_impl` + `@tool` wrappers), `TOOLS` |
+| [`agent/levers.py`](../../src/cashflow_statement/agent/levers.py) | deterministic A–F lever generators + scoring |
+| [`agent/extractor.py`](../../src/cashflow_statement/agent/extractor.py) | Haiku LCEL NL→event extractor + fuzzy collision check |
+| [`agent/state.py`](../../src/cashflow_statement/agent/state.py) · [`prompts.py`](../../src/cashflow_statement/agent/prompts.py) | `AgentState` TypedDict · system/extractor prompts |
+
+**Boundary:**
+
+| File | Role |
+|---|---|
+| [`models.py`](../../src/cashflow_statement/models.py) | all public pydantic contracts (inputs, outputs, agent types, enums) |
+| [`summarizer.py`](../../src/cashflow_statement/summarizer.py) | Haiku LCEL `summarize_plan` → `PlanSummary` |
+| [`__init__.py`](../../src/cashflow_statement/__init__.py) | public re-exports; lazy `__getattr__` for the agent (imports `langgraph` only on access) |
+
+App-layer companions (where the engine actually gets called from):
+
+| File | Role |
+|---|---|
+| [`cashflow_module_service.py`](../../../app/domains/cashflow/services/cashflow_module_service.py) | the brain's `goal_planning` gateway |
+| [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) | builds input, runs the engine, summarizes, persists, emits `facts_pack` |
+| [`cashflow_compute_service.py`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | non-chat REST entry over the same engine |
+
+---
+
+## 8. Invariants & landmines
+
+- **The agent graph is dark on the production path** (§2). Wiring it in is a real change, not a refactor — do it deliberately, and update the Logics thesis + this doc when you do.
+- **Bump `ENGINE_VERSION` on any projection-math change** ([`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)). Stored plan runs auto-recompute when their version differs; skip the bump and customers see stale corpus figures.
+- **The LLM must never state a number that isn't pre-formatted in the facts.** `summarizer._build_facts` hands Haiku `_indian` strings; the prompt forbids arithmetic. Widen the facts only with values you can source from the engine.
+- **`next_steps` is deterministic, from levers — not the LLM.** On the production path no levers are computed, so `next_steps` is empty; don't "fix" this by having the model invent action items.
+- **Time convention is day-precise `EOMONTH(date)/365`.** Inflation FV and PV-discount both use it, symmetrically, across every stage (`retirement.py`, `properties.py`, `goals_table.py`). Don't swap in whole-year or 360-day math — it breaks Excel parity.
+- **`_round_thousand` applies only to FV cashflow anchors** (`corpus_required_fv`, `target_fv`); PV/display fields stay unrounded (`engine/dates.py`). Rounding a PV field silently shifts totals.
+- **Indian FY is April–March; `fy_for_date` returns the closing year** (April 2026 → FY27). Off-by-one here mis-buckets every annual row.
+- **One shared corpus pool, not per-goal.** Funding walks the monthly cashflow and splits shortfalls proportionally across a month's outflows (`funding.py`). Sign conventions: shortfalls positive, EMI/expense/payout positive magnitudes, `surplus_or_shortfall_today` signed.
+- **`model_retirement` governs income-stop + the injected retirement payout, NOT the horizon.** The projection always runs to `max(last_goal, retirement_date)` regardless (`pipeline.py`). Conflating the two is the classic bug this flag's long comment warns against.
+- **Incomplete profiles are hard-refused, never zero-filled** (`input_builder.py`): the builder raises `missing_required_inputs:<keys>` so the engine only ever sees real numbers.
+- **The agent submodule loads lazily** ([`__init__.py`](../../src/cashflow_statement/__init__.py) `__getattr__`) so the pure-engine path imports cleanly without `langgraph` installed. Don't move the agent import to module top level.
+- **Failure is soft.** `run_cashflow_statement` catches any graph error (incl. the 15-iter recursion cap) and returns an error-snapshot built from a plain baseline compute — a customer never sees a stack trace.
+
+---
+
+## 9. Extend & test
+
+Tests live at four levels under [`Testing/`](../../src/cashflow_statement/Testing/) — the paths below all exist:
+
+| Level | Where | Covers |
+|---|---|---|
+| engine unit | [`Testing/unit/`](../../src/cashflow_statement/Testing/unit/) | per-stage math (`test_engine_cashflow.py`, `test_engine_retirement.py`, `test_engine_dates.py`, `test_engine_funding.py`, …) + model validation (`test_models_*.py`) |
+| engine integration | [`Testing/integration/`](../../src/cashflow_statement/Testing/integration/) | end-to-end pipeline (`test_engine_pipeline.py`), smoke (`test_smoke.py`), performance (`test_engine_performance.py`), property-goal details (`test_goal_property_details.py`) |
+| agent | [`Testing/agent/`](../../src/cashflow_statement/Testing/agent/) | `test_e2e.py`, `test_extractor.py`, `test_levers.py`, `test_state.py`, `test_tools.py` — LLM stubbed |
+| boundary | [`Testing/boundary/`](../../src/cashflow_statement/Testing/boundary/) | `test_engine_no_llm.py` (the engine imports with no LLM libs) + `test_public_api_only.py` |
+
+> **Excel parity is not a pytest.** The Excel-baseline comparison lives in the dev eval harness under `AI_Agents/tests/cashflow_statement/` (CSV artifacts in `runs/_current_excel_compare/`), not the `Testing/` suite. The pytest integration layer proves the pipeline runs and reconciles; the eval harness is what you re-run to confirm the numbers still match the spreadsheet.
+
+Run with the mac venv:
+
+```
+.venv-mac/bin/python -m pytest AI_Agents/src/cashflow_statement/Testing/
+```
+
+- **Run one engine stage in isolation** — the engine is pure functions, so build a `GoalPlanningInput` and call `compute_full_projection` (or a single stage entry from [`engine/`](../../src/cashflow_statement/engine/)) directly; assert on the returned pydantic. No API key, no DB. See `Testing/unit/` for the per-stage patterns and `dev_run.py` for a full sample profile.
+- **Run the agent without an API key** — the tests stub the LLM at the chain/tool boundary (`extract_event(..., _chain=<stub>)` is an explicit test hook; tools have pure `*_impl` fns). Assert on state mutations and tool routing, never on model wording.
+- **Change engine math** → update the stage file, **bump `ENGINE_VERSION`**, then re-run the end-to-end pipeline tests (`test_engine_pipeline.py`) and re-check the Excel-parity comparison in the dev eval harness (`AI_Agents/tests/cashflow_statement/`) before anything else — parity is the contract. Then bump the Logics thesis [Cashflow_Statement.md](../Logics_reference_docs/Cashflow_Statement.md) if the *approach* changed (per the repo's "Logics docs track the engines" rule).
+- **Change narration** → edit the prompt body in [`summarizer.py`](../../src/cashflow_statement/summarizer.py) (or `agent/prompts.py`); the model's wording under guardrails is checked by the chat eval gate (`scripts/run_prompt_eval_gate.sh`), not these unit tests.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

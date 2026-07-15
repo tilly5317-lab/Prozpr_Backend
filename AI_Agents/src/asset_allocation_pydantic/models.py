@@ -210,7 +210,7 @@ class Step1Output(BaseModel):
 
 class Step2Output(BaseModel):
     goals_allocated: List[Goal]
-    asset_subgroup: Literal["short_debt", "arbitrage", "mixed"]
+    asset_subgroup: Literal["short_debt", "arbitrage"]
     total_goal_amount: int
     allocated_amount: int
     remaining_corpus: int

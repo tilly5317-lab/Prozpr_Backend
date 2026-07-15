@@ -207,6 +207,9 @@ class RebalancingTotals(BaseModel):
 class KnobSnapshot(BaseModel):
     multi_fund_cap_pct: float
     others_fund_cap_pct: float
+    # Rupee floor on the per-fund cap (amendment 2026-07-06); default so
+    # KnobSnapshot payloads persisted before the field existed still parse.
+    fund_cap_floor_inr: Decimal = Decimal("0")
     rebalance_min_change_pct: float
     exit_floor_rating: int
     ltcg_annual_exemption_inr: Decimal

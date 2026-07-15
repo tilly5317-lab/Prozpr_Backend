@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>portfolio_query — grounded answers about my own portfolio — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">LLM-driven · Haiku</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `portfolio_query` — grounded answers about *my own* portfolio
+
+> **One line:** when a customer asks about *their* account — "what's my biggest holding?", "how much in mid cap?", "what does an RBI rate cut mean for me?" — this module answers from three context sources we control (fund-house commentary, the client profile, the current portfolio), refuses anything out of scope, and never lets Haiku do the rupee arithmetic.
+>
+> This is the engineer's guide to the module. Unlike its sibling [`mutual_fund_query`](mutual_fund_query.html), portfolio_query has **no** Logics thesis doc — that is deliberate (the answer-formatter test asserts `get_logic_reference("portfolio_query") is None`); the customer-facing behaviour is defined entirely by the two runtime prompt files in §5. For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven &middot; Haiku</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
+  <div class="cell"><div class="k">Trigger / caller</div><div class="v"><code>portfolio_query</code> intent → <code>flow_portfolio_query</code> → <code>answer_portfolio_query</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>PortfolioQueryOrchestrator.run</code></div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">1 &middot; forced-tool call<br/>(inside a 4-step pipeline)</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">rupee figures pre-computed<br/>path-routing + wording probabilistic</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none — only <code>common.py</code> + <code>persona.py</code></div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — the app gateway does</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/portfolio_query/`](../../src/portfolio_query/). It owns the **`portfolio_query`** chat intent — a question aimed at *the customer's own account*:
+
+- *"What's my current allocation?" / "How much do I have in mid cap?"* → **Path P** (portfolio-specific)
+- *"What is the RBI likely to do with rates — and what does that mean for me?"* → **Path M** (general market, always ending with a *Portfolio Impact* paragraph)
+- *"Should I sell my small caps?" / "What SIP do I need to retire at 60?"* → **Path X** (out of scope → polite redirect)
+
+It is triggered by the intent classifier's `portfolio_query` label and routed by the chat brain's `FLOWS` table into the app-layer gateway `answer_portfolio_query` (see §2).
+
+The defining design decision, shared with `mutual_fund_query` but stricter here because a whole portfolio's worth of rupee figures is in play: **the LLM never converts a rupee amount.** Every `*_inr` figure is paired with a pre-computed Indian-notation `*_indian` sibling string, and the prompt tells Haiku to copy it verbatim. A confidently-wrong "₹22.6 lakh" for what is really ₹2.26 crore is treated as a worse failure than a plainer answer.
+
+### The 4-step, single-call shape
+
+```mermaid
+flowchart LR
+    Q([Question + client + portfolio<br/>+ history]) --> S1["<b>Step 1</b><br/>load market_commentary_latest.md<br/>(file contract, no import)"]
+    S1 --> S2["<b>Step 2</b><br/>enrich *_inr → *_indian<br/>+ compact-JSON the context"]
+    S2 --> S3["<b>Step 3 · one Haiku call</b><br/>skill + guardrails + persona<br/>forced tool-use"]
+    S3 --> S4["<b>Step 4</b><br/>validate → PortfolioQueryResponse"]
+    S4 --> R([answer OR redirect_message<br/>+ guardrail_triggered])
+```
+
+The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a single class, ~226 lines, and makes **exactly one** LLM call per turn — the three paths (X/M/P) are all decided *inside* that one call by the prompt, not by separate passes. **The middle "build the facts" work is deliberately outside the engine:** the app-layer gateway does every DB/ORM read and hands the engine finished DTOs, so the orchestrator can be unit-tested without a database.
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports **no** other agent. Its only cross-file dependencies under `src/` are the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). It **reads** `Reference_docs/market_commentary_latest.md` — written by the `market_commentary` agent — but does **not import** that module: the file is the contract.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` → `flow_portfolio_query` | the `portfolio_query` intent routes here |
+| **Gateway** | [`app/domains/portfolio/services/portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | `answer_portfolio_query(question, ctx)` — the ONLY caller of the engine; maps the User ORM graph → `ClientContext` / `PortfolioContext` DTOs |
+| **Commentary** | `market_commentary` agent (via the file) | `market_commentary_latest.md` is loaded fresh each turn, capped to 7 000 chars |
+| **Downstream** | chat brain | `answer or redirect_message` collapsed to a single customer-facing `str` |
+
+> **The engine touches no DB.** XIRR, cost-basis gains, allocation roll-ups, holdings itemization — all of it is computed in the **gateway** before the DTOs are built. If you're looking for "where does the annualised portfolio XIRR come from", it is `_compute_portfolio_xirr` in `portfolio_query_service.py`, not here.
+
+### What `ctx` must carry
+
+The gateway signature is `answer_portfolio_query(question: str, ctx) -> str`, where `ctx` is the chat brain's `TurnContext`. If you're wiring a new caller or debugging a dead turn, `ctx` must provide:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `ctx.user_ctx` | pre-loaded `User` graph (portfolios → holdings → `fund_metadata`, risk_profile, investment_profile, mf_transactions, financial_goals) | building both `ClientContext` **and** `PortfolioContext`; no portfolio ⇒ instant "no active portfolio" reply |
+| `ctx.conversation_history` | `list[{role, content}]` | last 6 messages are mapped to `ConversationTurn`s so "how is *it* doing?" resolves |
+
+---
+
+## 3. Input contract
+
+One entry method: `PortfolioQueryOrchestrator.run(question, client, portfolio, conversation_history=None)`. All models are in [`models.py`](../../src/portfolio_query/models.py).
+
+**`client: ClientContext`** — every field optional; a missing field means *unknown*, never *zero*:
+
+| Field | Type | Notes |
+|---|---|---|
+| `age` | `int?` | derived in the gateway from DOB (floored at 18) |
+| `risk_category`, `effective_risk_score` | `str?`, `float?` | from `risk_profile` / `effective_risk_assessment` |
+| `investment_horizon`, `occupation_type` | `str?` | from `risk_profile` |
+| `annual_income_inr`, `total_liabilities_inr` | `float?` | from `investment_profile` — get `*_indian` siblings at serialise time |
+| `financial_goals` | `list[str]` | goal **names** only (feasibility math is Path X) |
+
+**`portfolio: PortfolioContext`** — the load-bearing input:
+
+```
+PortfolioContext
+├── total_value_inr / total_invested_inr / total_gain_percentage
+├── xirr_pct                       # Newton-Raphson XIRR over MF cash flows (gateway); None if <2 flows / no convergence
+├── holdings: list[Holding]        # LARGEST-by-value only, capped at 30 in the gateway
+│     ├── name, instrument_type, asset_class, sub_category, quantity
+│     ├── current_value_inr, allocation_percentage
+│     ├── return_1y_pct / return_3y_pct       # trailing-window; OFTEN null
+│     └── invested_amount_inr / gain_inr / gain_pct   # cost-basis; populated when avg_cost known
+├── allocations: list[AllocationRow]              # Equity/Debt/Others + Cash
+├── sub_category_allocations: list[SubCategoryAllocationRow]
+└── total_holdings_count / holdings_count_by_type / omitted_holdings_count / omitted_holdings_value_inr
+```
+
+The counts and roll-ups are computed over the **full** portfolio *before* the itemization cap, so "how many funds?" stays exact even when `holdings[]` shows only the top 30. `conversation_history: list[ConversationTurn]` carries `{role: "user"|"assistant", content: str}` turns.
+
+---
+
+## 4. Output contract
+
+`run(...)` returns `PortfolioQueryResponse`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `guardrail_triggered` | `bool` | **required.** True ⇒ the question was out of scope (Path X) |
+| `answer` | `str?` | the in-scope reply (Path M / Path P); `null` when the guardrail fires |
+| `redirect_message` | `str?` | the polite one-sentence redirect; `null` when in-scope |
+
+A **deterministic backstop** runs in a pydantic `model_validator(mode="after")`: if `guardrail_triggered` is true it *force-clears* `answer` and, if the model forgot to supply a redirect, fills a canned `_DEFAULT_REDIRECT`. Because the gateway renders `answer or redirect_message`, this guarantees no out-of-scope `answer` can ever leak past the LLM's own discipline. The gateway then collapses the model to a single `str` for the chat brain.
+
+---
+
+## 5. How it thinks
+
+The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) — no pipeline of stages, just a 4-step `run` around **one** forced-tool Haiku call.
+
+| Step | Where | What happens |
+|---|---|---|
+| 1 · load commentary | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_market_commentary` | reads `market_commentary_latest.md` BOM-aware; **missing ⇒ `FileNotFoundError`**, empty ⇒ `ValueError`; truncates to `_MAX_COMMENTARY_CHARS` (7 000) |
+| 2 · enrich + serialise | `_enrich_inr_fields` / `_dump_enriched_json` | walks the DTO dicts, adds an `*_indian` sibling for every `*_inr`, then compact-JSONs (`exclude_none`, no indent, literal `₹`) |
+| 3 · one Haiku call | `SkillExecutor.render` + `build_system_prompt` + `LLMClient.call_structured` | renders the skill, prepends the PI persona, forces the `return_portfolio_query_response` tool |
+| 4 · validate | `PortfolioQueryResponse.model_validate` | typed model + the guardrail backstop (§4) |
+
+### Prompt plumbing
+
+The prompt content lives in **two** runtime markdown files, both loaded in `__init__` and rendered verbatim into the system prompt:
+
+| File | Role |
+|---|---|
+| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | YAML front-matter (`model: haiku`, `max_tokens: 1200`) + `## System Prompt` (the three-path routing rules) + `## User Prompt` (the context slots) |
+| [`guardrails.md`](../../src/portfolio_query/guardrails.md) | the scope rules (Category A/B allowed, the 2 forbidden buckets + their redirects), embedded into the system prompt via the `{{guardrail_rules}}` placeholder |
+
+[`skill_executor.py`](../../src/portfolio_query/skill_executor.py) splits the front-matter on `---`, carves the two `## ` sections, and fills `{{name}}` **double-brace** placeholders — single-brace JSON in the prompt (the tool schema examples) is left untouched, so you don't need `str.format` gymnastics. Then `build_system_prompt(system_body, format_profile="chat", question_aware=True)` prepends Pi's identity + shared mechanics. Editing product wording — the paths, the "Portfolio Impact" rule, the redirects — means editing these `.md` files; **no code change.**
+
+### The three paths, decided in one call
+
+- **Path X (out of scope):** a guardrail topic — buy/sell/rebalance recommendations, goal-feasibility / SIP math, or off-topic finance (insurance, tax, crypto, direct stock picks). ⇒ `guardrail_triggered = true`, `answer = null`, polite `redirect_message`.
+- **Path M (general market):** answered from the fund-house commentary in 1–2 sentences, then **always** a bold **Portfolio Impact:** paragraph tied to the client's actual asset-class / sub-category percentages. Total under 100 words.
+- **Path P (portfolio-specific):** answered from the profile + portfolio, routed to the right data source (sub-category rows / allocation rows / holdings / counts / cost-basis gains / XIRR). Under 60 words prose, up to 120 if structured.
+
+### A turn, end to end (worked example)
+
+A Path-P question. Watch a rupee figure only ever get *copied*, never converted.
+
+<div class="chat">
+  <div class="bubble user"><div class="who">Customer</div>What's my biggest holding worth?</div>
+</div>
+
+<div class="step-panel">
+  <div class="label">Step 2 · enriched, compact context (portfolio slice)</div>
+<pre><code>{"total_value_inr":2000000,"total_value_indian":"₹20 lakh",
+ "holdings":[
+   {"name":"Axis Bluechip Fund","sub_category":"Large Cap",
+    "current_value_inr":800000,"current_value_indian":"₹8 lakh",
+    "allocation_percentage":40.0,"gain_pct":12.3}, ...]}</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 3 → tool input → PortfolioQueryResponse</div>
+<pre><code>{ "guardrail_triggered": false,
+  "answer": "Your largest holding is Axis Bluechip Fund at ₹8 lakh — about 40% of your ₹20 lakh portfolio, up 12.3% on cost.",
+  "redirect_message": null }</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="chat">
+  <div class="bubble pi"><div class="who">Pi (Path P)</div>Your largest holding is Axis Bluechip Fund at <strong>₹8 lakh</strong> — about 40% of your ₹20 lakh portfolio, up 12.3% on cost.</div>
+</div>
+
+Every rupee figure in the reply is the `*_indian` string copied verbatim from the context — Haiku never divided by a lakh. *(Values above are illustrative — the dev-smoke fixtures, not real DB/NAV rows; don't grep for them.)*
+
+### What the customer hears in the edge cases
+
+Not every turn even reaches the model — several failures are caught in the **gateway** before the LLM runs:
+
+| Situation | Decided in | What the customer hears |
+|---|---|---|
+| No portfolio on the account | gateway (before LLM) | *"I couldn't find an active portfolio on your account yet…"* |
+| No / rejected Anthropic key | gateway (before / around call) | a specific "API key isn't configured / was rejected" message |
+| Commentary file missing | gateway `except FileNotFoundError` | *"…ask me a quick market question first to refresh it…"* |
+| Out-of-scope question | **LLM (Path X)** + validator backstop | the matching guardrail redirect, `answer` force-nulled |
+| Any other LLM failure | gateway `except Exception` | a generic "give it another phrasing" reply — never a stack trace |
+
+---
+
+## 6. Where the LLM is
+
+**One Haiku call per turn, forced-tool-use — and it does no arithmetic.** Everything numeric is deterministic and happens *before* the call:
+
+| Part | Where | Deterministic vs LLM |
+|---|---|---|
+| XIRR, cost-basis gains, allocation & sub-category roll-ups, itemization + counts | gateway (`portfolio_query_service.py`) | deterministic Python |
+| `*_inr` → `*_indian` Indian-notation strings | `orchestrator._enrich_inr_fields` → `common.format_inr_indian` | deterministic |
+| path routing (X / M / P) + wording | the single Haiku call | probabilistic |
+| guardrail contract enforcement | `PortfolioQueryResponse` validator | deterministic backstop |
+
+The LLM client is [`llm_client.py`](../../src/portfolio_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type":"tool","name":...}`, marks the system prompt `cache_control: ephemeral` (Anthropic prompt caching), returns `(tool_input, usage)`, and resolves the `"haiku"` alias via `MODEL_MAP` to the pinned id.
+
+<div class="callout danger">
+  <div class="title">⚠ The failure mode this module designs against</div>
+  <p>Haiku <strong>frequently drops an order of magnitude on lakh/crore boundaries</strong> — it will write "₹22.6 lakh" for what is really ₹2.26 crore. The defence isn't a smarter prompt: it's that <strong>there is nothing to convert</strong>. Every rupee value is paired with a pre-built <code>*_indian</code> string (<code>_enrich_inr_fields</code>) and the prompt tells the model to copy it verbatim. If you add a new <code>*_inr</code> field to a DTO, the enrichment sibling is created for free — but if you ever hand the model a raw rupee number with no <code>*_indian</code> partner, you have re-opened this bug.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — the 4-step `run`, commentary load, INR enrichment, the `_PORTFOLIO_QUERY_TOOL` schema |
+| [`models.py`](../../src/portfolio_query/models.py) | pydantic I/O: `ConversationTurn`, `ClientContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`, `PortfolioContext`, `PortfolioQueryResponse` (+ guardrail validator) |
+| [`skill_executor.py`](../../src/portfolio_query/skill_executor.py) | `SkillExecutor` — front-matter split + `## `-section carve + `{{var}}` render |
+| [`llm_client.py`](../../src/portfolio_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting |
+| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | skill prompt (System + User sections) + config front-matter; **runtime source, not docs** |
+| [`guardrails.md`](../../src/portfolio_query/guardrails.md) | scope rules embedded via `{{guardrail_rules}}`; **runtime source** |
+| [`dev_run.py`](../../src/portfolio_query/dev_run.py) | developer smoke test (`python -m portfolio_query.dev_run`) — in-scope + guardrail scenarios |
+| [`__init__.py`](../../src/portfolio_query/__init__.py) | re-exports the models + orchestrator (the app-layer contract surface) |
+
+App-layer companion (not part of the engine, but where the DTOs come from):
+
+| File | Role |
+|---|---|
+| [`portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | the gateway `answer_portfolio_query` + all ORM→DTO mapping, XIRR, itemization, and the pre-LLM failure replies |
+
+---
+
+## 8. Invariants & landmines
+
+- **The market commentary is a file contract, not an import.** `orchestrator._load_market_commentary` reads `Reference_docs/market_commentary_latest.md` and **raises `FileNotFoundError` if it's absent** (empty ⇒ `ValueError`). The gateway catches that and tells the customer to refresh commentary. Don't "fix" it by importing the `market_commentary` module — the file boundary is why this agent stays a peer.
+- **Every `*_inr` needs its `*_indian` sibling.** `_enrich_inr_fields` builds them; the prompt says copy verbatim. Hand Haiku a bare rupee number and you re-open the lakh/crore bug (§6). Any new rupee DTO field gets the sibling automatically — but only if it *ends in* `_inr`.
+- **The guardrail contract has a deterministic backstop.** `PortfolioQueryResponse`'s validator nulls `answer` and guarantees a redirect whenever `guardrail_triggered` is true. Never rely on the model alone to null the out-of-scope answer, and don't remove the validator.
+- **Count questions use `total_holdings_count` / `holdings_count_by_type`, never `len(holdings[])`.** `holdings[]` is capped at 30 largest-by-value in the gateway; the roll-ups and counts are computed over the full portfolio. A field that is absent means *unknown*, not zero — the prompt forbids asserting a customer doesn't hold a fund that may be in the omitted tail.
+- **Prompt files define behaviour; edits need the eval gate.** `portfolio_query.md` + `guardrails.md` are rendered verbatim and *are* the Path X/M/P logic and the mandatory "Portfolio Impact" paragraph. There is no Logics thesis doc to bump (unlike sibling agents) — but run the prompt eval gate before merging a wording change.
+- **BOM-aware reads, single-brace-safe render.** These `.md` files carry `₹` / em-dashes and inline JSON; `read_text_bom_aware` + the `{{name}}`-only `_render` exist for that reason — don't switch to naive `str.format`.
+- **XIRR here is hand-rolled.** `portfolio_query_service._xirr` is a divergent Newton-Raphson; the memory note flags `mutual_funds.services.xirr_service.compute_portfolio_xirr` as the canonical one — prefer it for new portfolio code.
+- **Failure is soft.** The gateway wraps the call in `try/except` (incl. `AnthropicAuthenticationError`) and returns a specific-but-friendly reply — a commentary-missing or key problem never surfaces a stack trace.
+
+---
+
+## 9. Extend & test
+
+- **Change wording / paths / guardrails / redirects** → edit [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) or [`guardrails.md`](../../src/portfolio_query/guardrails.md) only, then run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging — the golden set includes `pq/*` cases in [`golden_cases.py`](../../../app/domains/ai_engine/tests/eval_gate/golden_cases.py).
+- **Add a fact the answer may state** → add the field to `PortfolioContext` / `Holding` in [`models.py`](../../src/portfolio_query/models.py), populate it in the gateway's `_build_*` helpers, and describe it in the skill's context list so the model knows it exists. If it's a rupee field, name it `*_inr` so enrichment picks it up.
+- **Tests.** This engine has **no `Testing/` subfolder** — coverage lives at two levels:
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | engine smoke | [`dev_run.py`](../../src/portfolio_query/dev_run.py) | in-scope multi-turn + guardrail scenarios end-to-end (real Haiku call; needs `ANTHROPIC_API_KEY` + a commentary file) |
+  | intent gate | [`app/domains/ai_engine/tests/eval_gate/`](../../../app/domains/ai_engine/tests/eval_gate/) | that `pq/*` questions classify to `portfolio_query` (`golden_cases.py` intent cases) |
+  | logic-doc guard | [`answer_formatter/tests/test_logic_docs.py`](../../../app/domains/ai_engine/answer_formatter/tests/test_logic_docs.py) | asserts this module has **no** logic doc: `get_logic_reference("portfolio_query") is None` |
+
+  Run the intent gate with the mac venv: `.venv-mac/bin/python -m pytest app/domains/ai_engine/tests/eval_gate/`. The model's actual *wording* under the guardrail lives in that eval gate, not in unit tests.
+- **Run the engine without an API key** — inject a stub at the LLM-client boundary. `call_structured` is the entire seam:
+
+  ```python
+  class StubLLM:
+      total_input_tokens = total_output_tokens = 0
+      async def call_structured(self, model, system, user, *, tool, max_tokens=1024):
+          return {"guardrail_triggered": False, "answer": "..."}, {}   # any canned tool payload
+
+  orch = PortfolioQueryOrchestrator(StubLLM())
+  resp = await orch.run("what's my biggest holding?", my_client, my_portfolio, [])
+  ```
+
+  Hand-build a `ClientContext` + `PortfolioContext` (the `dev_run.py` fixtures are a ready template) and you can reproduce any answer quirk — prompt assembly and INR enrichment included — with no database and no Anthropic call. (Note `run` still needs `market_commentary_latest.md` on disk, since Step 1 reads it before the call.)
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
