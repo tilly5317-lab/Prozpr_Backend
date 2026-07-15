@@ -67,8 +67,26 @@ def derive_liabilities_excluding_mortgage(
 def derive_risk_willingness(risk: Optional[RiskProfile]) -> float:
     if risk is None:
         return 5.0
+    # An explicitly stored willingness (manual override; rarely set) wins.
     if risk.risk_willingness is not None:
         return float(risk.risk_willingness)
+    # Primary path: the 4-question questionnaire model. Preference comes from
+    # risk_level (onboarding); the three behavioural answers are the full option
+    # sentences stored on the risk profile. Unanswered/unrecognised inputs are
+    # ignored by the model. Lazy import — the ``risk_profiling`` package pulls in
+    # LangChain at import time (see calculation.py), which must not run at
+    # app startup.
+    from risk_profiling.willingness import compute_risk_willingness
+
+    modelled = compute_risk_willingness(
+        risk_level=risk.risk_level,
+        investment_experience=risk.investment_experience,
+        investment_focus=risk.investment_focus,
+        drop_reaction=risk.drop_reaction,
+    )["risk_willingness"]
+    if modelled is not None:
+        return float(modelled)
+    # Fallback: nothing answerable (no risk_level and no behavioural answers).
     mapped = risk_willingness_from_risk_level(risk.risk_level)
     if mapped is not None:
         return mapped
