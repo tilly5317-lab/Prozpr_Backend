@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mutual_fund_query — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">LLM-driven · Haiku</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `mutual_fund_query` — grounded answers about one specific fund
+
+> **One line:** when a customer asks about a *named* mutual fund — why we recommend it, what it returned, how it stacks up — this module answers using **only** numbers we can back up from our own stored data, and refuses to invent the rest.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the "no invented numbers" thesis), see [Logics_reference_docs/Mutual_Fund_Query.md](../Logics_reference_docs/Mutual_Fund_Query.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven<br/>(narrates, never computes)</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5</div></div>
+  <div class="cell"><div class="k">Trigger intent</div><div class="v"><code>mutual_fund_query</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>MutualFundQueryOrchestrator</code></div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">2 &middot; extract + narrate</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">numbers pre-computed<br/>wording probabilistic</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no &mdash; app layer does</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/mutual_fund_query/`](../../src/mutual_fund_query/). It handles its own **`mutual_fund_query`** chat intent (a sibling of `portfolio_query`) — a question aimed at a *specific fund by name*, e.g.:
+
+- *"Why do you recommend Parag Parikh Flexi Cap?"* → **reasoning**
+- *"What has HDFC Balanced Advantage returned?"* → **returns**
+- *"How does it compare to other flexi-caps?"* / *"Fund A vs Fund B?"* → **comparison**
+
+It is triggered by the intent classifier's `mutual_fund_query` label and routed by the chat brain's `FLOWS` table into the app-layer gateway `answer_mutual_fund_query` (see §2).
+
+The defining design decision: **the LLM never produces a number.** Every figure it can state is pre-computed by the app layer and handed to it as facts. The model's only job is to *narrate* those facts in Pi's voice under a strict guardrail. A confidently-wrong return figure is treated as a worse failure than an honest "we don't have that history yet".
+
+### The two-pass shape (why it's not one call)
+
+```mermaid
+flowchart LR
+    Q([Customer question<br/>+ history]) --> EX["<b>Pass 1 · extract</b><br/>Haiku forced-tool<br/>name fund(s) + classify ask"]
+    EX --> APP["<b>App layer</b><br/>resolve fund → DB returns<br/>+ ranking + peers"]
+    APP --> FACTS[("MutualFundQueryFacts<br/>the ONLY numbers allowed")]
+    FACTS --> NA["<b>Pass 2 · narrate</b><br/>Haiku forced-tool<br/>+ persona + guardrails"]
+    NA --> R([answer / clarifying_question])
+```
+
+The engine ([`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py)) owns passes 1 and 2 only. **Why two passes instead of one?** Because you can't fetch facts for a fund until the model has *named* it — pass 1 turns "the one you recommended" into an actual fund name; only then can the app layer look anything up; only then is there something safe to narrate. And the **middle step is deliberately outside the engine** — the engine is DB-agnostic and only ever sees DTOs, so it can be unit-tested without a database. All DB/CSV reads happen in the app layer.
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports no other agent, and only the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). Everything database-shaped is the app layer's job.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `mutual_fund_query` intent routes here |
+| **Gateway** | [`app/domains/mutual_funds/services/mutual_fund_query_service.py`](../../../app/domains/mutual_funds/services/mutual_fund_query_service.py) | `answer_mutual_fund_query(question, ctx)` — the ONLY caller of the engine |
+| **Fund identity** | `fund_resolver_service.resolve_fund` | customer's words → a real scheme (Direct-Growth by default; a **held** fund resolves to the customer's own plan) |
+| **Returns** | `fund_returns_service.trailing_cagr_for_scheme` | 1y/3y/5y CAGR from stored `mf_nav_history`, computed by the shared numeric kernel `financial_primitives.cagr`. **DB-only — never calls mfapi.in inline**, so thin stored history legitimately yields `null` |
+| **House view + peers** | `fund_ranking_lookup` (`ranking_by_isin`, `peers_by_sub_category`) | our shortlist rank + `selection_reason`, and like-for-like category peers, from the fund-ranking CSV |
+
+> **The engine touches no DB.** If you are looking for "where does the 3-year return come from", it is **not** in this module — it is `trailing_cagr_for_scheme` in the app layer. The engine only receives the finished number.
+
+### What `ctx` must carry
+
+The gateway signature is `answer_mutual_fund_query(question: str, ctx) -> str`. If you're wiring a new caller or debugging a dead turn, `ctx` (the chat brain's turn context) must provide:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `ctx.db` | `AsyncSession` | fund resolution + NAV reads; `None` ⇒ instant generic-failure reply |
+| `ctx.conversation_history` | `list[{role, content}]` | pronoun resolution in the extract pass ("the one you recommended") |
+| `ctx.user_ctx` | pre-loaded `User` graph (portfolios → holdings → `fund_metadata`) | the held-fund map, so a fund the customer holds resolves to *their* plan |
+
+---
+
+## 3. Input contract
+
+Two entry methods on `MutualFundQueryOrchestrator`, each with its own input.
+
+**`extract(question, conversation_history)`** — pass 1:
+
+| Field | Type | Notes |
+|---|---|---|
+| `question` | `str` | the customer's latest message |
+| `conversation_history` | `list[ConversationTurn]` | prior turns, so pronouns ("it", "the one you recommended") resolve to a real fund name |
+
+**`narrate(facts, question, conversation_history)`** — pass 2. The load-bearing input is `facts: MutualFundQueryFacts` (built by the app layer):
+
+```
+MutualFundQueryFacts
+├── funds: list[FundFacts]          # the explicitly-named fund(s)
+│     ├── fund_name, sub_category
+│     ├── returns: FundReturns?     # return_{1y,3y,5y}_cagr_pct — any may be null
+│     ├── house_reason: str?        # our selection_reason (only if has_house_view)
+│     ├── shortlist_rank: int?      # house rank — NOT a category percentile
+│     └── has_house_view: bool
+└── peers: list[PeerFund]           # like-for-like category peers (3y CAGR + rank)
+                                    # populated ONLY for a single-fund comparison;
+                                    # empty when 2+ funds were named
+```
+
+All models are in [`models.py`](../../src/mutual_fund_query/models.py). The invariant that makes the guardrail work: **`funds[].returns` fields are the only numbers the narration is permitted to state.** A `null` horizon is a contract signal ("no history"), not a missing value to fill.
+
+---
+
+## 4. Output contract
+
+**Pass 1** returns `ExtractResult`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `fund_names` | `list[str]` | resolved fund name(s); empty list = none identified |
+| `asked_for` | `"reasoning" \| "returns" \| "comparison"` | drives which facts the app layer builds |
+
+**Pass 2** returns `MutualFundQueryResponse`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `answer` | `str` | the reply, grounded only in the facts |
+| `clarifying_question` | `str?` | set instead of answering when the fund is ambiguous/unidentified; else `null` |
+
+The gateway `answer_mutual_fund_query` collapses these into a single customer-facing `str` for the chat brain.
+
+---
+
+## 5. How it thinks
+
+The whole engine is [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) — ~180 lines, no pipeline of steps, just two forced-tool calls around an app-built facts pack.
+
+### Pass 1 — `extract`
+
+1. Fill the **Extract User** prompt with the conversation history + question.
+2. One Haiku call, forced to call `return_extract_result` (the `_EXTRACT_TOOL` schema). `tool_choice` pins the model to that tool, so the response is always a single structured `tool_use` block — no JSON parsing on our side.
+3. Validate into `ExtractResult`. The prompt tells the model to resolve pronouns and, when in doubt between `returns` and `comparison`, prefer `comparison` if it sees "vs / compare / peers" or two fund names.
+
+### (App layer builds the facts — not in this module)
+
+`build_mutual_fund_query_facts` resolves each named fund, pulls trailing CAGR, looks up the house rank/reason, and — for a **single**-fund comparison — appends category peers. Two+ named funds ⇒ the named funds *are* the comparison set, so `peers` stays empty.
+
+### Pass 2 — `narrate`
+
+1. Fill the **Narrate User** prompt with `facts_json` (compact `model_dump(exclude_none=True)`), history, and question.
+2. Wrap the **Narrate System** prompt with `build_system_prompt(..., format_profile="chat", question_aware=True)` so Pi's voice + the shared persona rules are prepended to the module's own guardrails.
+3. One Haiku call, forced to call `return_mutual_fund_query_response`. Validate into `MutualFundQueryResponse`.
+
+### Prompt plumbing
+
+All four prompt bodies live in **one** markdown file, [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md), with YAML front-matter (`model`, `extract_max_tokens`, `narrate_max_tokens`). The orchestrator splits it on `---`, then carves four `## ` sections by name:
+
+| Section | Used by | Contains |
+|---|---|---|
+| `Extract System` | pass 1 system | the routing-helper instructions |
+| `Extract User` | pass 1 user | `{{conversation_history}}`, `{{question}}` |
+| `Narrate System` | pass 2 system | narration rules **+ the embedded guardrails** |
+| `Narrate User` | pass 2 user | `{{facts_json}}`, `{{conversation_history}}`, `{{question}}` |
+
+`{{name}}` double-brace placeholders are filled by `_fill`; single-brace JSON (the tool schemas printed in-prompt) is left untouched. Editing product wording means editing this `.md` — no code change.
+
+### A turn, end to end (worked example)
+
+A customer asks about a fund we recommend. Watch a number *only ever get copied*, never invented.
+
+<div class="chat">
+  <div class="bubble user"><div class="who">Customer</div>How has Parag Parikh Flexi Cap done over the last few years?</div>
+</div>
+
+<div class="step-panel">
+  <div class="label">Pass 1 · extract → ExtractResult</div>
+<pre><code>{ "fund_names": ["Parag Parikh Flexi Cap Fund"], "asked_for": "returns" }</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">App layer · build_mutual_fund_query_facts → MutualFundQueryFacts</div>
+<pre><code>{
+  "funds": [{
+    "fund_name": "Parag Parikh Flexi Cap Fund",
+    "sub_category": "Flexi Cap Fund",
+    "returns": { "return_1y_cagr_pct": 24.6,
+                 "return_3y_cagr_pct": 19.1,
+                 "return_5y_cagr_pct": 22.3 },
+    "house_reason": "Consistent across-cycle performer with a valuation-conscious, benchmark-agnostic mandate.",
+    "shortlist_rank": 1,
+    "has_house_view": true
+  }],
+  "peers": []   // empty: asked_for is "returns", not "comparison"
+}</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="chat">
+  <div class="bubble pi"><div class="who">Pi (Pass 2 · narrate)</div>Parag Parikh Flexi Cap is our top-ranked flexi-cap pick. On an annualised (CAGR) basis it's returned about <strong>24.6%</strong> over 1 year, <strong>19.1%</strong> over 3 years, and <strong>22.3%</strong> over 5 years — all from our stored NAV history. We like it for its consistent across-cycle performance and valuation-conscious, benchmark-agnostic mandate.</div>
+</div>
+
+Every figure in the reply appears verbatim in the facts. "Top-ranked pick" is `shortlist_rank: 1` framed as a *house view* (not "1 of 24"). The rationale is `house_reason` in spirit. Nothing was computed. *(Values above are illustrative, not real CSV/NAV rows — don't grep for them.)*
+
+### What the customer hears in the edge cases
+
+Not every turn reaches the narrate pass — most clarification is decided earlier, in the **app-layer gateway** (`answer_mutual_fund_query`), before facts are ever built:
+
+| Situation | Decided in | What the customer hears |
+|---|---|---|
+| No fund identified | gateway (after extract) | *"Which fund would you like to know about?"* |
+| Ambiguous name (Regular vs Direct, two candidates) | gateway `Ambiguous` branch | *"Just to be sure — did you mean X or Y?"* |
+| Fund not in our data | gateway (nothing resolves) | *"I couldn't find that fund in our data — could you double-check the name?"* |
+| A return horizon is `null` | **narrate pass** (guardrail) | *"…we don't have a 5-year track record for this fund yet"* — never an estimate |
+| Fund is off our shortlist (`has_house_view: false`) | **narrate pass** | returns if we have them, plus *"it isn't one we actively recommend"* — no invented rationale |
+| Any LLM/DB failure | gateway `try/except` | a generic *"try again in a moment"* — never a stack trace |
+
+So the engine's own `clarifying_question` is really the *last* rung — the gateway's canned replies handle the common ambiguity cases before narration runs.
+
+---
+
+## 6. Where the LLM is
+
+**Both passes are LLM calls, both Haiku, both forced-tool-use** — but neither does arithmetic.
+
+| Pass | Model | Determinism |
+|---|---|---|
+| extract | `claude-haiku-4-5` | probabilistic routing — which fund, which ask-type |
+| narrate | `claude-haiku-4-5` | probabilistic *wording* over deterministic *numbers* |
+
+The LLM client is [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type": "tool", "name": ...}`, marks the system prompt with `cache_control: ephemeral` (Anthropic prompt caching), and returns `(tool_input, usage)`. `MODEL_MAP` resolves the `"haiku"` alias to the pinned model id.
+
+<div class="callout danger">
+  <div class="title">⚠ The failure mode this module designs against</div>
+  <p>Haiku will happily <strong>invent</strong> a plausible-looking return or category rank if given the chance. The defence isn't a smarter prompt — it's that <strong>there is nothing to compute</strong>. Every number is pre-built into the facts (§3); the guardrail (§8) forbids stating any figure that isn't there. The model's only job is to copy. Widen the facts and you widen what it can say — so only add fields you can source.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) | `MutualFundQueryOrchestrator` — the two passes, prompt splitting/filling, the two tool schemas (`_EXTRACT_TOOL`, `_NARRATE_TOOL`) |
+| [`models.py`](../../src/mutual_fund_query/models.py) | pydantic I/O: `ConversationTurn`, `ExtractResult`, `FundReturns`, `FundFacts`, `PeerFund`, `MutualFundQueryFacts`, `MutualFundQueryResponse` |
+| [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting |
+| [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) | all prompt content (4 sections) + front-matter config; **runtime source, not docs** |
+| [`__init__.py`](../../src/mutual_fund_query/__init__.py) | re-exports the models (the app-layer contract surface) |
+| [`Testing/`](../../src/mutual_fund_query/Testing/) | engine plumbing tests (`test_models.py`, `test_orchestrator.py`) — the LLM is stubbed at the client boundary; they assert on prompt assembly + DTO parsing, never on model wording |
+
+App-layer companions (not part of the engine, but where the facts come from):
+
+| File | Role |
+|---|---|
+| [`mutual_fund_query_service.py`](../../../app/domains/mutual_funds/services/mutual_fund_query_service.py) | the gateway + `build_mutual_fund_query_facts` |
+| `fund_ranking_lookup.py` | `ranking_by_isin`, `peers_by_sub_category` over the ranking CSV |
+| `fund_returns_service.py` | `trailing_cagr_for_scheme` — CAGR from `mf_nav_history` |
+| `fund_resolver_service.py` | `resolve_fund` — name → scheme, with `Ambiguous` handling |
+
+---
+
+## 8. Invariants & landmines
+
+- **The engine must never state a number that isn't in `facts`.** This is enforced by prompt, not code — the guardrail block in `mutual_fund_query.md`'s *Narrate System*. If you widen `MutualFundQueryFacts`, keep it to values you can source; a field the model *can* see, it *will* state.
+- **`shortlist_rank` is a house view, not a percentile.** Never let wording drift into "ranks 3 of 24". The guardrail forbids it; a prompt edit that loosens this is a correctness bug, not a style change.
+- **`null` return = "no history", never an estimate.** Thin `mf_nav_history` legitimately yields `null` 5y CAGR. The narration says so plainly. (See the memory note on NAV-coverage gaps — many recommended funds have thin stored history.)
+- **`has_house_view == false` ⇒ don't invent a rationale.** For funds off our shortlist, give returns if we have them, state plainly it isn't one we recommend, and stop.
+- **Peers only for a single named fund.** 2+ named funds ⇒ `peers` empty and the named funds are the comparison set. Don't repopulate `peers` in that branch.
+- **Held funds resolve to the customer's own plan**, not the default Direct-Growth, so a "return" matches what they actually hold.
+- **Prompt file is BOM-aware and split on `---`.** It contains `₹`/em-dashes and inline JSON tool schemas. `read_text_bom_aware` + the single-brace-safe `_fill` exist for this reason — don't switch to a naive `str.format` (it would choke on the JSON braces).
+- **Failure is soft.** The gateway catches errors (incl. `AnthropicAuthenticationError`) and returns a generic "try again in a moment" reply — a fund lookup problem never surfaces a stack trace to the customer.
+
+---
+
+## 9. Extend & test
+
+- **Change wording / guardrails** → edit [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) only, then run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging — the golden cases include mutual-fund-query turns. Because the Logics thesis grounds customer answers, bump [Logics_reference_docs/Mutual_Fund_Query.md](../Logics_reference_docs/Mutual_Fund_Query.md) when the *approach* changes (per the repo's "Logics docs track the engines" rule).
+- **Add a fact the narration may state** → add the field to `MutualFundQueryFacts`/`FundFacts` in [`models.py`](../../src/mutual_fund_query/models.py), populate it in `build_mutual_fund_query_facts`, and describe it in the Narrate System "What the facts contain" list so the model knows it exists.
+- **Tests** live at three levels:
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | engine plumbing | [`Testing/test_orchestrator.py`](../../src/mutual_fund_query/Testing/test_orchestrator.py), `test_models.py` | prompt assembly + DTO parsing, LLM stubbed |
+  | facts builder | `app/domains/mutual_funds/tests/test_build_mutual_fund_query_facts.py` | house-view vs off-shortlist, peers-only-for-single-fund |
+  | gateway e2e | `app/domains/mutual_funds/tests/test_mutual_fund_query_gateway.py` | the clarify ladder + failure branches |
+
+  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/mutual_fund_query/Testing/ app/domains/mutual_funds/tests/`. What none of these cover — the model's actual *wording* under the guardrail — lives in the chat eval gate, not unit tests.
+- **Run the engine without an API key** — the pattern the module's own tests use: inject a stub at the LLM-client boundary. `call_structured` is the entire seam:
+
+  ```python
+  class StubLLM:
+      async def call_structured(self, model, system, user, *, tool, max_tokens=1024):
+          return {"answer": "..."}, {}          # any canned tool payload
+
+  orch = MutualFundQueryOrchestrator(StubLLM())
+  resp = await orch.narrate(my_handmade_facts, "why this fund?", [])
+  ```
+
+  Hand-build a `MutualFundQueryFacts` and you can reproduce any narration quirk — prompt text included — with no database and no Anthropic call.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

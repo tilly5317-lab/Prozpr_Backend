@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 
+from .conftest import practical_output_stub
+
 
 def _make_minimal_response(*, with_warnings=False, tax_zero=True, with_actions=False):
     """Build a small valid RebalancingComputeResponse for assertion-level tests."""
@@ -184,6 +186,7 @@ def _make_minimal_response(*, with_warnings=False, tax_zero=True, with_actions=F
         metadata=metadata,
         trade_list=[],
         warnings=warnings,
+        practical_allocation=practical_output_stub(),
     )
 
 

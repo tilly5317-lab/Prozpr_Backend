@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>additional_investment — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Deterministic engine</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `additional_investment` — deploy fresh money into specific funds, buy-only
+
+> **One line:** given a rupee amount and a cadence (one-time **lumpsum** or monthly **SIP**), this engine splits the money across allocation subgroups and picks the exact funds to **BUY** — lumpsum fills the gaps between your post-investment ideal and what you actually hold; SIP follows the ideal mix into the funds your latest rebalancing plan is already buying. It never sells.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the "fill the gap, don't chase last quarter's winner" thesis), see [Logics_reference_docs/Additional_Investment.md](../Logics_reference_docs/Additional_Investment.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(pure Python, no I/O)</div></div>
+  <div class="cell"><div class="k">Model(s)</div><div class="v">none &mdash; calls no LLM</div></div>
+  <div class="cell"><div class="k">Trigger / caller</div><div class="v"><code>additional_investment</code> intent → app gateway</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_additional_investment()</code></div></div>
+  <div class="cell"><div class="k">Shape</div><div class="v">split → select → reconcile</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">fully deterministic<br/>(same input → same buys)</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no &mdash; app adapter does</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/additional_investment/`](../../src/additional_investment/). It answers exactly one question: *"I have ₹X of fresh money — which funds do I buy, and how much into each?"* It is the third member of the allocation family, and its job is deliberately narrow:
+
+- [`asset_allocation_pydantic`](../../src/asset_allocation_pydantic/) decides the **ideal target mix**.
+- [`practical_asset_allocation`](../../src/practical_asset_allocation/) makes that mix **holdings-aware**.
+- [`Rebalancing`](../../src/Rebalancing/) moves **existing** money (buys *and* sells, tax-aware).
+- **`additional_investment` adds *new* money only — BUY-only, no sells, no tax-lot math.**
+
+The defining design decision: **the engine is pure and holding-agnostic in its recommendations.** Every fund it buys comes from the ranked-fund list handed in; the customer's holdings shape only *how much* goes where (the deficit split), never *which* fund. There is no LLM, no database, no network — the same `AdditionalInvestmentInput` always produces the same buys.
+
+Two split modes decide the per-subgroup amounts; the cadence then decides the fund selector:
+
+```mermaid
+flowchart TD
+    IN([AdditionalInvestmentInput<br/>amount + cadence + subgroups<br/>+ ranked funds]) --> SW{cadence == LUMPSUM<br/>AND current_value_<br/>by_subgroup set?}
+    SW -->|yes| DEF["<b>Deficit split</b><br/>compute_deficit_targets<br/>fill max(0, ideal − current)"]
+    SW -->|no| LEG["<b>Legacy bucket split</b><br/>compute_targets<br/>weight by nearest unfunded horizon"]
+    DEF --> BUCKET["dominant_bucket()<br/>→ truthful horizon label"]
+    LEG --> BUCKET2["select_target_bucket<br/>→ split-driving horizon"]
+    BUCKET --> CAD{cadence?}
+    BUCKET2 --> CAD
+    CAD -->|LUMPSUM| SEL["<b>select_funds</b><br/>rank-1 first, spill down,<br/>per-fund cap"]
+    CAD -->|SIP_MONTHLY| SIP["<b>select_funds_sip</b><br/>mirror rebal BUY ISINs,<br/>rank-walk fallback"]
+    SEL --> REC["_reconcile_rounding_dust<br/>(lumpsum only)"]
+    SIP --> OUT([AdditionalInvestmentOutput<br/>buys + per-subgroup targets<br/>+ deployed / undeployed])
+    REC --> OUT
+```
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports **no other agent**. Its `AdditionalInvestmentInput` is the entire contract — the app-layer adapter lifts that data from `practical_asset_allocation` (subgroup rows), `cashflow_statement` (goal-funding flags), the fund-ranking CSV, and `Rebalancing` (`tables.py` cap percentages via `cap_pct_for` + `config.py` cap floors). None of those is an import into this package; the caller wires them in.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `additional_investment` intent maps to a **single-step** flow (`flow_additional_investment` = [additional_investment]); there is no prior module |
+| **Gateway** | [`additional_investment_module_service.run`](../../../app/domains/additional_investment/services/additional_investment_module_service.py) | the ONLY caller path into the engine; lazily imports `chat.py` to land its `@register` side-effect, then `dispatch_chat("additional_investment", ctx)` |
+| **Chat handler** | [`ainv_engine/chat.py`](../../../app/domains/additional_investment/services/ainv_engine/chat.py) | parses amount + cadence + category, runs the compute orchestrator, formats the BUY list through the shared question-aware formatter |
+| **Compute** | [`ainv_engine/service.py`](../../../app/domains/additional_investment/services/ainv_engine/service.py) | self-primes practical allocation (pinned to holdings + fresh money for lumpsum), builds the input, calls `run_additional_investment`, persists the run |
+| **Input build** | [`ainv_engine/input_builder.py`](../../../app/domains/additional_investment/services/ainv_engine/input_builder.py) | materialises `AdditionalInvestmentInput` — the caller-wired contract |
+
+> **The engine touches no DB and no CSV.** If you are looking for "where does the ranked-fund list come from" or "where does the holdings map come from", it is **not** in this module — it is the app-layer adapter. The engine only receives finished DTOs.
+
+### What `ctx` (and the input) must carry
+
+The engine's own input is a plain pydantic object, but the app gateway is chat-triggered, so the turn context feeding the adapter must provide:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `ctx.user_question` | `str` | the deploy-amount + cadence + category extraction (Haiku, in the app layer — not the engine) |
+| `ctx.conversation_history` | `list[{role, content}]` | so a category-only follow-up ("smallcap funds only") can reuse an amount stated earlier |
+| `ctx.user_ctx` | pre-loaded `User` graph | holdings snapshot (lumpsum deficit map) + goal-funding flags via the cashflow projection |
+| `ctx.db` | `AsyncSession` | practical-allocation persist, holdings snapshot, latest-rebalancing-run read (SIP mirror) |
+
+---
+
+## 3. Input contract
+
+`AdditionalInvestmentInput` in [`models.py`](../../src/additional_investment/models.py). The load-bearing fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `deploy_amount_inr` | `float` (`gt=0`) | rupees to deploy; for SIP this is the **per-month** amount |
+| `cadence` | `Cadence` | `LUMPSUM` or `SIP_MONTHLY` — selects the fund selector, never the split ratio |
+| `subgroups` | `list[SubgroupBucketAmounts]` | per-subgroup bucket amounts, lifted verbatim from the practical allocation (`AggregatedSubgroupRow`) |
+| `current_value_by_subgroup` | `dict[str, float]?` | current holdings per canonical subgroup. **Set + `LUMPSUM` ⇒ deficit-fill.** `None` (default) ⇒ legacy path, exactly preserving old behaviour |
+| `short_term_fulfilled` / `medium_term_fulfilled` | `bool` | goal-funding flags — drive the **legacy** path only (the deficit path ignores them; the ideal already encodes goal priority) |
+| `ranked_funds` | `list[RankedFund]` | the ONLY source of buys; rank 1 = most preferred, per subgroup |
+| `cap_pct_by_subgroup` / `default_cap_pct` | `dict` / `float` | per-fund concentration cap as a **percent of the deploy amount** (`default_cap_pct` defaults to `10.0`) |
+| `exclude_subgroups` | `set[str]` | ineligible subgroups get zero weight/deficit; their share renormalises onto the rest |
+| `rebal_buy_isins_by_subgroup` | `dict[str, list[str]]?` | **SIP-only:** the latest persisted rebalancing run's BUY ISINs per subgroup, BUY-amount desc. Ignored on lumpsum |
+| `sip_fund_cap_floor_inr` / `lumpsum_fund_cap_floor_inr` | `float` | per-fund rupee floor: the cap becomes `max(cap_pct × deploy, floor)`. `0` (engine default) disables it; the caller sources `₹10k` / `₹40k` from `Rebalancing/config` |
+
+> **Money is `float`, not `Decimal`.** This engine follows the allocation family (`asset_allocation_pydantic` / `practical_asset_allocation`), not Rebalancing's `Decimal` — there is no tax-lot arithmetic, and buys round to the nearest ₹100, so float precision is bounded. Do not "upgrade" it to `Decimal`.
+
+---
+
+## 4. Output contract
+
+`AdditionalInvestmentOutput` in [`models.py`](../../src/additional_investment/models.py):
+
+| Field | Type | Notes |
+|---|---|---|
+| `target_bucket` | `TargetBucket` | `short_term` / `medium_term` / `long_term`. In **deficit** mode this is a truthful *label* — the dominant horizon of the deployed money — **not** the split driver |
+| `cadence` | `Cadence` | echoed from the input |
+| `deploy_amount_inr` | `float` | the requested amount (per-month for SIP) |
+| `deployed_inr` | `float` | sum of buy amounts actually placed |
+| `undeployed_inr` | `float` | `deploy − deployed`, clamped `≥ 0`. **Non-zero when caps or fund scarcity bind** — a real signal the caller surfaces, never silently dropped |
+| `per_subgroup_target` | `list[SubgroupTarget]` | each subgroup's renormalised `ratio` and `target_inr` (identity: `target_inr = ratio × deploy` in *both* modes) |
+| `buys` | `list[FundBuy]` | the substance: `recommended_fund`, `isin`, `sub_category`, `asset_subgroup`, `amount_inr`, `monthly_amount_inr?` (set for SIP), and a `reason` string |
+
+The `reason` on each `FundBuy` is one of three deterministic strings, so downstream code can tell *why* a fund was chosen: `"Recommended fund for this category"` (lumpsum), `"Matches your rebalancing plan"` (SIP mirror stage), `"Top-ranked fund for this category"` (SIP rank-walk stage).
+
+---
+
+## 5. How it thinks
+
+The whole engine is three small pure modules orchestrated by [`pipeline.py`](../../src/additional_investment/pipeline.py). One split, one selection, one dust reconcile:
+
+| Step | File · symbol | What it does |
+|---|---|---|
+| **1 · Mode switch** | [`pipeline.py`](../../src/additional_investment/pipeline.py) `run_additional_investment` | `LUMPSUM` + `current_value_by_subgroup` set ⇒ deficit-fill; else legacy bucket targeting |
+| **2a · Deficit split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_deficit_targets` | `deficit_i = max(0, ideal_i − current_i)` over eligible subgroups; split the deploy proportionally to positive deficits. All at/above ideal ⇒ fall back to the ideal ratios |
+| **2b · Legacy split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_targets` + `select_target_bucket` | pick the nearest unfunded horizon (short → medium → long, long is the fallback); weight subgroups by that bucket's column. Emergency is never a target |
+| **3 · Horizon label** | [`ratio.py`](../../src/additional_investment/ratio.py) `dominant_bucket` | deficit mode only: apportion each target's rupees to short/medium/long by its subgroup composition; the biggest wins (long-term breaks ties) |
+| **4a · Lumpsum select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds` | per subgroup, rank-1 first, spill down; each buy `≤ max(cap_pct × deploy, cap_floor)`, rounded to nearest ₹100 |
+| **4b · SIP select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds_sip` | **Stage 1** equal-split across the rebalancing BUY ISINs that exist in *this* subgroup's ranking; **Stage 2** walk the ranking with any remainder. Same per-fund cap |
+| **5 · Dust reconcile** | [`pipeline.py`](../../src/additional_investment/pipeline.py) `_reconcile_rounding_dust` | lumpsum only: push the sub-₹100-per-subgroup rounding residual into the largest buy so the lumpsum deploys to the exact requested amount. A larger gap stays in `undeployed_inr` |
+
+### A lumpsum deploy, end to end (worked example)
+
+A customer deploys a one-time lumpsum. Watch the money split by *gap*, then land in named funds. *(All figures below are **illustrative** — not real ranking/holdings rows; don't grep for them.)*
+
+<div class="step-panel">
+  <div class="label">Input · ₹2,00,000 lumpsum, holdings map present → deficit mode</div>
+<pre><code>deploy_amount_inr : 200000        cadence: LUMPSUM
+subgroups (ideal "total")  |  current_value_by_subgroup
+  low_beta_equities   6,00,000  |  5,40,000
+  high_beta_equities  4,00,000  |  2,80,000
+  debt                5,00,000  |  4,80,000</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 2a · compute_deficit_targets → per_subgroup_target</div>
+<pre><code>deficit_i = max(0, ideal − current)
+  low_beta_equities   60,000
+  high_beta_equities 1,20,000
+  debt                20,000     total_deficit = 2,00,000
+
+ratio_i = deficit_i / total_deficit ;  target = ratio × 200000
+  low_beta_equities   0.30 → ₹60,000
+  high_beta_equities  0.60 → ₹1,20,000
+  debt                0.10 → ₹20,000</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 4a · select_funds → buys  (per-fund cap ≈ ₹80,000, illustrative)</div>
+<pre><code>high_beta_equities  ₹1,20,000 → Fund A ₹80,000 (cap) + Fund B ₹40,000
+low_beta_equities     ₹60,000 → Fund C ₹60,000
+debt                  ₹20,000 → Fund D ₹20,000
+
+deployed_inr = 2,00,000   undeployed_inr = 0
+target_bucket = long_term   (dominant_bucket label)</code></pre>
+</div>
+
+Every buy is a rank-ordered fund from `ranked_funds`; nothing was invented. The biggest *gap* (high-beta, ₹1.2L below ideal) drew the most money, and the per-fund cap forced it across two funds instead of one. The horizon label is derived *after* the split, purely for the customer-facing narrative.
+
+### The SIP path differs only in the selector
+
+SIP applies the **same** subgroup split (legacy bucket targeting on the profile corpus), then `select_funds_sip` mirrors the latest rebalancing run: it equal-splits each subgroup's target across the rebalancing BUY ISINs that also appear in that subgroup's ranking (`reason = "Matches your rebalancing plan"`), and walks the ranking for any remainder or when there are no matches (`reason = "Top-ranked fund for this category"`). A stale or wrong-subgroup ISIN simply drops out. The cadence switches the selector and the `monthly_amount_inr` framing — **never the ratio**.
+
+---
+
+## 6. Where the LLM is
+
+**Nowhere in the engine.** `run_additional_investment` and everything under it (`ratio.py`, `selection.py`, `pipeline.py`, `models.py`) is pure Python — no `ChatAnthropic`, no `anthropic`, no network, no randomness. Given the same `AdditionalInvestmentInput`, it emits byte-identical buys every time. That reproducibility is the point: a fund recommendation with real money on it must be explainable and repeatable, not sampled.
+
+The LLM lives strictly **outside** this package, in the app-layer gateway:
+
+| Where | Model | Job |
+|---|---|---|
+| `chat.py` `extract_deploy_request` | Claude Haiku | pull `amount + cadence + focus_category` from the free-text question (deterministic regex `parse_deploy_request` is the fallback) |
+| shared answer formatter | Claude Haiku | narrate the engine's finished BUY list in Pi's voice — wording only, over numbers the engine already computed |
+
+<div class="callout">
+  <div class="title">The boundary that keeps buys reproducible</div>
+  <p>The model chooses <strong>how much</strong> and <strong>in what words</strong> — never <strong>which fund gets how many rupees</strong>. Amounts, splits, and fund picks are all decided by this deterministic engine before any narration runs. Keep it that way: if you ever find yourself asking an LLM to pick or size a buy, that logic belongs in <code>ratio.py</code> / <code>selection.py</code>, not a prompt.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`pipeline.py`](../../src/additional_investment/pipeline.py) | entry `run_additional_investment` — split-mode switch, SIP cadence framing, dust reconcile, output assembly |
+| [`ratio.py`](../../src/additional_investment/ratio.py) | the two subgroup splits: `compute_deficit_targets` / `dominant_bucket` (deficit), `compute_targets` / `select_target_bucket` (legacy) |
+| [`selection.py`](../../src/additional_investment/selection.py) | BUY-only fund selection: `select_funds` (lumpsum) and `select_funds_sip` (SIP), plus `_cap_amount` and nearest-₹100 `_round_to_multiple` |
+| [`models.py`](../../src/additional_investment/models.py) | pydantic I/O: `AdditionalInvestmentInput`/`Output`, `SubgroupBucketAmounts`, `RankedFund`, `SubgroupTarget`, `FundBuy`, `Cadence`, `TargetBucket` |
+| [`__init__.py`](../../src/additional_investment/__init__.py) | public re-exports (entry + I/O models) — the app-layer contract surface |
+| [`CLAUDE.md`](../../src/additional_investment/CLAUDE.md) | the context-layer note for this engine (invariants, gotchas) |
+| [`Testing/`](../../src/additional_investment/Testing/) | the pytest suite (gitignored): `test_ratio.py`, `test_selection.py`, `test_selection_sip.py`, `test_pipeline.py`, `test_models.py` |
+
+App-layer companions (not part of the engine, but where its input is built and output narrated):
+
+| File | Role |
+|---|---|
+| [`additional_investment_module_service.py`](../../../app/domains/additional_investment/services/additional_investment_module_service.py) | the one gateway `run(turn, ctx, prior)` |
+| [`ainv_engine/service.py`](../../../app/domains/additional_investment/services/ainv_engine/service.py) | compute orchestration + persistence (`AINV_ENGINE_VERSION`) |
+| [`ainv_engine/input_builder.py`](../../../app/domains/additional_investment/services/ainv_engine/input_builder.py) | builds `AdditionalInvestmentInput`; owns `_EXCLUDE_SUBGROUPS` and the `deficit_mode` switch |
+| [`ainv_engine/chat.py`](../../../app/domains/additional_investment/services/ainv_engine/chat.py) | chat handler: Haiku extractor + the formatter body prompts |
+
+---
+
+## 8. Invariants & landmines
+
+- **Pure engine — keep it that way.** No LLM, no DB, no file/network I/O, no `import` of a peer agent. Cap percentages *and* floors are passed **in** (`models.py`); the caller sources the percentages from `Rebalancing/tables.py` (`cap_pct_for`, with the `OTHERS_FUND_CAP_PCT` default from `config.py`) and the floors from `Rebalancing/config`. One source of truth, and the engine stays unit-testable without a fixture.
+- **Two split modes, one switch** ([`pipeline.py`](../../src/additional_investment/pipeline.py) `run_additional_investment`). `LUMPSUM` **and** `current_value_by_subgroup is not None` ⇒ deficit-fill; everything else ⇒ legacy bucket targeting. `None` holdings preserves legacy behaviour *exactly* — don't change that default's meaning.
+- **Deficit-fill iterates the IDEAL rows, not holdings** ([`ratio.py`](../../src/additional_investment/ratio.py) `compute_deficit_targets`). Look up current with `current_by_subgroup.get(sg, 0.0)` — never the reverse. A held subgroup with no ideal row gets no buy and no error (it's overweight by construction). All-at/above-ideal ⇒ fall back to ideal ratios, never deploy nothing.
+- **`target_bucket` is a *label* in deficit mode, not the split driver.** The split is by gap; `dominant_bucket` only names the horizon that received the most money (long-term breaks ties). Don't wire it back into the split.
+- **Per-fund cap keys off the DEPLOY amount, not the corpus** ([`selection.py`](../../src/additional_investment/selection.py) `_cap_amount`). Both cadences: `cap = max(cap_pct × deploy, floor)`. Engine floor default is `0` (percentage-only); the caller injects ₹10k (SIP) / ₹40k (lumpsum) so a small deployment never fragments down the ranking. Deliberate divergence from Rebalancing.
+- **`exclude_subgroups` get zero weight/deficit and the share renormalises** ([`ratio.py`](../../src/additional_investment/ratio.py)). Caller policy excludes `non_mf_equities` (direct stocks, no funds) and `tax_efficient_equities` (ELSS lock-in). They are handed to the engine, **not** hand-dropped from the subgroup list.
+- **Under-deployment is a signal, not a bug.** Caps or fund scarcity leave a gap in `undeployed_inr`; `_reconcile_rounding_dust` only absorbs the sub-₹100-per-subgroup rounding residual, never a genuine cap/scarcity shortfall — the caller relies on that distinction.
+- **SIP equal-split can slightly overshoot the monthly amount** ([`selection.py`](../../src/additional_investment/selection.py) `select_funds_sip`). Each mirror share rounds independently, so the total can edge over the target. **Accepted, characterization-tested** — do not "fix" it.
+- **Money is `float`.** Follows the allocation family, not Rebalancing's `Decimal`. No tax-lot math here; buys round to the nearest ₹100 (`_round_to_multiple`, halves up), so precision is bounded.
+
+---
+
+## 9. Extend & test
+
+- **Tests live in [`Testing/`](../../src/additional_investment/Testing/)** (gitignored pytest suite), one file per unit:
+
+  | File | Covers |
+  |---|---|
+  | [`test_ratio.py`](../../src/additional_investment/Testing/test_ratio.py) | both splits: deficit proportions + fallback, legacy bucket weighting, exclude-renormalise, `dominant_bucket` |
+  | [`test_selection.py`](../../src/additional_investment/Testing/test_selection.py) | lumpsum caps, rank-spill, nearest-₹100 rounding, cap floor |
+  | [`test_selection_sip.py`](../../src/additional_investment/Testing/test_selection_sip.py) | SIP mirror stage, rank-walk fallback, dust consolidation, the accepted overshoot |
+  | [`test_pipeline.py`](../../src/additional_investment/Testing/test_pipeline.py) | end-to-end mode switch, dust reconcile, `undeployed_inr` accounting |
+  | [`test_models.py`](../../src/additional_investment/Testing/test_models.py) | pydantic contract (constraints, defaults) |
+
+  Run with the mac venv (system py3.9 is too old): `.venv-mac/bin/python -m pytest AI_Agents/src/additional_investment/Testing/`.
+
+- **Run one step in isolation — no fixture, no key.** Because the engine is pure, every function takes plain pydantic/dict inputs and returns pydantic/values. Reproduce any behaviour with hand-built objects:
+
+  ```python
+  from additional_investment.models import SubgroupBucketAmounts
+  from additional_investment.ratio import compute_deficit_targets
+
+  rows = [SubgroupBucketAmounts(subgroup="high_beta_equities", total=400000)]
+  targets = compute_deficit_targets(
+      rows, {"high_beta_equities": 280000}, deploy_amount=200000
+  )
+  # → SubgroupTarget(subgroup="high_beta_equities", ratio=1.0, target_inr=200000.0)
+  ```
+
+  Feed a handmade `AdditionalInvestmentInput` straight into `run_additional_investment` for a full-pipeline check — no database, no Anthropic call.
+
+- **Change split or selection logic** → edit `ratio.py` / `selection.py`, keep the `target_inr = ratio × deploy` identity, and update the matching characterization test. Because the [Logics thesis](../Logics_reference_docs/Additional_Investment.md) grounds customer answers, bump it when the *approach* changes (per the repo's "Logics docs track the engines" rule).
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

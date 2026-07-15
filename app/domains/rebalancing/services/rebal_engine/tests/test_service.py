@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from .conftest import practical_output_stub
+
 from app.domains.ai_engine.common import ensure_ai_agents_path
 
 ensure_ai_agents_path()
@@ -69,6 +71,7 @@ def _build_min_response():
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=practical_output_stub(),
     )
 
 
@@ -137,6 +140,7 @@ def _build_response_with_subgroup(holding_inr: float):
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=practical_output_stub(),
     )
 
 
@@ -298,6 +302,7 @@ def _build_response_with_funds(funds: list):
             request_id=uuid.uuid4(),
         ),
         trade_list=[],
+        practical_allocation=practical_output_stub(),
     )
 
 
@@ -760,11 +765,11 @@ async def test_persists_trades_row_on_success(
             acting_user_id=user.id,
             chat_session_id=None,
         )
-    assert outcome.rebalancing_run_id is not None
+    assert outcome.recommendation_id is not None
     run = (
         await db_session.execute(
             select(RebalancingRun).where(
-                RebalancingRun.id == outcome.rebalancing_run_id
+                RebalancingRun.id == outcome.recommendation_id
             )
         )
     ).scalar_one()
