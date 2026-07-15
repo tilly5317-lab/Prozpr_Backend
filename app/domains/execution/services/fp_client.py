@@ -41,6 +41,71 @@ class FpConfigError(FpError):
     """FP credentials missing (FP_TENANT / FP_API_KEY / FP_API_SECRET)."""
 
 
+# --- FP-API console log -----------------------------------------------------
+# Every FP call funnels through FpClient.request(), so we log one distinctive,
+# greppable line per call there: what FP endpoint fired + what it does + the
+# result. Prefix ">>> FP-API >>>" (ok) / "!!! FP-API !!!" (failed) makes it
+# stand out in a flood of other logs (grep "FP-API"). ASCII only — the Windows
+# console is cp1252 and chokes on emoji / box-drawing characters.
+#
+# Value tuple is (what-a-write-does, what-a-read-does); method picks which.
+_FP_CALL_DESC: dict[str, tuple[str, str]] = {
+    "investor_profiles": ("Create FP investor (identity + FATCA)", "Read investor profile"),
+    "email_addresses": ("Attach investor email", "Read investor email"),
+    "phone_numbers": ("Attach investor phone", "Read investor phone"),
+    "addresses": ("Attach investor address", "Read investor address"),
+    "bank_accounts": ("Attach investor bank account", "Read investor bank account"),
+    "mf_investment_accounts": (
+        "Open MF investment account (enables ordering)",
+        "Read MF investment account",
+    ),
+    "mf_purchases": ("Place one-time BUY (lumpsum) order", "Poll BUY order status"),
+    "mf_purchase_plans": ("Start SIP (recurring buy plan)", "Poll SIP plan status"),
+    "mf_redemptions": ("Place SELL (redemption) order", "Poll redemption status"),
+    "mf_switches": ("Place SWITCH (scheme-to-scheme, same AMC)", "Poll switch status"),
+    "mf_redemption_plans": ("Start SWP (systematic withdrawal)", "Poll SWP plan status"),
+    "mf_switch_plans": ("Start STP (systematic transfer)", "Poll STP plan status"),
+    "mf_folios": ("List investor folios (holdings)", "List investor folios (holdings)"),
+    "mf_scheme_plans": ("Resolve scheme/plan by ISIN", "Resolve scheme/plan by ISIN"),
+    "mf_settlement_details": ("Read order settlement details", "Read order settlement details"),
+}
+
+
+def _describe_fp_call(method: str, path: str) -> str:
+    """One-line, human description of what an FP endpoint does (for the log)."""
+    m = method.upper()
+    p = path.split("?", 1)[0]
+    if "/auth/" in p and p.endswith("/token"):
+        return "Mint tenant access token (server-to-server auth)"
+    if "/pre_verifications" in p:
+        return (
+            "KYC Pre-Verification: submit PAN/name/DOB for identity match"
+            if m == "POST"
+            else "KYC Pre-Verification: poll identity-match result"
+        )
+    for seg in (s for s in p.split("/") if s):
+        desc = _FP_CALL_DESC.get(seg)
+        if desc:
+            return desc[1] if m == "GET" else desc[0]
+    return m + " " + p
+
+
+def _short_fp_error(body: Any) -> str:
+    """Pull a short, single-line reason out of an FP error body for the log."""
+    if isinstance(body, dict):
+        err = body.get("error") or body
+        if isinstance(err, dict):
+            errs = err.get("errors")
+            if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+                first = errs[0]
+                return (
+                    str(first.get("field", "")) + " " + str(first.get("message", ""))
+                ).strip()
+            if err.get("message"):
+                return str(err["message"])
+    return "see response"
+
+
 class FpClient:
     """Thin wrapper: cached tenant token + generic ``request``. One instance owns
     one ``httpx.AsyncClient`` — close with ``aclose()`` / ``async with``."""
@@ -95,7 +160,14 @@ class FpClient:
             self._token = data["access_token"]
             ttl = float(data.get("expires_in") or 1800)
             self._token_expires_at = now + ttl
-            logger.info("FP tenant token minted (ttl~%.0fs)", ttl)
+            logger.info(
+                ">>> FP-API >>> POST /v2/auth/%s/token -> %d (%dms) :: "
+                "Mint tenant access token (server auth, ttl~%.0fs)",
+                self._tenant,
+                resp.status_code,
+                int((time.monotonic() - now) * 1000),
+                ttl,
+            )
             return self._token
 
     async def request(
@@ -118,6 +190,7 @@ class FpClient:
                 "x-tenant-id": self._tenant,
                 "Content-Type": "application/json",
             }
+            t0 = time.monotonic()
             try:
                 resp = await self._http.request(
                     method, url, headers=headers, json=json, params=params
@@ -126,6 +199,7 @@ class FpClient:
                 last_err = str(exc)
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
+            dur_ms = int((time.monotonic() - t0) * 1000)
             if resp.status_code == 401 and not reminted:
                 reminted = True
                 await self._ensure_token(force=True)
@@ -139,7 +213,18 @@ class FpClient:
                 body = resp.json() if resp.content else None
             except ValueError:
                 body = resp.text
+            clean_path = path.split("?", 1)[0]
+            desc = _describe_fp_call(method, path)
             if resp.status_code >= 400:
+                logger.warning(
+                    "!!! FP-API !!! %s %s -> %d (%dms) :: %s [FAILED: %s]",
+                    method,
+                    clean_path,
+                    resp.status_code,
+                    dur_ms,
+                    desc,
+                    _short_fp_error(body),
+                )
                 raise FpError(
                     "FP "
                     + method
@@ -152,6 +237,14 @@ class FpClient:
                     status_code=resp.status_code,
                     body=body,
                 )
+            logger.info(
+                ">>> FP-API >>> %s %s -> %d (%dms) :: %s",
+                method,
+                clean_path,
+                resp.status_code,
+                dur_ms,
+                desc,
+            )
             return body
         raise FpError("FP " + method + " " + path + " exhausted retries: " + last_err)
 
