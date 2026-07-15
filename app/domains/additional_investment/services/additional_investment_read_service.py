@@ -26,7 +26,19 @@ from app.domains.additional_investment.models import (
     AdditionalInvestmentRun,
     Cadence,
 )
-from app.domains.additional_investment.schemas import SipFundBuy, SipPlanResponse
+from app.domains.additional_investment.schemas import (
+    LumpsumAlignmentRow,
+    LumpsumFundBuy,
+    LumpsumPlanResponse,
+    SipFundBuy,
+    SipPlanResponse,
+)
+from app.domains.additional_investment.services.lumpsum_reasoning import (
+    build_alignment_rows,
+    build_fund_reason,
+    headline_reason,
+    reason_by_subgroup,
+)
 from app.domains.profile.models.personal_finance_profile import (
     PersonalFinanceProfile,
 )
@@ -129,4 +141,97 @@ async def get_latest_sip_plan(
     )
 
 
-__all__ = ["get_latest_sip_plan"]
+def _lumpsum_amount(buy: AdditionalInvestmentBuy) -> float:
+    """One-time amount for a lumpsum buy.
+
+    The engine leaves ``monthly_amount_inr`` None on a lumpsum buy and sets
+    ``amount_inr``; read that (defensively fall back to monthly, though it should
+    be None here).
+    """
+    amount: Any = (
+        buy.amount_inr
+        if buy.amount_inr is not None
+        else buy.monthly_amount_inr
+    )
+    return float(amount)
+
+
+async def get_latest_lumpsum_plan(
+    db: AsyncSession, user_id: uuid.UUID
+) -> LumpsumPlanResponse:
+    """Return the user's most recent one-time lump-sum plan, with reasoning.
+
+    Yields ``LumpsumPlanResponse(has_plan=False)`` when the customer has no
+    ``lumpsum`` run yet, so the Invest page renders its set-up prompt. The
+    per-part alignment (ideal vs current vs gap) and the per-fund "why this fund"
+    reasoning are rebuilt from the ``deficit_facts`` persisted on the run
+    (``request_input['deficit_facts']`` — written by the engine adapter), so this
+    read matches the create response exactly.
+    """
+    stmt = (
+        select(AdditionalInvestmentRun)
+        .where(
+            AdditionalInvestmentRun.user_id == user_id,
+            AdditionalInvestmentRun.cadence == Cadence.LUMPSUM,
+        )
+        .order_by(AdditionalInvestmentRun.created_at.desc())
+        .options(selectinload(AdditionalInvestmentRun.buys))
+        .limit(1)
+    )
+    run = (await db.execute(stmt)).scalars().first()
+    if run is None:
+        return LumpsumPlanResponse(has_plan=False)
+
+    # Deficit facts persisted alongside the run drive both the alignment section
+    # and each fund's reason. Absent on a legacy run (persisted before the facts
+    # were stored) — reasoning then degrades gracefully to a rank/category line.
+    request_input = run.request_input or {}
+    deficit_facts = request_input.get("deficit_facts")
+    facts_by_sg = reason_by_subgroup(deficit_facts)
+
+    buys = [
+        LumpsumFundBuy(
+            recommended_fund=b.recommended_fund,
+            sub_category=b.sub_category,
+            asset_subgroup=b.asset_subgroup,
+            scheme_code=b.scheme_code,
+            amount_inr=_lumpsum_amount(b),
+            rank=b.rank,
+            reason=build_fund_reason(
+                recommended_fund=b.recommended_fund,
+                sub_category=b.sub_category,
+                asset_subgroup=b.asset_subgroup,
+                rank=b.rank,
+                amount_inr=_lumpsum_amount(b),
+                deficit_row=facts_by_sg.get(b.asset_subgroup),
+            ),
+        )
+        for b in sorted(run.buys, key=_lumpsum_amount, reverse=True)
+    ]
+
+    deployed_inr = float(run.deployed_inr)
+    undeployed_inr = float(run.undeployed_inr)
+    target_bucket = (
+        run.target_bucket.value if run.target_bucket is not None else None
+    )
+
+    return LumpsumPlanResponse(
+        has_plan=True,
+        run_id=run.id,
+        created_at=run.created_at,
+        amount_inr=float(run.deploy_amount_inr),
+        deployed_inr=deployed_inr,
+        undeployed_inr=undeployed_inr,
+        target_bucket=target_bucket,
+        fund_count=len(buys),
+        buys=buys,
+        alignment_rows=[
+            LumpsumAlignmentRow(**row) for row in build_alignment_rows(deficit_facts)
+        ],
+        headline_reason=headline_reason(
+            target_bucket, deployed_inr, undeployed_inr
+        ),
+    )
+
+
+__all__ = ["get_latest_sip_plan", "get_latest_lumpsum_plan"]

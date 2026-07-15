@@ -298,6 +298,13 @@ async def compute_additional_investment_result(
     if snapshot is not None:
         _extras["deployment_mode"] = "deficit_fill"
         _extras["base_corpus_inr"] = snapshot.total_inr
+        # Persist the per-subgroup ideal/current/gap/buy facts alongside the run
+        # so the Invest-page lumpsum READ endpoint can rebuild the same
+        # portfolio-alignment reasoning it shows on create (the deficit facts are
+        # otherwise recomputed only at compute time). Additive to the request_input
+        # JSONB audit blob — floats are already JSON-safe.
+        if deficit_facts is not None:
+            _extras["deficit_facts"] = deficit_facts
     if focus_category:
         _extras["focus_category"] = focus_category
     if rebal_run_id is not None:
