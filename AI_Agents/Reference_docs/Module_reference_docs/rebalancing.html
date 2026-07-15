@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rebalancing — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Deterministic engine</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `Rebalancing` — ideal target + current holdings → tax-aware per-fund trades
+
+> **One line:** given the goal-based *ideal* allocation and what the customer *actually holds*, this engine decides — deterministically, in `Decimal` rupees — how much of each fund to **buy**, **trim**, or **exit**, honouring per-fund concentration caps and never realising short-term capital gains it wasn't budgeted to.
+>
+> This is the engineer's guide to the engine. For the client-facing thesis (why we trim the long-held slice first, why ELSS is frozen), see [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(pure-Python, no LLM)</div></div>
+  <div class="cell"><div class="k">Money type</div><div class="v"><code>Decimal</code> throughout<br/>(contrast the float AA family)</div></div>
+  <div class="cell"><div class="k">Caller / trigger</div><div class="v"><code>rebalancing</code> intent →<br/><code>rebalancing_module_service.run</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_rebalancing(request)</code></div></div>
+  <div class="cell"><div class="k">Steps</div><div class="v">practical pre-pass<br/>+ 6 ordered steps</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">fully deterministic<br/>same input → same output</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v"><code>practical_asset_allocation</code><br/>(blessed §B.1 edge)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer builds the request</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The engine lives at [`AI_Agents/src/Rebalancing/`](../../src/Rebalancing/). It answers a single question: *"the customer should hold **this** ideal mix but holds **that** today — what trades close the gap without doing anything tax-silly?"*
+
+It is **not** the allocation engine. It runs the holdings-aware [`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py) engine as its own **first step** to get the ideal per-subgroup amounts, then threads six deterministic steps that cap, diff, tax-classify, sell, top-up, and present. Every number is computed in `Decimal` — there is no model in the loop.
+
+The defining design decisions:
+
+- **Sells are tax-ordered and budget-gated.** A recommended fund that's merely *over* its target is trimmed **long-term only** (never realising STCG); short-term capital gains are realised only on a *force-exit*, and only up to a per-run `stcg_offset_budget_inr` (default **₹0** — a hard brake).
+- **ELSS and non-MF equity are scalars, not rows.** They ride on the practical input and surface as *frozen* summary rows — the engine emits no per-fund BUY/SELL/EXIT for them (ELSS is under SEBI 3-year lock-in; direct stocks get a single `SELL_DIRECT_STOCKS` on an NFA-band trim).
+
+### The shape of a run
+
+```mermaid
+flowchart TB
+    REQ([RebalancingComputeRequest<br/>corpus · tax state · fund rows]) --> PA["<b>Pre-pass</b><br/>run_practical_allocation<br/>(holdings-aware ideal)"]
+    PA --> LIFT["_assign_targets_to_rank1<br/>lift per-subgroup totals<br/>onto rank-1 MF rows"]
+    LIFT --> S1["step1 · cap & spill"]
+    S1 --> S2["step2 · compare & decide"]
+    S2 --> S3["step3 · tax classify"]
+    S3 --> S4["step4 · trades under STCG cap"]
+    S4 --> S5["step5 · loss-offset top-up"]
+    S5 --> S6["step6 · presentation"]
+    S6 --> RESP([RebalancingComputeResponse<br/>rows · subgroups · trades · totals])
+    PA -. verbatim passthrough .-> RESP
+```
+
+The whole thing is pure and DB-free ([`pipeline.py`](../../src/Rebalancing/pipeline.py) is ~110 lines). The practical output is threaded through **verbatim** onto `response.practical_allocation` so the UI can show ideal-vs-practical without re-running anything.
+
+---
+
+## 2. Where it sits
+
+The engine imports exactly one peer — `practical_asset_allocation` — which is the **blessed** cross-agent edge (spec §B.1 / Part C). It reads no database and holds no state; the app layer assembles the request.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `rebalancing` intent routes here (after the practical AA module) |
+| **Gateway** | [`rebalancing_module_service.run(turn, ctx, prior)`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the **only** gateway to the rebalancing AI module — the brain calls it, and it dispatches to the `rebalancing` chat handler (the engine itself is imported deeper, by `rebal_engine/service.py`) |
+| **Request builder** | [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | materialises `RebalancingComputeRequest` from `ctx` + the cached allocation + DB holdings |
+| **Engine runner** | [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | the domain-side importer of `run_rebalancing`; owns the 90-day allocation cache + `force_fresh_allocation` bypass |
+| **Blessed peer** | [`practical_asset_allocation.run_practical_allocation`](../../src/practical_asset_allocation/pipeline.py) | called **inside** `run_rebalancing` as step 0; its output is also surfaced verbatim on the response |
+| **Fund rank / reasons** | [`rebal_engine/fund_rank.py`](../../../app/domains/rebalancing/services/rebal_engine/fund_rank.py) | `rank`, `selection_reason`, `rejection_reason`, and the `FORCE_EXIT_RANK` sentinel per row |
+| **Prices / NAV** | [`rebal_engine/_disk_cache.py`](../../../app/domains/rebalancing/services/rebal_engine/_disk_cache.py) | CSV-backed NAV & metadata — the engine never sees this; the builder folds it into row values |
+
+> **The engine touches no DB and no CSV.** Holdings, NAV, tax-aging, and fund ranks are all resolved by the app-layer `rebal_engine/` builder *before* `run_rebalancing` is called. If you're asking "where does the ST/LT split of a holding come from", it is [`rebal_engine/tax_aging.py`](../../../app/domains/rebalancing/services/rebal_engine/tax_aging.py) + [`holdings_ledger.py`](../../../app/domains/rebalancing/services/rebal_engine/holdings_ledger.py) — not this module.
+
+### What the app layer must carry (the engine is `ctx`-free)
+
+The engine takes a `RebalancingComputeRequest`, not a chat `ctx`. The gateway `run(turn, ctx, prior)` hands `ctx` to the chat handler, whose `input_builder` needs, from `ctx` and DB:
+
+| Needs | Where it lands in the request |
+|---|---|
+| A persisted **allocation run** (cached ≤ 90 days; overrides force a fresh one) | drives `practical_allocation_input` |
+| Present **holdings** with per-lot ST/LT aging | `FundRowInput.{present_allocation_inr, st_value_inr, lt_value_inr, …}` |
+| **Tax state** — regime, effective rate, carryforward losses, STCG budget | `RebalancingComputeRequest.{tax_regime, effective_tax_rate_pct, carryforward_*, stcg_offset_budget_inr}` |
+| Fund **rank + reason** rows (recommended, NEUTRAL, force-exit) | one homogeneous `list[FundRowInput]` |
+
+> Note: `prior` (the upstream practical-AA module's output) is **informational only** — the engine re-runs the practical allocation itself as step 0, so it never consumes `prior`.
+
+---
+
+## 3. Input contract
+
+Entry is `run_rebalancing(request: RebalancingComputeRequest) → RebalancingComputeResponse` ([`pipeline.py`](../../src/Rebalancing/pipeline.py)). All models are in [`models.py`](../../src/Rebalancing/models.py).
+
+**`RebalancingComputeRequest`** — the top-level input:
+
+| Field | Type | Notes |
+|---|---|---|
+| `practical_allocation_input` | `PracticalAllocationInput` | carries the four corpus scalars (total / MF / non-MF equity / ELSS) + all profile/goal fields; `total_corpus` now lives *here* (a backward-compat `total_corpus` property still reads through) |
+| `tax_regime` | `"old" \| "new"` | reserved for regime-specific tax routing (`estimate_tax` currently rate-driven) |
+| `effective_tax_rate_pct` | `float` 0–100 | customer's marginal rate |
+| `stcg_offset_budget_inr` | `Decimal?` = `0` | **pass-1 cap** on STCG realised this run. Default `0` = strict brake. `None` is INTERNAL-only (disables the cap) — production must never pass it |
+| `carryforward_st_loss_inr` | `Decimal` ≥ 0 | brought-forward **short-term** loss; offsets STCG in step5 |
+| `carryforward_lt_loss_inr` | `Decimal` ≥ 0 | brought-forward LT loss — **reserved**, deliberately unused (LT losses offset only LTCG, not yet modelled) |
+| `rounding_step` | `int` = 100 | rupee rounding granularity |
+| `rows` | `list[FundRowInput]` | one homogeneous list of MF rows (recommended + BAD); ELSS rows are filtered out upstream |
+
+**`FundRowInput`** — one row per rank slot. Three flavours, distinguished by `rank`:
+
+| Flavour | `rank` | `is_recommended` | `target_amount_pre_cap` | Behaviour |
+|---|---|---|---|---|
+| **Recommended** | ≥ 1 | `True` | rank-1 carries the goal amount; ranks 2+ start at 0 (receive cap-spill) | buy up to target, trim over target (LT-only) |
+| **NEUTRAL** (held, off-list) | `0` | `False` | `= st_value_inr` (the locked ST minimum) | LT portion migratable into the recommended pick; ST stays put |
+| **Force-exit** | `FORCE_EXIT_RANK` = 9999 | `False` | `0` | step2 sets `exit_flag`; step4 fully liquidates regardless of tax |
+
+Key row fields the engine consumes: `asset_subgroup`, `isin`, `rank`, `target_amount_pre_cap`, `present_allocation_inr`, and the tax-aging quartet `st_value_inr / st_cost_inr / lt_value_inr / lt_cost_inr`. `current_nav` is **display-only** — the engine does not read it.
+
+---
+
+## 4. Output contract
+
+**`RebalancingComputeResponse`** ([`models.py`](../../src/Rebalancing/models.py)):
+
+| Field | Type | Notes |
+|---|---|---|
+| `rows` | `list[FundRowAfterStep5]` | the full audit trail — every intermediate column from all six steps |
+| `subgroups` | `list[SubgroupSummary]` | presentation view: target vs current vs final per `asset_subgroup`, biggest-first; **includes frozen ELSS / non-MF entries** with `actions=[]` |
+| `totals` | `RebalancingTotals` | buy/sell sums, realised STCG/LTCG, net-off, tax estimate, `unrebalanced_remainder_inr`, per-action counts |
+| `metadata` | `RebalancingRunMetadata` | `engine_version`, `computed_at`, `request_corpus_inr`, `request_id`, and a `knob_snapshot` (`KnobSnapshot`) of every cap/threshold/tax knob in force |
+| `trade_list` | `list[TradeAction]` | the customer-facing BUY / SELL / EXIT / SELL_DIRECT_STOCKS list, each with `reason_code` + `reason_title` + `reason_text` + `fund_reason` |
+| `warnings` | `list[RebalancingWarning]` | typed warnings surfaced from steps 1/2/4: `UNREBALANCED_REMAINDER` (step1), `BAD_FUND_DETECTED` (step2), `STCG_BUDGET_BINDING` (step4). A fourth code, `NO_HOLDINGS_FOR_RECOMMENDED_FUND`, is declared in the `WarningCode` enum but no step emits it yet (reserved) |
+| `practical_allocation` | `PracticalAllocationOutput` | verbatim passthrough for the ideal-vs-practical UI |
+
+`TradeAction.action` is one of `"BUY" | "SELL" | "EXIT" | "SELL_DIRECT_STOCKS"`. Rationale strings come from [`rationales.py`](../../src/Rebalancing/rationales.py) keyed by `reason_code`; `fund_reason` is the per-fund `selection_reason`/`rejection_reason` carried from the ranking CSV.
+
+---
+
+## 5. How it thinks
+
+After the practical pre-pass lifts per-subgroup ideal totals onto each subgroup's **rank-1** row (`_assign_targets_to_rank1`, offsetting NEUTRAL ST so the same rupees aren't double-allocated), six steps run in strict order. Each step returns a richer `FundRowAfterStepN` (models inherit, so later steps can't drop a field).
+
+| # | Step (file) | What it does | Adds |
+|---|---|---|---|
+| 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | cap each fund at `max(cap_pct × corpus, ₹1L floor)`; spill overflow to the next rank; leftover → `UNREBALANCED_REMAINDER` warning | `max_pct`, `final_target_amount` |
+| 2 | [`step2_compare_and_decide`](../../src/Rebalancing/steps/step2_compare_and_decide.py) | `diff = final_target − present`; set `exit_flag` (low-rated OR force-exit); `worth_to_change` if `\|diff\|` past the min-change threshold OR exit | `diff`, `exit_flag`, `worth_to_change` |
+| 3 | [`step3_tax_classification`](../../src/Rebalancing/steps/step3_tax_classification.py) | for sell candidates only, compute signed `stcg_amount` / `ltcg_amount` (value − cost) | `stcg_amount`, `ltcg_amount` |
+| 4 | [`step4_initial_trades_under_stcg_cap`](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | classify forced / optional sells + buyers; sell **tax-cheapest first**, walking **LT→ST**, forced sells gated by the STCG budget, optional sells **LT-only**; scale buys to available cash | `pass1_buy/sell_*`, `holding_after_initial_trades` |
+| 5 | [`step5_loss_offset_top_up`](../../src/Rebalancing/steps/step5_loss_offset_top_up.py) | offset realised STCG with **short-term** losses (carryforward + realised); unlock ST-blocked *force-exit* sells with the freed headroom | `stcg_offset_amount`, `pass2_sell_amount`, `final_holding_amount` |
+| 6 | [`step6_presentation`](../../src/Rebalancing/steps/step6_presentation.py) | assemble `trade_list` + rationales, per-subgroup summaries, frozen ELSS/non-MF rows, `SELL_DIRECT_STOCKS`, totals + `KnobSnapshot` | the whole response |
+
+### The sell-ordering rule (why order matters)
+
+```mermaid
+flowchart TB
+    ROW{row is a sell?} -->|force-exit| F["forced sell<br/>LT then ST<br/>ST gated by STCG budget"]
+    ROW -->|recommended & over target| O["optional sell<br/>LT ONLY<br/>never realises STCG"]
+    ROW -->|NEUTRAL rank-0| N["migrate LT slice<br/>into recommended pick<br/>ST stays put"]
+    F --> BUY[cash funds the BUY demand]
+    O --> BUY
+    N --> BUY
+    BUY -->|"Σsells &lt; Σbuys"| SCALE["scale buys down<br/>record pass1_underbuy"]
+```
+
+### A run, end to end (worked example)
+
+*All figures below are **illustrative** — hand-built to show the numbers move, not real CSV/NAV/DB rows.* Corpus **₹60,00,000**, `stcg_offset_budget_inr = 0` (the default brake), no carryforward losses. One `large_cap` subgroup with a recommended **Fund A** (ideal ₹6,00,000, held ₹2,00,000) and a **force-exit Fund X** held at ₹1,50,000 (LT ₹1,00,000 @ cost ₹70,000 → LTCG ₹30,000; ST ₹50,000 @ cost ₹48,000 → STCG ₹2,000).
+
+<div class="step-panel">
+  <div class="label">step1–2 · cap, diff, exit</div>
+<pre><code>large_cap cap = max(10% × 60L, ₹1L) = ₹6,00,000  → Fund A target unchanged
+Fund A:  final_target 6,00,000  present 2,00,000  diff +4,00,000  → BUYER
+Fund X:  final_target 0         present 1,50,000  diff -1,50,000  exit_flag=True</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">step3–4 · tax classify, sell under STCG budget = 0</div>
+<pre><code>Fund X sell (forced): walk LT first → sell ₹1,00,000 LT, realise LTCG ₹30,000
+                      then ST ₹50,000 (would realise ₹2,000 STCG) → blocked (budget 0)
+                      → pass1_sell 1,00,000 · pass1_undersell_due_to_stcg_cap 50,000
+Buys: Σsells 1,00,000 &lt; buy demand 4,00,000 → scale 0.25
+      Fund A BUY ₹1,00,000  (pass1_underbuy ₹3,00,000)      ⚠ STCG_BUDGET_BINDING</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">step5–6 · loss-offset (none) → trades + totals</div>
+<pre><code>available_offset = 0 → no pass-2 unlock; Fund X ST ₹50,000 stays put
+trade_list:
+  EXIT  Fund X  ₹1,00,000  "Exit — flagged for removal"
+        + "…held back ₹50,000 of the short-term portion this round to avoid STCG…"
+  BUY   Fund A  ₹1,00,000  "Top up to target"
+totals: buy 1,00,000 · sell 1,00,000 · LTCG 30,000 · STCG 0
+        tax_estimate 0  (LTCG 30,000 &lt; ₹1,25,000 annual exemption)</code></pre>
+</div>
+
+Watch the invariants fire: the force-exit's **short-term** slice is held back because the budget is ₹0; the LTCG realised sits under the ₹1,25,000 exemption so the tax estimate is ₹0; and because sells only raised ₹1L against ₹4L of demand, the BUY is scaled down and the shortfall is recorded as `pass1_underbuy_amount`, not silently dropped.
+
+---
+
+## 6. Where the LLM is
+
+**Nowhere — the engine never calls an LLM.** There is no `llm_client.py`, no prompt file, no model id anywhere under [`src/Rebalancing/`](../../src/Rebalancing/). Every output is a pure `Decimal` computation over the request.
+
+That matters for **reproducibility**: the same request always yields byte-identical trades, and `metadata.engine_version` + `KnobSnapshot` stamp exactly which logic and knobs produced them (for cache/repro tracking). Any narration a customer sees is added *later*, by the app-layer chat handler / shared answer formatter — the numbers it narrates are these deterministic ones, never re-derived by a model.
+
+<div class="callout danger">
+  <div class="title">⚠ The double-count trap the request contract guards against</div>
+  <p>The three capital-gains inputs — <code>stcg_offset_budget_inr</code>, <code>carryforward_st_loss_inr</code>, <code>carryforward_lt_loss_inr</code> — are <strong>independent</strong>. Do <strong>not</strong> populate the STCG budget from the carryforward losses: the budget is a pass-1 realisation cap (step4) and the ST loss is the pass-2 offset (step5), so wiring one from the other counts the same loss capacity <strong>twice</strong>. And <code>carryforward_lt_loss_inr</code> is deliberately unused — an LT loss may offset only LTCG, never STCG (Indian IT rules); LTCG-loss set-off isn't modelled yet.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`pipeline.py`](../../src/Rebalancing/pipeline.py) | `run_rebalancing` — practical pre-pass, `_assign_targets_to_rank1`, threads steps 1–6 |
+| [`models.py`](../../src/Rebalancing/models.py) | pydantic I/O: `RebalancingComputeRequest/Response`, `FundRowInput`, the inheriting `FundRowAfterStepN`, `TradeAction`, `SubgroupSummary`, `KnobSnapshot`, warnings |
+| [`config.py`](../../src/Rebalancing/config.py) | env-overrideable knobs (`REBAL_*`), `FORCE_EXIT_RANK`, tax limits, `ENGINE_VERSION` |
+| [`tables.py`](../../src/Rebalancing/tables.py) | `SUBGROUP_FUND_CAP_PCT` + `cap_pct_for` — per-subgroup concentration caps with default fallback |
+| [`utils.py`](../../src/Rebalancing/utils.py) | pure math: `round_to_step`, `floor_to_step`, `compute_stcg/ltcg`, `estimate_tax` |
+| [`rationales.py`](../../src/Rebalancing/rationales.py) | customer-facing `reason_code` → `(title, text)` map + the STCG-cap suffix template |
+| [`steps/`](../../src/Rebalancing/steps/) | the six ordered steps (see §5 table) |
+| [`consolidation.py`](../../src/Rebalancing/consolidation.py) | **post-hoc, opt-in** buy-side reshape (F3-B): redistributes only the BUY budget across allowed/fewer funds; runs *outside* the engine, on a finished response |
+| [`__init__.py`](../../src/Rebalancing/__init__.py) | re-exports `run_rebalancing` + the three public I/O models (`FundRowInput`, `RebalancingComputeRequest`, `RebalancingComputeResponse`) |
+
+App-layer companions (where the request comes from — not part of the engine):
+
+| File | Role |
+|---|---|
+| [`rebalancing_module_service.py`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the sole gateway `run(turn, ctx, prior)` — dispatches to the `rebalancing` chat handler |
+| [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | domain-side runner: imports & calls `run_rebalancing`, owns the 90-day allocation cache |
+| [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | builds `RebalancingComputeRequest` from `ctx` + allocation + DB |
+| [`rebal_engine/fund_rank.py`](../../../app/domains/rebalancing/services/rebal_engine/fund_rank.py) | ranking-CSV loader; owns the duplicated `FORCE_EXIT_RANK` |
+| [`rebal_engine/formatter.py`](../../../app/domains/rebalancing/services/rebal_engine/formatter.py) | sectioned chat markdown over the response |
+
+---
+
+## 8. Invariants & landmines
+
+- **Money is `Decimal` here — the whole engine.** Do **not** let a `float` leak into a rupee amount; the sibling allocation family (`asset_allocation_pydantic`) works in floats, so a copy-paste from there is a real bug. Percentages are `float`, amounts are `Decimal`.
+- **STCG only on force-exit.** Optional (recommended-fund-trim) sells are **LT-only** — `_execute_sells` forces `st_available=0` for non-forced rows ([step4](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py)). Only a force-exit may realise STCG, and only up to `stcg_offset_budget_inr`. Loosening this in the "optional" branch silently changes tax behaviour.
+- **Loss-offset uses SHORT-term losses only** ([step5](../../src/Rebalancing/steps/step5_loss_offset_top_up.py)): `carryforward_lt_loss_inr` is intentionally excluded. An LT loss offsets only LTCG, never STCG.
+- **ELSS is a scalar, never a row.** ELSS lives on `practical_allocation_input.elss_corpus`; ELSS rows are stripped upstream. step6 emits a *frozen* `tax_efficient_equities` summary (`actions=[]`) — never a trade (SEBI 3-year lock-in).
+- **Non-MF equity is a scalar, never per-stock rows.** A NFA-band trim emits **one** `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — it rides on `trade_list`, not on any `SubgroupSummary.actions`.
+- **`FORCE_EXIT_RANK = 9999` is duplicated** in [`config.py`](../../src/Rebalancing/config.py) and app-side `fund_rank.py`. Keep both in sync — the sentinel is the only signal that marks a row for full liquidation.
+- **The per-fund cap is floored in rupees** (`max(cap_pct × corpus, ₹1L)`, env `REBAL_FUND_CAP_FLOOR_INR`) so small corpora don't fragment into sub-₹1L buys; `max_pct` reports the *effective* cap when the floor wins. The floor is stamped into `KnobSnapshot`.
+- **Overflow is never dropped.** Cap-spill that exhausts the last rank surfaces as `unrebalanced_remainder_inr` + an `UNREBALANCED_REMAINDER` warning — don't "clean it up" by discarding it.
+- **Bump `ENGINE_VERSION` on any output-altering change** ([`config.py`](../../src/Rebalancing/config.py)) — it's stamped into response metadata for cache/repro tracking.
+- **`consolidation.py` runs on a finished response, not inside the engine.** It reshapes *only* buys, preserving total buy and every sell; the engine itself is run once, unmodified.
+
+---
+
+## 9. Extend & test
+
+Engine tests live at [`AI_Agents/src/Rebalancing/Testing/`](../../src/Rebalancing/Testing/) — per-step + end-to-end:
+
+| Level | Where | Covers |
+|---|---|---|
+| per-step | `test_step1_caps.py`, `test_step1_cap_floor.py`, `test_step2_diff_exit.py`, `test_step3_tax.py`, `test_step4_initial_trades.py`, `test_step5_loss_offset.py`, `test_step6_presentation.py` | each step's arithmetic in isolation |
+| cross-agent (Part C) | [`test_part_c.py`](../../src/Rebalancing/Testing/test_part_c.py) | practical pre-pass → rank-1 target lift, frozen subgroups |
+| consolidation | `test_consolidation.py`, `test_consolidation_response.py` | the F3-B buy-side reshape |
+| e2e workbook | `test_e2e_workbook.py` | **skipped** pending fixture extraction from the `Reference_docs/` workbook |
+
+App-layer companions live at [`app/domains/rebalancing/services/rebal_engine/tests/`](../../../app/domains/rebalancing/services/rebal_engine/tests/) (`test_input_builder.py`, `test_service.py`, `test_rebalancing_e2e.py`, `test_formatter.py`, …) and the domain's [`services/tests/`](../../../app/domains/rebalancing/services/tests/).
+
+Run with the mac venv:
+
+```bash
+.venv-mac/bin/python -m pytest AI_Agents/src/Rebalancing/Testing -v
+```
+
+**Run one step in isolation** — no LLM, no DB, no stub needed. Each `stepN.apply(...)` is a pure function over a list of `FundRowAfterStep{N-1}` rows plus the request, so you can hand-build rows and read the output straight back:
+
+```python
+from Rebalancing.steps import step4_initial_trades_under_stcg_cap as s4
+rows_out, warnings = s4.apply(hand_built_step3_rows, request)
+# rows_out[i].pass1_sell_amount, .pass1_realised_stcg, … are all Decimal
+```
+
+Because the engine is deterministic, a step test is just "these inputs → exactly these rupees" — assert on the `Decimal` fields directly; there is no wording or model output to golden.
+
+- **Change a cap / threshold / tax knob** → set the matching `REBAL_*` env var (or edit [`config.py`](../../src/Rebalancing/config.py) defaults) and bump `ENGINE_VERSION`.
+- **Change engine logic or its production wiring** → update [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md) and bump its version (the repo's "Logics docs track the engines" rule).
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>risk_profiling — traceable risk scoring + Haiku summary — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Hybrid · deterministic scoring + Haiku summary</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `risk_profiling` — one traceable risk number, plus a plain-English summary
+
+> **One line:** turn a client's age, balance sheet and stated appetite into a single **`effective_risk_score` in [1, 10]** — computed by hand-written arithmetic that is fully reproducible — then let Haiku write *only* the warm summary paragraph that explains the number back to the customer.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the "two questions that look like one" thesis), see [Logics_reference_docs/Risk_Profiling.md](../Logics_reference_docs/Risk_Profiling.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Hybrid<br/>(scores by hand, narrates with LLM)</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
+  <div class="cell"><div class="k">Trigger / caller</div><div class="v">not a chat intent —<br/>profile-update → <code>_effective_risk</code> service</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_risk_profiling</code><br/>(<code>main.py</code>)</div></div>
+  <div class="cell"><div class="k">Steps / LLM passes</div><div class="v">5 deterministic steps<br/>+ 1 Haiku prose pass</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">scores exact &amp; reproducible;<br/>only the summary wording varies</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer persists</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/risk_profiling/`](../../src/risk_profiling/). It answers one question the whole downstream allocation stack depends on: **how much risk should this client's portfolio carry?** The answer is a number in `[1, 10]` — the `effective_risk_score` — plus the supporting flags and a customer-facing paragraph.
+
+It is **not a chat intent**. Nothing in the intent classifier routes here. It runs when a client's profile changes (risk answers, finances, a birthday), is called by the app-layer `_effective_risk` service, and its `effective_risk_score` is later read — *caller-wired, not imported* — by the asset-allocation input builder (see §2).
+
+The defining design decision mirrors `mutual_fund_query`'s in spirit but inverts the ratio: **the numbers are done before the LLM is ever called.** Every score, flag and category is produced by deterministic Python in [`scoring.py`](../../src/risk_profiling/scoring.py). Haiku's only job is [`main.py`](../../src/risk_profiling/main.py)'s trailing step — turn those computed values into 4–5 warm sentences without ever restating a raw score or exposing an internal field name.
+
+```mermaid
+flowchart LR
+    IN([RiskProfileInput<br/>age · finances · willingness]) --> SC["<b>scoring.py</b><br/>compute_all_scores<br/>Steps A–E · pure Python"]
+    SC --> DOC[("open dict<br/>step_name / inputs /<br/>calculations / output")]
+    DOC --> LLM["<b>main.py</b> · _generate_summary<br/>Haiku writes ONLY<br/>output.risk_summary"]
+    LLM --> OUT([same dict, now with<br/>effective_risk_score + risk_summary])
+```
+
+Two things make this shape robust: the scores never depend on the LLM (so a summary failure can't corrupt a number), and the arithmetic is deterministic (so the same profile always yields the same score, category and flags — only the prose is probabilistic).
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports **no other agent**, only the shared [`common.py`](../../src/common.py) (`category_for_effective_risk_score`, `format_inr_indian`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). Everything database-shaped — persistence, incremental re-merge, deriving the willingness input — is the app layer's job.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream (trigger)** | profile PATCH → [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) → [`_effective_risk/merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | a profile change (risk answers, finances) rebuilds the input and re-runs scoring; `merge.py` recomputes calculations/output every time, reusing untouched inputs |
+| **Gateway (the only caller)** | [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) → `compute_effective_risk_document` | builds the plain-`dict` payload and calls `run_risk_profiling(payload, api_key=…)`; `service.py` runs it via `asyncio.to_thread` so the sync LLM call never blocks the event loop |
+| **Willingness source** | app-layer stored appetite / legacy mapping (`risk_willingness_from_risk_level`, 0–4 → 1–10) | `risk_willingness ∈ [1,10]` is handed in **already resolved** — see the §8 landmine, it is **not** produced by this module's `willingness.py` |
+| **Downstream consumer** | [`asset_allocation/…/aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` — **caller-wired data, not a package import** |
+
+> **The engine touches no DB.** If you are looking for "where does the stored score get read", it is the AA input builder in the app layer — the engine only ever returns the dict. And note the entry point the app calls is **`run_risk_profiling`**, which threads an explicit `api_key` for per-module spend attribution; the LCEL `risk_profiling_chain` is dev-tooling only.
+
+---
+
+## 3. Input contract
+
+The documented shape is `RiskProfileInput` in [`models.py`](../../src/risk_profiling/models.py). In production, though, the gateway passes a **plain `dict`** with these exact keys — the pydantic model is the contract-on-paper and dev-tooling validator, not what crosses the boundary at runtime.
+
+| Field | Type | Notes |
+|---|---|---|
+| `age` | `int` | clamped to `[20, 90]` inside Step A |
+| `occupation_type` | `OccupationType` literal | one of six; keys `OSI_MAP` — but OSI does **not** move the score (§8) |
+| `annual_income` | `float` | `0` ⇒ savings-rate step skips (sentinel path) |
+| `annual_expense` | `float` | |
+| `financial_assets` | `float` | `≤ 0` → `current_debt_percent` sentinel `999.0` ("no financial assets"); expense-coverage collapses to ratio `0.0`, score `1.0` |
+| `liabilities_excluding_mortgage` | `float` | mortgage is handled separately |
+| `annual_mortgage_payment` | `float` | counts against expense-coverage + debt, but not as a `liability` |
+| `properties_owned` | `int` | `0`, `1`, or `>1` — three-way score |
+| `risk_willingness` | `float`, `ge=1, le=10` | **supplied by the caller**, already resolved from stored appetite |
+
+---
+
+## 4. Output contract
+
+The engine returns an **open `dict`**, not a fixed pydantic model — the app layer indexes it by key and persists `calculations` + `output` as JSON. The shape:
+
+```
+{
+  "step_name": "risk_profile",
+  "inputs":   { …the payload echoed back verbatim… },
+  "calculations": {
+     "age_based_score", "age_calculation", "clamped_age",
+     "savings_rate", "savings_rate_adjustment", "savings_rate_boost_pct",
+     "net_financial_assets", "expense_coverage_ratio", "expense_coverage_score",
+     "current_debt_percent", "current_debt_score", "own_property_score",
+     "net_asset_score",
+     "risk_capacity_score_raw", "risk_capacity_score_clamped",
+     "was_clamped", "clamp_direction",
+     "osi", "osi_category",
+     "willingness_capacity_gap", "gap_exceeds_3",
+     "effective_risk_score_formula", "risk_profile_category"
+  },
+  "output": {
+     "effective_risk_score": <float, 1 dp>,   # the headline number
+     "risk_summary": "<Haiku paragraph>"       # empty string until the LLM step runs
+  }
+}
+```
+
+The two load-bearing outputs are **`output.effective_risk_score`** (consumed downstream) and **`output.risk_summary`** (shown to the customer). `calculations.risk_profile_category` is the human-readable band (Conservative → Aggressive) from `category_for_effective_risk_score`; `gap_exceeds_3` is the "let's talk before allocating" flag.
+
+---
+
+## 5. How it thinks
+
+Scoring is five deterministic steps ([`scoring.py`](../../src/risk_profiling/scoring.py) `compute_all_scores`), then one LLM prose step ([`main.py`](../../src/risk_profiling/main.py) `_generate_summary`). Each score row below links the code that owns it.
+
+```mermaid
+flowchart TD
+    A["A · age → base capacity<br/>_age_score"] --> C2
+    B["B · savings-rate signal<br/>_savings_adjustment<br/>(narrative only)"]:::narr
+    C["C · assets &amp; liabilities → net_asset_score<br/>_asset_scores"] --> C2["C-cont · risk_capacity<br/>_risk_capacity + clamp"]
+    C2 --> E["D/E · blend + OSI + gap + category<br/>compute_all_scores tail"]
+    B -. informs summary, not score .-> LLM["Haiku · risk_summary"]
+    E --> LLM
+    classDef narr fill:#faf5ee,stroke:#ecdcc6;
+```
+
+| Step | File / fn | What it computes |
+|---|---|---|
+| **A — Age → base capacity** | [`scoring.py`](../../src/risk_profiling/scoring.py) `_age_score` | piecewise-linear interpolation over `AGE_ANCHORS` (age 20→score 10 … age 90→score 1), age clamped to `[20,90]` |
+| **B — Savings-rate signal** | `_savings_adjustment` | `savings_rate = (income−expense)/income`; `<0.01` → `equity_reduce`, `>0.20` → `equity_boost` (+ a boost %), else `none`. **Informational — it does not move the score** (§8) |
+| **C — Assets & liabilities** | `_asset_scores` | `net_asset_score = 0.40·expense_coverage_score + 0.30·current_debt_score + 0.30·own_property_score` |
+| **C-cont — Risk capacity** | `_risk_capacity` | `raw = age_based_score + 0.50·(net_asset_score − 5)`, then **clamped to `[1,10]`** (`was_clamped` / `clamp_direction` record if it hit a rail) |
+| **D/E — Blend, OSI, flag, band** | `compute_all_scores` tail | `effective_risk_score = round(0.7·willingness + 0.3·capacity, 1)`; `osi = OSI_MAP[occupation]` (recorded, **not** blended); `gap = |willingness − capacity|`, `gap_exceeds_3 = gap > 3`; category via `common.category_for_effective_risk_score` |
+
+### Prompt plumbing
+
+There is no `.md` prompt file — the summary prompt is assembled in [`prompts.py`](../../src/risk_profiling/prompts.py) as a `ChatPromptTemplate`. The system half wraps `_RISK_BODY` with `build_system_prompt(..., format_profile="plain", question_aware=False)` (shared Pi voice + a strict "plain-language translations" table so the model never surfaces terms like *clamped* / *risk capacity* / raw scores). The human half is a fixed field list. Output is pinned with `.with_structured_output(RiskProfileSummary)`, so the reply is always exactly the `summary` string — no fences, no preamble.
+
+**Sentinel pre-formatting matters here.** Before the LLM sees anything, `_generate_summary` converts the numeric sentinels to English so Haiku never has to interpret them: `savings_rate is None` → `"N/A"`, `expense_coverage_ratio ≥ 999.0` → `"N/A (no financial assets)"`, likewise `current_debt_percent`. Rupee amounts are pre-rendered with `format_inr_indian` (Haiku routinely drops an order of magnitude on raw rupees).
+
+### A profile, end to end (worked example)
+
+Watch the numbers move through the five steps, then get *narrated* — never recomputed. *(All values below are illustrative, not real client rows.)*
+
+<div class="step-panel">
+  <div class="label">Input (illustrative dict payload)</div>
+<pre><code>age=35 · occupation_type="private_sector" · annual_income=₹20L
+annual_expense=₹12L · financial_assets=₹50L · liabilities_excl_mortgage=₹2L
+annual_mortgage_payment=₹3L · properties_owned=1 · risk_willingness=7.0</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Steps A–C · deterministic scoring</div>
+<pre><code>A  age 35 between anchors (30→9),(40→8): 9 + (35-30)/10*(8-9) = 8.5   age_based_score
+B  savings_rate = (20-12)/20 = 0.40  > 0.20  → equity_boost, boost ≈ 15.0%   (narrative only)
+C  expense_coverage = 50 / (12+3) = 3.33x → score ≈ 3.22
+   current_debt%   = 100*(2+3)/50 = 10%   → score ≈ 9.62
+   own_property    = 1 property           → score  8.00
+   net_asset_score = 0.40*3.22 + 0.30*9.62 + 0.30*8.00 ≈ 6.57</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Steps C-cont / D-E → output</div>
+<pre><code>capacity_raw   = 8.5 + 0.50*(6.57-5) ≈ 9.29   (in [1,10], not clamped)
+effective_risk = round(0.7*7.0 + 0.3*9.29, 1) = 7.7
+gap            = |7.0 - 9.29| ≈ 2.29  → gap_exceeds_3 = false
+osi            = 0.8 (private_sector, recorded — not blended)
+category       = "Moderately Aggressive"   (6.625 ≤ 7.7 < 8.875)</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="chat">
+  <div class="bubble pi"><div class="who">Pi (Haiku · risk_summary)</div>At 35, with decades ahead of you and a healthy habit of saving around 40% of what you earn, you've got real room to let your money grow — your profile lands as <strong>Moderately Aggressive</strong>. Your finances comfortably back that up: your assets could cover several years of living costs, your debt is modest, and you own a property. You've told us you're fairly adventurous, and your financial footing supports leaning into that. It's a well-matched picture — nothing here is pulling in two directions.</div>
+</div>
+
+Every fact in the paragraph traces to a computed value — `risk_profile_category` verbatim, the ~40% from `savings_rate_pct`, the reassurance because `gap_exceeds_3` is false. **No number was invented and none was recomputed by the model.**
+
+---
+
+## 6. Where the LLM is
+
+**Only the last step is an LLM call.** Steps A–E are ordinary arithmetic; the score, category and flags exist *before* Haiku runs and do not depend on it.
+
+| Part | Where | Determinism |
+|---|---|---|
+| all scores, flags, category | [`scoring.py`](../../src/risk_profiling/scoring.py) + `common.category_for_effective_risk_score` | **fully deterministic** — same input → identical `effective_risk_score`, `risk_profile_category`, `gap_exceeds_3` |
+| `risk_summary` prose | [`main.py`](../../src/risk_profiling/main.py) `_generate_summary` → Haiku | probabilistic *wording only*; `max_tokens=400`, structured output |
+
+The chain is built with LangChain `ChatAnthropic` (repo convention — no raw `anthropic.messages.create`). `_get_summary_chain` is `@cache`d **per api_key**, so spend is attributed to the risk-profiling key passed by the gateway rather than mutated into process-global env state (which raced under async and was silently ignored after the first build — audit F8).
+
+<div class="callout danger">
+  <div class="title">⚠ The failure mode this module designs against</div>
+  <p>Haiku will happily <strong>restate a raw score, expose an internal term</strong> ("your capacity was clamped"), or <strong>drop an order of magnitude on a rupee figure</strong> if handed the raw values. The defence is upstream of the prompt: the numbers are already final, the sentinels are pre-translated to English, and rupees are pre-rendered with <code>format_inr_indian</code>. The model's only job is to narrate the pre-cooked facts in Pi's voice. Widen what you feed it and you widen what it can leak — keep the human-message field list (the <code>_HUMAN</code> template in <code>prompts.py</code>) tight.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`main.py`](../../src/risk_profiling/main.py) | **entry** — `run_risk_profiling` (app calls this, threads `api_key`) + the LCEL `risk_profiling_chain` (dev tooling); `_generate_summary` = the Haiku step + sentinel pre-formatting |
+| [`scoring.py`](../../src/risk_profiling/scoring.py) | `compute_all_scores` — Steps A–E, pure Python, no LLM; owns `AGE_ANCHORS`, `OSI_MAP` |
+| [`willingness.py`](../../src/risk_profiling/willingness.py) | `compute_risk_willingness` — the four-question (Q1–Q4) appetite scorer; **re-exported but unwired** (§8) |
+| [`prompts.py`](../../src/risk_profiling/prompts.py) | `summary_prompt` (`ChatPromptTemplate`) + `RiskProfileSummary` structured-output schema + the plain-language guardrail body |
+| [`models.py`](../../src/risk_profiling/models.py) | `RiskProfileInput` — the documented input contract (runtime payload is a plain dict) |
+| [`__init__.py`](../../src/risk_profiling/__init__.py) | re-exports `run_risk_profiling`, `risk_profiling_chain`, `RiskProfileInput`, `compute_all_scores`, `compute_risk_willingness` |
+| [`Testing/`](../../src/risk_profiling/Testing/) | `test_willingness.py` — the willingness questionnaire's edge cases |
+| `dev_run.py` / `customer_test_data.py` | 100-profile smoke runner + canned profiles (dev-only; the `.json`/`.csv` are captured artifacts, not schemas) |
+
+App-layer companions (not part of the engine, but where it is wired):
+
+| File | Role |
+|---|---|
+| [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) | the gateway `compute_effective_risk_document` — the ONLY production caller |
+| [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) · [`merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | trigger + incremental re-merge + persistence |
+| [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` |
+
+---
+
+## 8. Invariants & landmines
+
+- **`willingness.py` is orphaned on purpose.** `compute_risk_willingness` (the Q1–Q4 instrument) is re-exported from `__init__.py` but **nothing in the app calls it** — a repo-wide grep finds no production caller. Production `risk_willingness` is resolved by the app layer (stored appetite, or the legacy `risk_level` 0–4 → 1–10 mapping via `risk_willingness_from_risk_level`) and handed in on the payload. Don't assume editing `willingness.py` changes any live score; it doesn't (yet). It's staged for a future appetite instrument.
+- **OSI is recorded, not blended.** `osi = OSI_MAP[occupation_type]` lands in `calculations`, but `effective_risk_score` is `0.7·willingness + 0.3·capacity` only. Occupation stability does **not** move the headline (matches Logics thesis principle 5 / the "steady job didn't reward me" Q&A). Wiring it in is a deliberate future change, not a bug to "fix".
+- **The savings-rate step is narrative-only.** `_savings_adjustment` produces `equity_boost` / `equity_reduce` / `none` for the *summary* to acknowledge, but `_risk_capacity` never reads it — capacity depends solely on `age_based_score` and `net_asset_score`. Don't let a refactor quietly feed it into the score.
+- **Scores are deterministic; keep them that way.** Same input ⇒ identical `effective_risk_score`, `risk_profile_category`, `gap_exceeds_3`. Never route a number through the LLM — the LLM writes prose only. A summary failure must never corrupt a score.
+- **Sentinels are contract signals, not junk.** `999.0` (coverage/debt) means "no financial assets" or "no expenses to cover"; `savings_rate None` means "no income data". `_generate_summary` pre-translates them to English before the prompt — don't strip that and hand raw `999.0` to Haiku.
+- **Clamp is real and recorded.** `risk_capacity` is clamped to `[1,10]`; `was_clamped` / `clamp_direction` capture it, and the guardrail forbids the word "clamped" reaching the customer. `risk_willingness` is likewise coerced to `[1,10]` at the gateway.
+- **Output is an open dict, keyed by string.** The app indexes `calculations`/`output` by key and persists them as JSON. Renaming a key (e.g. `effective_risk_score`, `risk_profile_category`) is a breaking change to persistence and to the AA input builder — grep before you rename.
+- **Stale internal references — trust the files that exist.** `scoring.py`'s docstring cites *"risk_profile.md"* and a comment cites *"chain.py"*; `main.py`'s module docstring cites both (`risk_profile.md` and a `from risk_profiling.chain import …` usage line). **Neither file exists** — the real entry is `main.py` and there is no prompt `.md`. Don't go hunting for them.
+- **Failure isolation via LangChain.** All Claude calls go through `ChatAnthropic` (repo rule); the summary chain is `@cache`d per `api_key` so spend attribution can't race — never revert to env-var mutation for the key.
+
+---
+
+## 9. Extend & test
+
+- **Change scoring math** → edit [`scoring.py`](../../src/risk_profiling/scoring.py) (anchors, weights, clamp). Because the score grounds every downstream allocation, a math change isn't complete until [Logics_reference_docs/Risk_Profiling.md](../Logics_reference_docs/Risk_Profiling.md) is re-checked and version-bumped (repo's "Logics docs track the engines" rule) — describe production behaviour, not dormant capability (OSI / savings-rate).
+- **Change summary wording / guardrails** → edit `_RISK_BODY` and the field list in [`prompts.py`](../../src/risk_profiling/prompts.py). Adding a fact the paragraph may state means adding it to the human-message template *and* pre-formatting any sentinel/rupee value in `_generate_summary` first.
+- **Tests** — the committed unit suite is the willingness scorer:
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | willingness | [`Testing/test_willingness.py`](../../src/risk_profiling/Testing/test_willingness.py) | Q1–Q4 scoring, the `min(avg, lift, Q2_cap)` combine, and every `None`/missing-question path |
+  | per-module key | [`app/core/tests/test_per_module_api_keys.py`](../../../app/core/tests/test_per_module_api_keys.py) | that `run_risk_profiling` receives the explicitly-threaded `api_key`, not ambient env |
+
+  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/risk_profiling/Testing/`.
+- **Run scoring without an API key** — `compute_all_scores` is pure Python and needs no Anthropic call. This is the fastest way to check any arithmetic change:
+
+  ```python
+  from risk_profiling.scoring import compute_all_scores
+  doc = compute_all_scores({
+      "age": 35, "occupation_type": "private_sector",
+      "annual_income": 2_000_000, "annual_expense": 1_200_000,
+      "financial_assets": 5_000_000, "liabilities_excluding_mortgage": 200_000,
+      "annual_mortgage_payment": 300_000, "properties_owned": 1,
+      "risk_willingness": 7.0,
+  })
+  print(doc["output"]["effective_risk_score"], doc["calculations"]["risk_profile_category"])
+  # risk_summary is "" — the LLM step (run_risk_profiling) fills it
+  ```
+
+  Hand the same dict to `run_risk_profiling(payload, api_key=…)` to exercise the full chain including the Haiku paragraph. `dev_run.py` runs the deterministic `compute_all_scores` across all 100 canned profiles and the full LLM chain for 5 representative ones.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -90,4 +90,105 @@ class SipPlanResponse(BaseModel):
     goal_plan_in_sync: bool = True
 
 
-__all__ = ["SipCreateRequest", "SipFundBuy", "SipPlanResponse"]
+# ── Lump sum (one-time deployment) ─────────────────────────────────────────
+# The Invest → Lump sum page (`/invest/lumpsum`) reads the customer's latest
+# ONE-TIME deployment plan via `GET /additional-investment/lumpsum` and sets one
+# up via `POST`. It runs the SAME additional-investment engine as the SIP path,
+# with `cadence=lumpsum` — which triggers holdings-aware DEFICIT FILL: the money
+# is steered into the parts of the portfolio furthest below their goal-based
+# ideal. Those ideal/current/gap facts drive the per-fund reasoning and the
+# "why these funds" alignment section, so the lumpsum shape carries a bit more
+# than the SIP shape.
+
+
+class LumpsumCreateRequest(BaseModel):
+    """Set-up request from the Invest → Lump sum page's "Plan lump sum" action.
+
+    Only the one-time amount is taken from the client; the engine derives the
+    fund split from the customer's goals, ideal allocation and current holdings.
+    ``action`` mirrors the page's Add / Withdraw toggle — only ``add`` is
+    supported today (the additional-investment engine is BUY-only; ``withdraw``
+    is rejected with a customer-facing message).
+    """
+
+    amount_inr: float = Field(
+        gt=0, description="Fresh money to invest one-time, in rupees."
+    )
+    action: Literal["add", "withdraw"] = Field(
+        default="add",
+        description="'add' deploys fresh money; 'withdraw' is not yet supported.",
+    )
+
+
+class LumpsumAlignmentRow(BaseModel):
+    """One part of the portfolio the lump sum was measured against.
+
+    The "why these funds" section renders these: for each subgroup the money
+    went into, how the customer's CURRENT holdings compare with their goal-based
+    IDEAL, the resulting gap, and how much of this lump sum fills it. Subgroup is
+    the raw engine id (for keys); ``label`` is the customer-facing name.
+    """
+
+    subgroup: str
+    label: str
+    asset_class: str
+    ideal_inr: float
+    current_inr: float
+    gap_inr: float
+    deploy_inr: float
+
+
+class LumpsumFundBuy(BaseModel):
+    """One fund in the lump-sum plan with its one-time amount and reasoning."""
+
+    recommended_fund: str
+    sub_category: str
+    asset_subgroup: str
+    # AMFI scheme code — deep-links the fund to `/discovery/mf/:schemeCode`.
+    scheme_code: str
+    amount_inr: float
+    rank: int
+    # Plain-English "why this fund" line: ties the buy to the customer's
+    # goal-based ideal and how their current holdings compare (see
+    # ``lumpsum_reasoning.build_fund_reason``).
+    reason: str
+
+
+class LumpsumPlanResponse(BaseModel):
+    """The customer's latest one-time lump-sum deployment plan for the Invest page.
+
+    ``has_plan`` is False (numeric fields 0, lists empty) when the customer has
+    never planned a lump sum — the frontend then shows its set-up prompt.
+    """
+
+    has_plan: bool
+    run_id: Optional[uuid.UUID] = None
+    created_at: Optional[datetime] = None
+    # Total fresh money the plan deploys (the run's deploy amount).
+    amount_inr: float = 0.0
+    # Of the amount: how much landed in funds vs. couldn't be placed (per-fund
+    # caps / fund scarcity). ``deployed + undeployed == amount``.
+    deployed_inr: float = 0.0
+    undeployed_inr: float = 0.0
+    # Horizon the deploy leaned toward: "short_term" | "medium_term" |
+    # "long_term"; None when there is no plan. Engine context — the frontend
+    # narrates a friendly label, never the raw value.
+    target_bucket: Optional[str] = None
+    fund_count: int = 0
+    buys: List[LumpsumFundBuy] = []
+    # Per-part current-vs-ideal alignment behind the plan (may be empty for a
+    # legacy run persisted before the facts were stored).
+    alignment_rows: List[LumpsumAlignmentRow] = []
+    # One-line summary of the whole deployment in goal terms.
+    headline_reason: Optional[str] = None
+
+
+__all__ = [
+    "SipCreateRequest",
+    "SipFundBuy",
+    "SipPlanResponse",
+    "LumpsumCreateRequest",
+    "LumpsumAlignmentRow",
+    "LumpsumFundBuy",
+    "LumpsumPlanResponse",
+]

@@ -18,6 +18,7 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in app-side `fund_rank.py` (the CSV loader) and must stay in sync; the sentinel marks rows the input builder wants force-exited (`config.py`).
 - **Sell-ordering is regulatory.** STCG is never realised on a recommended-fund trim (optional sells are LT-only — STCG only on force-exit); sells walk LT→ST first, LT being the cheaper bucket, under the STCG budget (`steps/step4_initial_trades_under_stcg_cap.py`).
 - **Loss-offset uses SHORT-term losses only** — an LT capital loss may set off only LTCG, never STCG (`steps/step5_loss_offset_top_up.py`).
+- **Per-fund cap is floored in rupees** (`steps/step1_cap_and_spill.py`, amendment 2026-07-06): `cap = max(cap_pct × corpus, FUND_CAP_FLOOR_INR)` (default ₹1L, env `REBAL_FUND_CAP_FLOOR_INR`) — small corpora neither fragment into sub-₹1L buys nor get trimmed to satisfy tiny percentage caps; `max_pct` on fund rows reports the EFFECTIVE cap when the floor wins, and the floor is stamped into `KnobSnapshot.fund_cap_floor_inr`.
 - **Bump `ENGINE_VERSION` on any output-altering logic change** (`config.py`) — it is stamped into response metadata for cache/repro tracking.
 
 ## Depends on
