@@ -35,4 +35,15 @@ location /api/ {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+
+    # 504 Gateway Time-out fix. nginx's default proxy_read_timeout is 60s, but a
+    # chat turn (e.g. "best performing mutual funds" → market_commentary web-search
+    # LLM chain) is allowed up to _FLOW_TIMEOUT_S = 180s in the backend
+    # (app/domains/ai_engine/services/brain.py). With the default, nginx cuts the
+    # connection at 60s and returns 504 while the app is still generating the reply.
+    # Keep these ABOVE the backend flow timeout so the backend's own timeout/fallback
+    # is what the client sees, never nginx's. Update both if _FLOW_TIMEOUT_S changes.
+    proxy_connect_timeout 75s;
+    proxy_send_timeout    200s;
+    proxy_read_timeout    200s;
 }
