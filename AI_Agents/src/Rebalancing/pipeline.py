@@ -24,6 +24,7 @@ from .models import (
 from .steps import (
     step1_cap_and_spill,
     step2_compare_and_decide,
+    step2b_suppress_debt_switch,
     step3_tax_classification,
     step4_initial_trades_under_stcg_cap,
     step5_loss_offset_top_up,
@@ -99,7 +100,11 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
         rows_with_targets, request
     )
     s2_rows, s2_warnings = step2_compare_and_decide.apply(s1_rows, request)
-    s3_rows = step3_tax_classification.apply(s2_rows, request)
+    # 2b. Cancel debt-for-debt switches while they are still intents — before
+    # any lot selection or tax arithmetic, so those run once on the corrected
+    # picture rather than having to be unwound.
+    s2b_rows = step2b_suppress_debt_switch.apply(s2_rows, request)
+    s3_rows = step3_tax_classification.apply(s2b_rows, request)
     s4_rows, s4_warnings = step4_initial_trades_under_stcg_cap.apply(s3_rows, request)
     s5_rows = step5_loss_offset_top_up.apply(s4_rows, request)
 

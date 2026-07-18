@@ -95,6 +95,14 @@ class FundRowAfterStep2(FundRowAfterStep1):
     diff: Decimal  # final_target_amount − present (signed)
     exit_flag: bool  # forced exit (BAD or low-rated)
     worth_to_change: bool  # |diff| past threshold OR exit_flag
+    # Signed target move applied by step2b when a debt-for-debt switch was
+    # cancelled. step6 adds it into the per-subgroup `goal_target_inr` so the
+    # summary reconciles with `suggested_final_holding_inr`.
+    # `target_amount_pre_cap` is deliberately NOT overwritten: its per-subgroup
+    # sum equals the practical-allocation output, which ships verbatim on the
+    # same response, so mutating it would put two different numbers for one
+    # subgroup in a single payload. Zero on every row step2b left alone.
+    netted_target_adjustment_inr: Decimal = Decimal(0)
 
 
 class FundRowAfterStep3(FundRowAfterStep2):

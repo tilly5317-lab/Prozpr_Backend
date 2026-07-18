@@ -214,7 +214,17 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
 
     out: list[SubgroupSummary] = []
     for sg, sg_rows in by_sg.items():
-        goal_target = sum((r.target_amount_pre_cap for r in sg_rows), Decimal(0))
+        # `netted_target_adjustment_inr` is the signed target move step2b made
+        # when it cancelled a debt-for-debt switch. Adding it keeps
+        # `goal_target_inr` reconciled with `suggested_final_holding_inr`;
+        # it is 0 on every row step2b left alone.
+        goal_target = sum(
+            (
+                r.target_amount_pre_cap + r.netted_target_adjustment_inr
+                for r in sg_rows
+            ),
+            Decimal(0),
+        )
         current = sum((r.present_allocation_inr for r in sg_rows), Decimal(0))
         if goal_target == 0 and current == 0:
             continue
