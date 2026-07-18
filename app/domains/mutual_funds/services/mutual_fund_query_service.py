@@ -13,7 +13,9 @@ from anthropic import AuthenticationError as AnthropicAuthenticationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.domains.ai_engine.answer_formatter import format_with_telemetry
 from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.mutual_funds.services.category_resolver import resolve_category
 from app.domains.mutual_funds.services.fund_ranking_lookup import (
     peers_by_sub_category,
     ranking_by_isin,
@@ -24,6 +26,10 @@ from app.domains.mutual_funds.services.fund_resolver_service import (
     resolve_fund,
 )
 from app.domains.mutual_funds.services.fund_returns_service import trailing_cagr_for_scheme
+from app.domains.mutual_funds.services.fund_screener_service import (
+    ScreenedFund,
+    screen_top_funds,
+)
 
 ensure_ai_agents_path()
 from mutual_fund_query import (  # noqa: E402
@@ -131,9 +137,85 @@ def _build_held_map(user) -> dict[str, str]:
     return held
 
 
+_SCREEN_BODY_PROMPT = (
+    "The customer asked for the best / top performing mutual funds. FACTS_PACK.screen "
+    "holds a ranked shortlist we computed from our fund universe — the top funds by "
+    "trailing CAGR over `horizon_years` (Regular plan, Growth option), best first.\n"
+    "\n"
+    "Write the reply:\n"
+    "- Present the funds in FACTS_PACK order (best first), each with its return, and state "
+    "the horizon in words (e.g. 'over the last 3 years') and that they're ranked by past return.\n"
+    "- If `category` is set, frame them as the best in that category; if null, best overall.\n"
+    "- Add one short, honest caveat that past performance doesn't guarantee future returns.\n"
+    "- Cite ONLY funds and figures present in FACTS_PACK — never invent a fund or a number.\n"
+    "- Keep it tight and scannable: a one-line intro, then the ranked funds."
+)
+
+
+def _screen_facts_pack(
+    funds: list[ScreenedFund], horizon_years: int, category: str | None
+) -> dict:
+    return {
+        "screen": {
+            "horizon_years": horizon_years,
+            "category": category,
+            "ranked_funds": [
+                {
+                    "rank": i,
+                    "fund_name": f.scheme_name,
+                    "amc": f.amc_name,
+                    "sub_category": f.sub_category,
+                    "return_cagr_pct": round(f.return_cagr_pct, 2),
+                }
+                for i, f in enumerate(funds, start=1)
+            ],
+        }
+    }
+
+
+def _screen_fallback(funds: list[ScreenedFund], horizon_years: int) -> str:
+    lines = [f"Top {len(funds)} funds by {horizon_years}-year return:"]
+    lines += [
+        f"{i}. {f.scheme_name} — {f.return_cagr_pct:.1f}% ({horizon_years}y CAGR)"
+        for i, f in enumerate(funds, start=1)
+    ]
+    lines.append("Past performance doesn't guarantee future returns.")
+    return "\n".join(lines)
+
+
+async def _answer_screen(question: str, ctx, extracted) -> str:
+    """No fund named → rank our universe and reply with a tailored top-N shortlist."""
+    if getattr(ctx, "db", None) is None:
+        return _GENERIC_FAILURE_REPLY
+    horizon = extracted.screen_horizon_years or 3
+    category = resolve_category(extracted.screen_category)
+    try:
+        funds = await screen_top_funds(
+            ctx.db, horizon_years=horizon, category=category, limit=5
+        )
+    except Exception:
+        logger.exception("mutual_fund_query: screen failed")
+        return _GENERIC_FAILURE_REPLY
+    if not funds:
+        return (
+            f"I couldn't find enough funds with a full {horizon}-year track record to "
+            "rank right now. Try a different time frame, or ask me about a specific fund."
+        )
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=_screen_facts_pack(funds, horizon, category),
+        body_prompt=_SCREEN_BODY_PROMPT,
+        module_name="mutual_fund_query",
+        action_mode="screen",
+        profile={"first_name": getattr(getattr(ctx, "user_ctx", None), "first_name", None)},
+        build_fallback=lambda: _screen_fallback(funds, horizon),
+    )
+
+
 async def answer_mutual_fund_query(question: str, ctx) -> str:
     """Two-step single-shot: extract fund(s) + ask → resolve → build grounded
-    facts → narrate. Returns the customer reply string."""
+    facts → narrate. Returns the customer reply string. A no-fund-named 'best
+    performing funds' ask is routed to the screener instead (`_answer_screen`)."""
     try:
         orch = _get_orchestrator()
     except Exception:
@@ -149,6 +231,9 @@ async def answer_mutual_fund_query(question: str, ctx) -> str:
     except Exception:
         logger.exception("mutual_fund_query: extract failed")
         return _GENERIC_FAILURE_REPLY
+
+    if extracted.is_screen:
+        return await _answer_screen(question, ctx, extracted)
 
     if not extracted.fund_names:
         return "Which fund would you like to know about?"

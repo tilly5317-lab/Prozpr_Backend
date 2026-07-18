@@ -154,6 +154,15 @@ async def format_redirect_or_canned(*, ctx: "TurnContext", intent: "IntentDecisi
 # Keep market commentary under this limit so the prompt fits the context window.
 _MAX_COMMENTARY_CHARS = 7000
 
+# Web-search rounds allowed in the research pass. Each extra round re-sends the
+# whole accumulated context (system + commentary + prior results), so input
+# tokens compound per round. The daily market commentary already supplies the 14
+# core macro indicators, so the research pass only web-searches for GAPS — one
+# focused query covers almost all of them. Capping at 1 (was 3) removes the
+# rounds-2/3 token blow-up. Bump only if gap questions genuinely need several
+# distinct live lookups.
+_RESEARCH_WEBSEARCH_MAX_USES = 1
+
 from persona import build_system_prompt  # noqa: E402  shared PI voice (AI_Agents/src)
 
 # Flow-specific body only — identity, money, jargon, markdown/emoji, question-opening
@@ -277,9 +286,10 @@ _RESEARCH_SYSTEM_PROMPT = (
     "Source priority:\n"
     "1. Use figures from the 'Market commentary context' section of the user "
     "message when they are present. Cite them as 'per our daily snapshot'.\n"
-    "2. If the requested figure is NOT in the commentary, call `web_search` (up "
-    "to 3 India-specific queries, e.g. 'Nifty 50 PE today', 'RBI repo rate "
-    "latest', 'USD INR spot').\n"
+    "2. If the requested figure is NOT in the commentary, call `web_search` once "
+    "with a single focused India-specific query (e.g. 'Nifty 50 PE today', 'RBI "
+    "repo rate latest', or 'USD INR spot') — pick the one that best answers the "
+    "question.\n"
     "3. Never recall market data from training knowledge.\n"
     "\n"
     "Output: a short plain-text factual digest (max ~150 words) of ONLY the data "
@@ -367,7 +377,11 @@ async def generate_general_chat_response(
         timeout=90.0,
     ).bind_tools(
         [
-            {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": _RESEARCH_WEBSEARCH_MAX_USES,
+            },
         ]
     )
     try:
