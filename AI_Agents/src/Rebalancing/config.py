@@ -66,4 +66,4 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 # ── Engine version ────────────────────────────────────────────────────────────
 # Bump on logic changes that alter output for the same inputs.
 # 1.1.0: per-fund cap floored at FUND_CAP_FLOOR_INR (amendment 2026-07-06).
-ENGINE_VERSION: str = "1.1.0"
+ENGINE_VERSION: str = "1.2.0"
