@@ -111,3 +111,31 @@ def track_turn_posthog(
         yield
     finally:
         _posthog_cb_var.reset(token)
+
+
+def set_turn_trace_name(name: str) -> None:
+    """Label the active turn's trace, e.g. with the classified intent.
+
+    Without this every trace is named after whichever LangChain runnable happened
+    to be the root ("RunnableSequence"), which makes the PostHog trace list
+    unreadable. ``$ai_trace_name`` is the field PostHog's other processors use for
+    exactly this, and the LangChain handler never writes it — so unlike
+    ``$ai_span_name`` it can be set from ``properties`` without overwriting each
+    span's own name.
+
+    Timing caveat: the intent is only known after the classifier has run, so the
+    classifier's own generation is already captured by then and will not carry the
+    name. Every later event in the turn does.
+
+    Reaches into the handler's ``_properties`` because the SDK exposes no setter
+    (the ``_trace_name`` field it declares is dead code, never read). That dict is
+    read at capture time, so mutating it affects subsequent events. Best-effort:
+    a naming failure must never break the turn.
+    """
+    handler = _posthog_cb_var.get()
+    if handler is None:
+        return
+    try:
+        handler._properties["$ai_trace_name"] = name
+    except Exception as exc:  # pragma: no cover - naming is cosmetic
+        logger.debug("Could not set PostHog trace name: %s", exc)
