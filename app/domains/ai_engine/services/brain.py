@@ -25,6 +25,7 @@ import dataclasses
 import importlib
 import logging
 import time
+import uuid
 
 import httpx
 
@@ -41,6 +42,7 @@ from app.domains.ai_engine.chat_types import (
     ChatBrainResult,
     ChatTurnInput,
 )
+from app.domains.ai_engine.posthog_tracing import track_turn_posthog
 from app.domains.ai_engine.types import IntentDecision, ModuleOutput
 from app.domains.ai_engine.usage_tracking import (
     jsonable_llm_usage,
@@ -151,8 +153,23 @@ class ChatBrain:
         # into one per-turn aggregate, persisted on the chat_flow telemetry row
         # by _finalize. Works through asyncio.to_thread and asyncio.wait_for
         # (contextvars propagate into threads and child tasks).
+        # PostHog nests inside on the same contextvar mechanism: one $ai_trace per
+        # turn, spans per LangGraph node, a generation per LLM call. distinct_id is
+        # the effective user (family-member override included), so traces line up
+        # with the frontend's posthog-js identify(). No-op unless POSTHOG_API_KEY
+        # is set; prompts/state are redacted unless POSTHOG_LLM_CAPTURE_CONTENT.
         with track_turn_llm_usage() as usage_cb:
-            return await self._run_turn(turn, usage_cb)
+            with track_turn_posthog(
+                distinct_id=str(turn.effective_user_id) if turn.effective_user_id else None,
+                trace_id=str(uuid.uuid4()),
+                # Plain keys only. The handler does event_properties.update(self._properties)
+                # AFTER setting $ai_* fields, so a "$ai_..." key here would overwrite
+                # every span's own value (e.g. $ai_span_name) and flatten the trace.
+                properties={
+                    "session_id": str(turn.session_id) if turn.session_id else None,
+                },
+            ):
+                return await self._run_turn(turn, usage_cb)
 
     async def _run_turn(self, turn: ChatTurnInput, usage_cb) -> ChatBrainResult:
         sid = turn.session_id
