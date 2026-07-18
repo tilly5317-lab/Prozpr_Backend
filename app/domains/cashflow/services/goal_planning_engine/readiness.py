@@ -56,13 +56,16 @@ def _retirement_age(user: Any) -> Any:
 
 
 def effective_tax_rate_value(user: Any) -> Optional[float]:
-    """Effective post-deduction rate as a fraction (0-1), from PFP or tax profile."""
-    pfp = _pfp(user)
-    if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
-        return float(pfp.effective_tax_rate)
+    """Marginal tax rate as a fraction (0-1). Sourced from the tax profile's
+    ``income_tax_rate`` (the single source of truth, shared with /profile/complete);
+    falls back to the legacy PFP ``effective_tax_rate`` for users who set it before
+    the two screens were unified onto one dropdown."""
     tax = _tax(user)
     if tax is not None and getattr(tax, "income_tax_rate", None) is not None:
         return float(tax.income_tax_rate) / 100.0
+    pfp = _pfp(user)
+    if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
+        return float(pfp.effective_tax_rate)
     return None
 
 
@@ -111,12 +114,12 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     ),
     FieldSpec(
         "effective_tax_rate",
-        "Effective tax rate",
+        "Marginal tax rate",
         "Income & expenses",
         "percent",
         "%",
         effective_tax_rate_value,
-        help="Blended post-deduction tax rate applied to income and returns. Optional — a standard rate is assumed if left blank.",
+        help="Your marginal income-tax slab rate — the same figure as your profile's tax details. Optional — a standard rate is assumed if left blank.",
         optional=True,
     ),
     FieldSpec(

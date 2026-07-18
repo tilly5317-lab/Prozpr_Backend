@@ -5,6 +5,7 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -58,6 +59,31 @@ from app.domains.cashflow.services.cashflow_persist_service import (
 )
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+logger = logging.getLogger(__name__)
+
+# The questionnaire answers that feed risk willingness / the effective risk
+# score. Q1=risk_level (investment preference), Q2=investment_experience,
+# Q3=investment_focus, Q4=drop_reaction (see risk_profiling/willingness.py);
+# occupation_type + an explicit risk_willingness override also change the
+# effective risk calc. Changes to these are logged so we can trace a customer
+# re-answering a risk question through to the recomputed effective risk.
+_RISK_QUESTION_FIELDS = (
+    "risk_level",
+    "investment_experience",
+    "investment_focus",
+    "drop_reaction",
+    "occupation_type",
+    "risk_willingness",
+)
+
+
+def _log_value(value: object) -> object:
+    """Compact a field value for logging — behavioural answers are full option
+    sentences, so truncate long strings to keep the log line readable."""
+    if isinstance(value, str) and len(value) > 60:
+        return value[:57] + "..."
+    return value
 
 
 @router.get("/", response_model=FullProfileResponse)
@@ -414,11 +440,33 @@ async def update_risk_profile(
         profile = RiskProfile(user_id=current_user.id)
         db.add(profile)
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    payload_data = payload.model_dump(exclude_unset=True)
+    # Snapshot the questionnaire answers before applying the update so we can log
+    # exactly which risk question's response the user changed (old -> new).
+    changed_questions: dict[str, tuple[object, object]] = {}
+    for field in _RISK_QUESTION_FIELDS:
+        if field in payload_data:
+            old_value = getattr(profile, field, None)
+            new_value = payload_data[field]
+            if old_value != new_value:
+                changed_questions[field] = (old_value, new_value)
+
+    for field, value in payload_data.items():
         setattr(profile, field, value)
 
     await db.commit()
     await db.refresh(profile)
+
+    if changed_questions:
+        logger.info(
+            "Risk questionnaire updated user=%s changes=%s",
+            current_user.id,
+            {
+                field: {"from": _log_value(old), "to": _log_value(new)}
+                for field, (old, new) in changed_questions.items()
+            },
+        )
+
     await maybe_recalculate_effective_risk(db, current_user.id, "risk_profile_update")
     await db.commit()
     return RiskProfileResponse.model_validate(profile)
