@@ -7,8 +7,9 @@ One public entry point — the ``lifespan`` async context manager that
         1. log which DB engine + host we're pointed at
         2. (unless SKIP_STARTUP_DB_DDL) create tables + apply pg schema patches
         3. (if MFAPI_SCHEDULER_ENABLED) start the mfapi.in NAV polling job
+        4. (if POSTHOG_API_KEY) build the PostHog LLM observability client
     shutdown:
-        4. stop the scheduler, dispose the SQLAlchemy engine
+        5. stop the scheduler, flush PostHog, dispose the SQLAlchemy engine
 
 Each step is independent — failures log and continue so a flaky DB or
 scheduler doesn't keep the process from coming up far enough to serve
@@ -30,6 +31,7 @@ from app.core.database import (
     create_all_tables,
     dispose_engine,
 )
+from app.core.observability import init_posthog, shutdown_posthog
 from app.domains.mutual_funds.services.mfapi_scheduler import (
     shutdown_scheduler,
     start_scheduler,
@@ -67,6 +69,7 @@ async def _startup() -> None:
     _log_db_engine_info()
     await _initialize_database()
     _start_schedulers()
+    init_posthog()
 
     logger.info("Server ready! Docs at /docs")
     logger.info(_BANNER)
@@ -159,5 +162,8 @@ async def _shutdown() -> None:
     logger.info("Shutting down Ask PI API...")
     await shutdown_scheduler()
     await shutdown_benchmark_scheduler()
+    # Flush buffered LLM events before the process goes away, or the last turns'
+    # traces are lost.
+    shutdown_posthog()
     await dispose_engine()
     logger.info("Shutdown complete")
