@@ -142,3 +142,6 @@ docs/superpowers/specs/2026-05-09-projection-run-tables.md
 docs/superpowers/specs/2026-05-10-projection-input-tables.md
 docs/superpowers/specs/2026-05-10-rebalancing-input-tables.md
 docs/superpowers/specs/2026-05-10-rebalancing-output-tables.md
+/AI_Agents/lifecycle_sim_testing/tests
+/AI_Agents/lifecycle_sim_testing
+/app/domains/profile/services/_effective_risk/tests
