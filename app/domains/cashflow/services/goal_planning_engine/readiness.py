@@ -82,10 +82,11 @@ def retirement_goal_target_date(user: Any, today: Optional[date] = None) -> Opti
 
 def retirement_age_from_goals(user: Any, today: Optional[date] = None) -> Optional[int]:
     """Retirement age derived from the user's Retirement goal (target year −
-    birth year), or None when there is no such goal / no DOB. The engine uses it
-    only to EXTEND the planned retirement age (stored value, default 60) — a
-    retirement goal earlier than that is just a goal inside the horizon and must
-    never shorten the projection."""
+    birth year), or None when there is no such goal / no DOB. The goal's target
+    year is the SSOT for when the user retires — the goals/profile routers keep
+    investment_profiles.retirement_age mirrored to it (goals.services.
+    retirement_sync), and the engine prefers this derived value when a goal
+    exists."""
     target = retirement_goal_target_date(user, today)
     dob = getattr(user, "date_of_birth", None)
     if target is None or dob is None:
@@ -94,15 +95,14 @@ def retirement_age_from_goals(user: Any, today: Optional[date] = None) -> Option
 
 
 def _retirement_age(user: Any) -> Any:
-    """The stored retirement age, unless a Retirement goal pushes it later —
-    mirroring what the engine will actually use (input_builder), so the inputs
-    form shows the effective number."""
-    inv = _inv(user)
-    stored = getattr(inv, "retirement_age", None) if inv is not None else None
+    """The Retirement-goal-derived age when such a goal exists (SSOT), else the
+    stored investment-profile value — mirroring what the engine will actually
+    use (input_builder), so the inputs form shows the effective number."""
     derived = retirement_age_from_goals(user)
-    if derived is not None and derived > (stored if stored is not None else 60):
+    if derived is not None:
         return derived
-    return stored
+    inv = _inv(user)
+    return getattr(inv, "retirement_age", None) if inv is not None else None
 
 
 def effective_tax_rate_value(user: Any) -> Optional[float]:

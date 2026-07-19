@@ -57,6 +57,9 @@ from app.domains.profile.services._effective_risk import (
 from app.domains.cashflow.services.cashflow_persist_service import (
     mark_stale as mark_cashflow_stale,
 )
+from app.domains.goals.services.retirement_sync import (
+    sync_retirement_goal_from_age,
+)
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -345,6 +348,12 @@ async def update_investment_profile(
         db, current_user.id, "investment_profile_update"
     )
     await db.commit()
+    # SSOT: a saved retirement age moves the active Retirement goal to the
+    # matching target year (goal edits sync the other way in goals_router).
+    if payload_data.get("retirement_age"):
+        await sync_retirement_goal_from_age(
+            db, current_user.id, int(payload_data["retirement_age"])
+        )
     # retirement_age / target_corpus feed the cashflow projection — invalidate
     # the cached plan run so the next fetch recomputes.
     await mark_cashflow_stale(db, current_user.id)
