@@ -36,6 +36,13 @@ class PortfolioAllocationCreate(BaseModel):
     amount: float = 0
 
 
+class AllocationSubCategoryResponse(BaseModel):
+    """One SEBI sub-category's share of a single asset class."""
+
+    name: str
+    amount: float
+
+
 class PortfolioAllocationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -44,6 +51,12 @@ class PortfolioAllocationResponse(BaseModel):
     allocation_percentage: float
     amount: float
     performance_percentage: Optional[float] = None
+    # Sub-category breakdown of THIS asset class, for the donut's slice
+    # drill-down. Blended funds are look-through split, so a hybrid appears
+    # under each class it splits into and these amounts sum to `amount` above.
+    # Do NOT rebuild this by grouping `holdings` on their single `asset_class` —
+    # that ignores the split. Empty for Cash (no holding behind it).
+    sub_categories: list[AllocationSubCategoryResponse] = []
 
 
 class PortfolioAllocationBulkUpdate(BaseModel):
