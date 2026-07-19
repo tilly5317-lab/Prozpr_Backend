@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from .config import (
     ARBITRAGE_FUND_CAP_PCT,
+    FUND_CAP_FLOOR_INR,
     MULTI_FUND_CAP_PCT,
     OTHERS_FUND_CAP_PCT,
     SHORT_DEBT_FUND_CAP_PCT,
@@ -44,3 +47,16 @@ DEBT_NETTING_POOL: frozenset[str] = frozenset(
         "arbitrage_plus_income",
     }
 )
+
+
+def effective_cap_for(asset_subgroup: str, corpus: Decimal) -> Decimal:
+    """Per-fund cap in rupees: `max(cap_pct x corpus, FUND_CAP_FLOOR_INR)`.
+
+    Single source of truth. The formula was previously inlined in three places
+    (step1's cap walk and two sites in step2b), which is how a cap change would
+    have silently applied to some of them and not others.
+    """
+    return max(
+        Decimal(str(cap_pct_for(asset_subgroup))) / Decimal(100) * corpus,
+        FUND_CAP_FLOOR_INR,
+    )

@@ -14,7 +14,7 @@ Wraps `asset_allocation_pydantic` with four extra corpus inputs (`mf_corpus`, `n
 
 ## Gotchas & invariants
 - **FIRST explicit cross-agent import** under `AI_Agents/src/` (spec §B.1) — imports steps 1–3, step5, selected step4 helpers, utils, and models from `asset_allocation_pydantic`. Those upstream names are a contract: a rename there is a cross-module change. (`Rebalancing` then imports from here.)
-- **Practical amounts are int/float-rounded, not `Decimal`.** Downstream `Rebalancing` rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_targets_to_rank1`). Emit plain numbers here — do not pre-wrap in `Decimal`.
+- **Practical amounts are int/float-rounded, not `Decimal`.** Downstream `Rebalancing` rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_subgroup_targets`). Emit plain numbers here — do not pre-wrap in `Decimal`.
 
 ## Testing
 - Unit/scenario: `PYTHONPATH=AI_Agents/src pytest AI_Agents/src/practical_asset_allocation/Testing -v` — covers the spec §B.9 scenarios (regression-vs-ideal, ELSS bands, non-MF cap, sliding-threshold v2, mid-sequence underfunding).

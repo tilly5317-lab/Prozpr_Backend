@@ -27,7 +27,6 @@ from typing import Callable
 
 from ..config import (
     DEBT_NETTING_MODE,
-    FUND_CAP_FLOOR_INR,
     DEBT_SWITCH_NETTING_ENABLED,
     REBALANCE_MIN_CHANGE_PCT,
 )
@@ -37,7 +36,7 @@ from ..models import (
     RebalancingWarning,
     WarningCode,
 )
-from ..tables import DEBT_NETTING_POOL as DEBT_POOL, cap_pct_for
+from ..tables import DEBT_NETTING_POOL as DEBT_POOL, effective_cap_for
 
 
 def _split_pro_rata(
@@ -91,10 +90,7 @@ def _cap_spill_buy_reductions(
 
     out: dict[str, Decimal] = {}
     for r in sorted(buys, key=lambda x: (x.rank, x.isin)):
-        cap_amount = max(
-            Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
-            FUND_CAP_FLOOR_INR,
-        )
+        cap_amount = effective_cap_for(r.asset_subgroup, corpus)
         # Never grant more than step1 wanted here, nor more than the fund may hold.
         grant = min(remaining, cap_amount, r.diff)
         remaining -= grant
@@ -147,6 +143,7 @@ def apply(
     buy_capacity = max(buy_total - forced_proceeds, Decimal(0))
 
     cancel_total = min(sell_total, buy_capacity)
+
     if cancel_total <= 0:
         return rows, []
 
@@ -208,10 +205,7 @@ def apply(
             # sitting in one fund" is a likelier question than "what tax did
             # you save", and there is no per-trade rationale to carry it
             # because we have deliberately produced an *inaction*.
-            cap_amount = max(
-                Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
-                FUND_CAP_FLOOR_INR,
-            )
+            cap_amount = effective_cap_for(r.asset_subgroup, corpus)
             if final_target > cap_amount:
                 left_above_cap = max(left_above_cap, final_target)
         if diff == 0:
@@ -251,9 +245,9 @@ def apply(
     )
     if left_above_cap > 0:
         message += (
-            f" This does leave more in a single fund than we would usually "
-            f"hold; new investments will bring that back into line rather "
-            f"than selling now and paying the tax."
+            " This does leave more in a single fund than we would usually "
+            "hold; new investments will bring that back into line rather "
+            "than selling now and paying the tax."
         )
 
     warning = RebalancingWarning(

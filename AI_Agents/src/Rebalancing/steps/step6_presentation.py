@@ -14,14 +14,17 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from ..config import (
+    DEBT_NETTING_MODE,
     DEBT_SWITCH_NETTING_ENABLED,
     ENGINE_VERSION,
     EXIT_FLOOR_RATING,
     FUND_CAP_FLOOR_INR,
+    HOLDINGS_AWARE_TARGETS_ENABLED,
     LTCG_ANNUAL_EXEMPTION_INR,
     LTCG_RATE_EQUITY_PCT,
     MULTI_FUND_CAP_PCT,
     OTHERS_FUND_CAP_PCT,
+    RANK_PROTECT_BAND,
     REBALANCE_MIN_CHANGE_PCT,
     ST_THRESHOLD_MONTHS_DEBT,
     ST_THRESHOLD_MONTHS_EQUITY,
@@ -67,6 +70,11 @@ def _build_knob_snapshot() -> KnobSnapshot:
         # own snapshot — two engine builds otherwise look identical.
         debt_switch_netting_enabled=DEBT_SWITCH_NETTING_ENABLED,
         debt_netting_subgroups=sorted(DEBT_NETTING_POOL),
+        debt_netting_mode=DEBT_NETTING_MODE,
+        # Change 2: the band is the single knob that decides whether a held
+        # rank-2 fund is kept or liquidated — a run is unexplainable without it.
+        holdings_aware_targets_enabled=HOLDINGS_AWARE_TARGETS_ENABLED,
+        rank_protect_band=RANK_PROTECT_BAND,
     )
 
 
