@@ -14,6 +14,7 @@ questions stay consistent between the engine and the UI.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -50,9 +51,58 @@ def _pfp_get(attr: str) -> Callable[[Any], Any]:
     return getter
 
 
+def _is_retirement_goal(goal: Any) -> bool:
+    gt = getattr(goal, "goal_type", None)
+    gt_name = (gt.value if hasattr(gt, "value") else str(gt or "")).upper()
+    name = str(getattr(goal, "name", None) or getattr(goal, "goal_name", None) or "")
+    return gt_name == "RETIREMENT" or "retire" in name.casefold()
+
+
+def retirement_goal_target_date(user: Any, today: Optional[date] = None) -> Optional[date]:
+    """Target date of the user's ACTIVE, future-dated Retirement goal (earliest
+    if several), or None. A goal counts as retirement when its goal_type is
+    RETIREMENT or its name contains "retire" (the goals API stores quick-pick
+    goals with goal_type=OTHER, so the name is the reliable signal)."""
+    today = today or date.today()
+    candidates: List[date] = []
+    for g in getattr(user, "financial_goals", None) or []:
+        status_val = getattr(g, "status", None)
+        status_name = (
+            status_val.value if hasattr(status_val, "value") else str(status_val or "")
+        )
+        if status_name.upper() != "ACTIVE":
+            continue
+        target = getattr(g, "target_date", None) or getattr(g, "goal_date", None)
+        if not target or target <= today:
+            continue
+        if _is_retirement_goal(g):
+            candidates.append(target)
+    return min(candidates, default=None)
+
+
+def retirement_age_from_goals(user: Any, today: Optional[date] = None) -> Optional[int]:
+    """Retirement age derived from the user's Retirement goal (target year −
+    birth year), or None when there is no such goal / no DOB. The engine uses it
+    only to EXTEND the planned retirement age (stored value, default 60) — a
+    retirement goal earlier than that is just a goal inside the horizon and must
+    never shorten the projection."""
+    target = retirement_goal_target_date(user, today)
+    dob = getattr(user, "date_of_birth", None)
+    if target is None or dob is None:
+        return None
+    return max(1, target.year - dob.year)
+
+
 def _retirement_age(user: Any) -> Any:
+    """The stored retirement age, unless a Retirement goal pushes it later —
+    mirroring what the engine will actually use (input_builder), so the inputs
+    form shows the effective number."""
     inv = _inv(user)
-    return getattr(inv, "retirement_age", None) if inv is not None else None
+    stored = getattr(inv, "retirement_age", None) if inv is not None else None
+    derived = retirement_age_from_goals(user)
+    if derived is not None and derived > (stored if stored is not None else 60):
+        return derived
+    return stored
 
 
 def effective_tax_rate_value(user: Any) -> Optional[float]:
@@ -90,8 +140,9 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         "years",
         _retirement_age,
         help="The age you plan to stop earning a salary. Optional — a standard "
-        "retirement age of 60 is assumed if left blank. The cashflow projection "
-        "always runs to at least this age.",
+        "retirement age of 60 is assumed if left blank. If you've added a "
+        "Retirement goal, its target year sets this automatically. The cashflow "
+        "projection always runs to at least this age.",
         optional=True,
     ),
     FieldSpec(

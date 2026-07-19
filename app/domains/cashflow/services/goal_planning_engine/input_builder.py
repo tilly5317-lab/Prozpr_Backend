@@ -16,6 +16,7 @@ from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
 )
 from app.domains.cashflow.services.goal_planning_engine.readiness import (
     evaluate_cashflow_readiness,
+    retirement_age_from_goals,
 )
 from app.domains.profile.services.profile_finance import (
     current_portfolio_corpus_pfp,
@@ -156,16 +157,28 @@ def build_goal_planning_input_for_user(
     # for those. Real values only for the figures that can't be assumed.
     scalars = personal_finance_scalars(user)
 
-    # Retirement age comes from the goal-planning inputs (investment profile). It
-    # defaults to 60 when the user hasn't set one — a standard planning assumption,
-    # mirroring assumed_lifespan_years=100 below. The projection horizon then always
-    # runs to at least this retirement age (see cashflow_statement pipeline).
+    # Retirement age. Base = the stored investment-profile value, defaulting to
+    # the standard 60 (a planning assumption mirroring assumed_lifespan_years=100
+    # below). A Retirement GOAL (goal_type RETIREMENT / name "retire…") can only
+    # EXTEND it — the goal is the user's statement of retiring later, and the
+    # horizon must reach it — never shorten it: the projection always runs to
+    # max(retirement_age default 60, last goal), and a retirement goal earlier
+    # than that is just a goal inside the horizon (see cashflow_statement
+    # pipeline, which ends at max(retirement_date, last_goal_date)).
+    goal_retirement_age = retirement_age_from_goals(user, anchor_date)
     raw_retirement_age = getattr(inv, "retirement_age", None) if inv is not None else None
     if raw_retirement_age is not None:
-        retirement_age = int(raw_retirement_age)
+        base_retirement_age = int(raw_retirement_age)
     else:
-        retirement_age = DEFAULT_RETIREMENT_AGE
+        base_retirement_age = DEFAULT_RETIREMENT_AGE
         defaults_applied.append(f"retirement_age={DEFAULT_RETIREMENT_AGE}")
+    if goal_retirement_age is not None and goal_retirement_age > base_retirement_age:
+        retirement_age = goal_retirement_age
+        defaults_applied.append(
+            f"retirement_age={goal_retirement_age} (extended by Retirement goal)"
+        )
+    else:
+        retirement_age = base_retirement_age
     target_corpus_today = getattr(inv, "target_corpus", None) if inv else None
     retirement_override = float(target_corpus_today) if target_corpus_today else None
 

@@ -273,6 +273,104 @@ def test_user_retirement_goal_flows_through_as_custom_goal():
     )
 
 
+def test_retirement_goal_overrides_stored_retirement_age():
+    """A Retirement goal's target year drives the planned retirement age (and
+    hence the projection horizon), overriding a stale investment-profile value.
+    Regression: a stored retirement_age of 40 (age 34 user) collapsed the whole
+    cashflow to ~6 years even though the user planned retirement via a goal."""
+    today = date(2026, 5, 15)
+    goals = [
+        _goal(
+            name="Retirement", goal_type="OTHER", pv=20_000_000, target=date(2052, 7, 1)
+        ),
+    ]
+    pfp = SimpleNamespace(
+        annual_income=1_000_000,
+        monthly_household_expense=30_000,
+        financial_assets=0,
+        financial_liabilities_excl_mortgage=0,
+        effective_tax_rate=0.25,
+    )
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=40), goals=goals)
+    inp, debug = build_goal_planning_input_for_user(user, anchor_date=today)
+    # dob 1985 → goal year 2052 ⇒ retirement at 67, not the stored 40.
+    assert inp.retirement.retirement_age == 67
+    assert any("Retirement goal" in d for d in debug["defaults_applied"])
+
+
+def test_early_retirement_goal_never_shortens_horizon():
+    """The projection runs to max(retirement_age default 60, last goal): a
+    Retirement goal EARLIER than the planned retirement age is just a goal
+    inside the horizon — it must not pull the retirement age down. Regression:
+    a Retirement goal at age 43 collapsed the plan to ~9 years even though the
+    default horizon runs to 60."""
+    today = date(2026, 5, 15)
+    goals = [
+        _goal(
+            name="Retirement", goal_type="OTHER", pv=15_000_000, target=date(2035, 7, 1)
+        ),
+    ]
+    pfp = SimpleNamespace(
+        annual_income=1_000_000,
+        monthly_household_expense=30_000,
+        financial_assets=0,
+        financial_liabilities_excl_mortgage=0,
+        effective_tax_rate=0.25,
+    )
+    # No stored retirement age → default 60 wins over the goal-derived 50 (dob
+    # 1985 → 2035 target).
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=None), goals=goals)
+    inp, _ = build_goal_planning_input_for_user(user, anchor_date=today)
+    assert inp.retirement.retirement_age == 60
+    # A stored later age also wins over an earlier goal.
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=65), goals=goals)
+    inp, _ = build_goal_planning_input_for_user(user, anchor_date=today)
+    assert inp.retirement.retirement_age == 65
+
+
+def test_readiness_reports_goal_derived_retirement_age():
+    """/cashflow/readiness surfaces the goal-derived retirement age so the
+    inputs form shows the same number the engine will use."""
+    from app.domains.cashflow.services.goal_planning_engine.readiness import (
+        evaluate_cashflow_readiness,
+    )
+
+    goals = [
+        _goal(
+            name="Retirement", goal_type="OTHER", pv=20_000_000, target=date(2052, 7, 1)
+        ),
+    ]
+    user = _user(inv=SimpleNamespace(retirement_age=40), goals=goals)
+    res = evaluate_cashflow_readiness(user)
+    field = next(f for f in res["fields"] if f["key"] == "retirement_age")
+    assert field["value"] == 67
+    assert field["present"] is True
+
+
+def test_headline_horizon_reaches_projection_end_with_no_goals():
+    """Regression: with no goals, headline.last_fy_end_date collapsed to the
+    current FY (goal-derived max()) while the annual rows spanned the full
+    projection to retirement — the frontend timeline sizes itself from the
+    headline and truncated a 30+-year cashflow to ~6 rows."""
+    from cashflow_statement import compute_full_projection
+
+    pfp = SimpleNamespace(
+        annual_income=2_000_000,
+        monthly_household_expense=50_000,
+        financial_assets=5_000_000,
+        financial_liabilities_excl_mortgage=0,
+        starting_monthly_investment=30_000,
+        effective_tax_rate=0.25,
+    )
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=60), goals=[])
+    inp, _ = build_goal_planning_input_for_user(user, anchor_date=date(2026, 5, 15))
+    out = compute_full_projection(inp)
+    # dob 1985-06-15 + 60 → retires June 2045 → projection ends FY2046.
+    assert out.headline.last_fy_end_date.year == 2046
+    last_annual = max(r.fy_end_date for r in out.annual_cashflow)
+    assert out.headline.last_fy_end_date >= last_annual
+
+
 def test_output_is_engine_consumable():
     from cashflow_statement import compute_full_projection
 
