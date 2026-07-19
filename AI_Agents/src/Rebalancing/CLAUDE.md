@@ -8,7 +8,7 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - Output: rows after step 5, totals, trade list, warnings, metadata.
 
 ## Files
-- `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`).
+- `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`) with `step2b_suppress_debt_switch` between steps 2 and 3.
 - `models.py`, `config.py` (env-overrideable knobs), `tables.py`, `utils.py`, `rationales.py` (customer-facing reason-code strings).
 - `Reference_docs/` — design docs + source workbook (planning, not code).
 
@@ -19,6 +19,7 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - **Sell-ordering is regulatory.** STCG is never realised on a recommended-fund trim (optional sells are LT-only — STCG only on force-exit); sells walk LT→ST first, LT being the cheaper bucket, under the STCG budget (`steps/step4_initial_trades_under_stcg_cap.py`).
 - **Loss-offset uses SHORT-term losses only** — an LT capital loss may set off only LTCG, never STCG (`steps/step5_loss_offset_top_up.py`).
 - **Per-fund cap is floored in rupees** (`steps/step1_cap_and_spill.py`, amendment 2026-07-06): `cap = max(cap_pct × corpus, FUND_CAP_FLOOR_INR)` (default ₹1L, env `REBAL_FUND_CAP_FLOOR_INR`) — small corpora neither fragment into sub-₹1L buys nor get trimmed to satisfy tiny percentage caps; `max_pct` on fund rows reports the EFFECTIVE cap when the floor wins, and the floor is stamped into `KnobSnapshot.fund_cap_floor_inr`.
+- **Debt is never sold to buy debt** (`steps/step2b_suppress_debt_switch.py`, 2026-07-18): matched sell/buy *intents* across `{short_debt, arbitrage, arbitrage_plus_income}` are cancelled before step3, so the tax arithmetic runs once on the corrected picture — `scale`/`floor_to_step` in step4 are not invertible, so this cannot be done later. Carve-outs: `exit_flag` and `rank == 0` sells stay (a bad fund is still bad; off-list rows must still migrate), and force-exit proceeds are reserved out of the buy side. Consequence accepted by product: a debt fund may sit **above** its per-fund cap indefinitely — the cap governs deployment, not custody. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
 - **Bump `ENGINE_VERSION` on any output-altering logic change** (`config.py`) — it is stamped into response metadata for cache/repro tracking.
 
 ## Depends on

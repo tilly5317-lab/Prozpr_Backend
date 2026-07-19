@@ -12,7 +12,12 @@ gains, so the tax arithmetic runs once, forward, on the corrected picture. It
 runs on intents rather than trades because step4's `scale` and `floor_to_step`
 are not invertible — see the design note's "Rejected designs".
 
-Cash conservation is structural: equal rupees come off both legs.
+Equal rupees come off both legs of a match, but do NOT read that as the thing
+guaranteeing cash conservation. `Σbuys <= Σsells` is enforced downstream by
+step4 re-deriving `scale` from *realised* sells and flooring each buy
+(`step4:309-322`); the residual absorption below deliberately cancels more sell
+than the matched amount, so this step's symmetry is not exact and
+`net_cash_flow_inr` does move. Verified empirically across all 5 sim profiles.
 """
 
 from __future__ import annotations
@@ -20,19 +25,19 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Callable
 
-from ..config import REBALANCE_MIN_CHANGE_PCT
-from ..models import FundRowAfterStep2, RebalancingComputeRequest
-
-# Debt subgroups treated as one economic sleeve. Product decision: all debt
-# funds are assumed to deliver similar returns, so the wrapper choice is worth
-# making once at purchase and never revisited with deployed money.
-DEBT_POOL: frozenset[str] = frozenset(
-    {
-        "short_debt",
-        "arbitrage",
-        "arbitrage_plus_income",
-    }
+from ..config import (
+    DEBT_NETTING_MODE,
+    FUND_CAP_FLOOR_INR,
+    DEBT_SWITCH_NETTING_ENABLED,
+    REBALANCE_MIN_CHANGE_PCT,
 )
+from ..models import (
+    FundRowAfterStep2,
+    RebalancingComputeRequest,
+    RebalancingWarning,
+    WarningCode,
+)
+from ..tables import DEBT_NETTING_POOL as DEBT_POOL, cap_pct_for
 
 
 def _split_pro_rata(
@@ -59,10 +64,52 @@ def _split_pro_rata(
     return shares
 
 
+def _cap_spill_buy_reductions(
+    buys: list[FundRowAfterStep2],
+    cancel_total: Decimal,
+    request: RebalancingComputeRequest,
+) -> dict[str, Decimal]:
+    """Reduce the buy side by re-spilling the surviving demand down the ladder.
+
+    Pro-rata shrinks every buyer in proportion to its own demand — a rule that
+    exists nowhere else in the engine. This reuses step1's philosophy instead:
+    whatever buy demand survives the cancellation is walked down the rank ladder,
+    best fund first, under the per-fund cap.
+
+    The surviving budget is deliberately `buy_total - cancel_total` rather than
+    anything derived from the subgroup target. Deriving it from the target lets
+    the recomputed budget RESURRECT demand the cancellation just removed, which
+    breaks conservation (measured: ₹57L of sell cancelled against only ₹49L of
+    buy). Defining it as the leftover makes `sum(reductions) == cancel_total`
+    true by construction.
+
+    Returns the REDUCTION per buyer isin, so the caller applies it exactly as it
+    applies the pro-rata result.
+    """
+    corpus = request.total_corpus
+    remaining = max(sum((r.diff for r in buys), Decimal(0)) - cancel_total, Decimal(0))
+
+    out: dict[str, Decimal] = {}
+    for r in sorted(buys, key=lambda x: (x.rank, x.isin)):
+        cap_amount = max(
+            Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
+            FUND_CAP_FLOOR_INR,
+        )
+        # Never grant more than step1 wanted here, nor more than the fund may hold.
+        grant = min(remaining, cap_amount, r.diff)
+        remaining -= grant
+        out[r.isin] = r.diff - grant
+    return out
+
+
 def apply(
     rows: list[FundRowAfterStep2],
     request: RebalancingComputeRequest,
-) -> list[FundRowAfterStep2]:
+) -> tuple[list[FundRowAfterStep2], list[RebalancingWarning]]:
+    """Returns (rows, warnings). Warning shape matches steps 1, 2 and 4."""
+    if not DEBT_SWITCH_NETTING_ENABLED:
+        return rows, []
+
     corpus = request.total_corpus
     threshold_factor = Decimal(str(REBALANCE_MIN_CHANGE_PCT))
 
@@ -101,14 +148,22 @@ def apply(
 
     cancel_total = min(sell_total, buy_capacity)
     if cancel_total <= 0:
-        return rows
+        return rows, []
 
-    cancelled = {
-        **_split_pro_rata(sells, cancel_total, lambda r: -r.diff),
-        **_split_pro_rata(buys, cancel_total, lambda r: r.diff),
-    }
+    cancelled = {**_split_pro_rata(sells, cancel_total, lambda r: -r.diff)}
+    if DEBT_NETTING_MODE == "cap_spill":
+        cancelled.update(_cap_spill_buy_reductions(buys, cancel_total, request))
+    else:
+        cancelled.update(_split_pro_rata(buys, cancel_total, lambda r: r.diff))
 
     out: list[FundRowAfterStep2] = []
+    # Accumulated from what actually happened, not from `cancel_total` — the
+    # residual absorption below cancels MORE than the match, so reporting the
+    # match would understate the figure exactly as the adjustment field once did.
+    sell_avoided = Decimal(0)
+    untraded: list[str] = []
+    left_above_cap = Decimal(0)
+
     for r in rows:
         amount = cancelled.get(r.isin, Decimal(0))
         if amount <= 0:
@@ -133,6 +188,35 @@ def apply(
             diff != 0 and abs(diff) >= scale * threshold_factor
         )
 
+        # Absorb a residual too small to clear the materiality bar. Step4's
+        # pools require `worth_to_change`, so such a leftover would be dropped
+        # there anyway — silently, and after we had already recorded a smaller
+        # target move than actually took effect. Cancelling it here keeps
+        # `netted_target_adjustment_inr` equal to the real change, so step6's
+        # `goal_target_inr` still matches what the customer ends up holding.
+        # Not selling a sub-threshold sliver is the right outcome either way;
+        # this only makes it deliberate and correctly booked.
+        if not worth_to_change and diff != 0:
+            target_move -= diff
+            final_target = r.present_allocation_inr
+            diff = Decimal(0)
+
+        if direction > 0:
+            sell_avoided += target_move
+            # Declining to trim can leave a fund above its per-fund cap. Track
+            # it so the customer-facing message can say so — "why is so much
+            # sitting in one fund" is a likelier question than "what tax did
+            # you save", and there is no per-trade rationale to carry it
+            # because we have deliberately produced an *inaction*.
+            cap_amount = max(
+                Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
+                FUND_CAP_FLOOR_INR,
+            )
+            if final_target > cap_amount:
+                left_above_cap = max(left_above_cap, final_target)
+        if diff == 0:
+            untraded.append(r.isin)
+
         out.append(
             FundRowAfterStep2(
                 **{
@@ -151,4 +235,30 @@ def apply(
                 }
             )
         )
-    return out
+
+    # `common.format_inr_indian` is the project standard; imported locally to
+    # keep this module's top-level deps to config + models, as step6 does.
+    from common import format_inr_indian  # type: ignore[import-not-found]
+
+    # Customer-facing: this renders as a heads-up bullet (formatter.py:251), so
+    # it follows the tone standard in rationales.py — matter-of-fact, no jargon,
+    # no blame. The concentration clause is appended only when a protected fund
+    # genuinely ends above its cap; claiming it otherwise would be false.
+    message = (
+        f"Kept {format_inr_indian(int(sell_avoided))} in your existing debt "
+        f"funds rather than moving it into similar ones — switching would have "
+        f"triggered a tax bill without changing what you actually hold."
+    )
+    if left_above_cap > 0:
+        message += (
+            f" This does leave more in a single fund than we would usually "
+            f"hold; new investments will bring that back into line rather "
+            f"than selling now and paying the tax."
+        )
+
+    warning = RebalancingWarning(
+        code=WarningCode.DEBT_SWITCH_SUPPRESSED,
+        message=message,
+        affected_isins=sorted(untraded),
+    )
+    return out, [warning]

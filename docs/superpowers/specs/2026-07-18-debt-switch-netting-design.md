@@ -1,8 +1,46 @@
 # Debt-switch netting — design note
 
 **Date:** 2026-07-18
-**Status:** design agreed, not implemented
-**Scope:** rebalancing engine only (`AI_Agents/src/Rebalancing/`). No app-layer change, no schema change.
+**Status:** **IMPLEMENTED** 2026-07-18, uncommitted in the working tree. `ENGINE_VERSION` 1.1.0 → 1.2.0.
+Files: new `steps/step2b_suppress_debt_switch.py` + `Testing/test_step2b_debt_netting.py` (8 tests);
+edits to `models.py` (one defaulted field), `pipeline.py`, `step6_presentation.py`, `config.py`.
+Suite 62 → 76 engine tests passing (14 for this step), 280 app-layer, no regressions. Measured on
+both harnesses: selling −68%, tax −96%, lifecycle trades 237 → 199. Netting confirmed debt-only
+(non-debt knock-on ₹84,404, the §10 watch item, real but 1.2%). Force-exits and NEUTRAL migrations
+preserved; `Σbuys ≤ Σsells` holds. The §3 partial-net hazard is handled — a residual below the
+materiality bar is absorbed deliberately rather than left to die in step4, so the recorded
+adjustment matches the real change.
+
+**A feature flag WAS added** (this note previously said otherwise): `DEBT_SWITCH_NETTING_ENABLED`
+in `config.py`, env `REBAL_DEBT_SWITCH_NETTING=0`, stamped into `KnobSnapshot` alongside
+`debt_netting_subgroups` and covered by a test. `DEBT_NETTING_POOL` lives in `tables.py`.
+
+**Still a real deviation:** the "pool key + pair policy" abstraction (§9) was NOT built — the step
+is debt-only, so adding equity later means reshaping it rather than adding a rule.
+
+> **CORRECTION (2026-07-19).** §4's claim that "cash conservation is structural… `net_cash_flow_inr`
+> is unchanged by construction" is **wrong**. `Σbuys ≤ Σsells` genuinely holds — confirmed on all 5
+> profiles — but it is enforced by step4 re-deriving `scale` from *realised* sells and flooring each
+> buy (`step4:309-322`), **not** by this step's leg symmetry, which the residual absorption breaks
+> on purpose. `net_cash_flow_inr` does move. Do not write the equity policy against the wrong
+> guarantee.
+**Scope:** rebalancing engine, **plus a required app-layer + schema change** — see below.
+
+> **CORRECTION (2026-07-19, found in review).** This note originally said "no app-layer change, no
+> schema change," and that sentence licensed a shipped blocker. Step2b emits a new
+> `WarningCode.DEBT_SWITCH_SUPPRESSED`; `rebalancing_persist_service.py:239` converts it via
+> `RebalancingWarningCode(warning.code.value)`, and the app-side enum
+> (`app/domains/rebalancing/models/rebalancing_warning.py`) did not have that member — so **every
+> run where netting fired raised `ValueError` on persist and 500'd the turn, after the engine had
+> already computed a plan.** Netting fires on 4 of 5 sim profiles, so this was the normal path.
+>
+> Required, and **must be applied before the 1.2.0 code deploys**:
+> 1. `DEBT_SWITCH_SUPPRESSED` added to `RebalancingWarningCode`.
+> 2. `migrations/sql/add_debt_switch_suppressed_warning_code.sql` — the column binds a real
+>    Postgres type (`create_constraint=True`), so the Python edit alone is insufficient. Targeted
+>    DDL because alembic cannot run in this environment.
+> 3. `app/domains/rebalancing/tests/test_warning_code_parity.py` fails if the two enums ever drift
+>    again.
 
 This is a design *note*, not a spec. The change is ~150 lines. What follows is mostly the
 reasoning, because the obvious designs are wrong in non-obvious ways and were each killed by
@@ -165,6 +203,25 @@ portion" once either leg has been throttled. The only correct after-step-5 imple
 | **Scope: all debt-for-debt**, cross-subgroup *and* same-subgroup | Rank differences among debt funds don't matter to the product. Consequence accepted: a mediocre debt fund is only ever upgraded by new money, never by rebalancing |
 | **Cap-spill pairs get netted** | The 30% per-fund cap governs where *new money* lands, not what we force a customer to sell. A debt fund may sit above 30% until inflows bring it down |
 | **Bracket-crossing is not exempted** | A customer whose tax rate rises past the 15%/20% routing threshold never migrates existing debt into the better wrapper — only new money goes there. Deliberate: you'd pay slab tax today to buy a benefit worth roughly nothing when returns are equal |
+| **No concentration ceiling** (decided 2026-07-18, after measurement) | A ceiling above the cap — trim only past e.g. 1.5× — was considered and **declined**. The cap governs deployment only; concentration is corrected by inflows, never by a forced sale. See the measured consequence below before revisiting |
+
+### Measured consequence of declining a ceiling
+
+Before this change every profile in the 5-profile sweep landed **exactly at its 30% cap**. After:
+
+| Profile | Top debt fund, % of total corpus | vs cap |
+|---|---|---|
+| Aarav Gupta | 72.2% | +42.2pp |
+| **Lakshmi Iyer** | **87.5%** | **+57.5pp** |
+| Mohammed Faisal | 30.0% | — |
+| Neha Reddy | 40.4% | +10.4pp |
+| Harpreet Singh | 47.8% | +17.8pp |
+
+Lakshmi is the case to weigh if this is ever reopened: 58, conservative, and on a ₹7,000/month SIP
+against a ₹95L corpus, inflows will not correct 87.5% single-fund concentration in any meaningful
+timeframe. Mitigating context: `synth_holdings` seeds 100% of each subgroup into its rank-1 fund,
+so these are worst cases by construction — real CAS-ingested portfolios should start less
+concentrated. **Re-measure on real portfolios before concluding the exposure is acceptable.**
 | **Ships before the tax fix** | Measured: the tax fix changes churn by ₹0 (§8). Shipping it first would produce a flat number on a ticket that looks like it did nothing |
 
 ---

@@ -188,6 +188,7 @@ class WarningCode(str, Enum):
     BAD_FUND_DETECTED = "BAD_FUND_DETECTED"
     STCG_BUDGET_BINDING = "STCG_BUDGET_BINDING"
     NO_HOLDINGS_FOR_RECOMMENDED_FUND = "NO_HOLDINGS_FOR_RECOMMENDED_FUND"
+    DEBT_SWITCH_SUPPRESSED = "DEBT_SWITCH_SUPPRESSED"
 
 
 class RebalancingWarning(BaseModel):
@@ -226,6 +227,11 @@ class KnobSnapshot(BaseModel):
     st_threshold_months_equity: int
     st_threshold_months_debt: int
     multi_fund_cap_subgroups: list[str]
+    # Step 2b debt-switch netting (2026-07-18). Defaulted so KnobSnapshot
+    # payloads persisted before the field existed still parse — same
+    # precedent as `fund_cap_floor_inr` above.
+    debt_switch_netting_enabled: bool = True
+    debt_netting_subgroups: list[str] = []
 
 
 class RebalancingRunMetadata(BaseModel):
