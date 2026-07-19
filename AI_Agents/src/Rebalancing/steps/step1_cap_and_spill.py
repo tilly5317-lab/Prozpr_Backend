@@ -25,7 +25,7 @@ from ..models import (
     RebalancingWarning,
     WarningCode,
 )
-from ..tables import cap_pct_for
+from ..tables import cap_pct_for, effective_cap_for
 from ..utils import round_to_step
 
 
@@ -52,7 +52,7 @@ def apply(
     for sg, group in by_sg.items():
         ranked = sorted(
             [r for r in group if 1 <= r.rank < FORCE_EXIT_RANK],
-            key=lambda r: r.rank,
+            key=lambda r: (r.rank, r.isin),
         )
         # Off-list held funds: rank=0 → NEUTRAL (frozen at present);
         # rank=FORCE_EXIT_RANK → force-exit (final target=0).
@@ -66,10 +66,18 @@ def apply(
             # a small portfolio out of sub-₹1L fund fragments (amendment
             # 2026-07-06). max_pct reports the EFFECTIVE cap when the floor
             # wins, so the audit trail matches the amounts.
+            # The per-fund cap governs where NEW money is deployed, not what the
+            # customer is forced to sell (design note 2026-07-19, decision 1).
+            # A protected holding raises the ceiling for its own row only —
+            # `protected_floor_inr` is set by the pipeline's target assignment
+            # and is zero for anything the rank band declines to protect, so an
+            # unprotected over-cap holding is still trimmed exactly as before.
             cap_amount = max(
-                Decimal(str(cap_pct_for(r.asset_subgroup))) / Decimal(100) * corpus,
-                FUND_CAP_FLOOR_INR,
+                effective_cap_for(r.asset_subgroup, corpus), r.protected_floor_inr
             )
+            # `max_pct` reports the EFFECTIVE cap, matching the precedent set by
+            # the rupee floor (see the module docstring and CLAUDE.md) — the
+            # audit column must not contradict the amounts beside it.
             max_pct = _pct_of_corpus(cap_amount, corpus)
 
             own_capped = min(r.target_amount_pre_cap, cap_amount)

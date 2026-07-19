@@ -1,7 +1,26 @@
 # Rank-downgrade suppression (#1) — design note
 
+> ## ⚠️ SUPERSEDED 2026-07-19 — do not build from this document
+>
+> Replaced by [`2026-07-19-holdings-aware-targets-design.md`](2026-07-19-holdings-aware-targets-design.md).
+> Three things changed:
+>
+> - **The rule.** This note proposes *no-downgrade* (block only when the bought fund ranks worse).
+>   The agreed rule is a **±5 rank band, exclusive** — protect when the gap is under 5, sell at 5 or
+>   more, in both directions.
+> - **The place.** This note proposes intent-suppression in a step2b-style pass. The agreed design
+>   fixes the *cause* instead: a holdings-aware per-fund cap (step1) plus holdings-aware target
+>   assignment (pipeline).
+> - **The numbers.** §1's ₹7,44,707 and the "89.6% is a month-0 artifact" finding were measured on a
+>   fixture that seeded MF holdings at up to 2× the correct book (`synth_holdings` scaled to
+>   `total_corpus` rather than `mf_corpus - elss_corpus`). Re-measured on the corrected fixture the
+>   figure is ₹7,86,879 / 31.5% of remaining selling.
+>
+> **Still valid and still unaddressed:** §1's recommendation to measure per-subgroup rank
+> concentration in real CAS-ingested portfolios *before building*. Carried into §9 of the successor.
+
 **Date:** 2026-07-18
-**Status:** designed, **build deferred** — see §1 before scheduling
+**Status:** SUPERSEDED — retained for the reasoning and the rejected alternatives only
 **Depends on:** [`2026-07-18-debt-switch-netting-design.md`](2026-07-18-debt-switch-netting-design.md) (#4).
 Read that first; this extends the same step.
 **Scope:** rebalancing engine only. No app-layer change, no schema change.

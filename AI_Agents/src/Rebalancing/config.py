@@ -44,6 +44,20 @@ DEBT_SWITCH_NETTING_ENABLED: bool = os.getenv(
 DEBT_NETTING_MODE: str = os.getenv(
     "REBAL_DEBT_NETTING_MODE", "cap_spill"
 ).strip().lower()
+# Holdings-aware targets (design note 2026-07-19). A held recommended fund keeps
+# its holding as its target — instead of the 0 that `input_builder.py:272`
+# assigns to every rank >= 2 — provided the gap to the best-ranked fund in its
+# subgroup is UNDER `RANK_PROTECT_BAND`. EXCLUSIVE: gap 4 protects, gap 5 sells.
+#
+# Measured: 69.4% of real held rows are rank >= 2, so this is the dominant
+# pattern in production, not an edge case.
+#
+# The band is ABSOLUTE, not a fraction of ladder depth (product decision). Note
+# it therefore loosens on its own as ranking ladders deepen.
+RANK_PROTECT_BAND: int = int(os.getenv("REBAL_RANK_PROTECT_BAND", "5"))
+HOLDINGS_AWARE_TARGETS_ENABLED: bool = os.getenv(
+    "REBAL_HOLDINGS_AWARE_TARGETS", "1"
+).strip().lower() not in ("", "0", "false", "no", "off")
 EXIT_FLOOR_RATING: int = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
 # Additional-investment SIP per-fund cap floor (rupees): the SIP selector caps
 # each buy at max(cap_pct × monthly amount, this floor), so a small SIP stays
@@ -84,4 +98,9 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 # 1.2.0: step2b suppresses debt-for-debt switching (design note 2026-07-18);
 #        surviving buy demand re-spills down the rank ladder under the
 #        per-fund cap (cap_spill), matching step1 rather than pro-rating.
-ENGINE_VERSION: str = "1.2.0"
+# 1.3.0: holdings-aware targets (design note 2026-07-19). A held recommended
+#        fund inside RANK_PROTECT_BAND reserves what it holds and only the
+#        residual is deployed as fresh money, so a rank-2 holding is no longer
+#        liquidated to fund a rank-1 buy; the per-fund cap no longer forces a
+#        sell, only bounds deployment.
+ENGINE_VERSION: str = "1.3.0"

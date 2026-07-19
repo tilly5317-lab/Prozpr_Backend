@@ -237,12 +237,12 @@ async def build_rebalancing_input_for_user(
     nav_by_isin = await _latest_nav_by_isin(db, all_isins)
     meta_by_isin = await _metadata_by_isin(db, all_isins)
 
-    # NOTE: the NEUTRAL ST offset against subgroup rank-1 targets lives
-    # downstream in `Rebalancing.pipeline._assign_targets_to_rank1`. The
-    # pipeline lifts the practical-allocation per-subgroup totals onto
-    # rank-1 rows (overwriting whatever the input builder set), so any
-    # offset applied here would be discarded. Keeping the rule in one
-    # place (the pipeline) avoids the two builders drifting.
+    # NOTE: the NEUTRAL ST offset against subgroup targets lives downstream
+    # in `Rebalancing.pipeline._assign_subgroup_targets`, which re-derives
+    # every ranked row's target from the practical allocation (overwriting
+    # whatever the input builder set), so any offset applied here would be
+    # discarded. Keeping the rule in one place (the pipeline) avoids the
+    # two builders drifting.
 
     rows: list[FundRowInput] = []
     seen_isins: set[str] = set()

@@ -57,6 +57,17 @@ class FundRowInput(BaseModel):
     # ranks 2+ start at 0 and may receive cap-spill in step 1).
     target_amount_pre_cap: Decimal = Field(ge=0)
 
+    # Holdings-aware floor: the amount step1's per-fund cap must NOT clip below
+    # (design note 2026-07-19). Non-zero only for a held fund the rank band
+    # protects, and set by the pipeline's target assignment — never by the input
+    # builder. Zero means "no protection", which is today's behaviour.
+    #
+    # Deliberately NOT `present_allocation_inr`: gating the cap on what is held
+    # would raise the ceiling for every held row, including one the band
+    # declines to protect, letting a customer keep any over-cap position simply
+    # by owning it.
+    protected_floor_inr: Decimal = Field(default=Decimal(0), ge=0)
+
     # Present-holding state (zero for not-yet-held funds)
     present_allocation_inr: Decimal = Field(default=Decimal(0), ge=0)
     invested_cost_inr: Decimal = Field(default=Decimal(0), ge=0)
@@ -232,6 +243,13 @@ class KnobSnapshot(BaseModel):
     # precedent as `fund_cap_floor_inr` above.
     debt_switch_netting_enabled: bool = True
     debt_netting_subgroups: list[str] = []
+    # How step2b redistributes surviving buy demand ("cap_spill" | "pro_rata").
+    # Was missing from the 1.2.0 snapshot: two runs with different modes were
+    # indistinguishable from their own metadata.
+    debt_netting_mode: str = "cap_spill"
+    # Holdings-aware targets (2026-07-19). Same defaulting precedent as above.
+    holdings_aware_targets_enabled: bool = True
+    rank_protect_band: int = 5
 
 
 class RebalancingRunMetadata(BaseModel):

@@ -273,10 +273,18 @@ disproved:
 
 ## 9. What this does NOT fix
 
-- **Equity cap-spill churn (#1).** Designed separately in
-  [`2026-07-18-rank-downgrade-suppression-design.md`](2026-07-18-rank-downgrade-suppression-design.md);
-  build deferred pending a measurement on real portfolios (it is ~7.7x smaller than this change
-  and 89% fixture-driven).
+- **Equity cap-spill churn (#1).** Designed in
+  [`2026-07-19-holdings-aware-targets-design.md`](2026-07-19-holdings-aware-targets-design.md)
+  (the 2026-07-18 rank-downgrade note is superseded). Not yet built.
+
+  > **This step is NOT made redundant by that work** — a scoping pass claimed it would be, on a
+  > measurement taken from the single-rebalance sweep, which structurally cannot show wrapper
+  > switching (there is no tenure or tax-rate drift at month 0). Measured on the 24-month lifecycle
+  > instead: **₹57,58,423 of cross-subgroup debt wrapper switching survives** the holdings-aware
+  > changes, and it *oscillates* — Neha alone churns ₹21.1L across four rebalances moving back and
+  > forth between two wrappers. Those changes raise a ceiling and compare ranks *within* a subgroup;
+  > only this step addresses a subgroup-level target move. **Use the lifecycle sim, not the sweep,
+  > for anything debt-related.**
 
   > **One thing from that note is time-sensitive and belongs in *this* implementation.** The
   > shared abstraction must be **"pool key + pair policy"**, not the eligibility-predicate
