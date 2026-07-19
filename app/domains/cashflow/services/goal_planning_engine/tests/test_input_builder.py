@@ -298,12 +298,11 @@ def test_retirement_goal_overrides_stored_retirement_age():
     assert any("Retirement goal" in d for d in debug["defaults_applied"])
 
 
-def test_early_retirement_goal_never_shortens_horizon():
-    """The projection runs to max(retirement_age default 60, last goal): a
-    Retirement goal EARLIER than the planned retirement age is just a goal
-    inside the horizon — it must not pull the retirement age down. Regression:
-    a Retirement goal at age 43 collapsed the plan to ~9 years even though the
-    default horizon runs to 60."""
+def test_retirement_goal_year_is_the_retirement_age_ssot():
+    """The Retirement goal's target year IS the planned retirement age (one
+    fact, two views — the routers keep investment_profiles.retirement_age
+    mirrored via goals.services.retirement_sync). The engine therefore prefers
+    the goal-derived age whenever such a goal exists, in BOTH directions."""
     today = date(2026, 5, 15)
     goals = [
         _goal(
@@ -317,13 +316,15 @@ def test_early_retirement_goal_never_shortens_horizon():
         financial_liabilities_excl_mortgage=0,
         effective_tax_rate=0.25,
     )
-    # No stored retirement age → default 60 wins over the goal-derived 50 (dob
-    # 1985 → 2035 target).
+    # dob 1985 → 2035 target ⇒ age 50, regardless of the stored value.
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=None), goals=goals)
     inp, _ = build_goal_planning_input_for_user(user, anchor_date=today)
-    assert inp.retirement.retirement_age == 60
-    # A stored later age also wins over an earlier goal.
+    assert inp.retirement.retirement_age == 50
     user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=65), goals=goals)
+    inp, _ = build_goal_planning_input_for_user(user, anchor_date=today)
+    assert inp.retirement.retirement_age == 50
+    # Without a retirement goal the stored value (else the default 60) applies.
+    user = _user(pfp=pfp, inv=SimpleNamespace(retirement_age=65), goals=[])
     inp, _ = build_goal_planning_input_for_user(user, anchor_date=today)
     assert inp.retirement.retirement_age == 65
 
