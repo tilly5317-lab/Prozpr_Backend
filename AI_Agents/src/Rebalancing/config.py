@@ -29,6 +29,21 @@ ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", 
 # For corpora ≥ ₹10L at the 10% default the floor never binds.
 FUND_CAP_FLOOR_INR: Decimal = Decimal(os.getenv("REBAL_FUND_CAP_FLOOR_INR", "100000"))
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
+# Step 2b: cancel matched debt sell/buy intents so one debt fund is never sold
+# to buy another (design note 2026-07-18). Kill-switch for ops, and the seam
+# for A/B-ing the change against the simulation harnesses.
+DEBT_SWITCH_NETTING_ENABLED: bool = os.getenv(
+    "REBAL_DEBT_SWITCH_NETTING", "1"
+).strip().lower() not in ("", "0", "false", "no", "off")
+# How step2b redistributes the buy side once a sell is cancelled.
+#   "pro_rata"  — shrink each surviving buy in proportion to its own demand.
+#   "cap_spill" — recompute the subgroup's remaining budget and allocate it
+#                 down the rank ladder under the per-fund cap, exactly as step1
+#                 does. Best-ranked fund first; a subgroup already at target
+#                 buys nothing.
+DEBT_NETTING_MODE: str = os.getenv(
+    "REBAL_DEBT_NETTING_MODE", "cap_spill"
+).strip().lower()
 EXIT_FLOOR_RATING: int = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
 # Additional-investment SIP per-fund cap floor (rupees): the SIP selector caps
 # each buy at max(cap_pct × monthly amount, this floor), so a small SIP stays
@@ -66,4 +81,7 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 # ── Engine version ────────────────────────────────────────────────────────────
 # Bump on logic changes that alter output for the same inputs.
 # 1.1.0: per-fund cap floored at FUND_CAP_FLOOR_INR (amendment 2026-07-06).
+# 1.2.0: step2b suppresses debt-for-debt switching (design note 2026-07-18);
+#        surviving buy demand re-spills down the rank ladder under the
+#        per-fund cap (cap_spill), matching step1 rather than pro-rating.
 ENGINE_VERSION: str = "1.2.0"

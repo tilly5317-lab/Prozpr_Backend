@@ -30,3 +30,17 @@ SUBGROUP_FUND_CAP_PCT: dict[str, float] = {
 def cap_pct_for(asset_subgroup: str) -> float:
     """Per-fund cap (% of corpus) for `asset_subgroup`, with default fallback."""
     return SUBGROUP_FUND_CAP_PCT.get(asset_subgroup, OTHERS_FUND_CAP_PCT)
+
+
+# Debt subgroups treated as one economic sleeve by step2b. Product decision
+# (2026-07-18): all debt funds are assumed to deliver similar returns, so the
+# tax-wrapper choice is worth making once at purchase and never revisited with
+# money already deployed. Lives here rather than in the step so presentation can
+# read it without importing a pipeline step.
+DEBT_NETTING_POOL: frozenset[str] = frozenset(
+    {
+        "short_debt",
+        "arbitrage",
+        "arbitrage_plus_income",
+    }
+)

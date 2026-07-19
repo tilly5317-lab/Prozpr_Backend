@@ -103,12 +103,26 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
     # 2b. Cancel debt-for-debt switches while they are still intents — before
     # any lot selection or tax arithmetic, so those run once on the corrected
     # picture rather than having to be unwound.
-    s2b_rows = step2b_suppress_debt_switch.apply(s2_rows, request)
+    s2b_rows, s2b_warnings = step2b_suppress_debt_switch.apply(s2_rows, request)
     s3_rows = step3_tax_classification.apply(s2b_rows, request)
-    s4_rows, s4_warnings = step4_initial_trades_under_stcg_cap.apply(s3_rows, request)
+    # Direct-stock proceeds the NFA band frees up are real spendable cash —
+    # step6 surfaces them as SELL_DIRECT_STOCKS, and the practical allocation
+    # already assumes they are redeployed. Feed them into step4's pool.
+    s4_rows, s4_warnings = step4_initial_trades_under_stcg_cap.apply(
+        s3_rows,
+        request,
+        extra_cash_inr=Decimal(
+            str(practical.corpus_breakdown.excess_direct_stocks_inr)
+        ),
+    )
     s5_rows = step5_loss_offset_top_up.apply(s4_rows, request)
 
-    all_warnings = list(s1_warnings) + list(s2_warnings) + list(s4_warnings)
+    all_warnings = (
+        list(s1_warnings)
+        + list(s2_warnings)
+        + list(s2b_warnings)
+        + list(s4_warnings)
+    )
     return step6_presentation.apply(
         s5_rows,
         request,

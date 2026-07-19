@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from ..config import (
+    DEBT_SWITCH_NETTING_ENABLED,
     ENGINE_VERSION,
     EXIT_FLOOR_RATING,
     FUND_CAP_FLOOR_INR,
@@ -38,7 +39,7 @@ from ..models import (
     TradeAction,
 )
 from ..rationales import STCG_CAP_SUFFIX_TEMPLATE, get_rationale
-from ..tables import SUBGROUP_FUND_CAP_PCT
+from ..tables import DEBT_NETTING_POOL, SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
 
 # Cross-agent type — same documented exception as in pipeline.py / models.py.
@@ -62,6 +63,10 @@ def _build_knob_snapshot() -> KnobSnapshot:
         # List of subgroups with a non-default per-fund cap (sorted for stable
         # output). Includes multi_asset (20%) and short_debt (30%).
         multi_fund_cap_subgroups=sorted(SUBGROUP_FUND_CAP_PCT.keys()),
+        # Step 2b: recorded so a run's behaviour is explainable from its
+        # own snapshot — two engine builds otherwise look identical.
+        debt_switch_netting_enabled=DEBT_SWITCH_NETTING_ENABLED,
+        debt_netting_subgroups=sorted(DEBT_NETTING_POOL),
     )
 
 
