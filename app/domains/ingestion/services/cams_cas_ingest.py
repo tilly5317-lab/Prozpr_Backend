@@ -6,9 +6,14 @@ land it in the canonical ingestion tables:
 1. Raw audit rows → ``mf_aa_imports`` + ``mf_aa_summaries`` + ``mf_aa_transactions``
    (same tables the Account-Aggregator feed used; the CAS shape maps cleanly onto them).
 2. Normalised rows → ``mf_transactions`` (via :func:`app.domains.ingestion.services.mf_aa_normalizer.normalize_single_import`).
-3. A bucketed roll-up of the statement valuations → primary-portfolio
-   ``portfolio_allocations`` (Cash / Debt / Equity / Other), mirroring the SimBanks / Finvu
-   shape so chat, drift, and allocation modules keep reading one canonical portfolio.
+3. A bucketed roll-up → primary-portfolio ``portfolio_allocations`` (Cash / Debt /
+   Equity / Other), mirroring the SimBanks / Finvu shape so chat, drift, and
+   allocation modules keep reading one canonical portfolio. Bucket values and
+   per-scheme ``portfolio_holdings`` rows are DERIVED FROM THE STATEMENT'S
+   TRANSACTIONS (units summed per scheme × statement NAV), not the CAS valuation
+   block, so they always equal the ``mf_transactions`` summary (`mf_holdings` view,
+   fund-detail page). The raw ``mf_aa_summaries`` audit rows still mirror the
+   statement's stated valuations verbatim.
 
 This replaces the (now sidelined) Finvu account-aggregator *fetch-by-mobile* flow,
 which is paused for licensing reasons — see ``app/services/finvu_portfolio_sync.py``.
@@ -75,6 +80,11 @@ _TXN_TYPE_FLAG: dict[str, str] = {
     "DIVIDEND_REINVEST": "DR",
     "DIVIDEND_REINVESTMENT": "DR",
 }
+
+# Flags that add units to the position; the rest (R / SO) remove them. Mirrors
+# `_INFLOW_TYPES` in mutual_funds/services/holding_detail_service.py so the
+# ingest-time position and the fund-detail page compute the same balance.
+_INFLOW_FLAGS: frozenset[str] = frozenset({"P", "SI", "DR"})
 
 
 class CamsPdfParseError(Exception):
@@ -223,6 +233,105 @@ def _num(value: object, default: float = 0.0) -> float:
         return float(text)
     except ValueError:
         return default
+
+
+@dataclass(frozen=True)
+class _SchemeSnapshot:
+    """Per-scheme position used for portfolio rows — derived from the statement's
+    own transactions so holdings are exactly the roll-up of `mf_transactions`
+    (matching the `mf_holdings` view and the fund-detail ledger), not the CAS
+    valuation block, which routinely disagrees with the transaction sum."""
+
+    units: float
+    avg_cost: Optional[float]  # units-weighted purchase NAV (None when unknown)
+    nav: float  # statement NAV (0 when the CAS omits it)
+    market_value: float
+    invested: float  # cost basis of the units still held
+    derived_from_txns: bool
+
+
+def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
+    """Compute a scheme's position by summing its unit-moving transactions.
+
+    Uses the same allow-list (`_TXN_TYPE_FLAG`) and abs-units + type-direction
+    convention as the `mf_transactions` ledger, so the numbers pushed into
+    `portfolio_holdings` / allocations equal the transaction summary. Falls back
+    to the CAS-stated close balance & valuation only when the parser found no
+    unit-moving transactions for the scheme (better a statement-valued row than
+    silently dropping a real holding).
+    """
+    valuation = scheme.get("valuation") or {}
+    stated_value = _num(valuation.get("value"))
+    stated_cost = _num(valuation.get("cost"))
+    stated_units = _num(scheme.get("close") or scheme.get("close_calculated"))
+    nav = _num(valuation.get("nav"))
+    if nav <= 0 and stated_units > 0 and stated_value > 0:
+        nav = stated_value / stated_units
+
+    units = 0.0
+    buy_units = 0.0
+    buy_cost = 0.0
+    seen = False
+    for txn in scheme.get("transactions") or []:
+        flag = _TXN_TYPE_FLAG.get(str(txn.get("type") or "").upper())
+        if flag is None:
+            continue
+        seen = True
+        # CAS prints redemption units/amounts as negatives — take the magnitude
+        # and let the transaction type decide direction.
+        u = abs(_num(txn.get("units")))
+        amount = abs(_num(txn.get("amount")))
+        if flag in _INFLOW_FLAGS:
+            units += u
+            buy_units += u
+            buy_cost += amount
+        else:
+            units -= u
+
+    if not seen:
+        avg = (
+            (stated_cost / stated_units)
+            if (stated_units > 0 and stated_cost > 0)
+            else None
+        )
+        return _SchemeSnapshot(
+            units=stated_units,
+            avg_cost=avg,
+            nav=nav,
+            market_value=stated_value,
+            invested=stated_cost if stated_cost > 0 else stated_value,
+            derived_from_txns=False,
+        )
+
+    if units <= 1e-6:  # fully redeemed per the ledger — no live position
+        return _SchemeSnapshot(
+            units=0.0,
+            avg_cost=None,
+            nav=nav,
+            market_value=0.0,
+            invested=0.0,
+            derived_from_txns=True,
+        )
+
+    avg_cost = (buy_cost / buy_units) if buy_units > 0 else None
+    market_value = units * nav if nav > 0 else stated_value
+    invested = (avg_cost * units) if avg_cost is not None else 0.0
+    if stated_units > 0 and abs(units - stated_units) > 0.01:
+        logger.info(
+            "CAS ingest: txn-derived units %.4f differ from statement close balance "
+            "%.4f for scheme %r — using the transaction sum",
+            units,
+            stated_units,
+            _clean(scheme.get("scheme"), limit=60),
+        )
+    return _SchemeSnapshot(
+        units=units,
+        avg_cost=avg_cost,
+        nav=nav,
+        market_value=market_value,
+        invested=invested,
+        derived_from_txns=True,
+    )
 
 
 def _split_name(
@@ -616,14 +725,18 @@ def _populate_children(
             amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
             scheme_code = amfi or isin
             valuation = scheme.get("valuation") or {}
+            # Audit rows (MfAaSummary below) keep the CAS-stated numbers verbatim;
+            # the portfolio roll-up uses the transaction-derived position so the
+            # bucket totals equal the sum of `mf_transactions`.
             market_value = _num(valuation.get("value"))
             scheme_cost = _num(valuation.get("cost"))
-            if scheme_cost > 0:
-                cost_total += scheme_cost
+            snapshot = _derive_scheme_snapshot(scheme)
+            if snapshot.invested > 0:
+                cost_total += snapshot.invested
 
             bucket = _resolve_cas_bucket(stype, scheme_name)
-            if market_value > 0:
-                bucket_value[bucket] += market_value
+            if snapshot.market_value > 0:
+                bucket_value[bucket] += snapshot.market_value
             # Persist the resolved class when casparser couldn't classify it, so
             # `mf_fund_metadata.category` (derived from this) isn't left as "N/A".
             resolved_asset_type = (
@@ -690,7 +803,7 @@ async def _apply_portfolio_rollup(
     bucket_value: dict[str, float],
     cost_total: float,
 ) -> tuple[int, float]:
-    """Replace the primary portfolio's bucket allocations with the CAS valuation roll-up."""
+    """Replace the primary portfolio's bucket allocations with the transaction-derived roll-up."""
     total = sum(v for v in bucket_value.values() if v > 0)
     if total <= 0:
         return 0, 0.0
@@ -758,27 +871,28 @@ async def _sync_mf_portfolio_holdings_from_cas(
             scheme_name = (
                 _clean(scheme.get("scheme"), limit=255) or "Mutual fund scheme"
             )
-            valuation = scheme.get("valuation") or {}
-            market_value = _num(valuation.get("value"))
+            # Position = roll-up of the statement's transactions (units, cost,
+            # value), so this row always agrees with `mf_transactions` and the
+            # `mf_holdings` view — not the CAS valuation block.
+            snapshot = _derive_scheme_snapshot(scheme)
+            market_value = snapshot.market_value
             if market_value <= 0:
                 continue
 
-            scheme_cost = _num(valuation.get("cost"))
-            nav = _num(valuation.get("nav"))
-            units = _num(scheme.get("close") or scheme.get("close_calculated"))
+            units = snapshot.units
             amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
             ticker_raw = canonical_scheme_code(
                 amfi=amfi, isin=isin, isin_to_amfi=isin_to_amfi
             )
             ticker = ticker_raw[:20] if ticker_raw else None
 
-            avg_cost: Optional[float] = None
-            if units > 0 and scheme_cost > 0:
-                avg_cost = round(scheme_cost / units, 6)
+            avg_cost: Optional[float] = (
+                round(snapshot.avg_cost, 6) if snapshot.avg_cost is not None else None
+            )
 
             current_price: Optional[float] = None
-            if nav > 0:
-                current_price = round(nav, 6)
+            if snapshot.nav > 0:
+                current_price = round(snapshot.nav, 6)
             elif units > 0:
                 current_price = round(market_value / units, 6)
 
@@ -874,10 +988,10 @@ async def _backfill_user_profile(
 
 
 def _total_market_value(parsed: dict[str, Any]) -> float:
-    """Sum the current market value across every scheme in the parsed CAS.
+    """Sum the CAS-stated market value across every scheme in the parsed CAS.
 
-    Mirrors the per-scheme valuation used by :func:`_populate_children` so we can
-    cheaply tell, before any DB writes, whether the statement has live holdings.
+    A cheap pre-write screen for empty statements only — the persisted portfolio
+    numbers are transaction-derived (see :func:`_derive_scheme_snapshot`).
     """
     total = 0.0
     for folio in parsed.get("folios") or []:
