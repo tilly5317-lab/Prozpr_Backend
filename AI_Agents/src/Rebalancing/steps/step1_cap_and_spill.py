@@ -17,7 +17,7 @@ from decimal import Decimal
 
 # Per-fund cap lookup moved to tables.cap_pct_for; config constants are still
 # read inside that helper.
-from ..config import FORCE_EXIT_RANK, FUND_CAP_FLOOR_INR
+from ..config import FORCE_EXIT_RANK
 from ..models import (
     FundRowAfterStep1,
     FundRowInput,
