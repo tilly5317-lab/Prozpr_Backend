@@ -20,6 +20,8 @@ Cache-first orchestration → engine inputs → trade list → chat markdown. Re
 - **Prices off CSVs, not the DB.** NAV and fund metadata are read from `latest_nav_active.csv` / `mf_subgroup_mapped.csv` under `MF_Logics/Mututal_Funds_data_extraction/` — the *only* NAV/metadata path the engine uses (`_disk_cache.py`, `_NAV_CSV`/`_META_CSV`). Known prod-migration debt; do not assume `mf_nav_history`.
 - **Import `chat` lazily.** It is deliberately not re-exported from `__init__.py` — eager import triggers a circular import via `chat_core.turn_context` (`__init__.py`).
 - **FIFO redemption sign.** CAS stores redemption units as negative; use the magnitude, or the `while remaining > 0` loop never runs and sold lots stay on the books (`holdings_ledger.py`).
+- **`target_amount_pre_cap` written here is advisory.** `input_builder.py` still emits the goal amount on rank-1 and `0` on ranks 2+, but since engine 1.3.0 `Rebalancing/pipeline.py::_assign_subgroup_targets` overwrites it for every ranked row using holdings-aware floors. Target-sizing bugs belong in the engine — changing this builder will not move the plan.
+- **`fund_rating` is hardcoded** (`_DEFAULT_FUND_RATING = 10`, `input_builder.py`). The engine's `fund_rating < EXIT_FLOOR_RATING` exit carve-out therefore never fires in production; force-exits arrive via `FORCE_EXIT_RANK` from the ranking CSV instead. Wiring real ratings through will switch that path on.
 
 ## Don't read
 - `__pycache__/`, `tests/`.

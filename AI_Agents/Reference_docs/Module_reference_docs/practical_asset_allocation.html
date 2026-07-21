@@ -492,7 +492,7 @@ App-layer companions (not part of the engine, but where its inputs come from and
 
 ## 8. Invariants & landmines
 
-- **Emit plain `int`/`float`, never `Decimal`.** Practical amounts are int/float-rounded. Downstream Rebalancing rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_targets_to_rank1`). Pre-wrapping in `Decimal` here breaks that seam. (Per module CLAUDE.md.)
+- **Emit plain `int`/`float`, never `Decimal`.** Practical amounts are int/float-rounded. Downstream Rebalancing rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_subgroup_targets`). Pre-wrapping in `Decimal` here breaks that seam. (Per module CLAUDE.md.)
 - **Rebalancing runs on the *rebalancing* corpus; step 5 reconciles on the *total*.** Steps 1–3 and step 4 see `total_corpus − elss_corpus`. But `_step5_aggregation_with_frozen` calls upstream `step5_aggregation.run(total_corpus, …)` and appends the two frozen rows, so `grand_total` matches the *full* corpus (± ₹500 tolerance). Don't "simplify" either denominator — they are deliberately different.
 - **ELSS is frozen, never a fresh buy.** `elss_amount_frozen` is counted toward the long-term equity budget (as a floor) and surfaced as `tax_efficient_equities`, but the engine never routes new money into it, and it is *excluded* from the slider's share denominator.
 - **The NFA-band default (33%) fires when `net_financial_assets is None`.** `_nfa_banded_max_non_mf_equity_pct(None)` returns the bottom band defensively. If your caller can pass a real NFA, pass it — a `None` silently gives the tightest cap.

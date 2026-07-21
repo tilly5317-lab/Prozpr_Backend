@@ -240,12 +240,15 @@ The bridge from "ideal target" to "transactions you submit".
   - **ELSS** → `practical_allocation_input.elss_corpus`. No trade is ever generated for ELSS (lock-in). [step6_presentation.py](../../src/Rebalancing/steps/step6_presentation.py) emits a frozen `SubgroupSummary` so the customer view still shows ELSS allocation.
   - **Non-MF equity** → `practical_allocation_input.non_mf_equity_corpus`. If the practical engine's NFA cap forces a trim, step 6 emits a single `SELL_DIRECT_STOCKS` trade for `excess_direct_stocks_inr`. No per-stock detail.
 - **Out:** `RebalancingComputeResponse` — per-fund rows after step 5, totals, the trade list, warnings, metadata. Also surfaces the upstream `practical_allocation` output verbatim for the customer view.
-- **How it thinks:** [pipeline.py](../../src/Rebalancing/pipeline.py) calls `practical_asset_allocation.run_practical_allocation` first (this is why the import edge exists), then lifts per-subgroup targets onto rank-1 fund rows, then runs the six steps in [steps/](../../src/Rebalancing/steps/):
+- **How it thinks:** [pipeline.py](../../src/Rebalancing/pipeline.py) calls `practical_asset_allocation.run_practical_allocation` first (this is why the import edge exists), then converts per-subgroup targets into per-row targets via `_assign_subgroup_targets`, then runs the steps in [steps/](../../src/Rebalancing/steps/).
+
+  **Targets are holdings-aware** (engine 1.3.0). A held recommended fund whose rank is within `RANK_PROTECT_BAND` of the best rank in its subgroup *reserves what it already holds* as `protected_floor_inr`; only the residual (`subgroup_target − Σfloors`) is deployed, and it goes to the best-ranked row. So the engine no longer sells a rank-2 holding to buy the rank-1 next to it. Off-list (`rank == 0`) and force-exit rows sit outside the band by structure and still migrate normally.
 
   | Step | File | What it does |
   |---|---|---|
-  | 1 | [step1_cap_and_spill.py](../../src/Rebalancing/steps/step1_cap_and_spill.py) | Apply per-fund caps; spill the overflow within the subgroup. |
+  | 1 | [step1_cap_and_spill.py](../../src/Rebalancing/steps/step1_cap_and_spill.py) | Apply per-fund caps (floored at `protected_floor_inr`, so a cap bounds deployment but never forces a sell); spill the overflow within the subgroup. |
   | 2 | [step2_compare_and_decide.py](../../src/Rebalancing/steps/step2_compare_and_decide.py) | For each fund: target vs. current → buy / sell / hold direction. |
+  | 2b | [step2b_suppress_debt_switch.py](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | Cancel matched sell/buy intents within debt-like subgroups so debt is never sold to buy debt; re-spill the surviving buy demand down the rank ladder. |
   | 3 | [step3_tax_classification.py](../../src/Rebalancing/steps/step3_tax_classification.py) | Classify each potential sell as STCG vs. LTCG using fund category + holding period (`config.py` thresholds). |
   | 4 | [step4_initial_trades_under_stcg_cap.py](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | First pass: realise sells up to the STCG offset budget. |
   | 5 | [step5_loss_offset_top_up.py](../../src/Rebalancing/steps/step5_loss_offset_top_up.py) | Second pass: use carryforward losses to unlock additional sells. |
@@ -404,7 +407,7 @@ flowchart LR
     MC_out -->|"caller fills score block"| AA_in
     MC_out -.->|"writes file"| PQ_in
     AA_in -->|"runs"| PA_out
-    PA_out -->|"per-subgroup targets lifted onto rank-1 rows"| RB_in
+    PA_out -->|"per-subgroup targets split into<br/>held-fund floors + a residual"| RB_in
     PA_out -->|"post-investment ideal subgroups<br/>+ holdings snapshot + ranking"| AINV_in
 ```
 
@@ -412,7 +415,7 @@ The four things to internalise:
 
 1. **`AllocationInput` is the join point.** It carries fields from both `risk_profiling` and `market_commentary`, but neither of those agents imports allocation. The calling domain service does the joining.
 2. **`market_commentary` writes a file; `portfolio_query` reads it.** No code-level coupling. If you change the file, you change a contract.
-3. **`Rebalancing` builds on `practical_asset_allocation`'s output.** It calls `run_practical_allocation` first, then lifts subgroup targets onto rank-1 rows.
+3. **`Rebalancing` builds on `practical_asset_allocation`'s output.** It calls `run_practical_allocation` first, then splits each subgroup target into floors for the funds already held inside the rank band plus a residual for the best-ranked fund.
 4. **`additional_investment` consumes PAA output too — but caller-wired, not imported.** For lumpsum, the app layer runs PAA pinned at *holdings + deploy amount* (`CorpusPin`) and hands the engine both the ideal rows and the current per-subgroup values; the same subgroup vocabulary must hold on both sides or deficits silently misalign.
 
 ---
