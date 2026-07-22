@@ -718,10 +718,13 @@ async def place_switch(
     account = await _require_account(db, user.id)
     from_isin, from_code, from_name = await _resolve_isin(db, payload.from_scheme_code)
     to_isin, _to_code, to_name = await _resolve_isin(db, payload.to_scheme_code)
+    # Field names live-verified 2026-07-22: FP wants switch_out_scheme /
+    # switch_in_scheme (the documented from_scheme/to_scheme are rejected
+    # with "Unrecognized field").
     body = {
         "mf_investment_account": account.fp_investment_account_id,
-        "from_scheme": from_isin,
-        "to_scheme": to_isin,
+        "switch_out_scheme": from_isin,
+        "switch_in_scheme": to_isin,
         "user_ip": user_ip,
     }
     if payload.folio_number:
@@ -788,10 +791,11 @@ async def place_switch_plan(
     account = await _require_account(db, user.id)
     from_isin, from_code, from_name = await _resolve_isin(db, payload.from_scheme_code)
     to_isin, _to_code, to_name = await _resolve_isin(db, payload.to_scheme_code)
+    # switch_out_scheme / switch_in_scheme — live-verified names, see place_switch.
     body = {
         "mf_investment_account": account.fp_investment_account_id,
-        "from_scheme": from_isin,
-        "to_scheme": to_isin,
+        "switch_out_scheme": from_isin,
+        "switch_in_scheme": to_isin,
         "amount": payload.amount,
         "frequency": "monthly",
         "installment_day": payload.installment_day,

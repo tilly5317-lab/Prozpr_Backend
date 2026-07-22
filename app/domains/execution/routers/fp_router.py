@@ -728,3 +728,321 @@ async def quest_orders_filtered(state: str | None = None) -> FpProxyResponse:
     else:
         rows = [o for o in rows if o.get("state") == want]
     return FpProxyResponse(status=200, body={"object": "list", "filter": want, "data": rows})
+
+
+# ===========================================================================
+# Sandbox DAILY-ACTIVITY endpoints — power FP_Daily_Activities.html.
+# Same rules as the quest endpoints above: unauthenticated dev tools,
+# sandbox-host-gated, every FP call logged via FpClient ("FP-API" lines).
+# ===========================================================================
+
+
+async def _fp_get(kind: str, path: str, params: dict | None = None) -> Any:
+    """Raw GET for composite endpoints; returns FP's body or None on error."""
+    client = _quest_client(kind)
+    try:
+        return await client.request("GET", path, params=params)
+    except FpError:
+        return None
+
+
+# ---- daily transactions (create) ------------------------------------------
+
+
+@router.post("/sandbox/sip-plan", response_model=FpProxyResponse)
+async def daily_sip_plan(body: Any = Body(...)) -> FpProxyResponse:
+    """Start a monthly SIP (``POST /v2/mf_purchase_plans``). Gotcha (live-
+    verified): ``consent.email``/``mobile`` must MATCH the investment
+    account's folio_defaults contacts or FP 400s."""
+    return await _fp_pass("order", "POST", "/v2/mf_purchase_plans", body)
+
+
+@router.get("/sandbox/sip-plan/{plan_id}", response_model=FpProxyResponse)
+async def daily_sip_plan_poll(plan_id: str) -> FpProxyResponse:
+    return await _fp_pass("order", "GET", "/v2/mf_purchase_plans/" + plan_id)
+
+
+@router.post("/sandbox/redemption", response_model=FpProxyResponse)
+async def daily_redemption(body: Any = Body(...)) -> FpProxyResponse:
+    """Sell (``POST /v2/mf_redemptions``). Requires ``folio_number`` — a folio
+    only exists after a purchase has SETTLED, so this 400s until then."""
+    return await _fp_pass("order", "POST", "/v2/mf_redemptions", body)
+
+
+@router.post("/sandbox/switch", response_model=FpProxyResponse)
+async def daily_switch(body: Any = Body(...)) -> FpProxyResponse:
+    """Switch scheme->scheme within one AMC (``POST /v2/mf_switches``)."""
+    return await _fp_pass("order", "POST", "/v2/mf_switches", body)
+
+
+@router.post("/sandbox/swp", response_model=FpProxyResponse)
+async def daily_swp(body: Any = Body(...)) -> FpProxyResponse:
+    """Systematic withdrawal plan (``POST /v2/mf_redemption_plans``)."""
+    return await _fp_pass("order", "POST", "/v2/mf_redemption_plans", body)
+
+
+@router.post("/sandbox/stp", response_model=FpProxyResponse)
+async def daily_stp(body: Any = Body(...)) -> FpProxyResponse:
+    """Systematic transfer plan (``POST /v2/mf_switch_plans``)."""
+    return await _fp_pass("order", "POST", "/v2/mf_switch_plans", body)
+
+
+# ---- daily reads (analyse) -------------------------------------------------
+
+
+@router.get("/sandbox/schemes", response_model=FpProxyResponse)
+async def daily_schemes() -> FpProxyResponse:
+    """The full transactable scheme universe on this gateway (ABSL + ICICI on
+    sandbox), with fund/scheme names expanded."""
+    return await _fp_pass(
+        "order",
+        "GET",
+        "/v2/mf_scheme_plans/cybrillapoa",
+        params={"expand": ["mf_scheme", "mf_fund"]},
+    )
+
+
+@router.get("/sandbox/settlement-detail", response_model=FpProxyResponse)
+async def daily_settlement_detail(mf_purchase: str) -> FpProxyResponse:
+    """RTA settlement detail for one purchase (``GET /v2/mf_settlement_details``)."""
+    return await _fp_pass(
+        "order", "GET", "/v2/mf_settlement_details", params={"mf_purchase": mf_purchase}
+    )
+
+
+_AMC_BY_ISIN_PREFIX = {
+    "INF209": "Aditya Birla Sun Life MF",
+    "INF084": "Aditya Birla Sun Life MF",
+    "INF109": "ICICI Prudential MF",
+}
+
+
+def _amc_of(isin: str) -> str:
+    return _AMC_BY_ISIN_PREFIX.get((isin or "")[:6], "Other AMC")
+
+
+@router.get("/sandbox/transactions", response_model=FpProxyResponse)
+async def daily_transactions(mf_investment_account: str | None = None) -> FpProxyResponse:
+    """Unified transaction feed for an account (or the whole tenant): merges
+    purchases, SIP plans, redemptions and switches into one list, newest
+    first. (FP's own unified ``GET /v2/transactions`` is tenant-gated 404 —
+    this composes the same view from the four list APIs that ARE live.)"""
+    _sandbox_only()
+    params = (
+        {"mf_investment_account": mf_investment_account}
+        if mf_investment_account
+        else None
+    )
+    feed: list[dict] = []
+    sources = [
+        ("purchase", "/v2/mf_purchases"),
+        ("sip_plan", "/v2/mf_purchase_plans"),
+        ("redemption", "/v2/mf_redemptions"),
+        ("switch", "/v2/mf_switches"),
+    ]
+    for kind_name, path in sources:
+        body = await _fp_get("order", path, params)
+        rows = (body or {}).get("data") or []
+        for o in rows:
+            if mf_investment_account and o.get("mf_investment_account") != mf_investment_account:
+                continue
+            feed.append(
+                {
+                    "type": kind_name,
+                    "id": o.get("id"),
+                    "old_id": o.get("old_id"),
+                    "mf_investment_account": o.get("mf_investment_account"),
+                    "scheme": o.get("scheme") or o.get("from_scheme"),
+                    "to_scheme": o.get("to_scheme"),
+                    "amount": o.get("amount"),
+                    "state": o.get("state"),
+                    "created_at": o.get("created_at"),
+                    "scheduled_on": o.get("scheduled_on"),
+                    "failure_code": o.get("failure_code"),
+                    "allotted_units": o.get("allotted_units"),
+                    "purchased_price": o.get("purchased_price"),
+                    "folio_number": o.get("folio_number"),
+                    "frequency": o.get("frequency"),
+                    "installment_day": o.get("installment_day"),
+                    "number_of_installments": o.get("number_of_installments"),
+                }
+            )
+    feed.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return FpProxyResponse(
+        status=200,
+        body={"object": "list", "count": len(feed), "data": feed},
+    )
+
+
+@router.get("/sandbox/holdings", response_model=FpProxyResponse)
+async def daily_holdings(mf_investment_account: str | None = None) -> FpProxyResponse:
+    """Holdings for an account. Primary source: ``GET /v2/mf_folios`` (real
+    folios, minted on settlement). Until something settles those are empty, so
+    the response also carries ``derived_from_orders`` — per-scheme units and
+    cost built from SETTLED purchases — plus in-flight amounts, clearly
+    labelled. There is no live-NAV API on this gateway, so value = cost basis."""
+    _sandbox_only()
+    params = (
+        {"mf_investment_account": mf_investment_account}
+        if mf_investment_account
+        else None
+    )
+    folios_body = await _fp_get("order", "/v2/mf_folios", params)
+    folios = (folios_body or {}).get("data") or []
+
+    purchases = ((await _fp_get("order", "/v2/mf_purchases", params)) or {}).get("data") or []
+    if mf_investment_account:
+        purchases = [
+            o for o in purchases if o.get("mf_investment_account") == mf_investment_account
+        ]
+    by_scheme: dict[str, dict] = {}
+    for o in purchases:
+        isin = o.get("scheme") or "?"
+        row = by_scheme.setdefault(
+            isin,
+            {
+                "scheme": isin,
+                "amc": _amc_of(isin),
+                "units": 0.0,
+                "invested_settled": 0.0,
+                "in_flight_amount": 0.0,
+                "folio_number": None,
+            },
+        )
+        if o.get("state") == "successful":
+            row["units"] += float(o.get("allotted_units") or 0)
+            row["invested_settled"] += float(o.get("amount") or 0)
+            row["folio_number"] = o.get("folio_number") or row["folio_number"]
+        elif o.get("state") in ("under_review", "pending", "confirmed", "submitted"):
+            row["in_flight_amount"] += float(o.get("amount") or 0)
+    derived = [r for r in by_scheme.values() if r["units"] or r["in_flight_amount"]]
+    derived.sort(key=lambda r: -(r["invested_settled"] + r["in_flight_amount"]))
+    return FpProxyResponse(
+        status=200,
+        body={
+            "folios": folios,
+            "derived_from_orders": derived,
+            "note": (
+                "folios[] is FP's real holdings record (appears after first "
+                "settlement); derived_from_orders is built from this tenant's "
+                "purchase states as a pre-settlement view. Cost basis only — "
+                "the gateway exposes no live-NAV/valuation API."
+            ),
+        },
+    )
+
+
+@router.get("/sandbox/investor-report", response_model=FpProxyResponse)
+async def daily_investor_report(mf_investment_account: str) -> FpProxyResponse:
+    """Portfolio analysis for one investment account: status breakdown,
+    per-scheme and per-AMC allocation, SIP commitments, folios. Composed
+    server-side from the live list APIs (FP's Reports module is tenant-gated
+    404 on sandbox — flag to FP for production)."""
+    _sandbox_only()
+    params = {"mf_investment_account": mf_investment_account}
+    purchases = ((await _fp_get("order", "/v2/mf_purchases", params)) or {}).get("data") or []
+    purchases = [
+        o for o in purchases if o.get("mf_investment_account") == mf_investment_account
+    ]
+    plans = ((await _fp_get("order", "/v2/mf_purchase_plans", params)) or {}).get("data") or []
+    plans = [
+        o for o in plans if o.get("mf_investment_account") == mf_investment_account
+    ]
+    folios = ((await _fp_get("order", "/v2/mf_folios", params)) or {}).get("data") or []
+
+    active_states = {"under_review", "pending", "confirmed", "submitted"}
+    totals = {
+        "invested_settled": 0.0,
+        "units_allotted": 0.0,
+        "in_flight_amount": 0.0,
+        "failed_amount": 0.0,
+        "orders_successful": 0,
+        "orders_active": 0,
+        "orders_failed": 0,
+    }
+    per_scheme: dict[str, dict] = {}
+    for o in purchases:
+        isin = o.get("scheme") or "?"
+        row = per_scheme.setdefault(
+            isin,
+            {
+                "scheme": isin,
+                "amc": _amc_of(isin),
+                "invested_settled": 0.0,
+                "in_flight_amount": 0.0,
+                "units": 0.0,
+                "orders": 0,
+                "folio_number": None,
+            },
+        )
+        row["orders"] += 1
+        amt = float(o.get("amount") or 0)
+        state = o.get("state")
+        if state == "successful":
+            totals["orders_successful"] += 1
+            totals["invested_settled"] += amt
+            totals["units_allotted"] += float(o.get("allotted_units") or 0)
+            row["invested_settled"] += amt
+            row["units"] += float(o.get("allotted_units") or 0)
+            row["folio_number"] = o.get("folio_number") or row["folio_number"]
+        elif state in active_states:
+            totals["orders_active"] += 1
+            totals["in_flight_amount"] += amt
+            row["in_flight_amount"] += amt
+        elif state == "failed":
+            totals["orders_failed"] += 1
+            totals["failed_amount"] += amt
+    exposure_total = totals["invested_settled"] + totals["in_flight_amount"]
+    schemes = list(per_scheme.values())
+    for row in schemes:
+        row_exp = row["invested_settled"] + row["in_flight_amount"]
+        row["allocation_pct"] = (
+            round(row_exp / exposure_total * 100, 1) if exposure_total else 0.0
+        )
+    schemes.sort(key=lambda r: -(r["invested_settled"] + r["in_flight_amount"]))
+    per_amc: dict[str, float] = {}
+    for row in schemes:
+        per_amc[row["amc"]] = (
+            per_amc.get(row["amc"], 0.0)
+            + row["invested_settled"]
+            + row["in_flight_amount"]
+        )
+    amc_rows = [
+        {
+            "amc": k,
+            "exposure": v,
+            "allocation_pct": round(v / exposure_total * 100, 1) if exposure_total else 0.0,
+        }
+        for k, v in sorted(per_amc.items(), key=lambda kv: -kv[1])
+    ]
+    active_sips = [p for p in plans if p.get("state") in ("created", "active")]
+    report = {
+        "mf_investment_account": mf_investment_account,
+        "totals": totals,
+        "exposure_total": exposure_total,
+        "allocation_by_scheme": schemes,
+        "allocation_by_amc": amc_rows,
+        "sips": {
+            "active_count": len(active_sips),
+            "monthly_commitment": sum(float(p.get("amount") or 0) for p in active_sips),
+            "plans": [
+                {
+                    "id": p.get("id"),
+                    "scheme": p.get("scheme"),
+                    "amount": p.get("amount"),
+                    "state": p.get("state"),
+                    "installment_day": p.get("installment_day"),
+                    "number_of_installments": p.get("number_of_installments"),
+                }
+                for p in plans
+            ],
+        },
+        "folios": folios,
+        "note": (
+            "Values are cost basis: this gateway has no NAV/valuation API and "
+            "FP's Reports module (holdings/capital-gains/XIRR) is tenant-gated "
+            "404 on our sandbox — ask FP to enable it for production-grade "
+            "reporting; until then Prozpr's own mf_nav_history prices holdings."
+        ),
+    }
+    return FpProxyResponse(status=200, body=report)
