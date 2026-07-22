@@ -238,12 +238,13 @@ Filtering rules:
   },
   "metadata": {
     "computed_at": "2026-04-25T10:15:00Z",
-    "engine_version": "1.0.0",
+    "engine_version": "1.3.0",
     "request_corpus_inr": 8000025,
     "request_id": "550e8400-e29b-41d4-a716-446655440000",
     "knob_snapshot": {
       "multi_fund_cap_pct": 20.0,
       "others_fund_cap_pct": 10.0,
+      "fund_cap_floor_inr": 100000,
       "rebalance_min_change_pct": 0.10,
       "exit_floor_rating": 5,
       "ltcg_annual_exemption_inr": 125000,
@@ -251,7 +252,12 @@ Filtering rules:
       "ltcg_rate_equity_pct": 12.5,
       "st_threshold_months_equity": 12,
       "st_threshold_months_debt": 24,
-      "multi_fund_cap_subgroups": ["multi_asset"]
+      "multi_fund_cap_subgroups": ["multi_asset"],
+      "debt_switch_netting_enabled": true,
+      "debt_netting_subgroups": ["short_debt", "arbitrage", "arbitrage_plus_income"],
+      "debt_netting_mode": "cap_spill",
+      "holdings_aware_targets_enabled": true,
+      "rank_protect_band": 5
     }
   },
   "warnings": [

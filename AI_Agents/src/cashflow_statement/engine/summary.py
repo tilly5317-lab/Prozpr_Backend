@@ -1,6 +1,8 @@
 """Stage 8: Summary — HeadlineStatus + FundFlowSummary."""
 
 from __future__ import annotations
+from datetime import date
+
 from cashflow_statement.models import (
     HeadlineStatus,
     FundFlowSummary,
@@ -15,6 +17,7 @@ def build_headline_status(
     goals_internal: list[GoalInternal],
     funding: FundingResult,
     one_off_outflows: list[OneOffEvent],
+    projection_end_fy: date | None = None,
 ) -> HeadlineStatus:
     sum_fund_pv = sum(g.investment_required_pv for g in goals_internal)
     surplus_or_shortfall_today = ctx.corpus - sum_fund_pv
@@ -35,6 +38,13 @@ def build_headline_status(
         if e.date > ctx.latest_update_date
     ]
     last_fy_end_date = max(candidate_fys, default=ctx.current_fy_end)
+    # The projection ALWAYS runs to max(retirement, last goal) (pipeline 0.3.0),
+    # so the headline's horizon must reach the actual projection end — with no
+    # goals the goal-derived max() above collapses to the current FY, which made
+    # consumers (the goal-planning timeline) truncate a 30+-year projection to a
+    # handful of rows.
+    if projection_end_fy is not None and projection_end_fy > last_fy_end_date:
+        last_fy_end_date = projection_end_fy
 
     total_shortfall = sum(s.shortfall_fv for s in funding.per_goal_status)
     total_funded = sum(s.funded_amount for s in funding.per_goal_status)

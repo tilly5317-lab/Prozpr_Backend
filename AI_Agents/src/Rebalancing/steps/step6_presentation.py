@@ -14,13 +14,17 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from ..config import (
+    DEBT_NETTING_MODE,
+    DEBT_SWITCH_NETTING_ENABLED,
     ENGINE_VERSION,
     EXIT_FLOOR_RATING,
     FUND_CAP_FLOOR_INR,
+    HOLDINGS_AWARE_TARGETS_ENABLED,
     LTCG_ANNUAL_EXEMPTION_INR,
     LTCG_RATE_EQUITY_PCT,
     MULTI_FUND_CAP_PCT,
     OTHERS_FUND_CAP_PCT,
+    RANK_PROTECT_BAND,
     REBALANCE_MIN_CHANGE_PCT,
     ST_THRESHOLD_MONTHS_DEBT,
     ST_THRESHOLD_MONTHS_EQUITY,
@@ -38,7 +42,7 @@ from ..models import (
     TradeAction,
 )
 from ..rationales import STCG_CAP_SUFFIX_TEMPLATE, get_rationale
-from ..tables import SUBGROUP_FUND_CAP_PCT
+from ..tables import DEBT_NETTING_POOL, SUBGROUP_FUND_CAP_PCT
 from ..utils import estimate_tax
 
 # Cross-agent type — same documented exception as in pipeline.py / models.py.
@@ -62,6 +66,15 @@ def _build_knob_snapshot() -> KnobSnapshot:
         # List of subgroups with a non-default per-fund cap (sorted for stable
         # output). Includes multi_asset (20%) and short_debt (30%).
         multi_fund_cap_subgroups=sorted(SUBGROUP_FUND_CAP_PCT.keys()),
+        # Step 2b: recorded so a run's behaviour is explainable from its
+        # own snapshot — two engine builds otherwise look identical.
+        debt_switch_netting_enabled=DEBT_SWITCH_NETTING_ENABLED,
+        debt_netting_subgroups=sorted(DEBT_NETTING_POOL),
+        debt_netting_mode=DEBT_NETTING_MODE,
+        # Change 2: the band is the single knob that decides whether a held
+        # rank-2 fund is kept or liquidated — a run is unexplainable without it.
+        holdings_aware_targets_enabled=HOLDINGS_AWARE_TARGETS_ENABLED,
+        rank_protect_band=RANK_PROTECT_BAND,
     )
 
 
@@ -214,7 +227,17 @@ def _build_subgroups(rows: list[FundRowAfterStep5]) -> list[SubgroupSummary]:
 
     out: list[SubgroupSummary] = []
     for sg, sg_rows in by_sg.items():
-        goal_target = sum((r.target_amount_pre_cap for r in sg_rows), Decimal(0))
+        # `netted_target_adjustment_inr` is the signed target move step2b made
+        # when it cancelled a debt-for-debt switch. Adding it keeps
+        # `goal_target_inr` reconciled with `suggested_final_holding_inr`;
+        # it is 0 on every row step2b left alone.
+        goal_target = sum(
+            (
+                r.target_amount_pre_cap + r.netted_target_adjustment_inr
+                for r in sg_rows
+            ),
+            Decimal(0),
+        )
         current = sum((r.present_allocation_inr for r in sg_rows), Decimal(0))
         if goal_target == 0 and current == 0:
             continue

@@ -293,13 +293,14 @@ The defining design decisions:
 
 - **Sells are tax-ordered and budget-gated.** A recommended fund that's merely *over* its target is trimmed **long-term only** (never realising STCG); short-term capital gains are realised only on a *force-exit*, and only up to a per-run `stcg_offset_budget_inr` (default **₹0** — a hard brake).
 - **ELSS and non-MF equity are scalars, not rows.** They ride on the practical input and surface as *frozen* summary rows — the engine emits no per-fund BUY/SELL/EXIT for them (ELSS is under SEBI 3-year lock-in; direct stocks get a single `SELL_DIRECT_STOCKS` on an NFA-band trim).
+- **Targets are holdings-aware, not rank-1-only** (engine 1.3.0). A fund the customer already holds keeps what it holds as its target so long as it is still ranked close to the best fund in its category — so the engine never sells a rank-2 holding just to buy the rank-1 beside it. Only the *residual* is fresh money, and it lands on the best-ranked row.
 
 ### The shape of a run
 
 ```mermaid
 flowchart TB
     REQ([RebalancingComputeRequest<br/>corpus · tax state · fund rows]) --> PA["<b>Pre-pass</b><br/>run_practical_allocation<br/>(holdings-aware ideal)"]
-    PA --> LIFT["_assign_targets_to_rank1<br/>lift per-subgroup totals<br/>onto rank-1 MF rows"]
+    PA --> LIFT["_assign_subgroup_targets<br/>reserve held funds inside the rank band,<br/>deploy the residual on the best rank"]
     LIFT --> S1["step1 · cap & spill"]
     S1 --> S2["step2 · compare & decide"]
     S2 --> S3["step3 · tax classify"]
@@ -366,7 +367,7 @@ Entry is `run_rebalancing(request: RebalancingComputeRequest) → RebalancingCom
 
 | Flavour | `rank` | `is_recommended` | `target_amount_pre_cap` | Behaviour |
 |---|---|---|---|---|
-| **Recommended** | ≥ 1 | `True` | rank-1 carries the goal amount; ranks 2+ start at 0 (receive cap-spill) | buy up to target, trim over target (LT-only) |
+| **Recommended** | ≥ 1 | `True` | **advisory on input** — `_assign_subgroup_targets` overwrites it (§5) | buy up to target, trim over target (LT-only) |
 | **NEUTRAL** (held, off-list) | `0` | `False` | `= st_value_inr` (the locked ST minimum) | LT portion migratable into the recommended pick; ST stays put |
 | **Force-exit** | `FORCE_EXIT_RANK` = 9999 | `False` | `0` | step2 sets `exit_flag`; step4 fully liquidates regardless of tax |
 
@@ -394,12 +395,30 @@ Key row fields the engine consumes: `asset_subgroup`, `isin`, `rank`, `target_am
 
 ## 5. How it thinks
 
-After the practical pre-pass lifts per-subgroup ideal totals onto each subgroup's **rank-1** row (`_assign_targets_to_rank1`, offsetting NEUTRAL ST so the same rupees aren't double-allocated), six steps run in strict order. Each step returns a richer `FundRowAfterStepN` (models inherit, so later steps can't drop a field).
+After the practical pre-pass, `_assign_subgroup_targets` turns per-subgroup ideal totals into per-row targets (offsetting NEUTRAL ST so the same rupees aren't double-allocated). Then six steps run in strict order. Each step returns a richer `FundRowAfterStepN` (models inherit, so later steps can't drop a field).
+
+### Reserve, then deploy the residual (the rank band)
+
+Before 1.3.0 the whole subgroup total was parked on the rank-1 row and every other ranked row got a target of `0` — which meant a held rank-2 fund was marked for liquidation purely because it wasn't rank-1. Since 69% of real held rows are rank ≥ 2, that was the dominant case, not an edge case.
+
+The engine now runs **reserve-then-residual**, per subgroup:
+
+1. Each held recommended row whose gap to the subgroup's best rank is **under** `RANK_PROTECT_BAND` (default 5, **exclusive** — gap 4 protects, gap 5 sells) reserves what it already holds as `protected_floor_inr`.
+2. The residual, `max(subgroup_target − Σfloors, 0)`, is the only genuinely fresh money — it goes to the best-ranked row.
+3. Every other ranked row gets exactly its floor.
+4. If the sleeve is over-allocated (`Σfloors > target`), floors are trimmed **worst-rank-first** until they fit.
+
+Three carve-outs sit *outside* the band and are structural, not rank arithmetic: `rank == 0` (off-list — must still migrate), `rank == FORCE_EXIT_RANK`, and `fund_rating < EXIT_FLOOR_RATING`. A predicate that naïvely computed `|0 − 1| < 5` would silently freeze every unrecommended holding, which is why rank-0 is excluded by structure rather than by distance.
+
+Step 1 then floors each per-fund cap at `protected_floor_inr`, so the cap bounds **deployment** and can no longer force a sell — which was the second, independent source of the same churn.
+
+> Measured on the 5-profile harness: paired same-subgroup churn fell from ₹18.7L to ₹2.6L (−86%), with rank-2/3 churn going to zero while rank-7 replacement stayed untouched. Kill-switch `REBAL_HOLDINGS_AWARE_TARGETS=0` restores the old behaviour exactly (all floors zero → the residual collapses back to the full subgroup total).
 
 | # | Step (file) | What it does | Adds |
 |---|---|---|---|
-| 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | cap each fund at `max(cap_pct × corpus, ₹1L floor)`; spill overflow to the next rank; leftover → `UNREBALANCED_REMAINDER` warning | `max_pct`, `final_target_amount` |
+| 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | cap each fund at `max(cap_pct × corpus, ₹1L floor, protected_floor_inr)`; spill overflow to the next rank; leftover → `UNREBALANCED_REMAINDER` warning | `max_pct`, `final_target_amount` |
 | 2 | [`step2_compare_and_decide`](../../src/Rebalancing/steps/step2_compare_and_decide.py) | `diff = final_target − present`; set `exit_flag` (low-rated OR force-exit); `worth_to_change` if `\|diff\|` past the min-change threshold OR exit | `diff`, `exit_flag`, `worth_to_change` |
+| 2b | [`step2b_suppress_debt_switch`](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | cancel matched sell/buy *intents* inside `{short_debt, arbitrage, arbitrage_plus_income}` so debt is never sold to buy debt; surviving buy demand re-spills down the rank ladder under the per-fund cap (`cap_spill`) | `netted_target_adjustment_inr` |
 | 3 | [`step3_tax_classification`](../../src/Rebalancing/steps/step3_tax_classification.py) | for sell candidates only, compute signed `stcg_amount` / `ltcg_amount` (value − cost) | `stcg_amount`, `ltcg_amount` |
 | 4 | [`step4_initial_trades_under_stcg_cap`](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | classify forced / optional sells + buyers; sell **tax-cheapest first**, walking **LT→ST**, forced sells gated by the STCG budget, optional sells **LT-only**; scale buys to available cash | `pass1_buy/sell_*`, `holding_after_initial_trades` |
 | 5 | [`step5_loss_offset_top_up`](../../src/Rebalancing/steps/step5_loss_offset_top_up.py) | offset realised STCG with **short-term** losses (carryforward + realised); unlock ST-blocked *force-exit* sells with the freed headroom | `stcg_offset_amount`, `pass2_sell_amount`, `final_holding_amount` |
@@ -474,7 +493,7 @@ That matters for **reproducibility**: the same request always yields byte-identi
 
 | File | Role |
 |---|---|
-| [`pipeline.py`](../../src/Rebalancing/pipeline.py) | `run_rebalancing` — practical pre-pass, `_assign_targets_to_rank1`, threads steps 1–6 |
+| [`pipeline.py`](../../src/Rebalancing/pipeline.py) | `run_rebalancing` — practical pre-pass, `_protected_floors` + `_assign_subgroup_targets`, threads steps 1–6 |
 | [`models.py`](../../src/Rebalancing/models.py) | pydantic I/O: `RebalancingComputeRequest/Response`, `FundRowInput`, the inheriting `FundRowAfterStepN`, `TradeAction`, `SubgroupSummary`, `KnobSnapshot`, warnings |
 | [`config.py`](../../src/Rebalancing/config.py) | env-overrideable knobs (`REBAL_*`), `FORCE_EXIT_RANK`, tax limits, `ENGINE_VERSION` |
 | [`tables.py`](../../src/Rebalancing/tables.py) | `SUBGROUP_FUND_CAP_PCT` + `cap_pct_for` — per-subgroup concentration caps with default fallback |
@@ -505,6 +524,8 @@ App-layer companions (where the request comes from — not part of the engine):
 - **Non-MF equity is a scalar, never per-stock rows.** A NFA-band trim emits **one** `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — it rides on `trade_list`, not on any `SubgroupSummary.actions`.
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in [`config.py`](../../src/Rebalancing/config.py) and app-side `fund_rank.py`. Keep both in sync — the sentinel is the only signal that marks a row for full liquidation.
 - **The per-fund cap is floored in rupees** (`max(cap_pct × corpus, ₹1L)`, env `REBAL_FUND_CAP_FLOOR_INR`) so small corpora don't fragment into sub-₹1L buys; `max_pct` reports the *effective* cap when the floor wins. The floor is stamped into `KnobSnapshot`.
+- **The cap governs deployment, not custody.** Since 1.2.0/1.3.0 a holding may legitimately sit **above** its per-fund cap indefinitely — step2b won't sell debt to buy debt, and step1's cap is floored at `protected_floor_inr`. Neither is a bug; a cap breach is only ever a reason not to buy more.
+- **Debt netting happens at the *intent* layer, before step3** (`step2b_suppress_debt_switch.py`). It cannot be deferred: `scale`/`floor_to_step` in step4 are not invertible, so the tax arithmetic has to run once on the already-corrected picture. Carve-outs: `exit_flag` and `rank == 0` sells survive (a bad fund is still bad; off-list rows must migrate), and force-exit proceeds are reserved out of the buy side. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
 - **Overflow is never dropped.** Cap-spill that exhausts the last rank surfaces as `unrebalanced_remainder_inr` + an `UNREBALANCED_REMAINDER` warning — don't "clean it up" by discarding it.
 - **Bump `ENGINE_VERSION` on any output-altering change** ([`config.py`](../../src/Rebalancing/config.py)) — it's stamped into response metadata for cache/repro tracking.
 - **`consolidation.py` runs on a finished response, not inside the engine.** It reshapes *only* buys, preserving total buy and every sell; the engine itself is run once, unmodified.
@@ -518,7 +539,9 @@ Engine tests live at [`AI_Agents/src/Rebalancing/Testing/`](../../src/Rebalancin
 | Level | Where | Covers |
 |---|---|---|
 | per-step | `test_step1_caps.py`, `test_step1_cap_floor.py`, `test_step2_diff_exit.py`, `test_step3_tax.py`, `test_step4_initial_trades.py`, `test_step5_loss_offset.py`, `test_step6_presentation.py` | each step's arithmetic in isolation |
-| cross-agent (Part C) | [`test_part_c.py`](../../src/Rebalancing/Testing/test_part_c.py) | practical pre-pass → rank-1 target lift, frozen subgroups |
+| cross-agent (Part C) | [`test_part_c.py`](../../src/Rebalancing/Testing/test_part_c.py) | practical pre-pass → subgroup target assignment, frozen subgroups |
+| rank band (unit) | [`test_rank_band_floors.py`](../../src/Rebalancing/Testing/test_rank_band_floors.py) | `_protected_floors` in isolation: band edges, carve-outs, worst-rank-first trim |
+| rank band (e2e) | [`test_rank_band_acceptance.py`](../../src/Rebalancing/Testing/test_rank_band_acceptance.py) | the **contrast** across all 5 profiles — in-band funds kept AND out-of-band funds still replaced, so a "protect everything" bug can't pass; plus floors surviving steps 1→5, and the kill-switch |
 | consolidation | `test_consolidation.py`, `test_consolidation_response.py` | the F3-B buy-side reshape |
 | e2e workbook | `test_e2e_workbook.py` | **skipped** pending fixture extraction from the `Reference_docs/` workbook |
 
