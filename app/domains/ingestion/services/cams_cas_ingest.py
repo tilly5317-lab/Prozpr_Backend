@@ -839,7 +839,13 @@ async def _sync_mf_portfolio_holdings_from_cas(
     parsed: dict[str, Any],
     portfolio_total: float,
 ) -> int:
-    """Replace MF rows in ``portfolio_holdings`` with one line per CAS scheme so the app can list each fund/ETF."""
+    """Replace MF rows in ``portfolio_holdings`` with one line per FUND so the app can list each fund/ETF.
+
+    A fund held in several folios (bought through different platforms/brokers)
+    appears in the CAS once per folio; those per-folio positions are merged into
+    a single row keyed on the fund's canonical identity (AMFI code → ISIN →
+    scheme name), so the app never lists the same fund twice.
+    """
     await db.execute(
         delete(PortfolioHolding).where(
             PortfolioHolding.portfolio_id == portfolio_id,
@@ -864,7 +870,9 @@ async def _sync_mf_portfolio_holdings_from_cas(
                     candidate_isins.add(val.upper())
     isin_to_amfi = await build_isin_to_amfi_map(db, candidate_isins)
 
-    written = 0
+    # Merge per-folio positions of the SAME fund (multi-platform purchases) into
+    # one group per canonical fund identity before writing rows.
+    groups: dict[str, dict[str, Any]] = {}
     for folio in parsed.get("folios") or []:
         folio_no = _clean(folio.get("folio"), limit=40)
         for scheme in folio.get("schemes") or []:
@@ -875,52 +883,100 @@ async def _sync_mf_portfolio_holdings_from_cas(
             # value), so this row always agrees with `mf_transactions` and the
             # `mf_holdings` view — not the CAS valuation block.
             snapshot = _derive_scheme_snapshot(scheme)
-            market_value = snapshot.market_value
-            if market_value <= 0:
+            if snapshot.market_value <= 0:
                 continue
 
-            units = snapshot.units
             amfi, isin = _resolve_scheme_identifiers(scheme, scheme_name)
             ticker_raw = canonical_scheme_code(
                 amfi=amfi, isin=isin, isin_to_amfi=isin_to_amfi
             )
             ticker = ticker_raw[:20] if ticker_raw else None
-
-            avg_cost: Optional[float] = (
-                round(snapshot.avg_cost, 6) if snapshot.avg_cost is not None else None
+            key = (
+                ticker
+                or (isin.upper() if isin else None)
+                or f"name:{scheme_name.casefold()}"
             )
 
-            current_price: Optional[float] = None
-            if snapshot.nav > 0:
-                current_price = round(snapshot.nav, 6)
-            elif units > 0:
-                current_price = round(market_value / units, 6)
+            group = groups.get(key)
+            if group is None:
+                group = {
+                    "scheme_name": scheme_name,
+                    "ticker": ticker,
+                    "units": 0.0,
+                    "market_value": 0.0,
+                    "buy_cost": 0.0,  # Σ(avg_cost × units) over folios with a known cost
+                    "costed_units": 0.0,
+                    "nav": 0.0,
+                    "folios": [],
+                }
+                groups[key] = group
+            group["units"] += snapshot.units
+            group["market_value"] += snapshot.market_value
+            if snapshot.avg_cost is not None and snapshot.units > 0:
+                group["buy_cost"] += snapshot.avg_cost * snapshot.units
+                group["costed_units"] += snapshot.units
+            if group["nav"] <= 0 and snapshot.nav > 0:
+                group["nav"] = snapshot.nav
+            if folio_no and folio_no not in group["folios"]:
+                group["folios"].append(folio_no)
 
-            pct = round(100.0 * market_value / portfolio_total, 4)
+    written = 0
+    for group in groups.values():
+        market_value = group["market_value"]
+        units = group["units"]
+        scheme_name = group["scheme_name"]
 
-            folio_bit = f" · Folio {folio_no}" if folio_no else ""
-            max_name = 255 - len(folio_bit)
-            base_name = (
-                scheme_name
-                if len(scheme_name) <= max_name
-                else scheme_name[: max(0, max_name)]
+        # Units-weighted purchase NAV across all folios of the fund.
+        avg_cost: Optional[float] = (
+            round(group["buy_cost"] / group["costed_units"], 6)
+            if group["costed_units"] > 0
+            else None
+        )
+
+        current_price: Optional[float] = None
+        if group["nav"] > 0:
+            current_price = round(group["nav"], 6)
+        elif units > 0:
+            current_price = round(market_value / units, 6)
+
+        pct = round(100.0 * market_value / portfolio_total, 4)
+
+        folios = group["folios"]
+        if not folios:
+            folio_bit = ""
+        elif len(folios) == 1:
+            folio_bit = f" · Folio {folios[0]}"
+        else:
+            joined = ", ".join(folios)
+            # Keep the "Folio…" prefix even when abbreviating — the frontend
+            # strips the suffix with /·\s*Folio.*$/i.
+            folio_bit = (
+                f" · Folios {joined}"
+                if len(joined) <= 80
+                else f" · Folio {folios[0]} & {len(folios) - 1} more"
             )
-            display_name = f"{base_name}{folio_bit}" if folio_bit else scheme_name[:255]
+        max_name = 255 - len(folio_bit)
+        base_name = (
+            scheme_name
+            if len(scheme_name) <= max_name
+            else scheme_name[: max(0, max_name)]
+        )
+        display_name = f"{base_name}{folio_bit}" if folio_bit else scheme_name[:255]
 
-            db.add(
-                PortfolioHolding(
-                    portfolio_id=portfolio_id,
-                    instrument_name=display_name,
-                    instrument_type="mutual_fund",
-                    ticker_symbol=ticker,
-                    quantity=round(units, 4) if units > 0 else None,
-                    average_cost=avg_cost,
-                    current_price=current_price,
-                    current_value=round(market_value, 2),
-                    allocation_percentage=pct,
-                )
+        db.add(
+            PortfolioHolding(
+                portfolio_id=portfolio_id,
+                instrument_name=display_name,
+                instrument_type="mutual_fund",
+                ticker_symbol=group["ticker"],
+                quantity=round(units, 4) if units > 0 else None,
+                average_cost=avg_cost,
+                current_price=current_price,
+                current_value=round(market_value, 2),
+                allocation_percentage=pct,
             )
-            written += 1
+        )
+        written += 1
 
     await db.flush()
     return written
