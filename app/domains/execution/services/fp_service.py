@@ -4,18 +4,25 @@ Setup chain (all-at-CREATE; the sandbox gateway blocks every update verb):
   1. POST /v2/investor_profiles      — demographics + FATCA inline
   2. POST /v2/email_addresses        — {profile, email}
   3. POST /v2/phone_numbers          — {profile, isd, number}
-  4. POST /v2/addresses              — {profile, line1, city, state, postal_code, country}
+  4. POST /v2/addresses              — {profile, line1, city, state, postal_code, country,
+                                        nature} (nature MANDATORY or orders die at gateway)
   5. POST /v2/bank_accounts          — {profile, account_number, ifsc_code, type, primary_account_holder_name}
   6. POST /v2/mf_investment_accounts — {primary_investor, folio_defaults:{<ids of 2-5>}}
-Orders (scheme = ISIN; user_ip mandatory):
-  POST /v2/mf_purchases       {mf_investment_account, scheme, amount, user_ip}
+Orders (scheme = ISIN; user_ip mandatory; consent MUST ride inline — updates blocked):
+  POST /v2/mf_purchases       {mf_investment_account, scheme, amount, user_ip,
+                               consent:{email, isd_code, mobile}}
   POST /v2/mf_purchase_plans  {..., frequency:'monthly', installment_day,
-                               number_of_installments, systematic:true}
+                               number_of_installments, systematic:true, consent}
+Payment (once the order flips under_review -> pending, ~2s):
+  POST /api/pg/payments/netbanking {amc_order_ids:[order.old_id INT],
+                                    bank_account_id: bank.old_id INT,
+                                    method:'UPI', upi:{type:'uri'}, payment_postback_url}
 
 KYC = the Pre-Verification service (``cybrillarta`` tenant): an identity-match
-check that gates our order UI. Note the sandbox OMS has its own independent
-KYC-on-record check at settlement time which no sandbox PAN can pass — orders
-create fine (``under_review``/``created``) but never settle here.
+check that gates our order UI. The sandbox is RULE-SIMULATED (2026-07-22, per FP
+support): PAN digits 3751 = KYC-compliant (orders pass gateway review), bank a/c
+ending 11XX verifies, order amounts ending 0 settle successful / ending 1 fail.
+Live-verified matrix: Intern/FP_PAN_Test_Report.md.
 """
 
 from __future__ import annotations
@@ -56,17 +63,29 @@ from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
 
 logger = logging.getLogger(__name__)
 
+# ``nature`` is MANDATORY: without it the address saves fine but every
+# subsequent order insta-fails ``order_failure_at_gateway`` (live-confirmed
+# 2026-07-22). Allowed: residential | registered_office | business_location.
 _SANDBOX_ADDRESS = {
     "line1": "12 MG Road",
     "city": "Bengaluru",
     "state": "Karnataka",
     "postal_code": "560001",
     "country": "in",
+    "nature": "residential",
 }
 _SANDBOX_EMAIL = "sandbox.test@example.com"
 _SANDBOX_MOBILE = "9876543210"
-_SANDBOX_BANK_ACCOUNT = "1234567890"
+# Sandbox simulation rule: bank accounts ending 11XX verify with very_high
+# confidence (FP suggests the 119X form, e.g. 9876541193).
+_SANDBOX_BANK_ACCOUNT = "9876541193"
 _SANDBOX_BANK_IFSC = "HDFC0000001"
+_PAYMENT_POSTBACK_URL = "https://prozpr.in/fp/payment-postback"
+
+# After creating a purchase, wait briefly for the gateway review to flip it
+# ``under_review`` -> ``pending`` (usually ~2s) so a payment can be lodged.
+_PAY_POLL_ATTEMPTS = 4
+_PAY_POLL_DELAY_S = 1.5
 
 # KYC page poll: Pre-Verification is async (accepted -> completed); give it a
 # few seconds server-side before handing polling back to the client.
@@ -298,7 +317,13 @@ async def setup_account(
     account.pan = payload.pan.strip().upper()
     account.holder_name = payload.name
     account.bank_account_masked = "****" + bank_account[-4:]
-    account.raw = {"investor": investor, "mf_investment_account": mfia}
+    # bank_account is kept for its integer ``old_id`` — the /api/pg payment
+    # endpoints take numeric ids, not the bac_… string ids.
+    account.raw = {
+        "investor": investor,
+        "mf_investment_account": mfia,
+        "bank_account": bank_row,
+    }
     await db.commit()
     await db.refresh(account)
     return account
@@ -473,11 +498,95 @@ async def _record_order(
     return order
 
 
+async def _consent_for(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    """Purchase consent block. The sandbox gateway blocks every update verb, so
+    consent MUST ride inline on the CREATE call (live-confirmed 2026-07-22 —
+    there is no post-create consent/confirm route on this tenant)."""
+    user_row = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    email = (user_row.email if user_row and user_row.email else _SANDBOX_EMAIL)
+    mobile = (user_row.mobile if user_row and user_row.mobile else _SANDBOX_MOBILE)
+    return {"email": email, "isd_code": "91", "mobile": str(mobile)}
+
+
+async def _bank_old_id(client, account: FpExecAccount) -> int | None:
+    """The /api/pg payment API takes the bank account's integer ``old_id``.
+    Prefer the copy stored at setup; fall back to listing the investor's banks."""
+    raw = account.raw or {}
+    bank = raw.get("bank_account") or {}
+    if isinstance(bank, dict) and bank.get("old_id") is not None:
+        return bank["old_id"]
+    try:
+        rows = await client.request(
+            "GET", "/v2/bank_accounts", params={"profile": account.fp_investor_id}
+        )
+    except FpError:
+        return None
+    data = rows.get("data") if isinstance(rows, dict) else None
+    if data and isinstance(data[0], dict):
+        return data[0].get("old_id")
+    return None
+
+
+async def _create_payment_for_purchase(
+    client, account: FpExecAccount, purchase: dict
+) -> dict | None:
+    """Best-effort payment leg: wait for the purchase to pass gateway review
+    (``under_review`` -> ``pending``), then lodge a UPI payment through
+    ``POST /api/pg/payments/netbanking`` (numeric ids). On the sandbox the
+    payment then clears in FP's own batch cycle — amounts ending 0 settle
+    successful. Never fails the order; returns the payment (or None)."""
+    order_old_id = purchase.get("old_id")
+    order_id = purchase.get("id")
+    if order_old_id is None or not order_id:
+        return None
+    state = purchase.get("state")
+    for _ in range(_PAY_POLL_ATTEMPTS):
+        if state == "pending":
+            break
+        if state in ("failed", "successful", "reversed"):
+            return None
+        await asyncio.sleep(_PAY_POLL_DELAY_S)
+        try:
+            latest = await client.request("GET", "/v2/mf_purchases/" + str(order_id))
+        except FpError:
+            return None
+        state = (latest or {}).get("state")
+    if state != "pending":
+        logger.warning(
+            "FP payment skipped for %s: order still %s after review poll",
+            order_id,
+            state,
+        )
+        return None
+    bank_old_id = await _bank_old_id(client, account)
+    if bank_old_id is None:
+        logger.warning("FP payment skipped for %s: no bank old_id on record", order_id)
+        return None
+    try:
+        return await client.request(
+            "POST",
+            "/api/pg/payments/netbanking",
+            json={
+                "amc_order_ids": [order_old_id],
+                "payment_postback_url": _PAYMENT_POSTBACK_URL,
+                "method": "UPI",
+                "upi": {"type": "uri"},
+                "bank_account_id": bank_old_id,
+            },
+        )
+    except FpError as exc:
+        logger.warning("FP payment creation failed for %s: %s", order_id, exc)
+        return None
+
+
 async def place_lumpsum(
     db: AsyncSession, user: CurrentUser, payload: FpLumpsumRequest, user_ip: str
 ) -> FpExecOrder:
     account = await _require_account(db, user.id)
     isin, scheme_code, scheme_name = await _resolve_isin(db, payload.scheme_code)
+    consent = await _consent_for(db, user.id)
     async with get_fp_client() as client:
         try:
             resp = await client.request(
@@ -488,10 +597,14 @@ async def place_lumpsum(
                     "scheme": isin,
                     "amount": payload.amount,
                     "user_ip": user_ip,
+                    "consent": consent,
                 },
             )
         except FpError as exc:
             raise _fp_http(exc, "Lumpsum order failed") from exc
+        payment = await _create_payment_for_purchase(client, account, resp or {})
+        if payment and isinstance(resp, dict):
+            resp["_payment"] = payment
     return await _record_order(
         db,
         user.id,
@@ -509,6 +622,7 @@ async def place_sip(
 ) -> FpExecOrder:
     account = await _require_account(db, user.id)
     isin, scheme_code, scheme_name = await _resolve_isin(db, payload.scheme_code)
+    consent = await _consent_for(db, user.id)
     async with get_fp_client() as client:
         try:
             resp = await client.request(
@@ -523,6 +637,7 @@ async def place_sip(
                     "number_of_installments": payload.number_of_installments,
                     "systematic": True,
                     "user_ip": user_ip,
+                    "consent": consent,
                 },
             )
         except FpError as exc:
@@ -825,6 +940,7 @@ async def execute_rebalance_buys(
 
     orders: list[FpExecOrder] = []
     failed: list[str] = []
+    consent = await _consent_for(db, user.id)
     async with get_fp_client() as client:
         for trade in trades:
             isin = (trade.isin or "").strip().upper()
@@ -844,6 +960,7 @@ async def execute_rebalance_buys(
                         "scheme": isin,
                         "amount": amount,
                         "user_ip": user_ip,
+                        "consent": consent,
                     },
                 )
             except FpError as exc:
@@ -854,6 +971,9 @@ async def execute_rebalance_buys(
                 reason = _fp_http(exc, "order rejected").detail
                 failed.append(str(trade.recommended_fund) + ": " + str(reason))
                 continue
+            payment = await _create_payment_for_purchase(client, account, resp or {})
+            if payment and isinstance(resp, dict):
+                resp["_payment"] = payment
             order = await _record_order(
                 db,
                 user.id,
