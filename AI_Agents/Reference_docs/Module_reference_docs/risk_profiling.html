@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Hybrid · deterministic scoring + Haiku summary</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-15
       </div>
     </div>
     <article id="content"></article>
@@ -311,7 +311,7 @@ The engine is a peer agent: it imports **no other agent**, only the shared [`com
 |---|---|---|
 | **Upstream (trigger)** | profile PATCH → [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) → [`_effective_risk/merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | a profile change (risk answers, finances) rebuilds the input and re-runs scoring; `merge.py` recomputes calculations/output every time, reusing untouched inputs |
 | **Gateway (the only caller)** | [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) → `compute_effective_risk_document` | builds the plain-`dict` payload and calls `run_risk_profiling(payload, api_key=…)`; `service.py` runs it via `asyncio.to_thread` so the sync LLM call never blocks the event loop |
-| **Willingness source** | app-layer stored appetite / legacy mapping (`risk_willingness_from_risk_level`, 0–4 → 1–10) | `risk_willingness ∈ [1,10]` is handed in **already resolved** — see the §8 landmine, it is **not** produced by this module's `willingness.py` |
+| **Willingness source** | app-layer [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) → `derive_risk_willingness` → **this module's** [`willingness.py`](../../src/risk_profiling/willingness.py) `compute_risk_willingness` | `risk_willingness ∈ [1,10]` is handed in **already resolved**: the 4-question model (`risk_level` → Q1 plus the three behavioural sentences) is the primary source, with an explicit stored `RiskProfile.risk_willingness` override and a legacy `risk_willingness_from_risk_level` fallback (§8) |
 | **Downstream consumer** | [`asset_allocation/…/aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` — **caller-wired data, not a package import** |
 
 > **The engine touches no DB.** If you are looking for "where does the stored score get read", it is the AA input builder in the app layer — the engine only ever returns the dict. And note the entry point the app calls is **`run_risk_profiling`**, which threads an explicit `api_key` for per-module spend attribution; the LCEL `risk_profiling_chain` is dev-tooling only.
@@ -332,7 +332,7 @@ The documented shape is `RiskProfileInput` in [`models.py`](../../src/risk_profi
 | `liabilities_excluding_mortgage` | `float` | mortgage is handled separately |
 | `annual_mortgage_payment` | `float` | counts against expense-coverage + debt, but not as a `liability` |
 | `properties_owned` | `int` | `0`, `1`, or `>1` — three-way score |
-| `risk_willingness` | `float`, `ge=1, le=10` | **supplied by the caller**, already resolved from stored appetite |
+| `risk_willingness` | `float`, `ge=1, le=10` | **supplied by the caller** — resolved by `derive_risk_willingness` via this module's 4-question `willingness.py` model (§8) |
 
 ---
 
@@ -464,7 +464,7 @@ The chain is built with LangChain `ChatAnthropic` (repo convention — no raw `a
 |---|---|
 | [`main.py`](../../src/risk_profiling/main.py) | **entry** — `run_risk_profiling` (app calls this, threads `api_key`) + the LCEL `risk_profiling_chain` (dev tooling); `_generate_summary` = the Haiku step + sentinel pre-formatting |
 | [`scoring.py`](../../src/risk_profiling/scoring.py) | `compute_all_scores` — Steps A–E, pure Python, no LLM; owns `AGE_ANCHORS`, `OSI_MAP` |
-| [`willingness.py`](../../src/risk_profiling/willingness.py) | `compute_risk_willingness` — the four-question (Q1–Q4) appetite scorer; **re-exported but unwired** (§8) |
+| [`willingness.py`](../../src/risk_profiling/willingness.py) | `compute_risk_willingness` — the four-question (Q1–Q4) appetite scorer; **wired into production** via `derive_risk_willingness` (§8); owns the frontend-text → scoring-key reference tables |
 | [`prompts.py`](../../src/risk_profiling/prompts.py) | `summary_prompt` (`ChatPromptTemplate`) + `RiskProfileSummary` structured-output schema + the plain-language guardrail body |
 | [`models.py`](../../src/risk_profiling/models.py) | `RiskProfileInput` — the documented input contract (runtime payload is a plain dict) |
 | [`__init__.py`](../../src/risk_profiling/__init__.py) | re-exports `run_risk_profiling`, `risk_profiling_chain`, `RiskProfileInput`, `compute_all_scores`, `compute_risk_willingness` |
@@ -475,7 +475,8 @@ App-layer companions (not part of the engine, but where it is wired):
 
 | File | Role |
 |---|---|
-| [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) | the gateway `compute_effective_risk_document` — the ONLY production caller |
+| [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) | the gateway `compute_effective_risk_document` — the only production caller of the scoring chain (`run_risk_profiling`) |
+| [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) | `derive_risk_willingness` — resolves the `risk_willingness` float; the only production caller of `willingness.py` |
 | [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) · [`merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | trigger + incremental re-merge + persistence |
 | [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` |
 
@@ -483,7 +484,7 @@ App-layer companions (not part of the engine, but where it is wired):
 
 ## 8. Invariants & landmines
 
-- **`willingness.py` is orphaned on purpose.** `compute_risk_willingness` (the Q1–Q4 instrument) is re-exported from `__init__.py` but **nothing in the app calls it** — a repo-wide grep finds no production caller. Production `risk_willingness` is resolved by the app layer (stored appetite, or the legacy `risk_level` 0–4 → 1–10 mapping via `risk_willingness_from_risk_level`) and handed in on the payload. Don't assume editing `willingness.py` changes any live score; it doesn't (yet). It's staged for a future appetite instrument.
+- **`willingness.py` is wired into production — editing it moves live scores.** `compute_risk_willingness` (the Q1–Q4 instrument) is the primary source of `risk_willingness`: the app-layer [`derive_risk_willingness`](../../../app/domains/profile/services/_effective_risk/inputs.py) calls it with the customer's `risk_level` (Q1) and the three behavioural answer sentences (Q2–Q4), preferring an explicit stored `RiskProfile.risk_willingness` when set and falling back to the legacy `risk_willingness_from_risk_level` (0–4 → 1–10) only when the model yields nothing. So **changing the scores, the lift rule, the experience cap, or the frontend→key reference tables changes live `effective_risk_score` and therefore allocations.** The three text tables must stay byte-exact with the frontend `BEHAV_Q*_OPTIONS` (a `test_willingness.py` guard enforces this); a reworded or legacy option is treated as unanswered, never an error.
 - **OSI is recorded, not blended.** `osi = OSI_MAP[occupation_type]` lands in `calculations`, but `effective_risk_score` is `0.7·willingness + 0.3·capacity` only. Occupation stability does **not** move the headline (matches Logics thesis principle 5 / the "steady job didn't reward me" Q&A). Wiring it in is a deliberate future change, not a bug to "fix".
 - **The savings-rate step is narrative-only.** `_savings_adjustment` produces `equity_boost` / `equity_reduce` / `none` for the *summary* to acknowledge, but `_risk_capacity` never reads it — capacity depends solely on `age_based_score` and `net_asset_score`. Don't let a refactor quietly feed it into the score.
 - **Scores are deterministic; keep them that way.** Same input ⇒ identical `effective_risk_score`, `risk_profile_category`, `gap_exceeds_3`. Never route a number through the LLM — the LLM writes prose only. A summary failure must never corrupt a score.
@@ -503,7 +504,8 @@ App-layer companions (not part of the engine, but where it is wired):
 
   | Level | Where | Covers |
   |---|---|---|
-  | willingness | [`Testing/test_willingness.py`](../../src/risk_profiling/Testing/test_willingness.py) | Q1–Q4 scoring, the `min(avg, lift, Q2_cap)` combine, and every `None`/missing-question path |
+  | willingness engine | [`Testing/test_willingness.py`](../../src/risk_profiling/Testing/test_willingness.py) | Q1–Q4 scoring from **frontend-native inputs** (`risk_level` + full option sentences), the `min(avg, lift, Q2_cap)` combine, every `None`/unrecognised-answer path, and a drift guard that the reference tables match the live frontend `BEHAV_Q*_OPTIONS` |
+  | willingness wiring | [`_effective_risk/tests/test_effective_risk_inputs.py`](../../../app/domains/profile/services/_effective_risk/tests/test_effective_risk_inputs.py) | `derive_risk_willingness` — model-primary, stored override, legacy fallback, graceful handling of unrecognised answers |
   | per-module key | [`app/core/tests/test_per_module_api_keys.py`](../../../app/core/tests/test_per_module_api_keys.py) | that `run_risk_profiling` receives the explicitly-threaded `api_key`, not ambient env |
 
   Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/risk_profiling/Testing/`.
@@ -526,7 +528,7 @@ App-layer companions (not part of the engine, but where it is wired):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-07-15. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

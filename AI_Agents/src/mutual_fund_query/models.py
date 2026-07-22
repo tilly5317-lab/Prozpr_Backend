@@ -25,6 +25,13 @@ class ExtractResult(BaseModel):
     fund_names: list[str] = Field(default_factory=list)
     asked_for: Literal["reasoning", "returns", "comparison"]
 
+    # Screen path: a generic "best/top performing funds" ask names no fund and
+    # instead requests a ranked shortlist from our universe. When ``is_screen``
+    # is True, ``fund_names`` is empty and the app runs the fund screener.
+    is_screen: bool = False
+    screen_category: Optional[str] = None      # e.g. "Large Cap"; None = all funds
+    screen_horizon_years: Optional[int] = None  # 1/3/5; None = default (3y)
+
 
 class FundReturns(BaseModel):
     """Trailing annualized (CAGR) returns; a horizon is None when unavailable."""

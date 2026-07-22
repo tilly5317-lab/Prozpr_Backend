@@ -31,9 +31,11 @@ from app.domains.ingestion.schemas.finvu import (
 )
 from app.domains.portfolio.services.allocation_rollup import (
     current_asset_class_mix,
+    current_sub_category_mix,
     holding_single_asset_class,
 )
 from app.domains.portfolio.schemas.portfolio import (
+    AllocationSubCategoryResponse,
     NetworthJobStatusResponse,
     PortfolioAllocationBulkUpdate,
     PortfolioAllocationResponse,
@@ -120,7 +122,11 @@ def _build_holding_response(holding: PortfolioHolding) -> PortfolioHoldingRespon
 
     The holdings list shows each fund's dominant single asset_class (no
     look-through split); the donut's split breakdown is derived separately in
-    ``_derive_allocations``. Both share ``allocation_rollup`` so they agree.
+    ``_derive_allocations``. They share ``allocation_rollup``'s CLASSIFIER but
+    not its split, so for any portfolio holding a blended fund the two DISAGREE
+    by design: summing `holdings` by `asset_class` over-counts the dominant
+    class. Anything needing the split view (the donut, its drill-down) must read
+    `allocations[]` / `allocations[].sub_categories`, never re-derive from here.
     """
     md = holding.fund_metadata
     sebi_sub = md.sub_category if md else None
@@ -155,6 +161,9 @@ def _derive_allocations(
     # the central look-through; everything else lands in its single class. Shared
     # with chat's current-mix so the two can never disagree.
     amounts: dict[str, float] = current_asset_class_mix(holdings)
+    # Per-class sub-category breakdown for the slice drill-down, split by the same
+    # look-through so each class's rows sum to that class's own amount.
+    sub_mix: dict[str, dict[str, float]] = current_sub_category_mix(holdings)
     # Carry forward bank cash — the only persisted bucket with no holding behind it.
     for a in persisted:
         if (a.asset_class or "").strip().lower() == "cash":
@@ -170,6 +179,13 @@ def _derive_allocations(
             allocation_percentage=round(100.0 * amt / total, 2),
             amount=round(amt, 2),
             performance_percentage=None,
+            sub_categories=[
+                AllocationSubCategoryResponse(name=name, amount=round(sub_amt, 2))
+                for name, sub_amt in sorted(
+                    sub_mix.get(ac, {}).items(), key=lambda kv: kv[1], reverse=True
+                )
+                if sub_amt > 0
+            ],
         )
         for ac, amt in amounts.items()
         if amt > 0

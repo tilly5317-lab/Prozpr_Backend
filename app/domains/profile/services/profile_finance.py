@@ -78,12 +78,16 @@ def other_investments_total_for_user(user: Any) -> float:
 
 
 def effective_tax_rate_for_user(user: Any) -> float:
-    pfp = getattr(user, "personal_finance_profile", None)
-    if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
-        return max(0.0, min(1.0, _f(pfp.effective_tax_rate)))
+    # tax_profile.income_tax_rate (the marginal slab %, set via /profile/complete
+    # AND the goal-planning inputs) is the single source of truth. The legacy
+    # personal_finance_profile.effective_tax_rate is only a fallback for users who
+    # set it before the two screens were unified onto one dropdown.
     tp = getattr(user, "tax_profile", None)
     if tp is not None and getattr(tp, "income_tax_rate", None) is not None:
         return max(0.0, min(1.0, _f(tp.income_tax_rate) / 100.0))
+    pfp = getattr(user, "personal_finance_profile", None)
+    if pfp is not None and getattr(pfp, "effective_tax_rate", None) is not None:
+        return max(0.0, min(1.0, _f(pfp.effective_tax_rate)))
     return _DEFAULT_TAX_RATE
 
 

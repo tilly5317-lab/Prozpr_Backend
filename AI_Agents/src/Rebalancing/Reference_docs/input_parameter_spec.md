@@ -8,6 +8,7 @@ The engine takes the goal-based ideal allocation (already computed upstream) and
 
 1. **`step1_cap_and_spill`** — per-fund target sizing under per-fund caps; overflow spills rank-1 → 2 → 3 (sheet cols F–K).
 2. **`step2_compare_and_decide`** — joins present holdings, computes `diff`, `exit_flag`, `worth_to_change` (cols L–P).
+2b. **`step2b_suppress_debt_switch`** — cancels matched sell/buy intents inside the debt-like subgroups so debt is never sold to buy debt (no spreadsheet col; added 2026-07-18).
 3. **`step3_tax_classification`** — for each sell candidate, splits ST/LT and computes exit-load impact (cols S–W).
 4. **`step4_initial_trades_under_stcg_cap`** — first trade pass under the STCG offset budget; emits `holding_after_initial_trades` (cols X–AC + AD–AL).
 5. **`step5_loss_offset_top_up`** — uses carryforward losses to enable extra sells; emits `final_holding_amount` (cols AM–AP).
@@ -105,10 +106,22 @@ Five buckets. Each row: **name · type · default (if any) · source · what it 
 | E3 | `recommended_fund` | str | `SubgroupFundMapping.recommended_fund` |
 | E4 | `isin` | str | `SubgroupFundMapping.isin` |
 | E5 | `rank` | int | new `mf_recommended_funds` lookup table |
-| E6 | `target_amount_pre_cap` (= `allocation_1`) | Decimal | `AggregatedSubgroupRow.total` allocated to this rank (rank-1 gets the goal-allocation amount; ranks 2/3 start at 0 and only fill on cap spill) |
+| E6 | `target_amount_pre_cap` (= `allocation_1`) | Decimal | **Advisory on input — the engine overwrites it.** `input_builder.py` still writes the goal amount on rank-1 and `0` on ranks 2+, but `pipeline._assign_subgroup_targets` re-derives every ranked row's target from the practical allocation before step 1 runs (see below) |
+| E6b | `protected_floor_inr` | Decimal | Engine-assigned, not built upstream. The rupee amount of an existing holding that this run must not sell |
 | E7 | `max_pct` | float | derived: A1 if `sub_category` is multi-cap else A2 |
 
-**How ranks 2/3 are wired (Decision 6).** `GoalAllocationOutput.fund_mapping` exposes only rank-1. `input_builder.py` reads ranks 2+ from the new `mf_recommended_funds` table and materialises a `FundRowInput` for every `(asset_subgroup, sub_category, rank)` combination — rank-1 carries the goal-allocation amount, ranks 2+ start with `target_amount_pre_cap = 0`. By the time `step1_cap_and_spill` runs, every potential overflow target already exists; the step only redistributes amounts, never lazy-loads new rows.
+**How ranks 2/3 are wired (Decision 6).** `GoalAllocationOutput.fund_mapping` exposes only rank-1. `input_builder.py` reads ranks 2+ from the new `mf_recommended_funds` table and materialises a `FundRowInput` for every `(asset_subgroup, sub_category, rank)` combination. By the time `step1_cap_and_spill` runs, every potential overflow target already exists; the step only redistributes amounts, never lazy-loads new rows.
+
+**How targets are actually assigned (engine 1.3.0).** The rank-1-only sizing above is no longer what the engine uses — it is overwritten by `pipeline._assign_subgroup_targets` before step 1. Per subgroup:
+
+1. Each **held** recommended row whose gap to that subgroup's best rank is **under** `RANK_PROTECT_BAND` (default 5, exclusive: gap 4 protects, gap 5 sells) and whose `fund_rating ≥ EXIT_FLOOR_RATING` reserves `floor_to_step(present_allocation_inr)` as `protected_floor_inr`.
+2. `residual = max(subgroup_target − Σfloors, 0)` — the only genuinely fresh money — goes to the best-ranked row, which receives `floor + residual`.
+3. Every other ranked row receives exactly its floor.
+4. If `Σfloors > subgroup_target` the sleeve is over-allocated; floors are trimmed **worst-rank-first** until they fit.
+
+Rows with `rank == 0` (off-list) or `rank == FORCE_EXIT_RANK` are excluded **structurally**, not by rank distance — an arithmetic band would compute `|0 − 1| < 5` and freeze every unrecommended holding, which is the opposite of the intent.
+
+Consequence for step 1: it still spills, but its per-fund cap is floored at `protected_floor_inr`, so the cap can bound *deployment* into a fund and can no longer force a *sell* out of one. Kill-switch `REBAL_HOLDINGS_AWARE_TARGETS=0` restores the pre-1.3.0 rank-1-only sizing exactly.
 
 ### F. Present holdings — per ISIN held, including non-recommended ("BAD") funds
 
@@ -139,7 +152,7 @@ Built fresh by the new `holdings_aging.py` walking `MfTransaction` directly. **D
 3. **v1 scope** — pass-1 (`step4_initial_trades_under_stcg_cap`) **and** pass-2 (`step5_loss_offset_top_up`) — sheet cols X–AP.
 4. **Engine output shape** — full intermediate state (`final_target_amount`, `holding_after_initial_trades`, `final_holding_amount`, diffs, `exit_flag`, `worth_to_change`, tax breakdown). External views are spec'd in [`output_spec.md`](output_spec.md).
 5. **Manual override (`allocation_4`)** — out of scope for v1; engine sets `allocation_4 = allocation_3`.
-6. **Rank source** — new `mf_recommended_funds` lookup table; `input_builder.py` materialises rows for **all** ranks (rank-1 with the goal-allocation amount, ranks 2+ with `target_amount_pre_cap = 0`) so step 1 only has to spill, never lazy-load.
+6. **Rank source** — new `mf_recommended_funds` lookup table; `input_builder.py` materialises rows for **all** ranks so step 1 only has to spill, never lazy-load. Target sizing on those rows is the engine's job, not the builder's (see §E).
 7. **Rating column** — `MfFundMetadata.our_rating_parameter_1`.
 8. **Sell prioritisation** — tax-first ordering, applied within both the forced-exit bucket (BAD + low-rated) and the optional bucket (over-allocated). LT → losses → ST out-of-load → ST in-load is the tax-cheapness ladder; |diff| breaks ties inside the optional bucket.
 9. **Cash flow** — closed system in v1 (Σ buys = Σ sells). Inflow/outflow handling deferred.

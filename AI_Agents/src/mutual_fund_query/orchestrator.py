@@ -58,6 +58,30 @@ _EXTRACT_TOOL = {
                     "returns; comparison = how it compares (to peers or another fund)."
                 ),
             },
+            "is_screen": {
+                "type": "boolean",
+                "description": (
+                    "True when the customer names NO specific fund and asks for the "
+                    "best/top performing funds in general (a ranked shortlist), e.g. "
+                    "'which are the best performing mutual funds?', 'top large cap funds'. "
+                    "False for any question about a specific named fund."
+                ),
+            },
+            "screen_category": {
+                "type": ["string", "null"],
+                "description": (
+                    "For a screen, the fund category/sub-category named, if any "
+                    "(e.g. 'Large Cap', 'Mid Cap', 'Flexi Cap'). Null when the customer "
+                    "asks for best funds overall with no category."
+                ),
+            },
+            "screen_horizon_years": {
+                "type": ["integer", "null"],
+                "description": (
+                    "For a screen, the return horizon in years if the customer named one "
+                    "('this year' -> 1, 'over 5 years' -> 5). Null to use the default (3)."
+                ),
+            },
         },
         "required": ["fund_names", "asked_for"],
     },

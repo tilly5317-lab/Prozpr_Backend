@@ -24,6 +24,7 @@ from app.domains.additional_investment.routers.additional_investment_router impo
     router as additional_investment_router,
 )
 from app.domains.advisory.routers.ips_router import router as ips_router
+from app.domains.advisory.routers.team_call_router import router as team_call_router
 from app.domains.identity.routers.linked_accounts_router import (
     router as linked_accounts_router,
 )
@@ -51,6 +52,7 @@ all_routers = [
     rebalancing_router,
     additional_investment_router,
     ips_router,
+    team_call_router,
     linked_accounts_router,
     family_router,
     simbanks_router,
