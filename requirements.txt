@@ -32,8 +32,11 @@ newrelic>=9.7.0
 # (uploaded by users in place of the sidelined Finvu account-aggregator fetch).
 # pymupdf is casparser's preferred backend — more robust decryption of the
 # password-protected CAS PDFs than its pdfminer fallback; casparser auto-detects it.
-casparser>=0.7.0
-pymupdf>=1.24.0
+# PINNED: transaction extraction differs across versions (an older server build
+# extracted fewer transactions than local from the same PDF, corrupting derived
+# holdings) — keep every environment on the same verified pair.
+casparser==1.3.0
+pymupdf==1.28.0
 
 # AI
 anthropic>=0.40.0

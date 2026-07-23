@@ -256,9 +256,11 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
     Uses the same allow-list (`_TXN_TYPE_FLAG`) and abs-units + type-direction
     convention as the `mf_transactions` ledger, so the numbers pushed into
     `portfolio_holdings` / allocations equal the transaction summary. Falls back
-    to the CAS-stated close balance & valuation only when the parser found no
-    unit-moving transactions for the scheme (better a statement-valued row than
-    silently dropping a real holding).
+    to the CAS-stated close balance & valuation when the parser found no
+    unit-moving transactions for the scheme, OR when the transaction-derived
+    units contradict the statement's own opening→closing balance — incomplete
+    extraction (environment-dependent casparser/pdf quirks) otherwise inflates
+    or deflates a holding's units and corrupts the portfolio value.
     """
     valuation = scheme.get("valuation") or {}
     stated_value = _num(valuation.get("value"))
@@ -268,7 +270,11 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
     if nav <= 0 and stated_units > 0 and stated_value > 0:
         nav = stated_value / stated_units
 
-    units = 0.0
+    # A statement over a partial period starts each scheme at a non-zero opening
+    # balance; the transaction sum only covers the period, so the position is
+    # opening + Σ(signed txn units).
+    opening_units = _num(scheme.get("open"))
+    units = opening_units
     buy_units = 0.0
     buy_cost = 0.0
     seen = False
@@ -288,20 +294,44 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
         else:
             units -= u
 
-    if not seen:
+    def _statement_position() -> _SchemeSnapshot:
         avg = (
             (stated_cost / stated_units)
             if (stated_units > 0 and stated_cost > 0)
             else None
         )
+        market_value = (
+            stated_value
+            if stated_value > 0
+            else (stated_units * nav if (stated_units > 0 and nav > 0) else 0.0)
+        )
         return _SchemeSnapshot(
             units=stated_units,
             avg_cost=avg,
             nav=nav,
-            market_value=stated_value,
-            invested=stated_cost if stated_cost > 0 else stated_value,
+            market_value=market_value,
+            invested=stated_cost if stated_cost > 0 else market_value,
             derived_from_txns=False,
         )
+
+    if not seen:
+        return _statement_position()
+
+    # Sanity gate: the extracted transactions must reproduce the statement's own
+    # closing balance (opening + Σtxns == close). When they don't, the txn table
+    # was extracted incompletely / misparsed for this scheme (this varies with
+    # the installed casparser/pymupdf versions), and pricing those units would
+    # inflate or deflate the holding — trust the statement's stated position.
+    if stated_units > 0 and abs(units - stated_units) > max(0.5, stated_units * 0.01):
+        logger.warning(
+            "CAS ingest: txn-derived units %.4f contradict statement close balance "
+            "%.4f for scheme %r — txn extraction incomplete; using the statement "
+            "position",
+            units,
+            stated_units,
+            _clean(scheme.get("scheme"), limit=60),
+        )
+        return _statement_position()
 
     if units <= 1e-6:  # fully redeemed per the ledger — no live position
         return _SchemeSnapshot(
@@ -316,14 +346,6 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
     avg_cost = (buy_cost / buy_units) if buy_units > 0 else None
     market_value = units * nav if nav > 0 else stated_value
     invested = (avg_cost * units) if avg_cost is not None else 0.0
-    if stated_units > 0 and abs(units - stated_units) > 0.01:
-        logger.info(
-            "CAS ingest: txn-derived units %.4f differ from statement close balance "
-            "%.4f for scheme %r — using the transaction sum",
-            units,
-            stated_units,
-            _clean(scheme.get("scheme"), limit=60),
-        )
     return _SchemeSnapshot(
         units=units,
         avg_cost=avg_cost,
@@ -552,6 +574,30 @@ def _fb_extract_transactions(data: bytes, password: str) -> list[list[dict[str, 
     return all_scheme_txns
 
 
+def _fb_txns_reconcile(scheme: dict[str, Any], txns: list[dict[str, Any]]) -> bool:
+    """True when *txns* reproduce the scheme's own opening→closing balance.
+
+    The fallback matches its transaction blocks to casparser's scheme list by
+    document order; when the two lists don't line up a scheme would silently
+    receive ANOTHER scheme's transactions, corrupting units and value. Since the
+    statement prints each scheme's opening and closing unit balance, requiring
+    ``open + Σ(signed units) ≈ close`` proves the block really belongs here.
+    """
+    close = _num(scheme.get("close") or scheme.get("close_calculated"))
+    units = _num(scheme.get("open"))
+    seen = False
+    for txn in txns:
+        flag = _TXN_TYPE_FLAG.get(str(txn.get("type") or "").upper())
+        if flag is None:
+            continue
+        seen = True
+        u = abs(_num(txn.get("units")))
+        units += u if flag in _INFLOW_FLAGS else -u
+    if not seen:
+        return False
+    return abs(units - close) <= max(0.5, abs(close) * 0.01)
+
+
 def _patch_parsed_with_fallback(
     parsed: dict[str, Any], data: bytes, password: str
 ) -> None:
@@ -573,6 +619,18 @@ def _patch_parsed_with_fallback(
     if fb_total <= cp_total:
         return
 
+    # The index-based match below is only meaningful when the fallback found a
+    # block for every casparser scheme; a shifted list would attach transactions
+    # to the wrong schemes.
+    if len(fb_scheme_txns) != len(cp_schemes):
+        logger.warning(
+            "CAS fallback parser found %d scheme blocks vs casparser's %d schemes; "
+            "cannot align — keeping casparser transactions",
+            len(fb_scheme_txns),
+            len(cp_schemes),
+        )
+        return
+
     logger.info(
         "CAS fallback parser found %d txns vs casparser's %d; patching",
         fb_total,
@@ -580,12 +638,20 @@ def _patch_parsed_with_fallback(
     )
 
     for idx, cp_scheme in enumerate(cp_schemes):
-        if idx >= len(fb_scheme_txns):
-            break
         fb_txns = fb_scheme_txns[idx]
         cp_txns = cp_scheme.get("transactions") or []
-        if len(fb_txns) > len(cp_txns):
+        if len(fb_txns) <= len(cp_txns):
+            continue
+        # Adopt the fallback's transactions only when they reproduce this
+        # scheme's own opening→closing balance — proof the block is aligned.
+        if _fb_txns_reconcile(cp_scheme, fb_txns):
             cp_scheme["transactions"] = fb_txns
+        else:
+            logger.warning(
+                "CAS fallback txns for scheme %r do not reconcile with its "
+                "closing balance; keeping casparser transactions",
+                _clean(cp_scheme.get("scheme"), limit=60),
+            )
 
 
 # ---------------------------------------------------------------------------
