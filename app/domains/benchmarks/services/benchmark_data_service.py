@@ -25,10 +25,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from decimal import Decimal
+
 from app.domains.benchmarks.models import BenchmarkIndex, BenchmarkIndexValue
 from app.domains.benchmarks.services.niftyindices_fetcher import (
     NIFTY_TRI_EARLIEST,
     NIFTY_TRI_TIMEOUT,
+    NiftyTriFetchError,
     TriRow,
     fetch_tri_chunked,
 )
@@ -45,6 +48,15 @@ BACKFILL_YEARS = 5
 DEFAULT_LOOKBACK_DAYS = 10
 
 NIFTY_50_CODE = "NIFTY 50"
+
+# NAV-splice fallback source: niftyindices.com sits behind bot protection that
+# 302s non-browser clients to a login page (observed 2026-07), so when the
+# scrape fails the Nifty 50 series is extended from the NAV of an index fund
+# tracking the Nifty 50 TRI — already refreshed nightly by the mfapi scheduler
+# into ``mf_nav_history``. NAVs are rescaled to the last stored TRI level so the
+# spliced series stays continuous (ratios, which every consumer uses, are exact
+# up to the fund's tracking error).
+NIFTY_PROXY_SCHEME_CODE = "120716"  # UTI Nifty 50 Index Fund — Direct Growth
 
 # Catalogue metadata used when an index is auto-created. Extend for new indices.
 KNOWN_INDICES: dict[str, dict] = {
@@ -151,6 +163,74 @@ async def _fetch_rows(code: str, start: date, end: date) -> list[TriRow]:
         return await fetch_tri_chunked(client, code, start, end)
 
 
+async def extend_nifty_from_nav_proxy(
+    db: AsyncSession, index: BenchmarkIndex, end: date
+) -> int:
+    """Extend the stored Nifty 50 series past its last date using the tracker
+    fund's NAV from ``mf_nav_history``, rescaled to splice continuously onto the
+    last stored TRI value. Returns rows upserted (0 when there is nothing to
+    anchor to or no newer NAVs). No commit."""
+    from app.domains.mutual_funds.models import MfNavHistory  # noqa: PLC0415 (cross-domain read only here)
+
+    last = (
+        await db.execute(
+            select(BenchmarkIndexValue.value_date, BenchmarkIndexValue.tri_value)
+            .where(BenchmarkIndexValue.benchmark_index_id == index.id)
+            .order_by(BenchmarkIndexValue.value_date.desc())
+            .limit(1)
+        )
+    ).first()
+    if last is None:
+        return 0  # nothing to splice onto — needs a real backfill first
+    last_date, last_tri = last[0], float(last[1])
+
+    anchor_nav = (
+        await db.execute(
+            select(MfNavHistory.nav)
+            .where(
+                MfNavHistory.scheme_code == NIFTY_PROXY_SCHEME_CODE,
+                MfNavHistory.nav_date <= last_date,
+            )
+            .order_by(MfNavHistory.nav_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if anchor_nav is None or float(anchor_nav) <= 0:
+        return 0
+    factor = last_tri / float(anchor_nav)
+
+    nav_rows = (
+        await db.execute(
+            select(MfNavHistory.nav_date, MfNavHistory.nav)
+            .where(
+                MfNavHistory.scheme_code == NIFTY_PROXY_SCHEME_CODE,
+                MfNavHistory.nav_date > last_date,
+                MfNavHistory.nav_date <= end,
+            )
+            .order_by(MfNavHistory.nav_date.asc())
+        )
+    ).all()
+    rows = [
+        TriRow(
+            tri_date=d,
+            tri_value=Decimal(str(round(float(v) * factor, 2))),
+            ntr_value=None,
+        )
+        for d, v in nav_rows
+        if v is not None and float(v) > 0
+    ]
+    upserted = await bulk_upsert_values(db, index.id, rows)
+    logger.warning(
+        "Benchmark %s: extended %d days from NAV proxy scheme %s (anchor %s, factor %.4f)",
+        index.code,
+        upserted,
+        NIFTY_PROXY_SCHEME_CODE,
+        last_date,
+        factor,
+    )
+    return upserted
+
+
 async def backfill_range(
     db: AsyncSession, code: str, start: date, end: date
 ) -> int:
@@ -189,7 +269,30 @@ async def refresh_recent(
     if not has_rows:
         return await backfill_range(db, code, _years_ago(BACKFILL_YEARS, today), today)
     start = today - timedelta(days=lookback_days)
-    rows = await _fetch_rows(code, start, today)
+    # Gap-aware: if the job hasn't run (or kept failing) for longer than the
+    # lookback window, a fixed trailing fetch would leave a permanent hole in
+    # the series. Extend the window back to the last stored date so the series
+    # self-heals on the next successful run.
+    last_stored = (
+        await db.execute(
+            select(func.max(BenchmarkIndexValue.value_date)).where(
+                BenchmarkIndexValue.benchmark_index_id == index.id
+            )
+        )
+    ).scalar_one()
+    if last_stored is not None and last_stored < start:
+        start = last_stored + timedelta(days=1)
+    try:
+        rows = await _fetch_rows(code, start, today)
+    except NiftyTriFetchError:
+        if code != NIFTY_50_CODE:
+            raise
+        logger.warning(
+            "Benchmark refresh %s: niftyindices fetch failed; splicing from the "
+            "Nifty 50 tracker fund's NAV instead",
+            code,
+        )
+        return await extend_nifty_from_nav_proxy(db, index, today)
     upserted = await bulk_upsert_values(db, index.id, rows)
     logger.info(
         "Benchmark refresh %s from=%s fetched=%d upserted=%d",
