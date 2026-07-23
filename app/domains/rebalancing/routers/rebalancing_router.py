@@ -34,6 +34,7 @@ from app.domains.rebalancing.schemas import (
     RebalancingStatusUpdate,
 )
 from app.domains.rebalancing.services.asset_class_breakdown import (
+    run_current_asset_class_mix,
     target_asset_class_mix,
 )
 
@@ -146,13 +147,21 @@ _BREAKDOWN_ORDER: tuple[str, ...] = ("Equity", "Debt", "Others")
 def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBreakdown:
     """Multi-asset-aware Equity/Debt/Others split for the Invest-page bars.
 
-    CURRENT comes from the portfolio holdings (the shared ``current_asset_class_mix``
-    used by the dashboard + chat). TARGET comes from the plan's per-subgroup totals,
-    with the engine's generic ``multi_asset`` sleeve split by the 65/25/10
-    composition the engine sized it as — matching the engine ideal shown in chat.
+    BOTH bars come from the plan's per-subgroup totals (``current_holding_inr`` /
+    ``suggested_final_holding_inr``) so they share one valuation basis and their
+    totals differ only by the plan's net cash flow (≈0). The engine's generic
+    ``multi_asset`` sleeve is split by the 65/25/10 composition the engine sized
+    it as — matching the engine ideal shown in chat. The portfolio-holdings
+    rollup is only a fallback for legacy runs without subgroup summaries — its
+    statement-NAV total can sit a few percent off the engine's today's-NAV
+    total, which rendered the Current bar shorter than the Target bar.
     """
-    holdings = list(run.portfolio.holdings) if run.portfolio else []
-    current_mix = current_asset_class_mix(holdings)
+    subs = list(run.subgroup_summaries or [])
+    if subs:
+        current_mix = run_current_asset_class_mix(subs)
+    else:
+        holdings = list(run.portfolio.holdings) if run.portfolio else []
+        current_mix = current_asset_class_mix(holdings)
     target_mix = target_asset_class_mix(run.subgroup_summaries)
 
     rows = [
