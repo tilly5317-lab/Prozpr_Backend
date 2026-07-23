@@ -43,19 +43,18 @@ _SLEEVE_EQUITY_PCT, _SLEEVE_DEBT_PCT, _SLEEVE_OTHERS_PCT = (
 )
 
 
-def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
-    """Roll the rebalancing TARGET (``suggested_final_holding_inr``) up to
-    Equity/Debt/Others.
+def _subgroup_mix(subgroup_summaries: Iterable[Any], attr: str) -> dict[str, float]:
+    """Roll one ₹ column of the subgroup summaries up to Equity/Debt/Others.
 
     Every subgroup maps via ``asset_class_for_subgroup`` EXCEPT ``multi_asset``,
     which is the engine's generic multi-asset sleeve and is split by the canonical
-    engine composition (65/25/10) so the Invest target aligns with the engine
-    ideal shown in chat.
+    engine composition (65/25/10) so the Invest bars align with the engine ideal
+    shown in chat.
     """
     mix: dict[str, float] = {}
     for summary in subgroup_summaries:
         subgroup = getattr(summary, "asset_subgroup", None)
-        amount = float(getattr(summary, "suggested_final_holding_inr", 0.0) or 0.0)
+        amount = float(getattr(summary, attr, 0.0) or 0.0)
         if subgroup == MULTI_ASSET_SUBGROUP:
             mix[ASSET_CLASS_EQUITY] = (
                 mix.get(ASSET_CLASS_EQUITY, 0.0)
@@ -72,3 +71,21 @@ def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float
             asset_class = asset_class_for_subgroup(subgroup)
             mix[asset_class] = mix.get(asset_class, 0.0) + amount
     return mix
+
+
+def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
+    """Rebalancing TARGET (``suggested_final_holding_inr``) as Equity/Debt/Others."""
+    return _subgroup_mix(subgroup_summaries, "suggested_final_holding_inr")
+
+
+def run_current_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
+    """The run's own CURRENT (``current_holding_inr``) as Equity/Debt/Others.
+
+    Uses the same valuation basis the engine sized the plan on, so the
+    current-vs-target bars are directly comparable: their totals differ only by
+    the plan's net cash flow (≈0), never by a statement-NAV vs today's-NAV gap.
+    The ``portfolio_holdings`` rollup (statement NAVs) can sit several percent
+    away from the engine's transaction-derived, today's-NAV totals, which made
+    the Current bar render visibly shorter than the Target bar.
+    """
+    return _subgroup_mix(subgroup_summaries, "current_holding_inr")
