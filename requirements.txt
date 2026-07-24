@@ -53,3 +53,8 @@ langgraph>=0.2
 # Issue-report Excel register (support domain); tzdata supplies IANA zones on Windows
 openpyxl>=3.1.0
 tzdata>=2024.1
+
+# PostHog LLM observability (app/domains/ai_engine/posthog_tracing.py).
+# >=6.7.13 is the first release whose posthog.ai.langchain module imports cleanly
+# under LangChain 1.x. No extra needed — LangChain is already a dependency.
+posthog>=6.7.13
