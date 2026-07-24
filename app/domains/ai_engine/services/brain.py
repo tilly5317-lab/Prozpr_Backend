@@ -25,6 +25,7 @@ import dataclasses
 import importlib
 import logging
 import time
+import uuid
 
 import httpx
 
@@ -40,6 +41,10 @@ from app.domains.ai_engine.turn_context import (
 from app.domains.ai_engine.chat_types import (
     ChatBrainResult,
     ChatTurnInput,
+)
+from app.domains.ai_engine.posthog_tracing import (
+    set_turn_trace_name,
+    track_turn_posthog,
 )
 from app.domains.ai_engine.types import IntentDecision, ModuleOutput
 from app.domains.ai_engine.usage_tracking import (
@@ -151,8 +156,26 @@ class ChatBrain:
         # into one per-turn aggregate, persisted on the chat_flow telemetry row
         # by _finalize. Works through asyncio.to_thread and asyncio.wait_for
         # (contextvars propagate into threads and child tasks).
+        # PostHog nests inside on the same contextvar mechanism: one $ai_trace per
+        # turn, spans per LangGraph node, a generation per LLM call. distinct_id is
+        # the effective user (family-member override included), so traces line up
+        # with the frontend's posthog-js identify(). No-op unless POSTHOG_API_KEY
+        # is set; prompts/state are redacted unless POSTHOG_LLM_CAPTURE_CONTENT.
         with track_turn_llm_usage() as usage_cb:
-            return await self._run_turn(turn, usage_cb)
+            with track_turn_posthog(
+                distinct_id=str(turn.effective_user_id) if turn.effective_user_id else None,
+                trace_id=str(uuid.uuid4()),
+                # $ai_session_id is PostHog's NATIVE conversation grouping — it makes
+                # every turn of a chat session navigable as one thread in the UI.
+                # Safe to set here (the handler never sets it itself); contrast with
+                # $ai_span_name, which the handler DOES set per event and which a key
+                # here would clobber, since it does event_properties.update(properties)
+                # after its own $ai_* fields. Only add $ai_* keys the handler ignores.
+                properties={
+                    "$ai_session_id": str(turn.session_id) if turn.session_id else None,
+                },
+            ):
+                return await self._run_turn(turn, usage_cb)
 
     async def _run_turn(self, turn: ChatTurnInput, usage_cb) -> ChatBrainResult:
         sid = turn.session_id
@@ -188,6 +211,9 @@ class ChatBrain:
             ic_out = await intent_classifier_service.run(turn, ctx, {})
             intent = ic_out.payload
             flow.append(f"identified intent: {intent.name}")
+            # Name the PostHog trace now that we know the intent — otherwise it is
+            # labelled "RunnableSequence" and the trace list is unreadable.
+            set_turn_trace_name(intent.name)
             trace_line(
                 f"intent classifier: {intent.name} "
                 f"(confidence={intent.confidence:.2f}, reasoning={intent.reasoning!r})"

@@ -544,6 +544,36 @@ class Settings:
         v = (_getenv("OPENAI_API_KEY") or "").strip()
         return v or None
 
+    # -- PostHog LLM observability -----------------------------------------
+
+    @staticmethod
+    def get_posthog_api_key() -> str | None:
+        """PostHog project token for backend LLM observability (trimmed).
+
+        Same project token the frontend uses (``VITE_PUBLIC_POSTHOG_KEY``);
+        unset disables LLM capture entirely."""
+        v = (_getenv("POSTHOG_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_posthog_host() -> str:
+        """PostHog ingestion host. Defaults to US cloud, matching the frontend."""
+        return (_getenv("POSTHOG_HOST") or "").strip() or "https://us.i.posthog.com"
+
+    @staticmethod
+    def posthog_llm_capture_content() -> bool:
+        """Send prompts, completions, and LangGraph state to PostHog.
+
+        Default OFF: production must not ship customer holdings/cashflow data to
+        a third party. When false the handler runs in privacy mode — costs,
+        tokens, latency, model, trace/span structure, and per-user attribution
+        are still captured; only ``$ai_input``, ``$ai_output_choices``,
+        ``$ai_input_state`` and ``$ai_output_state`` are redacted.
+
+        Set ``POSTHOG_LLM_CAPTURE_CONTENT=true`` in dev/staging only."""
+        raw = (_getenv("POSTHOG_LLM_CAPTURE_CONTENT") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
 
 @lru_cache
 def get_settings() -> Settings:
