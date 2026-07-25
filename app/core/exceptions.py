@@ -24,7 +24,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.core.observability import notice_error
+from app.core.observability import capture_exception, notice_error
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +59,18 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def _on_unhandled(_: Request, exc: Exception) -> JSONResponse:
-        # Report to New Relic before we swallow the exception into JSON — the
-        # agent's automatic error capture can't see exceptions a handler catches.
+    async def _on_unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # Report to New Relic and PostHog before we swallow the exception into
+        # JSON — their automatic capture can't see exceptions a handler catches.
         notice_error()
+        capture_exception(
+            exc,
+            properties={
+                "path": request.url.path,
+                "error_type": type(exc).__name__,
+                "service": _service_from_path(request.url.path),
+            },
+        )
         db_message = _classify_db_error(exc)
         if db_message is not None:
             logger.error("Database error: %s", exc)
@@ -90,6 +98,21 @@ def _classify_db_error(exc: BaseException) -> str | None:
             if any(kw in msg for kw in keywords):
                 return response
     return None
+
+
+def _service_from_path(path: str) -> str:
+    """Best-effort service/domain name from a request path.
+
+    ``/api/v1/mf-ingest/cams-pdf`` -> ``mf-ingest`` — used to group 5xx errors by
+    the domain that raised them, so the PostHog dashboard can answer "which
+    service is erroring" without opening every stack trace.
+    """
+    parts = [p for p in path.split("/") if p]
+    if "v1" in parts:
+        i = parts.index("v1")
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    return parts[0] if parts else "unknown"
 
 
 def _walk_causes(exc: BaseException) -> Iterator[BaseException]:
