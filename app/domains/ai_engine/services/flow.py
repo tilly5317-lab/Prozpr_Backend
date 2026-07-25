@@ -81,6 +81,14 @@ async def flow_portfolio_query(turn, ctx) -> ModuleOutput:
     return ModuleOutput(text=await answer_portfolio_query(turn.user_question, ctx))
 
 
+async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:
+    # Read-only: answer about a specific fund from our ranking CSV + stored NAV.
+    # No persistence; grounded facts are built inside the domain service.
+    from app.domains.mutual_funds.services.mutual_fund_query_service import answer_mutual_fund_query
+
+    return ModuleOutput(text=await answer_mutual_fund_query(turn.user_question, ctx))
+
+
 async def flow_market(turn, ctx) -> ModuleOutput:
     # Market commentary produces a macro doc; general_chat tailors the reply to
     # it (read from ``prior[MARKET_COMMENTARY]``).
@@ -130,4 +138,5 @@ FLOWS = {
     "goal_planning": flow_goal_planning,
     "general_market_query": flow_market,
     "additional_investment": flow_additional_investment,
+    "mutual_fund_query": flow_mutual_fund_query,
 }

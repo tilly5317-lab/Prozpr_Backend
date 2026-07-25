@@ -1,7 +1,7 @@
 # Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
-*Thesis version 1.4 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.5 · Internal & client reference · Last updated: July 2026*
 
 ---
 

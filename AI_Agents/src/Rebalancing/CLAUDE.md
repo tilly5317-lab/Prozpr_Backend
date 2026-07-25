@@ -4,11 +4,11 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 
 ## Entry / contract
 - Entry `run_rebalancing(request) → RebalancingComputeResponse` (`pipeline.py`).
-- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1` (rank-1 holds the goal-allocation amount); held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`. The upstream input builder (`app/domains/rebalancing/services/`) materialises both.
+- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1`; held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`. The upstream input builder (`app/domains/rebalancing/services/`) materialises both. **Inbound `target_amount_pre_cap` on ranked rows is advisory** — `_assign_subgroup_targets` re-derives it from the practical allocation, so fixing target sizing means editing the engine, not the input builder.
 - Output: rows after step 5, totals, trade list, warnings, metadata.
 
 ## Files
-- `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`).
+- `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`) with `step2b_suppress_debt_switch` between steps 2 and 3.
 - `models.py`, `config.py` (env-overrideable knobs), `tables.py`, `utils.py`, `rationales.py` (customer-facing reason-code strings).
 - `Reference_docs/` — design docs + source workbook (planning, not code).
 
@@ -18,6 +18,9 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in app-side `fund_rank.py` (the CSV loader) and must stay in sync; the sentinel marks rows the input builder wants force-exited (`config.py`).
 - **Sell-ordering is regulatory.** STCG is never realised on a recommended-fund trim (optional sells are LT-only — STCG only on force-exit); sells walk LT→ST first, LT being the cheaper bucket, under the STCG budget (`steps/step4_initial_trades_under_stcg_cap.py`).
 - **Loss-offset uses SHORT-term losses only** — an LT capital loss may set off only LTCG, never STCG (`steps/step5_loss_offset_top_up.py`).
+- **Per-fund cap is floored in rupees** (`steps/step1_cap_and_spill.py`, amendment 2026-07-06): `cap = max(cap_pct × corpus, FUND_CAP_FLOOR_INR)` (default ₹1L, env `REBAL_FUND_CAP_FLOOR_INR`) — small corpora neither fragment into sub-₹1L buys nor get trimmed to satisfy tiny percentage caps; `max_pct` on fund rows reports the EFFECTIVE cap when the floor wins, and the floor is stamped into `KnobSnapshot.fund_cap_floor_inr`.
+- **Debt is never sold to buy debt** (`steps/step2b_suppress_debt_switch.py`, 2026-07-18): matched sell/buy *intents* across `{short_debt, arbitrage, arbitrage_plus_income}` are cancelled before step3, so the tax arithmetic runs once on the corrected picture — `scale`/`floor_to_step` in step4 are not invertible, so this cannot be done later. Carve-outs: `exit_flag` and `rank == 0` sells stay (a bad fund is still bad; off-list rows must still migrate), and force-exit proceeds are reserved out of the buy side. Consequence accepted by product: a debt fund may sit **above** its per-fund cap indefinitely — the cap governs deployment, not custody. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
+- **A held fund inside the rank band is never sold to fund a buy beside it** (`pipeline.py`, `_protected_floors` / `_assign_subgroup_targets`, 2026-07-19). Per subgroup, a held recommended row whose gap to that subgroup's best rank is UNDER `RANK_PROTECT_BAND` (default 5, **exclusive** — gap 4 protects, gap 5 sells) reserves what it holds as `protected_floor_inr`; the best-ranked row gets `floor + residual` where `residual = max(subgroup_target − Σfloors, 0)`, every other ranked row gets just its floor. Carve-outs are **structural, not band predicates** — `rank == 0` (off-list must still migrate), `rank == FORCE_EXIT_RANK`, `fund_rating < EXIT_FLOOR_RATING`. When `Σfloors > target` the sleeve is over-allocated and floors are trimmed worst-rank-first. Step1 floors the per-fund cap at `protected_floor_inr`, so the cap bounds *deployment* and can no longer force a sell. Kill-switch `REBAL_HOLDINGS_AWARE_TARGETS=0` restores the old rank-1-only targets exactly (all floors zero → residual collapses to the full subgroup total).
 - **Bump `ENGINE_VERSION` on any output-altering logic change** (`config.py`) — it is stamped into response metadata for cache/repro tracking.
 
 ## Depends on

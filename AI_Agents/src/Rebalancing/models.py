@@ -57,6 +57,17 @@ class FundRowInput(BaseModel):
     # ranks 2+ start at 0 and may receive cap-spill in step 1).
     target_amount_pre_cap: Decimal = Field(ge=0)
 
+    # Holdings-aware floor: the amount step1's per-fund cap must NOT clip below
+    # (design note 2026-07-19). Non-zero only for a held fund the rank band
+    # protects, and set by the pipeline's target assignment — never by the input
+    # builder. Zero means "no protection", which is today's behaviour.
+    #
+    # Deliberately NOT `present_allocation_inr`: gating the cap on what is held
+    # would raise the ceiling for every held row, including one the band
+    # declines to protect, letting a customer keep any over-cap position simply
+    # by owning it.
+    protected_floor_inr: Decimal = Field(default=Decimal(0), ge=0)
+
     # Present-holding state (zero for not-yet-held funds)
     present_allocation_inr: Decimal = Field(default=Decimal(0), ge=0)
     invested_cost_inr: Decimal = Field(default=Decimal(0), ge=0)
@@ -95,6 +106,14 @@ class FundRowAfterStep2(FundRowAfterStep1):
     diff: Decimal  # final_target_amount − present (signed)
     exit_flag: bool  # forced exit (BAD or low-rated)
     worth_to_change: bool  # |diff| past threshold OR exit_flag
+    # Signed target move applied by step2b when a debt-for-debt switch was
+    # cancelled. step6 adds it into the per-subgroup `goal_target_inr` so the
+    # summary reconciles with `suggested_final_holding_inr`.
+    # `target_amount_pre_cap` is deliberately NOT overwritten: its per-subgroup
+    # sum equals the practical-allocation output, which ships verbatim on the
+    # same response, so mutating it would put two different numbers for one
+    # subgroup in a single payload. Zero on every row step2b left alone.
+    netted_target_adjustment_inr: Decimal = Decimal(0)
 
 
 class FundRowAfterStep3(FundRowAfterStep2):
@@ -180,6 +199,7 @@ class WarningCode(str, Enum):
     BAD_FUND_DETECTED = "BAD_FUND_DETECTED"
     STCG_BUDGET_BINDING = "STCG_BUDGET_BINDING"
     NO_HOLDINGS_FOR_RECOMMENDED_FUND = "NO_HOLDINGS_FOR_RECOMMENDED_FUND"
+    DEBT_SWITCH_SUPPRESSED = "DEBT_SWITCH_SUPPRESSED"
 
 
 class RebalancingWarning(BaseModel):
@@ -207,6 +227,9 @@ class RebalancingTotals(BaseModel):
 class KnobSnapshot(BaseModel):
     multi_fund_cap_pct: float
     others_fund_cap_pct: float
+    # Rupee floor on the per-fund cap (amendment 2026-07-06); default so
+    # KnobSnapshot payloads persisted before the field existed still parse.
+    fund_cap_floor_inr: Decimal = Decimal("0")
     rebalance_min_change_pct: float
     exit_floor_rating: int
     ltcg_annual_exemption_inr: Decimal
@@ -215,6 +238,18 @@ class KnobSnapshot(BaseModel):
     st_threshold_months_equity: int
     st_threshold_months_debt: int
     multi_fund_cap_subgroups: list[str]
+    # Step 2b debt-switch netting (2026-07-18). Defaulted so KnobSnapshot
+    # payloads persisted before the field existed still parse — same
+    # precedent as `fund_cap_floor_inr` above.
+    debt_switch_netting_enabled: bool = True
+    debt_netting_subgroups: list[str] = []
+    # How step2b redistributes surviving buy demand ("cap_spill" | "pro_rata").
+    # Was missing from the 1.2.0 snapshot: two runs with different modes were
+    # indistinguishable from their own metadata.
+    debt_netting_mode: str = "cap_spill"
+    # Holdings-aware targets (2026-07-19). Same defaulting precedent as above.
+    holdings_aware_targets_enabled: bool = True
+    rank_protect_band: int = 5
 
 
 class RebalancingRunMetadata(BaseModel):
