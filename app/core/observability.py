@@ -191,6 +191,66 @@ def shutdown_posthog() -> None:
         _posthog_client = None
 
 
+def capture_exception(
+    exc: BaseException,
+    *,
+    distinct_id: str | None = None,
+    properties: dict[str, object] | None = None,
+) -> None:
+    """Report an exception to PostHog error tracking, if the client is active.
+
+    The PostHog analogue of ``notice_error`` (New Relic): the centralised handler
+    in ``app/core/exceptions.py`` calls both, so a caught 5xx reaches both sinks.
+    Reuses the process-wide client built by ``init_posthog`` for LLM observability.
+
+    No-op when PostHog is disabled (``POSTHOG_API_KEY`` unset / package missing);
+    best-effort — reporting must never raise into the request path. ``distinct_id``
+    ties the error to a user when known (omitted for now — the global handler has
+    no user context); ``properties`` carries extra context (e.g. the request path).
+    """
+    client = _posthog_client
+    if client is None:
+        return
+    kwargs: dict[str, object] = {}
+    if distinct_id is not None:
+        kwargs["distinct_id"] = distinct_id
+    if properties is not None:
+        kwargs["properties"] = properties
+    try:
+        client.capture_exception(exc, **kwargs)
+    except Exception:  # pragma: no cover - reporting must never raise
+        pass
+
+
+def capture_http_client_error(*, status_code: int, path: str, method: str) -> None:
+    """Record a 4xx client-error response as a PostHog *event* (not an exception).
+
+    A trend/volume signal, kept SEPARATE from 5xx error tracking: the count of
+    client errors by status/path. Reuses the process-wide client. No-op when
+    PostHog is disabled; best-effort — must never raise into the request path.
+
+    Sent with ``$process_person_profile: False``: the middleware has no user
+    context, so this must not create or mutate a person profile — it's an
+    aggregate signal, not a per-user event.
+    """
+    client = _posthog_client
+    if client is None:
+        return
+    try:
+        client.capture(
+            "http_client_error",
+            distinct_id="backend",
+            properties={
+                "status_code": status_code,
+                "path": path,
+                "method": method,
+                "$process_person_profile": False,
+            },
+        )
+    except Exception:  # pragma: no cover - reporting must never raise
+        pass
+
+
 def notice_error() -> None:
     """Report the exception currently being handled to New Relic, if active.
 

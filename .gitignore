@@ -147,3 +147,4 @@ docs/superpowers/specs/2026-05-10-rebalancing-output-tables.md
 docs/superpowers/plans/2026-07-12-lifecycle-simulation.md
 docs/superpowers/specs/2026-07-12-lifecycle-simulation-design.md
 /app/domains/profile/services/_effective_risk/tests
+/app/routers/tests
