@@ -42,8 +42,17 @@ from app.domains.practical_asset_allocation.services.paa_engine.service import (
 from app.domains.practical_asset_allocation.services.practical_allocation_persist_service import (
     persist_practical_allocation_run,
 )
+from app.domains.cashflow.services.cashflow_persist_service import (
+    mark_stale as mark_cashflow_stale,
+)
+from app.domains.profile.services.personal_finance_write_service import (
+    set_starting_monthly_investment,
+)
 from app.domains.additional_investment.services.additional_investment_persist_service import (
     persist_additional_investment_recommendation,
+)
+from app.domains.rebalancing.services.rebalancing_read_service import (
+    latest_buy_trades_by_subgroup,
 )
 
 ensure_ai_agents_path()
@@ -77,7 +86,14 @@ _MSG_INCOMPLETE_PROFILE = (
 # the additional-investment engine's output contract changes.
 # 2.0.0: lumpsum deployments switched from single-bucket targeting to
 # holdings-aware deficit fill (spec 2026-07-03); SIP unchanged.
-AINV_ENGINE_VERSION = "ainv-2.0.0"
+# 3.0.0: SIP selection mirrors the latest persisted rebalancing run's BUY
+# funds (equal split, rank-1 fallback, no caps) — spec 2026-07-05.
+# 3.1.0: SIP per-fund cap re-introduced as max(cap_pct × monthly amount,
+# AINV_SIP_FUND_CAP_FLOOR_INR); overflow walks down the ranking — amendment
+# 2026-07-06.
+# 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
+# (both deficit-fill and legacy modes) — same amendment.
+AINV_ENGINE_VERSION = "ainv-3.2.0"
 
 
 @dataclass(frozen=True)
@@ -129,6 +145,12 @@ async def compute_additional_investment_result(
 
     Persistence is gated behind ``persist`` (False in Plan 3a; Plan 3b flips the
     default and calls ``persist_additional_investment_recommendation``).
+
+    When ``persist`` and ``cadence is SIP_MONTHLY``, the deploy amount is also
+    written to the canonical ``starting_monthly_investment`` — so a SIP the
+    customer sets in chat shows up on the Invest page AND in their goal plan.
+    This is the single place that sync happens; both callers (chat handler and the
+    Invest-page create service) get it, and both own the commit.
     """
     trace_line("module: additional_investment — start")
 
@@ -170,6 +192,26 @@ async def compute_additional_investment_result(
             blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
         )
 
+    # SIP mirrors the customer's latest rebalancing plan (spec 2026-07-05).
+    # Enhancement, never a gate: any read failure degrades to the rank-1
+    # fallback instead of blocking the recommendation.
+    rebal_run_id: Optional[uuid.UUID] = None
+    rebal_buys: Optional[dict[str, list[str]]] = None
+    if cadence is Cadence.SIP_MONTHLY:
+        try:
+            rebal = await latest_buy_trades_by_subgroup(db, acting_user_id)
+        except Exception:  # noqa: BLE001 — degrade, never gate
+            logger.exception(
+                "additional_investment: latest rebalancing-run read failed — "
+                "falling back to rank-1 SIP selection"
+            )
+            rebal = None
+        if rebal is not None:
+            rebal_run_id, rebal_buys = rebal
+            trace_line(
+                f"additional_investment SIP mirrors rebalancing run {rebal_run_id}"
+            )
+
     try:
         inp, debug = await build_additional_investment_input_for_user(
             chat_ctx,
@@ -179,6 +221,7 @@ async def compute_additional_investment_result(
             current_value_by_subgroup=(
                 snapshot.by_subgroup if snapshot is not None else None
             ),
+            rebal_buy_isins_by_subgroup=rebal_buys,
         )
     except ValueError as exc:
         # The goal-funding step (cashflow) HARD-REFUSES an incomplete profile,
@@ -237,9 +280,10 @@ async def compute_additional_investment_result(
                 }
             )
 
-    # Persist the BUY-only recommendation. Gated like compute_rebalancing_result:
-    # counterfactual / no-session paths (persist=False or no chat session) skip
-    # the write. Money stays float — persist writes Numeric(18,2) directly.
+    # Persist the BUY-only recommendation whenever persist=True (persist=False
+    # counterfactual paths skip the write). A null chat_session_id is allowed —
+    # the Invest-page create endpoint persists an unlinked run. Money stays float
+    # — persist writes Numeric(18,2) directly.
     #
     # source_allocation_run_id (Option B): the practical allocation run the deploy
     # is derived from. compute_practical_allocation_result returns no run id, so we
@@ -254,17 +298,33 @@ async def compute_additional_investment_result(
     if snapshot is not None:
         _extras["deployment_mode"] = "deficit_fill"
         _extras["base_corpus_inr"] = snapshot.total_inr
+        # Persist the per-subgroup ideal/current/gap/buy facts alongside the run
+        # so the Invest-page lumpsum READ endpoint can rebuild the same
+        # portfolio-alignment reasoning it shows on create (the deficit facts are
+        # otherwise recomputed only at compute time). Additive to the request_input
+        # JSONB audit blob — floats are already JSON-safe.
+        if deficit_facts is not None:
+            _extras["deficit_facts"] = deficit_facts
     if focus_category:
         _extras["focus_category"] = focus_category
+    if rebal_run_id is not None:
+        # str(), not the raw UUID: request_extras merges into the request_input
+        # JSONB and json.dumps cannot serialise UUID (audit F4 — the best-effort
+        # persist except would swallow the failure silently).
+        _extras["sip_rebal_run_id"] = str(rebal_run_id)
     if _extras:
         request_extras = _extras
 
     run_id: Optional[uuid.UUID] = None
-    if persist and chat_session_id is not None:
+    if persist:
+        # ``chat_session_id`` is None for a non-chat create (the Invest-page
+        # "Start a SIP" endpoint): the run still persists, just unlinked to a
+        # chat session (the FK column is nullable). In the chat path it is always
+        # set, so this is unchanged there.
         # Best-effort (mirrors paa_engine/chat.py): the BUY list is already
         # computed, so a persistence failure is logged loudly (surfaces in alerts)
-        # but never denies the user the recommendation. Flush only — the chat
-        # router owns the commit.
+        # but never denies the user the recommendation. Flush only — the caller
+        # (chat router / create service) owns the commit.
         try:
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
@@ -283,6 +343,19 @@ async def compute_additional_investment_result(
                 request=inp,
                 request_extras=request_extras,
             )
+
+            if cadence is Cadence.SIP_MONTHLY:
+                # A monthly SIP set here IS the customer's monthly SIP, wherever
+                # they set it (chat or the Invest page). Write the canonical
+                # `starting_monthly_investment` so the goal planner, goals timeline
+                # and IPS all move with it, and invalidate the cached goal-plan run
+                # since a SIP is a cashflow input. Both enlist in the caller's
+                # transaction, so the plan and the amount land together or not at
+                # all. Lumpsum is a one-off deployment, not a SIP — never synced.
+                await set_starting_monthly_investment(
+                    db, acting_user_id, deploy_amount_inr
+                )
+                await mark_cashflow_stale(db, acting_user_id, commit=False)
         except Exception:  # noqa: BLE001 — best-effort persist, never blocks the reply
             logger.exception(
                 "Failed to persist additional_investment run for session=%s — "

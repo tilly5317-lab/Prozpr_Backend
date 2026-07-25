@@ -1,7 +1,7 @@
 # Ask PI · Risk Profiling Thesis
 
 *Why we score risk the way we do — and what your number actually means*
-*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -43,7 +43,7 @@ How much of your income you save is read as independent evidence of resilience a
 
 ### Stage 4 — Combine, flag and categorise
 
-- **Willingness** comes from what you tell us at onboarding about your comfort with risk. If you haven't answered the appetite questions yet, we assume a middle-of-the-road willingness rather than blocking your plan.
+- **Willingness** is read from what you tell us about your comfort with risk across four questions: your preferred risk-and-return trade-off at onboarding, your investing experience, whether your focus is safety or growth, and how you'd react to a sharp fall. We combine your preference, focus and drop-reaction, and let your stated experience *cap* how high the number can climb — a self-described novice isn't scored as an aggressive risk-taker on strength of the other answers alone. If you've answered only some of these, we score from what you've given us; if you haven't answered any yet, we assume a middle-of-the-road willingness rather than blocking your plan.
 - The final **risk score** combines willingness and capacity, with willingness carrying the greater weight and capacity acting as the anchor.
 - When the two diverge meaningfully, we **raise a flag** so an advisor can have the conversation before allocation runs.
 - The score maps to a **category** — Conservative, Moderately Conservative, Moderate, Moderately Aggressive, or Aggressive — which is the headline we and you reason about.

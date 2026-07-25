@@ -271,7 +271,16 @@ def _counterfactual_sold_per_row(
 def apply(
     rows: list[FundRowAfterStep3],
     request: RebalancingComputeRequest,
+    extra_cash_inr: Decimal = Decimal(0),
 ) -> tuple[list[FundRowAfterStep4], list[RebalancingWarning]]:
+    """`extra_cash_inr` is non-row cash the plan can spend — today, the
+    direct-stock proceeds the NFA band frees up (`excess_direct_stocks_inr`,
+    surfaced by step6 as a single SELL_DIRECT_STOCKS action). The practical
+    allocation already sizes its targets assuming this money is redeployed, so
+    without it the plan tells the customer to liquidate stock and then allocates
+    nothing against the proceeds. It both funds buys AND reduces how much MF has
+    to be sold — selling to raise cash the customer already has would realise
+    gains for nothing."""
     forced = [r for r in rows if r.exit_flag]
     optional = [r for r in rows if r.worth_to_change and r.diff < 0 and not r.exit_flag]
     buyers = [r for r in rows if r.worth_to_change and r.diff > 0 and r.is_recommended]
@@ -298,7 +307,9 @@ def apply(
     forced_sold_total = sum(
         (state[r.isin]["pass1_sell_amount"] for r in rows), Decimal(0)
     )
-    remaining_buy_demand = max(target_buy - forced_sold_total, Decimal(0))
+    remaining_buy_demand = max(
+        target_buy - forced_sold_total - extra_cash_inr, Decimal(0)
+    )
 
     _, stcg_remaining = _execute_sells(
         optional_sorted, state, False, remaining_buy_demand, stcg_remaining
@@ -309,11 +320,12 @@ def apply(
     total_sold_final = sum(
         (state[r.isin]["pass1_sell_amount"] for r in rows), Decimal(0)
     )
+    available_cash = total_sold_final + extra_cash_inr
     if target_buy > 0:
         scale = (
             Decimal(1)
-            if total_sold_final >= target_buy
-            else total_sold_final / target_buy
+            if available_cash >= target_buy
+            else available_cash / target_buy
         )
         for r in buyers:
             raw = r.diff * scale

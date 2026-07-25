@@ -32,7 +32,10 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - run: pip install ruff
+      # Pinned: an unpinned install picks up brand-new ruff releases whose new
+      # rules fail the whole repo (and silently skip the deploy). Keep in sync
+      # with the version used locally.
+      - run: pip install "ruff==0.15.20"
       - run: ruff check .
 
   test:

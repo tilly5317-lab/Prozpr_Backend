@@ -36,8 +36,11 @@ from cashflow_statement.engine.summary import (
 # goal (model_retirement) — see build_goals_table / input_builder. 0.3.0: the
 # projection horizon now always runs to max(last_goal, retirement_date) even when
 # retirement is not modelled, so the cashflow always reaches the planned
-# retirement age (see horizon block below).
-ENGINE_VERSION = "0.3.0"
+# retirement age (see horizon block below). 0.3.1: headline.last_fy_end_date now
+# reports the ACTUAL projection end — previously it was goal-derived only, so
+# with no goals it collapsed to the current FY and the frontend timeline
+# truncated a full-length projection to ~6 rows.
+ENGINE_VERSION = "0.3.1"
 
 
 def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
@@ -151,7 +154,14 @@ def compute_full_projection(input: GoalPlanningInput) -> GoalPlanningOutput:
     annual_cashflow = derive_annual_cashflow(monthly_cashflow)  # 8a
 
     headline = build_headline_status(
-        ctx, goals_internal, funding, input.one_off_outflows
+        ctx,
+        goals_internal,
+        funding,
+        input.one_off_outflows,
+        # The projection's actual last FY end — with no goals the headline's
+        # goal-derived horizon collapses to the current FY, and consumers (the
+        # goal-planning timeline) would truncate the projection accordingly.
+        projection_end_fy=date(ctx.current_fy_year + horizon, 3, 31),
     )  # 8b
     fund_flow = build_fund_flow_summary(ctx, goals_internal, funding)
 

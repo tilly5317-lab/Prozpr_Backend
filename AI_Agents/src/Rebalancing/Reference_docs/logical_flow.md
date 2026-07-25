@@ -67,13 +67,28 @@ AI_Agents/src/Rebalancing/
 RebalancingComputeRequest
         │
         ▼
+   run_practical_allocation ──► holdings-aware ideal totals per asset_subgroup
+        │                       (blessed cross-agent import; surfaced verbatim on the response)
+        ▼
+   _assign_subgroup_targets ──► splits each subgroup total into per-row targets:
+        │                       held rows inside RANK_PROTECT_BAND reserve what they hold
+        │                       (protected_floor_inr); the residual goes to the best rank
+        │                       sets:  target_amount_pre_cap, protected_floor_inr
+        ▼
    step1_cap_and_spill      ──► assigns max_pct, applies cap, spills overflow rank-1 → 2 → 3
+        │                       cap = max(cap_pct × corpus, FUND_CAP_FLOOR_INR, protected_floor_inr)
+        │                       — so the cap bounds deployment, never forces a sell
         │                       sets:  max_pct, target_pre_cap_pct, target_own_capped_pct,
         │                              final_target_pct, final_target_amount
         ▼
    step2_compare_and_decide ──► joins present holdings, computes diff & flags
         │                       sets:  diff, exit_flag, worth_to_change
         │                       also: synthesises rows for held-but-not-recommended funds (BAD)
+        ▼
+   step2b_suppress_debt_switch ──► cancels matched sell/buy intents inside the debt-like
+        │                       subgroups so debt is never sold to buy debt; surviving buy
+        │                       demand re-spills down the rank ladder under the per-fund cap
+        │                       sets:  netted_target_adjustment_inr
         ▼
    step3_tax_classification ──► for each sell candidate, splits ST/LT and computes exit load
         │                       sets:  stcg_amount, ltcg_amount, exit_load_amount
@@ -201,8 +216,20 @@ from decimal import Decimal
 # Bucket A — caps & thresholds
 MULTI_FUND_CAP_PCT = float(os.getenv("REBAL_MULTI_FUND_CAP_PCT", "20.0"))
 OTHERS_FUND_CAP_PCT = float(os.getenv("REBAL_OTHERS_FUND_CAP_PCT", "10.0"))
+FUND_CAP_FLOOR_INR = Decimal(os.getenv("REBAL_FUND_CAP_FLOOR_INR", "100000"))
 REBALANCE_MIN_CHANGE_PCT = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
 EXIT_FLOOR_RATING = int(os.getenv("REBAL_EXIT_FLOOR_RATING", "5"))
+
+# Step 2b — never sell debt to buy debt (kill-switch + redistribution mode).
+DEBT_SWITCH_NETTING_ENABLED = os.getenv("REBAL_DEBT_SWITCH_NETTING", "1") not in ("0", ...)
+DEBT_NETTING_MODE = os.getenv("REBAL_DEBT_NETTING_MODE", "cap_spill")
+
+# Holdings-aware targets — a held fund whose rank gap to the subgroup's best
+# rank is UNDER this band is never sold to fund a buy beside it. EXCLUSIVE:
+# gap 4 protects, gap 5 sells. Absolute, not a fraction of ladder depth, so it
+# loosens on its own as ranking ladders deepen.
+RANK_PROTECT_BAND = int(os.getenv("REBAL_RANK_PROTECT_BAND", "5"))
+HOLDINGS_AWARE_TARGETS_ENABLED = os.getenv("REBAL_HOLDINGS_AWARE_TARGETS", "1") not in ("0", ...)
 
 # Bucket C — tax limits
 LTCG_ANNUAL_EXEMPTION_INR = Decimal(os.getenv("REBAL_LTCG_EXEMPTION_INR", "125000"))
@@ -229,7 +256,9 @@ Tunable without editing code; documented in `CLAUDE.md`.
 
 **Spreadsheet refs:** cols F (`allocation_1`), G (`target_pre_cap_pct`), H (`max_pct`), I (`allocation_2+pct`), J (`final_target_pct`), K (`final_target_amount`).
 
-**Pre-condition (built by `input_builder.py`):** the input row list already contains a `FundRowInput` for every `(asset_subgroup, sub_category, rank)` slot in `mf_recommended_funds`. Rank-1 rows carry the goal-allocation amount in `target_amount_pre_cap`; ranks 2+ rows arrive with `target_amount_pre_cap = 0`. Step 1 redistributes amounts across these pre-existing slots — it never adds rows.
+**Pre-condition:** the input row list already contains a `FundRowInput` for every `(asset_subgroup, sub_category, rank)` slot in `mf_recommended_funds` (built by `input_builder.py`), and `_assign_subgroup_targets` has already written each row's `target_amount_pre_cap` and `protected_floor_inr` from the practical allocation. Step 1 redistributes amounts across these pre-existing slots — it never adds rows.
+
+**Cap:** `cap = max(cap_pct × corpus, FUND_CAP_FLOOR_INR, row.protected_floor_inr)`. The rupee floor stops a small corpus fragmenting into sub-₹1L positions; the protected floor means the cap bounds how much may be *deployed* into a fund and never forces a *sell* out of one. `max_pct` reports the effective cap when either floor wins.
 
 **Logic:**
 1. Group rows by `asset_subgroup`; within each, sort by `rank` ascending.

@@ -210,6 +210,7 @@ def build_rebal_facts_pack(
     response: "RebalancingComputeResponse",
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
+    constraint_impact: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -218,6 +219,11 @@ def build_rebal_facts_pack(
         "total_portfolio_inr": <float>, "total_portfolio_indian": <str>,
         "buys_total_inr":      <float>, "buys_total_indian":      <str>,
         "sells_total_inr":     <float>, "sells_total_indian":     <str>,
+        # Present only when the NFA band trims direct equity. These rupees
+        # fund MF buys but are NOT inside sells_total, so buys_total can
+        # legitimately exceed sells_total by this amount.
+        "direct_stock_sale_inr":   <float>,
+        "direct_stock_sale_indian": <str>,
         "tax_impact_inr":      <float>, "tax_impact_indian":      <str>,
         "trade_count":         int,
 
@@ -465,12 +471,31 @@ def build_rebal_facts_pack(
         "warnings": warnings,
         "fund_actions": fund_actions,
     }
+    # Direct-stock proceeds. Step4 funds MF buys with these
+    # (`excess_direct_stocks_inr`), but they are NOT part of `total_sell_inr`,
+    # which sums over fund rows only. Without this the pack shows buys far
+    # exceeding sells with no way to account for the difference — Neha's plan
+    # buys ₹16.5L against ₹4.6L of fund sales — and "where is the money coming
+    # from?" is the most likely question a customer asks about a rebalance.
+    # Omitted entirely when nothing is sold, to keep the pack lean.
+    _breakdown = getattr(
+        getattr(response, "practical_allocation", None), "corpus_breakdown", None
+    )
+    _excess_stocks = float(
+        getattr(_breakdown, "excess_direct_stocks_inr", 0) or 0
+    )
+    if _excess_stocks > 0:
+        pack["direct_stock_sale_inr"] = _excess_stocks
+        pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
+
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
     if more_holdings_count > 0:
         pack["more_holdings_count"] = more_holdings_count
     if goal_buckets:
         pack["goal_buckets"] = goal_buckets
+    if constraint_impact is not None:
+        pack["constraint_impact"] = constraint_impact
     return pack
 
 

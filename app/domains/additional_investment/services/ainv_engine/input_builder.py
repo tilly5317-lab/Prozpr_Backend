@@ -40,7 +40,11 @@ from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]
     LONG_TERM_BOUNDARY_MONTHS,
     MEDIUM_TERM_BOUNDARY_MONTHS,
 )
-from Rebalancing.config import OTHERS_FUND_CAP_PCT  # type: ignore[import-not-found]  # noqa: E402
+from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
+    AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
+    AINV_SIP_FUND_CAP_FLOOR_INR,
+    OTHERS_FUND_CAP_PCT,
+)
 from Rebalancing.tables import cap_pct_for  # type: ignore[import-not-found]  # noqa: E402
 
 
@@ -62,8 +66,8 @@ async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
     """Return ``(short_term_fulfilled, medium_term_fulfilled)``.
 
     short_term_fulfilled is True when every goal under MEDIUM_TERM_BOUNDARY_MONTHS
-    (36) is funded — or there are none. medium_term_fulfilled is True when every
-    goal in [36, LONG_TERM_BOUNDARY_MONTHS=72) is funded — or there are none. The
+    (24) is funded — or there are none. medium_term_fulfilled is True when every
+    goal in [24, LONG_TERM_BOUNDARY_MONTHS=60) is funded — or there are none. The
     engine targets the nearest unfunded bucket (short → medium → long), so
     long-term needs no flag (it is always the fallback target).
     """
@@ -92,6 +96,7 @@ async def build_additional_investment_input_for_user(
     deploy_amount_inr: float,
     cadence: Cadence,
     current_value_by_subgroup: dict[str, float] | None = None,
+    rebal_buy_isins_by_subgroup: dict[str, list[str]] | None = None,
 ) -> tuple[AdditionalInvestmentInput, dict[str, Any]]:
     """Return ``(input, debug_dict)`` for ``run_additional_investment(...)``.
 
@@ -162,6 +167,12 @@ async def build_additional_investment_input_for_user(
         current_value_by_subgroup=(
             current_value_by_subgroup if deficit_mode else None
         ),
+        # SIP-only: latest rebalancing run's BUY ISINs per subgroup (None on
+        # lumpsum and when the read found nothing — engine falls back to rank-1).
+        rebal_buy_isins_by_subgroup=rebal_buy_isins_by_subgroup,
+        # Per-fund cap floors — cap is max(pct × deploy, floor) per cadence.
+        sip_fund_cap_floor_inr=AINV_SIP_FUND_CAP_FLOOR_INR,
+        lumpsum_fund_cap_floor_inr=AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     )
     debug = {
         "deployment_mode": "deficit_fill" if deficit_mode else "single_bucket",

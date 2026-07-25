@@ -28,6 +28,12 @@ class RebalancingWarningCode(str, enum.Enum):
     BAD_FUND_DETECTED = "BAD_FUND_DETECTED"
     STCG_BUDGET_BINDING = "STCG_BUDGET_BINDING"
     NO_HOLDINGS_FOR_RECOMMENDED_FUND = "NO_HOLDINGS_FOR_RECOMMENDED_FUND"
+    # Mirrors `Rebalancing.models.WarningCode`. This enum binds a real Postgres
+    # type (`create_constraint=True` below), so adding a member here also needs
+    # `ALTER TYPE rebalancing_warning_code_enum ADD VALUE` — see
+    # `migrations/sql/2026-07-19_add_debt_switch_suppressed_warning.sql`.
+    # `Testing/test_warning_code_parity.py` fails if the two enums drift.
+    DEBT_SWITCH_SUPPRESSED = "DEBT_SWITCH_SUPPRESSED"
 
 
 class RebalancingWarning(Base):

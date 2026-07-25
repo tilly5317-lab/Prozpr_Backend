@@ -34,6 +34,7 @@ _IntentLiteral = Literal[
     "general_market_query",
     "rebalancing",
     "additional_investment",
+    "mutual_fund_query",
     "out_of_scope",
 ]
 

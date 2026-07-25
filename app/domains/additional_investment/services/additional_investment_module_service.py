@@ -39,6 +39,9 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         # .additional_investment_run_id); it gets its own HTTP channel when the
         # read/serve side (deferred Task 5/6) is built.
         persisted_run_id=None,
+        # The persisted run is served to the Invest page by
+        # additional_investment_read_service via GET /additional-investment/sip
+        # (id also on payload.additional_investment_run_id), NOT surfaced here.
         chart_payloads=result.chart_payloads,  # forward hook: the ainv engine does not populate this yet
     )
 

@@ -7,7 +7,7 @@
 - **models/** — `RebalancingRun` and its children `RebalancingTrade` / `RebalancingFundRow` / `RebalancingSubgroupSummary` / `RebalancingWarning`.
 - **schemas/** — the run-API contract (pydantic views over the run tables) in `__init__.py` — including the read-time computed `summary` and `asset_class_breakdown` — plus `readiness` (payload for `GET /rebalancing/readiness`).
 - **routers/** — the `/rebalancing` router.
-- **services/** — `rebalancing_persist_service` (the write surface, called by the ai_engine bridge); `rebalancing_module_service` (the gateway above); `rebal_engine/` — the compute engine, documented in its own `rebal_engine/CLAUDE.md`.
+- **services/** — `rebalancing_persist_service` (the write surface, called by the ai_engine bridge); `rebalancing_module_service` (the gateway above); `rebalancing_read_service` (read surface: latest run's BUY trades by subgroup — consumed by the additional_investment SIP path); `rebal_engine/` — the compute engine, documented in its own `rebal_engine/CLAUDE.md`.
 
 ## Gotchas & invariants
 - A run ALWAYS rebalances toward a persisted asset-allocation run — `source_allocation_run_id` is required (`services/rebalancing_persist_service.py`).

@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>market_commentary — Module Guide — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">LLM-driven · Haiku + Sonnet Q&A</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `market_commentary` — the macro letter the rest of chat reads
+
+> **One line:** when a `general_market_query` turn finds the cache stale (24h TTL), Claude web-searches 14 Indian macro indicators (repo rate, CPI, index PEs, gold, FII flows, USD/INR…), pins them into a `MacroSnapshot`, and writes a 2-page **monthly** markdown commentary to `Reference_docs/`. That **`.md` file is the contract** — `portfolio_query` and `general_chat` read it off disk; neither imports this module.
+>
+> This is the engineer's guide to the module. There is **no Logics thesis doc** for market commentary (the customer-facing letter *is* the artefact). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven<br/>(2 Haiku passes + Sonnet Q&amp;A)</div></div>
+  <div class="cell"><div class="k">Models</div><div class="v">Haiku 4.5 · extract + doc<br/>Sonnet 4.6 · Q&amp;A</div></div>
+  <div class="cell"><div class="k">Trigger</div><div class="v">intent <code>general_market_query</code><br/>→ <code>flow_market</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>MarketCommentaryAgent</code><br/>(<code>main.py</code>)</div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">2 live (web-search extract + doc-gen)<br/>+ 1 optional Q&amp;A</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">LLM-driven; grounded by web_search<br/>doc cached &amp; reused verbatim</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — reads/writes<br/>.json + .md cache files</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/market_commentary/`](../../src/market_commentary/). It is **not** a chat turn's reply-writer — it is a **data-gathering + document-rendering pipeline**. Its job is to answer one question well: *"what does the Indian macro picture look like right now?"* — and to freeze that answer into a file everyone else can quote. The rendered letter is styled as a **monthly** commentary (its letterhead reads *"Market Commentary | {Month YYYY}"*), but the pipeline is triggered **on demand per turn** and refreshed at most once every 24h via a TTL cache — there is no scheduler in this codebase.
+
+Two things consume the output, and neither imports the module — the **file is the contract**:
+
+- **`general_chat`** reads the rendered doc from `prior[MARKET_COMMENTARY].payload` and tailors the customer's reply to it (this is the live chat path).
+- **`portfolio_query`** reads `Reference_docs/market_commentary_latest.md` directly off disk as its macro-context block.
+
+The defining design decision: **the numbers are grounded, not invented.** Every indicator comes from Claude's own `web_search` calls against named authoritative sources (RBI, MOSPI, NSE, NSDL…). Anything that can't be verified becomes `null` and lands in `data_gaps` — the doc-gen prompt then says "cannot be assessed from available inputs" rather than guessing.
+
+### The run shape (fast-path first, full-run only when stale)
+
+```mermaid
+flowchart TB
+    START([general_market_query turn]) --> FP{snapshot cache<br/>fresh?}
+    FP -->|".md newer than .json"| RET["return .md verbatim<br/>(no LLM)"]
+    FP -->|"snapshot fresh, .md stale"| DG1["doc-gen only · Haiku"]
+    FP -->|"stale / absent"| WS["<b>Pass 1 · web-search extract</b><br/>Haiku + Anthropic web_search<br/>→ extract_macro_data tool"]
+    WS --> SNAP[("MacroSnapshot<br/>14 indicators + data_gaps")]
+    SNAP --> DG2["<b>Pass 2 · doc-gen</b><br/>Haiku forced-tool<br/>(reasoned_reply)"]
+    DG1 --> MD
+    DG2 --> MD[("market_commentary_latest.md<br/>+ .json cache")]
+    RET --> OUT
+    MD --> OUT([macro doc → general_chat / portfolio_query])
+```
+
+The engine ([`main.py`](../../src/market_commentary/main.py)) owns the orchestration; [`document_generator.py`](../../src/market_commentary/document_generator.py) owns the render. **Why a fast path?** A full run is 15–25 web searches plus two LLM calls — expensive and slow. The rendered `.md` is a **deterministic-enough function of the snapshot** that once it's written, it is reused verbatim within the TTL window (`MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`, default 24h) with no LLM call at all.
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports no other agent — only shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`), [`persona.py`](../../src/persona.py) (`build_system_prompt`), and [`reasoned_reply.py`](../../src/reasoned_reply.py) (the discard-the-thinking-field tool contract). Everything scheduling- and key-shaped is the app layer's job.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | `intent_classifier` → `general_market_query` → [`flow_market`](../../../app/domains/ai_engine/services/flow.py) | the intent runs `market_commentary` **then** `general_chat` in sequence |
+| **Gateway (brain-facing)** | [`market_commentary_module_service.run(turn, ctx, prior)`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | the ONLY brain entry point; 120s timeout → empty payload so the turn still continues |
+| **AI bridge** | [`market_commentary_engine.generate_market_commentary`](../../../app/domains/market_commentary/services/market_commentary_engine.py) | resolves cache path (`Reference_docs/`), freshness + API key, drives `MarketCommentaryAgent` (fast path → full run) |
+| **Downstream (chat)** | [`general_chat_module_service`](../../../app/domains/general_chat/services/general_chat_module_service.py) | reads `prior[MARKET_COMMENTARY].payload` (the doc string) and writes the actual customer reply |
+| **Downstream (file)** | [`portfolio_query`](../../src/portfolio_query/) | reads `market_commentary_latest.md` off disk — the file, not an import |
+
+> **This module never writes the customer's reply.** `market_commentary_module_service` returns a `ModuleOutput` whose `payload` is the doc string and whose `text` is left unset (`None`). The turn's visible answer is `general_chat`'s. If you're chasing "why did the market answer read oddly", that's a `general_chat` question, not this module.
+
+### What `ctx` / `turn` must carry
+
+`flow_market` calls `run_market_commentary(turn, ctx, {})`. In today's code the run is **question-agnostic** — worth knowing before you debug a "why didn't it use my question" report:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `turn.user_question` | `str` | **passed but currently `del`'d** in `generate_market_commentary` — reserved for future question-conditioned runs |
+| `turn.conversation_history` | `list[{role, content}]` | same — accepted then discarded today |
+| `turn.session_id` | `str` | timeout/failure logging only |
+
+The knobs that actually change behaviour live in config, not `ctx`: `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC` (freshness, default `86400`) and `MARKET_COMMENTARY_API_KEY` (→ falls back to `ANTHROPIC_API_KEY`).
+
+---
+
+## 3. Input contract
+
+Unlike `mutual_fund_query`, this engine has **no single pydantic input model** — its "input" is the live web plus a handful of orchestration parameters. The surface is `MarketCommentaryAgent`:
+
+**`MarketCommentaryAgent(api_key=None, output_dir=".", generate_document=True)`**
+
+| Param | Type | Notes |
+|---|---|---|
+| `api_key` | `str?` | passed explicitly into each LLM builder; `None` ⇒ ambient `ANTHROPIC_API_KEY`. **Never** mutates process-global env (races under async concurrency) |
+| `output_dir` | `str` | where `market_commentary_latest.{json,md}` are read/written — the app layer points this at `AI_Agents/Reference_docs/` |
+| `generate_document` | `bool` | if `False`, `run()` stops after extraction+cache (snapshot only, no markdown) |
+
+**Two run methods**, each its own entry:
+
+| Method | Signature | Role |
+|---|---|---|
+| `run()` | `() → MacroSnapshot` | full pipeline: web-search extract → cache → write `.json` + `.md` |
+| `run_from_cache(max_age_sec, date=None)` | `→ str \| None` | fast path: return fresh `.md` verbatim, else regen doc from cached snapshot, else `None` |
+
+The private extraction schema `_MacroExtraction` ([`main.py`](../../src/market_commentary/main.py)) is the **14 indicator fields only** — no `data_gaps`, no `document_md` — so the `extract_macro_data` tool's `input_schema` stays clean. `_to_snapshot` then derives `data_gaps` as "every field that came back `null`".
+
+---
+
+## 4. Output contract
+
+The one durable model is `MacroSnapshot` ([`models.py`](../../src/market_commentary/models.py)):
+
+```
+MacroSnapshot
+├── repo_rate_pct, rbi_stance                          # RBI / monetary policy
+├── cpi_yoy_pct                                        # inflation
+├── nifty50_pe, nifty_midcap150_pe, nifty_smallcap250_pe   # equity valuations (trailing PE)
+├── gsec_10yr_yield_pct, sbi_fd_1yr_rate_pct           # debt
+├── gold_price_inr_per_10g, gold_price_usd_per_oz      # gold (two units, on purpose)
+├── fed_funds_rate_pct, fii_net_flows_cr_inr           # global macro / flows
+├── brent_crude_usd, usd_inr_rate                      # oil / FX
+├── data_gaps: list[str]                               # indicators that came back null
+└── document_md: str?                                  # the rendered letter; set AFTER doc-gen, NOT persisted to .json
+```
+
+Every indicator field is `Optional[float]` (or `Optional[str]` for `rbi_stance`) — a `null` is a **contract signal** ("we couldn't verify this"), not a missing value to backfill. Two on-disk artefacts fall out of a run, both in `output_dir`:
+
+| File | What | Written by |
+|---|---|---|
+| `market_commentary_latest.json` | the `MacroSnapshot` cache (**no** `document_md` — it's saved before doc-gen sets that field) | `CacheManager.save` |
+| `market_commentary_latest.md` | the rendered 2-page letter — **the file everyone reads** | `MarketCommentaryAgent._write_document` (full run) / inline write (fast path) |
+
+The brain gateway collapses all of this into a single `ModuleOutput(payload=<doc string>)` for the sequence.
+
+---
+
+## 5. How it thinks
+
+The pipeline is two LLM passes wrapped in a cache-freshness gate. No numbers are ever computed by the engine — the LLM's job is to **gather** (pass 1) then **narrate** (pass 2).
+
+### The freshness gate — `run_from_cache`
+
+Before any LLM call, `run_from_cache(max_age_sec, date)` decides how much work is needed:
+
+1. No `.json`, or `.json` older than `max_age_sec` (or the loaded snapshot is empty) → return `None` (caller runs the full `run()`).
+2. `.json` fresh **and** `.md` mtime ≥ `.json` mtime → return the `.md` **verbatim** (BOM-aware read, no LLM).
+3. `.json` fresh but `.md` missing/stale → regenerate the doc from the cached snapshot (**doc-gen LLM only**) and persist it.
+
+### Pass 1 — web-search extraction (`run_websearch_extraction`)
+
+1. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=4096`) bound to **two** tools: Anthropic's server-side `web_search_20250305` (`max_uses=25`) **and** `extract_macro_data`.
+2. Claude plans its own searches, disambiguates the known failure modes baked into `EXTRACTION_SYSTEM_PROMPT_WEBSEARCH` (repo vs SDF vs MSF; gold USD/oz vs INR/10g; spot vs forward USD/INR; trailing vs forward index PE), and finalises with one `extract_macro_data` call.
+3. `_MacroExtraction(**tool_call["args"])` → `_to_snapshot` → `MacroSnapshot`. If Claude never finalises, an **all-null** snapshot is returned so the caller's fallback fires.
+4. In `run()`: an all-null snapshot ⇒ fall back to the **last cached snapshot** and append `"ALL_LIVE_DATA_FAILED — using cached snapshot"` to `data_gaps`. A non-empty snapshot is saved to `.json`.
+
+### Pass 2 — document generation (`generate_document`)
+
+1. `_build_prompt_vars` turns the snapshot into template strings — including **pre-computed spreads** (`gsec_repo_spread`, `gsec_fd_spread`) and **pre-formatted Indian-notation gold** (`format_inr_indian`, so Haiku never converts raw rupees to lakh/crore and trips its order-of-magnitude bug). `None` → `"N/A"`.
+2. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=3800`), forced to the `return_commentary_document` tool built via `reasoned_reply_tool` — the model writes a private `outline` (discarded) **before** the `document` body, so the letter starts cleanly at the letterhead.
+3. `extract_reasoned_reply(..., answer_field="document")` pulls the body; empty ⇒ `RuntimeError`.
+
+### A run, end to end (worked example)
+
+A customer asks a macro question; the sequence runs `market_commentary` (this module) then hands the doc to `general_chat`.
+
+<div class="chat">
+  <div class="bubble user"><div class="who">Customer</div>Is this a good time to add to my equity funds, or should I wait?</div>
+</div>
+
+<div class="step-panel">
+  <div class="label">Pass 1 · web-search extract → MacroSnapshot (.json)</div>
+<pre><code>{
+  "repo_rate_pct": 5.50, "rbi_stance": "neutral",
+  "cpi_yoy_pct": 3.1,
+  "nifty50_pe": 22.4, "nifty_midcap150_pe": 34.8, "nifty_smallcap250_pe": 29.6,
+  "gsec_10yr_yield_pct": 6.48, "sbi_fd_1yr_rate_pct": 6.60,
+  "gold_price_inr_per_10g": 118500, "gold_price_usd_per_oz": 3320,
+  "fed_funds_rate_pct": 4.25, "fii_net_flows_cr_inr": -8200,
+  "brent_crude_usd": 71.5, "usd_inr_rate": 87.90,
+  "data_gaps": []
+}</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Pass 2 · doc-gen → market_commentary_latest.md (excerpt)</div>
+<pre><code>> **Prozpr**
+> Market Commentary | July 2026
+> *Dated: 12 July 2026*
+
+**Executive Summary**
+- RBI on hold at 5.50% (neutral); CPI at 3.1% sits in the lower half of the 2–6% band.
+- Nifty 50 at ~22.4x is fair; Midcap 150 (~34.8x) looks stretched.
+- FIIs net sellers (₹8,200 Cr) with USD/INR at 87.90 — a sentiment headwind.
+...</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="chat">
+  <div class="bubble pi"><div class="who">Pi (general_chat, tailored to the doc)</div>Large-caps are around fair value right now (Nifty 50 near 22x), so staged additions there look reasonable — but mid/small-caps are on the expensive side, so I'd go gradually rather than all at once. This is general market context, not advice on your specific funds. <em>(Reply is written by general_chat, not this module.)</em></div>
+</div>
+
+Every figure the letter states traces to a `web_search`-grounded field in the snapshot; the spreads and gold string were pre-computed in `_build_prompt_vars`. *(All values above are illustrative — not real search results or cache rows; don't grep for them.)*
+
+---
+
+## 6. Where the LLM is
+
+**Every pass here is an LLM call** — this is an LLM-driven module end to end. What keeps it honest is *grounding* (web_search on named sources) and *pre-computation* (spreads, Indian-notation gold), not determinism.
+
+| Pass | Model (code id) | Determinism |
+|---|---|---|
+| web-search extract | `claude-haiku-4-5-20251001` | probabilistic; grounded by `web_search` on authoritative sources |
+| doc-gen | `claude-haiku-4-5-20251001` | probabilistic wording over the snapshot; then **cached & reused verbatim** within the TTL |
+| Q&A (`chat_qa.py`) | `claude-sonnet-4-6` | probabilistic; grounded ONLY in the stored `.md` — **not on the live chat path** (see §8) |
+
+<div class="callout danger">
+  <div class="title">⚠ Stale "Sonnet" comments — the two live passes are Haiku</div>
+  <p>Both <code>main.py</code>'s cost note ("plus Sonnet tokens") and <code>prompts.py</code>'s "Document generation prompts — Claude Sonnet" header are <strong>stale</strong>: the live code pins <code>_EXTRACTION_MODEL</code> and <code>_DOCUMENT_MODEL</code> to <code>claude-haiku-4-5-20251001</code>. Sonnet (<code>claude-sonnet-4-6</code>) appears <strong>only</strong> in <code>chat_qa.py</code>, which the production chat flow does not call. Trust the constants, not the prose — and if you're reasoning about cost, a full run is ~15–25 web searches (<code>web_search_20250305</code>, <code>max_uses=25</code>) plus two Haiku calls.</p>
+</div>
+
+All three LLMs go through LangChain `ChatAnthropic` (per the repo convention), each built lazily and `@cache`d so the key is read at call time, never at import (the extraction and doc-gen builders `@cache` per API key; the QA builder reads the ambient key).
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`main.py`](../../src/market_commentary/main.py) | `MarketCommentaryAgent` (orchestration, fast path, fallback), `run_websearch_extraction`, private `_MacroExtraction`, `CacheManager` |
+| [`document_generator.py`](../../src/market_commentary/document_generator.py) | `generate_document` / `DocumentGenerator` — snapshot → markdown via forced `return_commentary_document` tool; `_build_prompt_vars`, `_spread`, `_fmt` |
+| [`prompts.py`](../../src/market_commentary/prompts.py) | the web-search system prompt + `extract_macro_data` tool schema, the doc-gen `ChatPromptTemplate` (`EQUITY_PE_BANDS`), and the QA prompt |
+| [`models.py`](../../src/market_commentary/models.py) | `MacroSnapshot` — the sole durable I/O model |
+| [`chat_qa.py`](../../src/market_commentary/chat_qa.py) | `answer_question` / `load_latest_commentary` — Sonnet Q&A over the stored `.md`; **not wired into live chat** |
+| [`__init__.py`](../../src/market_commentary/__init__.py) | re-exports the contract surface (`MarketCommentaryAgent`, `CacheManager`, `answer_question`, `load_latest_commentary`, `DocumentGenerator`, `generate_document`, `MacroSnapshot`) |
+| [`test_document_generator_reasoning.py`](../../src/market_commentary/test_document_generator_reasoning.py), [`test_chat_qa_reasoning.py`](../../src/market_commentary/test_chat_qa_reasoning.py) | reasoning-discard tests (LLM stubbed at the tool boundary) |
+
+App-layer companions (drive the engine, not part of it):
+
+| File | Role |
+|---|---|
+| [`market_commentary_module_service.py`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | brain gateway `run(turn, ctx, prior)` + 120s timeout degrade |
+| [`market_commentary_engine.py`](../../../app/domains/market_commentary/services/market_commentary_engine.py) | AI bridge: cache path (`Reference_docs/`), freshness, key; fast-path → full-run |
+| [`flow.py`](../../../app/domains/ai_engine/services/flow.py) | `flow_market` — sequences `market_commentary` then `general_chat` |
+
+---
+
+## 8. Invariants & landmines
+
+- **The `.md` file is the contract, not an import.** `portfolio_query` reads `market_commentary_latest.md` off disk and `general_chat` reads the doc from `prior[MARKET_COMMENTARY].payload`. Neither imports this module. Change the file's shape/location and you break two consumers with no compile-time signal — grep for `market_commentary_latest.md`.
+- **`chat_qa.py` is orphaned-on-purpose.** `answer_question` (the only Sonnet caller) has **no production caller** — outside its own reasoning test it is referenced only by the dev-only [`chat_eval` reasoning snapshot](../../src/chat_eval/reasoning_surface_snapshot.py) — the production `general_market_query` flow tailors its reply in `general_chat`, not here. Don't "wire it up" without a product decision; don't delete it assuming it's dead code either.
+- **`null` indicator = "unavailable", never a guess.** An unverified field stays `null` and lands in `data_gaps`; the doc-gen prompt says "cannot be assessed from available inputs". Widening the extraction to backfill nulls would silently invent macro data.
+- **All-null snapshot ⇒ reuse the cache, tag `ALL_LIVE_DATA_FAILED`.** `run()` never writes an empty snapshot over a good one; it falls back to the last cache and flags it. Don't "simplify" that guard away.
+- **Gold is pre-formatted; spreads are pre-computed.** `_build_prompt_vars` sends Indian-notation gold (`format_inr_indian`) and the two rate spreads as strings so Haiku copies rather than computes — this dodges its known order-of-magnitude bug. Keep new derived figures on the Python side of the boundary.
+- **Files are written UTF-8, read BOM-aware.** `CacheManager.save` and `_write_document` pin `encoding="utf-8"` (never the OS locale / cp1252); reads go through `read_text_bom_aware` because a `.md` may arrive UTF-16 from PowerShell. Don't swap in a naive `open().read()`.
+- **API key is passed explicitly, never via env mutation.** The extraction and doc-gen LLM builders take `api_key` and are `@cache`d per key; process-global `os.environ` mutation races under async concurrency. Preserve the explicit-key plumbing.
+- **The fast-path "deterministic" claim is about caching, not generation.** Doc-gen is an LLM (probabilistic). The invariant is that once written, the `.md` is reused verbatim while fresher than the TTL — so regeneration only happens on a stale/missing file. Don't read it as "same snapshot ⇒ byte-identical letter".
+- **Failure is soft at the gateway.** `market_commentary_module_service` wraps the run in a 120s `wait_for` and returns `ModuleOutput(payload=None)` on timeout/error, so the sequence still reaches `general_chat` with no macro doc rather than failing the whole turn.
+
+---
+
+## 9. Extend & test
+
+- **Add / retune an indicator** → add the field to `MacroSnapshot` ([`models.py`](../../src/market_commentary/models.py)) **and** `_MacroExtraction` + the `extract_macro_data` `input_schema` ([`prompts.py`](../../src/market_commentary/prompts.py)), then surface it in `_build_prompt_vars` and the doc-gen structure so the letter can use it. Missing any one of those three and the field is silently dropped.
+- **Change wording / PE bands / structure** → edit [`prompts.py`](../../src/market_commentary/prompts.py) only (`EQUITY_PE_BANDS` was last reviewed 2026-05-02 — bump the date when you touch it). Because the letter is a customer-facing surface, run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging.
+- **Tests** live beside the module (there is no `Testing/` subfolder here):
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | doc-gen reasoning-discard | [`test_document_generator_reasoning.py`](../../src/market_commentary/test_document_generator_reasoning.py) | `outline` field discarded, `document` body returned; LLM stubbed |
+  | QA reasoning-discard | [`test_chat_qa_reasoning.py`](../../src/market_commentary/test_chat_qa_reasoning.py) | `reasoning` field discarded, safe fallback on malformed tool call |
+
+  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/market_commentary/`.
+- **Run doc-gen without hitting the web** — the pattern the tests use: hand-build a `MacroSnapshot`, patch the LLM at the tool boundary (`_get_doc_llm` / `_get_qa_llm`), and assert on the assembled prompt + the discarded-field behaviour. No web_search, no Anthropic call, no database:
+
+  ```python
+  import market_commentary.document_generator as dg
+  from market_commentary.models import MacroSnapshot
+
+  snap = MacroSnapshot(repo_rate_pct=5.5, rbi_stance="neutral", nifty50_pe=22.4)
+  # patch dg._get_doc_llm to a stub returning {"outline": "...", "document": "# Prozpr\n..."}
+  md = dg.generate_document(snap)   # exercises _build_prompt_vars + extract path
+  ```
+
+  To exercise the freshness gate instead, point `MarketCommentaryAgent(output_dir=tmp)` at a temp dir and prime `market_commentary_latest.{json,md}` with known mtimes — `run_from_cache` is pure file I/O until it decides to call the doc LLM.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

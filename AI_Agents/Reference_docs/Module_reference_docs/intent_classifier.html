@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>intent_classifier — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">LLM-driven · Haiku</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `intent_classifier` — the gateway that labels every chat turn
+
+> **One line:** the first thing that runs on every chat turn. It reads the customer's latest message (plus recent history) and returns exactly one of **nine** intent labels — nothing more. It computes no numbers, touches no database, and never writes the customer-facing reply; it just tells the brain *which flow to run next*.
+>
+> This is the engineer's guide to the module. There is no client-facing Logics thesis doc for the classifier (it produces a routing label, not a customer answer). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven<br/>(labels, never computes)</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
+  <div class="cell"><div class="k">Caller</div><div class="v"><code>classify_user_message</code><br/>(app gateway)</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>IntentClassifier.classify</code> / <code>.aclassify</code></div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">1 &middot; structured-output classify</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">fully probabilistic<br/>(one label out)</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no &mdash; label only</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/intent_classifier/`](../../src/intent_classifier/). Its whole job is a routing decision: turn a free-text customer message into **one** of the nine intents in the [`Intent`](../../src/intent_classifier/models.py) enum, which is the source of truth:
+
+`asset_allocation` · `goal_planning` · `stock_advice` · `portfolio_query` · `general_market_query` · `rebalancing` · `additional_investment` · `mutual_fund_query` · `out_of_scope`
+
+> **It is nine, not eight.** `mutual_fund_query` was added as a first-class sibling. The `IntentClassifier` docstring in [`classifier.py`](../../src/intent_classifier/classifier.py) and the folder's `CLAUDE.md` still say "eight intents" — those comments are stale; the `Intent` enum and `_IntentLiteral` are the truth (a drift test, §8, keeps them equal).
+
+The defining design decision: the module returns a **label, not a reply**. It carries a canned message *only* for the two "dead-end" intents (`out_of_scope`, `stock_advice`); for the other seven it emits an intent name and the [chat brain](../../../app/domains/ai_engine/services/brain.py) picks the flow. Routing is a plain table lookup in [`flow.py`](../../../app/domains/ai_engine/services/flow.py) — the classifier does not know what happens after it.
+
+### The single-pass shape
+
+```mermaid
+flowchart LR
+    Q(["Customer question<br/>+ history + active_intent"]) --> UT["<b>_build_user_turn</b><br/>history block (last 12)<br/>+ active intent + question"]
+    UT --> MSG["<b>_messages</b><br/>System (cached) + Human"]
+    MSG --> LLM["<b>Haiku</b><br/>structured output → _LLMOutput"]
+    LLM --> SH["<b>_shape</b><br/>attach canned msg for<br/>out_of_scope / stock_advice"]
+    SH --> R(["ClassificationResult<br/>intent + confidence + reasoning"])
+```
+
+One Haiku call, no chain of steps. Everything before the call is prompt assembly; everything after is shaping the structured output into the public result model.
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent: it imports **no other agent** and no app code. It is wired in only through the app-layer gateway, which loads it via `ensure_ai_agents_path()` (the `sys.path` injection helper) and owns everything the pure engine deliberately does not do — history scrubbing, a keyword override, and an OpenAI fallback.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream** | [`ChatBrain.run_turn`](../../../app/domains/ai_engine/services/brain.py) | runs the classifier **first**, always, on every turn |
+| **Gateway** | [`intent_classifier_engine.classify_user_message`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | the ONLY caller of the engine; adds scrub + override + fallback |
+| **Module surface** | [`intent_classifier_service.run`](../../../app/domains/intent_classifier/services/intent_classifier_service.py) | wraps the result in a `ModuleOutput` whose `payload` is an `IntentDecision` |
+| **Downstream** | [`FLOWS` table](../../../app/domains/ai_engine/services/flow.py) | `intent.name` → the flow to run; unknown ⇒ `flow_general_chat` |
+| **Dead-end intents** | brain short-circuit | `out_of_scope` / `stock_advice` return the canned message directly — **no `FLOWS` row** |
+
+> **The engine touches no DB and no other agent.** If you're looking for "how does the routing happen" — it is **not** here; it is the `FLOWS` dict in `flow.py`. The engine only produces the label that keys that dict.
+
+### What `ctx` must carry
+
+The module surface is `run(turn, ctx, prior)`. To classify, `classify_user_message` needs three things off the turn/context:
+
+| Attribute | Type | Used for |
+|---|---|---|
+| `turn.user_question` | `str` | the message being classified |
+| `turn.conversation_history` | `list[{role, content, intent?}]` | recent context for follow-up detection; **scrubbed** of canned-redirect turns before the LLM sees it (§8) |
+| `ctx.active_intent` | `str \| None` | the prior turn's intent; biases follow-ups toward the same intent. Raises `ValueError` if not a valid `Intent` value |
+
+---
+
+## 3. Input contract
+
+The engine's input is [`ClassificationInput`](../../src/intent_classifier/models.py):
+
+| Field | Type | Notes |
+|---|---|---|
+| `customer_question` | `str` | the customer's latest message |
+| `conversation_history` | `list[ConversationMessage]` | prior turns (`role` = `"user"`/`"assistant"`, `content`); only the **last 12** reach the prompt (`_MAX_HISTORY_MESSAGES`) |
+| `active_intent` | `Optional[Intent]` | the prior turn's intent, so a terse follow-up ("go ahead", "what about gold?") can inherit it |
+
+`_build_user_turn` assembles these into one Human message: a `--- Recent Conversation History ---` block (customer/Prozpr labelled), an optional `Currently active intent: …` line, the current question, and a trailing instruction to *"Classify the intent using the classify_intent tool."*
+
+---
+
+## 4. Output contract
+
+The engine returns [`ClassificationResult`](../../src/intent_classifier/models.py):
+
+| Field | Type | Notes |
+|---|---|---|
+| `intent` | `Intent` | the classified label (one of the nine) |
+| `confidence` | `float` | `0.0–1.0` |
+| `is_follow_up` | `bool` | true if the message continues the prior topic; drives active-intent inheritance |
+| `reasoning` | `str` | a **≤12-word** routing phrase — not analysis (capped in schema *and* prompt) |
+| `out_of_scope_message` | `Optional[str]` | the canned reply — populated **only** for `out_of_scope` and `stock_advice`; `None` otherwise |
+| `out_of_scope_subreason` | `Optional[OutOfScopeSubreason]` | set only when `intent == out_of_scope`; defaults to `other` if the model omitted one |
+
+`OutOfScopeSubreason` has six values — `gibberish`, `identity_or_meta`, `security_or_credentials`, `chat_summary`, `off_topic`, `other` — so the general-chat layer can tailor the decline (e.g. a chat-summary ask gets a different message than gibberish). The classifier's job is just to flag the sub-reason correctly.
+
+---
+
+## 5. How it thinks
+
+The engine is a single Haiku call wrapped in prompt assembly and result shaping. There is no pipeline of steps and no arithmetic; the "thinking" is entirely the system prompt in [`prompts.py`](../../src/intent_classifier/prompts.py) (~325 lines of intent definitions, boundary rules, and edge cases) applied by the model.
+
+| Stage | File / symbol | What happens |
+|---|---|---|
+| Assemble user turn | [`_build_user_turn`](../../src/intent_classifier/classifier.py) | history (last 12) + active intent + question → one string |
+| Assemble messages | `_messages` | `SystemMessage(SYSTEM_PROMPT, cache_control=ephemeral)` + `HumanMessage` |
+| Classify | `chain.invoke` / `ainvoke` | one Haiku call via `with_structured_output(_LLMOutput)` → a validated `_LLMOutput` |
+| Shape | `_shape` | `_LLMOutput` → `ClassificationResult`; attach canned message for the two dead-end intents; default OOS sub-reason to `other` |
+
+### Structured output & the enum lock
+
+The model is constrained to the `_LLMOutput` schema, whose `intent` field is a **`Literal`** of the nine strings. That makes the Anthropic tool schema enforce the enum at the API level — the model *physically cannot* emit an unknown intent string, so a typo or hallucinated category can never silently slip through (it would fail validation and drop to the OpenAI fallback instead). `_LLMOutput` also carries defensive field-validators that scrub stray closing-tag debris (e.g. `"true</is_follow_up>"`) the Anthropic tool serializer occasionally leaks into a value (§8).
+
+### The app layer wraps two behaviours around the engine
+
+The pure engine is deliberately dumb about product edge cases. `classify_user_message` adds them:
+
+- **History scrub** (`_strip_canned_redirect_turns`) — drops `(user, assistant)` pairs where the assistant returned a canned refusal (`out_of_scope` / `stock_advice`), so the LLM doesn't anchor on a prior refusal and bias the next turn. Tagged rows match on the stored `intent`; pre-column rows fall back to a **frozen** prefix list.
+- **Rebalancing keyword override** (`_apply_rebalancing_keyword_override`) — a regex safety net: if the message literally says "rebalance" (incl. common typos) and the LLM labelled it `asset_allocation` or `portfolio_query`, it is forced to `rebalancing`.
+
+### A turn, end to end (worked example)
+
+A first turn with a stated amount to deploy. Watch the message become a label — no history, no active intent.
+
+<div class="chat">
+  <div class="bubble user"><div class="who">Customer</div>I have ₹5L — where should I invest it?</div>
+</div>
+
+<div class="step-panel">
+  <div class="label">_build_user_turn → Human message (sent to Haiku)</div>
+<pre><code>Customer's current question: I have ₹5L — where should I invest it?
+
+Classify the intent using the classify_intent tool.</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Haiku structured output → _LLMOutput</div>
+<pre><code>{
+  "intent": "additional_investment",
+  "confidence": 0.93,
+  "is_follow_up": false,
+  "reasoning": "stated new amount to deploy, fund selection ask",
+  "out_of_scope_subreason": null
+}</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">_shape → ClassificationResult (public contract)</div>
+<pre><code>ClassificationResult(
+  intent=Intent.ADDITIONAL_INVESTMENT,
+  confidence=0.93,
+  is_follow_up=False,
+  reasoning="stated new amount to deploy, fund selection ask",
+  out_of_scope_message=None,          # not a dead-end intent
+  out_of_scope_subreason=None,
+)</code></pre>
+</div>
+
+The brain reads `intent.name == "additional_investment"`, looks it up in `FLOWS`, and runs `flow_additional_investment`. *(Values above are illustrative — a real confidence/reasoning will differ; don't treat them as fixtures.)*
+
+### Where the label lands (routing map)
+
+| Label | `FLOWS` → flow | Reply produced by |
+|---|---|---|
+| `asset_allocation` | `flow_asset_allocation` | asset_allocation domain |
+| `rebalancing` | `flow_rebalancing` | practical AA → rebalancing |
+| `goal_planning` | `flow_goal_planning` | cashflow domain |
+| `portfolio_query` | `flow_portfolio_query` | portfolio (read-only) |
+| `general_market_query` | `flow_market` | market_commentary → general_chat |
+| `additional_investment` | `flow_additional_investment` | additional_investment domain |
+| `mutual_fund_query` | `flow_mutual_fund_query` | mutual_funds domain (read-only) |
+| `stock_advice` | *(no row)* | **canned redirect** — brain short-circuits |
+| `out_of_scope` | *(no row)* | **canned / sub-reason-tailored** — brain short-circuits |
+
+---
+
+## 6. Where the LLM is
+
+**The whole module is the LLM.** There is exactly one model call and no deterministic computation to speak of — no math, no lookups, no DB. Given the same message the label is *probabilistic*, which is why the boundary rules live in the prompt and the guards (enum lock, drift test, keyword override) live around it.
+
+| Part | Deterministic? | Notes |
+|---|---|---|
+| Prompt assembly (`_build_user_turn`, `_messages`) | deterministic | pure string building + last-12 truncation |
+| Classification | **LLM (Haiku)** | `with_structured_output(_LLMOutput)`, `max_tokens=1024`, system prompt cached |
+| `_shape` + canned-message attach | deterministic | dict lookup; sub-reason defaulting |
+| App-layer override / scrub / fallback | deterministic | regex + history filter + OpenAI backup |
+
+The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LLMOutput)`. The static `SYSTEM_PROMPT` is marked `cache_control: ephemeral` for Anthropic prompt caching — after the first call that block costs ~10% of normal rate. `max_tokens=1024` is pure headroom (reasoning is capped to a ≤12-word phrase, so real output is well under 100 tokens).
+
+<div class="callout danger">
+  <div class="title">⚠ The failure mode this module designs against</div>
+  <p>Because it's one Haiku call, the risk is a <strong>silently wrong label</strong> — a hallucinated intent or a serializer glitch that routes the turn to the wrong flow. Two guards blunt this: the <code>_IntentLiteral</code> lock means the model <em>cannot</em> emit an unknown intent (bad output fails validation → OpenAI fallback rather than a garbage label), and the field-validators scrub tool-serializer tag debris (e.g. <code>"true&lt;/is_follow_up&gt;"</code>) before coercion. If you touch either, you re-open the door: an intent added to the enum but not to <code>_IntentLiteral</code> becomes <strong>un-emittable</strong>, and dropping the scrubbers lets tag noise crash a live turn.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`classifier.py`](../../src/intent_classifier/classifier.py) | `IntentClassifier` (sync `classify` / async `aclassify`), `_LLMOutput` schema + `_IntentLiteral` lock, tag-noise scrubbers, history formatting |
+| [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
+| [`prompts.py`](../../src/intent_classifier/prompts.py) | `SYSTEM_PROMPT` (intent definitions, boundaries, edge cases, sub-reasons) + the two canned messages (`OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE`) |
+| [`__init__.py`](../../src/intent_classifier/__init__.py) | re-exports `IntentClassifier` + the I/O models (the app-layer import surface) |
+| [`Testing/`](../../src/intent_classifier/Testing/) | live boundary tests (`test_classifier_rebalancing.py`, `test_classifier_additional_investment.py`) — skipped without `ANTHROPIC_API_KEY` |
+
+App-layer companions (not part of the engine, but where scrub/override/fallback/routing live):
+
+| File | Role |
+|---|---|
+| [`intent_classifier_engine.py`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | `classify_user_message` — Anthropic primary + OpenAI fallback, history scrub, keyword override, `format_intent_response`, `intent_labels` |
+| [`intent_classifier_service.py`](../../../app/domains/intent_classifier/services/intent_classifier_service.py) | `run(turn, ctx, prior)` — the uniform module surface; wraps result as `ModuleOutput`/`IntentDecision` |
+| [`flow.py`](../../../app/domains/ai_engine/services/flow.py) | the `FLOWS` table: intent name → flow |
+
+---
+
+## 8. Invariants & landmines
+
+- **`_IntentLiteral` must equal the `Intent` enum, exactly.** It is hand-maintained in `classifier.py` (Python 3.9 can't do `Literal[*tuple(...)]`). Add an intent to the enum and forget the literal → the new intent becomes **un-emittable** by the model. The drift test [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) fails loudly if they diverge — keep it green. (The stale in-code `NOTE` in `classifier.py` still points the test at an old `app/services/ai_bridge/...` path; the real test lives under `app/domains/ai_engine/tests/`.)
+- **It's nine intents now.** `mutual_fund_query` is live. Stale "eight intents" wording in the `IntentClassifier` docstring and folder `CLAUDE.md` is comment-rot — trust the enum.
+- **Tag-noise scrubbers are load-bearing, not cosmetic.** `_scrub_tag_noise` + the reasoning scrubber strip serializer debris the Anthropic tool-call occasionally leaks into a value. Removing them re-exposes a `ValidationError` on live turns.
+- **`max_tokens=1024` is headroom, don't shrink it thinking it saves cost.** Billing is per generated token, so normal ~100-token output costs the same. Hitting `max_tokens` truncates the tool call → `ValidationError` → the turn silently drops to the OpenAI fallback. (Reasoning is capped to ≤12 words to keep output small — see the memory note on classifier max-tokens.)
+- **The rebalancing keyword override deliberately wins over the prompt.** If the word "rebalance" appears, `asset_allocation`/`portfolio_query` are forced to `rebalancing` — this **overrides** the prompt's "rebalance to be more aggressive = target change → asset_allocation" rule. Pinned by the eval-gate case `aa/rebalance-to-be-aggressive`; the prompt rule still governs paraphrases without the word.
+- **History scrub is classifier-only.** `_strip_canned_redirect_turns` drops refusal turns *only* for the classifier's view — other agents still see full history. The legacy prefix list is **frozen**: new copy variants must not be added, because new rows are always intent-tagged.
+- **`out_of_scope` must carry a sub-reason.** `_shape` defaults it to `other` when the model omits one; downstream `general_chat` tailors the decline by sub-reason. Don't return `out_of_scope` without letting `_shape` set it.
+- **The OpenAI fallback enum derives from `Intent`, but `active_intent` is not forwarded to it.** Adding an intent auto-extends the fallback schema (good); but the follow-up bias is intentionally dropped in the degraded path (`_classify_via_openai` still receives the scrubbed history, just not the active intent), so a fallback turn classifies from the message and history without the active-intent follow-up bias.
+
+---
+
+## 9. Extend & test
+
+- **Change a boundary / add an intent** → edit the `Intent` enum in [`models.py`](../../src/intent_classifier/models.py), the `_IntentLiteral` in [`classifier.py`](../../src/intent_classifier/classifier.py), add a `FLOWS` row + `flow_*` in [`flow.py`](../../../app/domains/ai_engine/services/flow.py), and update the intent-definition section of [`prompts.py`](../../src/intent_classifier/prompts.py). Then run the schema drift test and the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging.
+- **Tests** live at two levels:
+
+  | Level | Where | Covers |
+  |---|---|---|
+  | schema drift (no API key) | [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) | `_IntentLiteral` == `Intent` |
+  | app-layer scrub (no API key) | [`test_strip_canned_redirect_turns.py`](../../../app/domains/intent_classifier/services/tests/test_strip_canned_redirect_turns.py) | history scrub logic (tagged + legacy-prefix rows) |
+  | live boundary (needs key) | [`Testing/test_classifier_rebalancing.py`](../../src/intent_classifier/Testing/), `test_classifier_additional_investment.py` | real Haiku calls; `@skipif` when `ANTHROPIC_API_KEY` unset |
+
+  Run with the mac venv:
+  `.venv-mac/bin/python -m pytest AI_Agents/src/intent_classifier/Testing/ app/domains/ai_engine/tests/test_intent_classifier_schema.py app/domains/intent_classifier/services/tests/`
+
+- **Classify one message without wiring the app** — the engine is directly constructable:
+
+  ```python
+  from intent_classifier import IntentClassifier, ClassificationInput, Intent
+
+  clf = IntentClassifier()                       # constructor reads ANTHROPIC_API_KEY
+  out = clf.classify(ClassificationInput(customer_question="should I rebalance?"))
+  assert out.intent == Intent.REBALANCING
+  ```
+
+  (The app gateway also honours `INTENT_CLASSIFIER_API_KEY` as an override — that lookup lives in `config.get_anthropic_intent_classifier_key`, not in the engine constructor.) No StubLLM seam ships here (there is one model call and no facts pack to hand-build); the boundary tests exercise the *real* Haiku call and are `@skipif` when no key is present. To exercise the app-layer scrub/override/fallback without a key, unit-test `_strip_canned_redirect_turns` / `_apply_rebalancing_keyword_override` directly — both are pure functions.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
