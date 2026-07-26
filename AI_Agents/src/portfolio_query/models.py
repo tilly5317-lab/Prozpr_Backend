@@ -30,6 +30,10 @@ class PortfolioQueryResponse(BaseModel):
     # it so we can measure how often the router and the agents disagree before
     # deciding whether a routing handoff is worth building.
     suggested_intent: Optional[str] = None
+    # Which of the skill's three paths the agent took: X (out of scope), M
+    # (market question) or P (portfolio question). Reported for telemetry only —
+    # the choice already shaped the reply; nothing downstream branches on it.
+    path: Optional[str] = None
 
     @model_validator(mode="after")
     def _enforce_guardrail_contract(self) -> "PortfolioQueryResponse":

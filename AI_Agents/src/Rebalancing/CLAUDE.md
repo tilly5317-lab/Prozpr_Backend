@@ -4,15 +4,20 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 
 ## Entry / contract
 - Entry `run_rebalancing(request) → RebalancingComputeResponse` (`pipeline.py`).
-- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1` (rank-1 holds the goal-allocation amount); held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`. The upstream input builder (`app/domains/rebalancing/services/`) materialises both.
+- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1` (rank-1 holds the goal-allocation amount). Off-list held funds come in two flavours, both `is_recommended = False`: **force-exit** — `rank = FORCE_EXIT_RANK` (9999), `target_amount_pre_cap = 0`; step2 sets `exit_flag`, step4 liquidates regardless of tax — and **NEUTRAL** — `rank = 0`, `target_amount_pre_cap = st_value_inr` (the locked ST minimum), so `diff = -lt_value` and only the migratable LT portion reads as sellable. The upstream input builder (`app/domains/rebalancing/services/rebal_engine/input_builder.py`) materialises all three.
 - Output: rows after step 5, totals, trade list, warnings, metadata.
 
 ## Files
 - `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`).
-- `models.py`, `config.py` (env-overrideable knobs), `tables.py`, `utils.py`, `rationales.py` (customer-facing reason-code strings).
+- `models.py` — pydantic I/O; per-step `FundRowAfterStepN` models inherit down the chain so each step's added fields are non-Optional.
+- `config.py` — knobs: per-fund caps, tax rates/thresholds (env-overrideable), plus hardcoded `FORCE_EXIT_RANK` and `ENGINE_VERSION`.
+- `tables.py` — per-subgroup cap lookup (`cap_pct_for`, default `OTHERS_FUND_CAP_PCT`); also read cross-domain by the additional-investment input builder — do not rename blind.
+- `utils.py` — Decimal rounding (`round_to_step`, `floor_to_step`), gross STCG/LTCG, and `estimate_tax`; no state, no I/O.
+- `rationales.py` — customer-facing reason-code strings.
 - `Reference_docs/` — design docs + source workbook (planning, not code).
 
 ## Gotchas & invariants
+- **Rank-1 targets are lifted in the pipeline, not supplied.** `_assign_targets_to_rank1` overwrites each rank-1 MF row's `target_amount_pre_cap` with the practical engine's aggregated subgroup total, less (floored at 0) the ST value of that subgroup's NEUTRAL (`rank = 0`) rows — locked ST is already exposure, so skipping the offset double-allocates. Whatever the input builder set on rank-1 is discarded; frozen subgroups are exempt. Keep the rule here only, or the two builders drift (`pipeline.py`).
 - **ELSS is scalar, not row.** ELSS exposure lives on `practical_allocation_input.elss_corpus`; ELSS rows are filtered out upstream. `step6` emits a frozen `SubgroupSummary` for `tax_efficient_equities` so the view shows the allocation, but never a BUY/SELL/EXIT trade for it (SEBI 3-year lock-in).
 - **Non-MF equity is scalar, not row.** Direct-stock / PMS holdings live on `practical_allocation_input.non_mf_equity_corpus`. When the practical NFA-banded cap forces a trim, `step6` emits a single `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — no per-stock trades.
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in app-side `fund_rank.py` (the CSV loader) and must stay in sync; the sentinel marks rows the input builder wants force-exited (`config.py`).

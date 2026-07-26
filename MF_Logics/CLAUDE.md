@@ -17,3 +17,4 @@ Historical mutual-fund data-extraction and mapping work; pre-production explorat
 ## Don't read
 
 - Everything else here — historical exploration, not consulted by active code.
+- **Never glob or bulk-read `Mututal_Funds_data_extraction/` — it is ~1.1 GB.** Open the two runtime CSVs and `generate_mf_subgroup_mapping.py` by exact path; everything else in there is raw extraction output.

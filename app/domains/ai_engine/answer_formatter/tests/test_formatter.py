@@ -141,7 +141,7 @@ def test_invoke_llm_raises_formatter_failure_when_response_truncated():
          patch("app.core.config.get_settings") as gs:
         gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
         with pytest.raises(FormatterFailure, match="truncated"):
-            asyncio.run(fmt._invoke_llm("sys", "user"))
+            asyncio.run(fmt._invoke_llm("sys", "user", "goal_planning"))
 
 
 def test_invoke_llm_returns_answer_field():
@@ -169,7 +169,7 @@ def test_invoke_llm_returns_answer_field():
     with patch("langchain_anthropic.ChatAnthropic", _FakeLLM), \
          patch("app.core.config.get_settings") as gs:
         gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
-        out = asyncio.run(fmt._invoke_llm("sys", "user"))
+        out = asyncio.run(fmt._invoke_llm("sys", "user", "goal_planning"))
     assert out == "You're an **Aggressive** investor."
 
 

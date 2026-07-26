@@ -4,8 +4,8 @@ FastAPI application package, organised **domain-first**: every business capabili
 
 ## Child modules
 
-- **core/** — cross-cutting infra (`config`, `database`, `dependencies`, `security`, `lifespan`, `exceptions`). No domain logic. See `core/CLAUDE.md`.
-- **domains/** — one folder per business domain (21), each with the same four sub-folders so the shape is predictable:
+- **core/** — cross-cutting infra (`config`, `database`, `dependencies`, `security`, `lifespan`, `exceptions`, `observability`). No domain logic. See `core/CLAUDE.md`.
+- **domains/** — one folder per business domain (21), each carrying only the sub-folders it actually needs from `models/` + `schemas/` + `routers/` + `services/` (seven are sparser; some also add `tests/` or engine sub-packages):
   - **identity/** — user, auth, OTP, family members, linked accounts, onboarding
   - **profile/** — risk, tax, investment, constraints, personal finance, properties
   - **goals/** — financial goals, contributions, holdings
@@ -38,7 +38,7 @@ FastAPI application package, organised **domain-first**: every business capabili
 
 ## Conventions
 
-- **Layer shape per domain.** Every domain has all four sub-folders even when sparse. Router files end in `_router.py`; service files end in `_service.py` (helpers like `paging.py` keep their own name).
+- **Layer shape per domain.** Most domains carry all four sub-folders, but sparse ones carry only what they use (`general_chat/` and `market_commentary/` are services-only; `asset_allocation/` has no `routers/` yet) — check before assuming a layer exists. Router files end in `_router.py`; service files end in `_service.py` (helpers like `paging.py` keep their own name).
 - **Router aggregator.** `app/routers/__init__.py` is the single place that knows mount order. `main.py` only imports `all_routers`.
 - **Auth.** JWT via `core.dependencies.get_current_user`; family-member override via `X-Family-Member-Id` resolved by `get_effective_user`. AI handlers receive a pre-loaded User graph via `get_ai_user_context`.
 - **Async everywhere.** `get_db()` yields an `AsyncSession`; all DB calls `await session.execute(...)`.

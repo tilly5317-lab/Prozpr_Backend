@@ -336,6 +336,26 @@ class Settings:
         return Settings._anthropic_key("GENERAL_CHAT_API_KEY", "ANTHROPIC_API_KEY")
 
     @staticmethod
+    def get_anthropic_formatter_key_for(module_name: str) -> str | None:
+        """Answer-formatter key, attributed to the module whose reply it writes.
+
+        Every formatter call used to bill to one key, so a module's reply cost was
+        invisible — and goal_planning, whose only module-owned LLM call was removed,
+        had no attributable spend at all. Resolution order: the module's own key,
+        then the shared formatter key, then the global fallback.
+
+        A no-op until distinct keys are actually set: today every per-module env
+        var in .env holds the same value as ANTHROPIC_API_KEY.
+        """
+        module_var = f"{module_name.upper()}_API_KEY"
+        return Settings._anthropic_key(
+            module_var,
+            f"ANTHROPIC_{module_var}",
+            "ANSWER_FORMATTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+        )
+
+    @staticmethod
     def get_anthropic_goal_planning_key() -> str | None:
         """Goal planning LangGraph agent + Haiku-based NL extractor."""
         return Settings._anthropic_key(

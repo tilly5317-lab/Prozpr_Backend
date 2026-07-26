@@ -175,7 +175,7 @@
     <div class="header-strip">
       <div></div>
       <div class="meta">
-        Prozpr · Engineering walkthrough<br />Reconciled with the live code on 2026-07-04
+        Prozpr · Engineering walkthrough<br />Reconciled with the live code on 2026-07-26
       </div>
     </div>
     <article id="content"></article>
@@ -185,7 +185,7 @@
 <script type="text/markdown" id="source-md">
 # AI_Agents — Architecture Walkthrough
 
-> A narrative handoff doc for the `AI_Agents/` package itself: how each agent thinks, what it takes in, what it gives back, and how they relate. File paths are pinned so you can jump to the code; the prose carries the *why*. If a diagram contradicts the code, trust the code — and tell me, so I can fix the diagram. *(Last reconciled with the code: 2026-07-04.)*
+> A narrative handoff doc for the `AI_Agents/` package itself: how each agent thinks, what it takes in, what it gives back, and how they relate. File paths are pinned so you can jump to the code; the prose carries the *why*. If a diagram contradicts the code, trust the code — and tell me, so I can fix the diagram. *(Last reconciled with the code: 2026-07-26.)*
 >
 > This doc is the **inside-the-package** view: what actually runs inside each agent. How chat requests reach the agents (HTTP → `ChatBrain` → the owning domain's module service) is covered by the `CLAUDE.md` layer under `app/` — start at `app/domains/ai_engine/CLAUDE.md`. This doc picks up after a domain service has called into `AI_Agents/src/`.
 
@@ -222,10 +222,22 @@ If you ever sit down to "just quickly understand X", start with that agent's row
 
 ```mermaid
 flowchart TB
+    Replace the Shared subgraph (ARCHITECTURE.md:40-43) with all four shared pieces, drop the two arbitrary `Common` edges (lines 80-81), and say in the caption why shared-module edges aren't drawn:
+
     subgraph Shared["📦 Shared foundation — src/"]
         FP["financial_primitives/<br/>TVM, annuity, inflation, FY dates"]
-        Common["common.py<br/>format_inr_indian"]
+        Common["common.py<br/>format_inr_indian, read_text_bom_aware,<br/>risk categories"]
+        Persona["persona.py<br/>build_system_prompt — the PI voice"]
+        RR["reasoned_reply.py<br/>thinking-first forced tool use"]
     end
+
+Keep `FP --> CFE` (real, and single-consumer). Delete `Common --> PQ` and `Common --> AA`, and add one sentence after the "solid arrows are real Python imports" paragraph:
+
+> Edges out of the *Shared foundation* box are omitted on purpose: any agent may import `common.py`, `persona.py` and `reasoned_reply.py`, so drawing them would cross the whole diagram. Today `common.py` is imported by market_commentary, Rebalancing, asset_allocation_pydantic, portfolio_query, risk_profiling and cashflow_statement; `persona.py` by market_commentary, portfolio_query, risk_profiling, asset_allocation_pydantic's rationale step and the cashflow summarizer; `reasoned_reply.py` by market_commentary's document generator and chat_qa. The "agents are peers except where a solid arrow exists" rule is about *agent-to-agent* edges, not these.
+
+Do NOT use the originally proposed `Common -.->|"imported by 7 modules"| Shared` (a node cannot meaningfully point at its own enclosing subgraph, and the count is wrong — 6 agent packages / 11 files), and do NOT add `Persona --> CFE`: the persona importer is `cashflow_statement/summarizer.py` at the package root, while the `CFE` node is `cashflow_statement/engine`, which imports neither persona nor common.
+
+Adjacent (optional, same section): section 4's `common.py` table says "Three things in it" but omits `read_text_bom_aware` (common.py:27), which is imported by market_commentary/chat_qa.py:9, market_commentary/main.py:15 and portfolio_query/{orchestrator.py:37,skill_executor.py:5}.
 
     subgraph Intent["🎯 Intent layer"]
         IC[intent_classifier<br/>Claude Haiku + structured output]
@@ -266,7 +278,7 @@ flowchart TB
     Common --> AA
 
     RP -.->|"effective_risk_score<br/>(wired by caller)"| AA
-    MC -.->|"score block<br/>(wired by caller)"| AA
+    MC -.->|"score block (designed input,<br/>NOT wired — engine table defaults used)"| AA
     MC -->|"writes market_commentary_latest.md"| RefDocs[(Reference_docs/)]
     RefDocs -->|"read by"| PQ
 
@@ -289,7 +301,7 @@ Sorting the agents by how they actually work is the single most useful mental mo
 | Kind | Agents | What it means |
 |---|---|---|
 | **Deterministic engine** | `asset_allocation_pydantic`, `practical_asset_allocation`, `Rebalancing`, `additional_investment`, `cashflow_statement/engine`, `risk_profiling` (scoring half), `financial_primitives` | Pure Python. Same input → same output, byte for byte. Excel-parity for the cashflow engine. These are where the *product math* lives. Debug them with unit tests. Reading the code answers "why this number" definitively. |
-| **LLM-driven** | `intent_classifier`, `market_commentary` (extraction, doc-gen, and the `chat_qa` Q&A), `portfolio_query`, `cashflow_statement/agent`, `risk_profiling` (summary half), the optional rationale step in `asset_allocation_pydantic` | Claude via `langchain-anthropic` is the load-bearing piece — Haiku for most calls, Sonnet for the cashflow agent node and market-commentary Q&A. Outputs are constrained by structured-output schemas or prompt-encoded house rules, but they're not byte-stable. Debug them by reading prompts in `prompts.py` and looking at recent runs. |
+| **LLM-driven** | `intent_classifier`, `market_commentary` (extraction, doc-gen, and the `chat_qa` Q&A), `portfolio_query`, `cashflow_statement/agent` (LangGraph — **not on the production path**; exercised only by its own tests and `scripts/probe_cashflow_statement.py`. The production goal-planning turn calls the engine directly via `compute_full_projection` and does its LLM work in the app layer: a Haiku action detector in `goal_planning_engine/chat.py` plus the shared answer-formatter), `risk_profiling` (summary half), the optional rationale step in `asset_allocation_pydantic` | Claude via `langchain-anthropic` is the load-bearing piece — Haiku for most calls, Sonnet for the cashflow agent node and market-commentary Q&A. Outputs are constrained by structured-output schemas or prompt-encoded house rules, but they're not byte-stable. Debug them by reading prompts in `prompts.py` and looking at recent runs. |
 
 This split matters because the failure modes are different:
 
@@ -318,11 +330,27 @@ Pure-function library, no LLM, no I/O, fully unit-tested. It's the only thing th
 | [xirr.py](../../src/financial_primitives/xirr.py) | XIRR (365-day year convention) |
 | [twr.py](../../src/financial_primitives/twr.py) | Time-weighted return |
 
-Consumers today: `cashflow_statement/engine/` plus the app layer's benchmark/TWR service (`app/domains/portfolio/services/benchmark_service.py`). **Don't engineer it for hypothetical consumers** — extend only when a real caller appears (`AI_Agents/src/CLAUDE.md` makes this an explicit rule).
+Consumers today: `cashflow_statement/engine/` (inflation, retirement, dates, annuity) plus three app-layer services — `app/domains/portfolio/services/benchmark_service.py` and `app/domains/mutual_funds/services/xirr_service.py` (both on `xirr.py`), and `app/domains/portfolio/services/twr_service.py` (on `twr.py`). **Don't engineer it for hypothetical consumers** — extend only when a real caller appears (`AI_Agents/src/CLAUDE.md` makes this an explicit rule) — but grep all four before changing a kernel signature.
 
 ### `common.py` — cross-agent utilities
 
-Lives at [`AI_Agents/src/common.py`](../../src/common.py). Self-contained — stdlib only, no peer-agent imports. Three things in it:
+In /Users/Amoul/Documents/AILAX_AI_Financial_advisor/ailax/Prozpr_Backend/AI_Agents/Reference_docs/Tech_reference_docs/ARCHITECTURE.md:
+
+1) Line 140 — change "Three things in it:" to "Four things in it:".
+
+2) Add this row to the table (place it first, matching source order in common.py):
+
+| `read_text_bom_aware(path)` | Read a runtime text artifact whatever encoding it was written in: sniffs a UTF-16 LE/BE or UTF-8 BOM, decodes as UTF-8 otherwise. The runtime files these agents read — the market-commentary cache, `portfolio_query`'s `portfolio_query.md` skill and `guardrails.md` — may be produced by PowerShell on Windows (UTF-16 LE + BOM), and bare `Path.read_text()` both blows up on byte 0xff and falls back to the OS locale (cp1252). **Never read one of those files without this.** Callers: `portfolio_query/orchestrator.py`, `portfolio_query/skill_executor.py`, `market_commentary/main.py`, `market_commentary/chat_qa.py`. |
+
+3) Line 150 — the existing sentence must be narrowed, because the app layer re-exports only three of the four (`app/domains/ai_engine/common.py` re-exports `RISK_CATEGORIES`, `category_for_effective_risk_score`, `format_inr_indian`, and NOT `read_text_bom_aware`). Replace:
+
+"The app layer re-imports these via [`app/domains/ai_engine/common.py`](../../../app/domains/ai_engine/common.py) so there's exactly one source of truth."
+
+with:
+
+"The app layer re-imports the three risk/money helpers via [`app/domains/ai_engine/common.py`](../../../app/domains/ai_engine/common.py) so there's exactly one source of truth. `read_text_bom_aware` is not re-exported there — it has no app-layer caller today; agents under `src/` import it directly with `from common import read_text_bom_aware`."
+
+4) After editing the .md, regenerate the viewer: `python3 -m scripts.build_reference_docs`. ARCHITECTURE.html:325 carries the same stale line and is GENERATED — do not hand-edit it (rule in AI_Agents/Reference_docs/CLAUDE.md).
 
 | Symbol | What it does |
 |---|---|
@@ -361,7 +389,7 @@ Each subsection gives you the same four answers: input → output, how it thinks
 
 - **In:** `RiskProfileInput` (age, income, assets, debt, occupation, stated risk willingness, etc.).
 - **Out:** a `dict` with `step_name`, `inputs`, `calculations`, `output`. The `output` block carries `effective_risk_score` and the `risk_summary` paragraph. The shape is intentionally open — the app layer indexes into it and persists `calculations`/`output` as JSON.
-- **How it thinks:** [scoring.py](../../src/risk_profiling/scoring.py) is pure Python. It computes risk *capacity* (from financials), the OSI (occupation stability index), a savings-rate adjustment, applies clamps, and lands on `effective_risk_score` ∈ [1, 10]. Then [main.py](../../src/risk_profiling/main.py) appends a Haiku-generated summary paragraph via an LCEL chain.
+- - **How it thinks:** [scoring.py](../../src/risk_profiling/scoring.py) is pure Python. Risk *capacity* is anchored on age (clamped to [20, 90], then interpolated between the anchors 20→10 … 90→1), nudged by half the net-asset score's distance from 5 (expense coverage, current debt, property owned), then clamped to [1, 10]. The final score is `0.7 × risk_willingness + 0.3 × risk_capacity` — **stated willingness carries the larger weight, and it arrives as an already-computed input**, not something `scoring.py` derives (see the willingness note below). The OSI and the savings-rate adjustment are computed alongside and written into `calculations` for downstream consumers (the allocation input builder reads both), but neither enters the score. Then [main.py](../../src/risk_profiling/main.py) appends a Haiku-generated summary paragraph via an LCEL chain. Then [main.py](../../src/risk_profiling/main.py) appends a Haiku-generated summary paragraph via an LCEL chain.
 - **LLM:** Haiku, but only for the prose summary. **The score itself is fully deterministic.** If a customer disputes their score, reading `scoring.py` answers the question. The LLM is doing PR, not arithmetic.
 - **Downstream:** the `effective_risk_score` is one of the fields `asset_allocation_pydantic`'s `AllocationInput` expects. The caller (bridge) wires it across — `risk_profiling` does not import allocation, nor vice versa.
 
@@ -379,7 +407,7 @@ Each subsection gives you the same four answers: input → output, how it thinks
   - [Reference_docs/market_commentary_latest.md](../market_commentary_latest.md)
 - **How it thinks:** [main.py](../../src/market_commentary/main.py) drives a two-pass flow. Pass 1 — `run_websearch_extraction` (`main.py`) — a Claude call with Anthropic **web search** enabled gathers current values and extracts them into a structured `MacroSnapshot` (no HTML scraping; the retired scraper lives in `_archive/`). Pass 2 — `generate_document` in [document_generator.py](../../src/market_commentary/document_generator.py) — turns the snapshot into the markdown commentary via forced tool-use (`reasoned_reply`).
 - **Caching:** the JSON snapshot is a TTL cache (`MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`, wired by the app layer); the `.md` is regenerated only when missing or older than the JSON — the document is a deterministic function of the snapshot (`run_from_cache`). If live data fails entirely, the pipeline falls back to the cached snapshot and tags `data_gaps` with `ALL_LIVE_DATA_FAILED`.
-- **LLM:** Haiku for extract + generate. There is also a third surface: [chat_qa.py](../../src/market_commentary/chat_qa.py) — a **Sonnet** Q&A sub-agent that answers customer questions over the commentary (forced tool-use via `reasoned_reply`), used by the market-query chat flow.
+- **LLM:** Haiku for extract + generate. There is also a third surface: [chat_qa.py](../../src/market_commentary/chat_qa.py) — a **Sonnet** Q&A sub-agent that answers customer questions over the commentary (forced tool-use via `reasoned_reply`). **It is dormant in production:** nothing under `app/` calls it (the app imports the `market_commentary` package, whose `__init__.py` re-exports `answer_question`, but no code path invokes it). The market-query chat flow ([flow.py](../../../app/domains/ai_engine/services/flow.py) `flow_market`) runs the commentary agent for the macro doc, then lets `general_chat` write the reply with its own Haiku call. `chat_qa` is exercised only by `chat_eval/` and its own test — treat it as a staged surface, not a live one.
 - **The persistence is the contract.** [Reference_docs/market_commentary_latest.md](../market_commentary_latest.md) is what `portfolio_query` reads. No Python import connects the two agents — the file is the interface. **If you change the file's shape, you break `portfolio_query` silently.**
 
 ### 5.4 `asset_allocation_pydantic/` — the goal-based allocation engine
@@ -387,7 +415,9 @@ Each subsection gives you the same four answers: input → output, how it thinks
 This is the most important deterministic engine. Sit with this one.
 
 - **In:** `AllocationInput` — client profile, goals (each with horizon + target corpus), `effective_risk_score`, OSI, savings-rate adjustment, a `market_commentary` score block, and a target `corpus` (total investable). The risk and market fields come from the two agents named above; the caller wires them in.
-- **Out:** `GoalAllocationOutput` — the recommended allocation across buckets (emergency, short-term, medium-term, long-term), per-asset-class splits, recommended fund subgroups, rationale.
+- - **Out:** `GoalAllocationOutput` — seven fields: `client_summary`, `bucket_allocations` (emergency, short-term, medium-term, long-term, each carrying its own optional `rationale` / `goal_rationales` prose), `aggregated_subgroups`, `future_investments_summary`, `grand_total`, `all_amounts_in_multiples_of_100`, `asset_class_breakdown` (per-asset-class splits). `aggregated_subgroups` rows are **asset-subgroup** names — `short_debt`, `arbitrage`, `arbitrage_plus_income`, `multi_asset`, `low_beta_equities`, `medium_beta_equities`, `high_beta_equities`, `value_equities`, `sector_equities`, `us_equities`, `gold_commodities` (canonical order in [step5_aggregation.py](../../src/asset_allocation_pydantic/steps/step5_aggregation.py)) — **not fund recommendations**. Since `FUND_MAPPING` was dropped, the output commits only to asset class and subgroup: no fund names or ISINs appear, and [Testing/test_no_fund_mapping.py](../../src/asset_allocation_pydantic/Testing/test_no_fund_mapping.py) guards it by rejecting `fund_mapping`/`recommended_fund`/`isin`/`sub_category` keys anywhere in the payload and pinning each subgroup row to exactly its six keys. Fund selection happens downstream in `Rebalancing` / `additional_investment` (see `Prozpr_fund_ranking.csv`).
+
+(Same stale vocabulary at line 219 should be fixed too: `tables.py` no longer holds fund mappings — it holds default market-commentary scores, multi-asset composition tables, and the subgroup→asset-class roll-up `SUBGROUP_TO_ASSET_CLASS`.)
 - **How it thinks:** seven steps in [steps/](../../src/asset_allocation_pydantic/steps/), orchestrated by [pipeline.py](../../src/asset_allocation_pydantic/pipeline.py):
 
   | Step | File | What it does |
@@ -397,11 +427,11 @@ This is the most important deterministic engine. Sit with this one.
   | 3 | [step3_medium_term.py](../../src/asset_allocation_pydantic/steps/step3_medium_term.py) | Allocate to medium-horizon goals. |
   | 4 | [step4_long_term.py](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | The heaviest step. Multi-phase: `phase1_bounds` (risk-score → equity bounds), `phase4_multi_asset` (multi-asset fund composition), `phase5_equity_subgroups` (large/mid/small/flexi via the slider in [equity_subgroup_slider.py](../../src/asset_allocation_pydantic/equity_subgroup_slider.py)). |
   | 5 | [step5_aggregation.py](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | Combine the per-bucket results into aggregated subgroup rows. |
-  | 6 | [step6_guardrails.py](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | Apply allocation guardrails (caps, floors, sanity checks). |
+  | 6 | [step6_guardrails.py](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | **Checks only — adjusts nothing.** Validates step 4/5 against the guardrails (subgroup sum vs `total_allocated`; asset-class pcts inside the Phase-1 risk bounds; equity-subgroup shares of `multi_asset.equity_for_subgroups` inside the Phase-5 bounds, within `PHASE5_SHARE_TOLERANCE_PP`; no unmapped subgroup) and returns the violation list. `adjustments_made` is always empty, and `Step6Output` is not passed to step 7 nor carried on `GoalAllocationOutput` — it survives only in the state dict from `run_allocation_with_state`, where the app logs `all_rules_pass` and a violation count. A breach is recorded, never clamped. |
   | 7 | [step7_presentation.py](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | Assemble the final `GoalAllocationOutput`. Optionally calls `rationale_fn` (LLM) here. |
 
-- **LLM:** only the optional rationale function injected at step 7 (via `_rationale_llm.py`). Disable it and the allocation is still produced, byte-identical to the LLM path's structured numbers. **The numbers come from steps 1–6, which never call an LLM.**
-- **Static lookups:** [tables.py](../../src/asset_allocation_pydantic/tables.py) holds default market commentary scores, multi-asset composition tables, and the fund mappings. If a recommended subgroup looks wrong, it's almost always a table issue, not a step issue.
+- - **LLM:** only the rationale function at step 7 (via [`_rationale_llm.py`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py)) — and it is **opt-out, not opt-in**. With no `rationale_fn` injected, step 7 falls through to `_rationale_llm.generate_rationales` (Haiku), so the live allocation path — `aa_engine/service.py`, which injects nothing — does make an LLM call per run; any failure degrades silently to deterministic fallback text. Pass `_rationale_llm.no_llm_rationale_fn` to suppress it outright (what the `Master_testing` runner does); the structured numbers are then byte-identical to the LLM path's. **The numbers come from steps 1–6, which never call an LLM.**
+- **Static lookups:** - **Static lookups:** [tables.py](../../src/asset_allocation_pydantic/tables.py) holds the Phase-1 risk→asset-class bounds and Phase-5 equity-subgroup bounds, the medium-term equity/debt split, the subgroup→asset-class roll-up, emergency-fund months, and the default market-commentary scores and multi-asset composition used when the caller supplies no view. **No fund mappings** — `FUND_MAPPING` was dropped when the output went asset-class-only (commit b95649a9); specific fund/ISIN picks live in `Rebalancing/` (`Prozpr_fund_ranking.csv`), and allocation only commits to equity/debt/others. The module's local `Testing/test_no_fund_mapping.py` (gitignored, dev machines only) guards this by asserting no `fund_mapping` / `recommended_fund` / `isin` / `sub_category` key appears anywhere in the serialised `GoalAllocationOutput`, and that `aggregated_subgroups` rows carry only subgroup + per-bucket amounts. If a recommended subgroup looks wrong, it's almost always a table issue, not a step issue. If a recommended subgroup looks wrong, it's almost always a table issue, not a step issue.
 - **Why pydantic everywhere:** each step has its own `StepNOutput` schema. Step N+1 takes Step N's output as input. This means you can run a single step in isolation in a notebook with the right `StepNOutput` JSON, which is essential for reproducing customer-reported quirks.
 
 ### 5.5 `practical_asset_allocation/` — holdings-aware version of the above
@@ -410,10 +440,18 @@ This is the first cross-agent import in the package and the only one that mutate
 
 - **In:** `PracticalAllocationInput` — `AllocationInput` plus four scalars: `mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`.
 - **Out:** `PracticalAllocationOutput` — shape-parity with `GoalAllocationOutput` plus one extra `corpus_breakdown` block. Consumers that handle `GoalAllocationOutput` handle this with zero change for the shared seven fields.
-- **How it thinks:** [pipeline.py](../../src/practical_asset_allocation/pipeline.py) (single file by design — revisit splitting only past ~500 lines). It calls `asset_allocation_pydantic` steps 1–3 and 5 directly, lifts selected step-4 helpers (`phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups`), and **reimplements step 4 itself** to be holdings-aware:
+- **How it thinks:** Two edits to AI_Agents/Reference_docs/Tech_reference_docs/ARCHITECTURE.md.
+
+Line 228 — replace the parenthetical:
+- **How it thinks:** [pipeline.py](../../src/practical_asset_allocation/pipeline.py) (one file on purpose — the models, the orchestrator, and the R157–R222 long-term math together, past 1,000 lines; the math is easier to follow contiguously, so don't split it for tidiness). It calls `asset_allocation_pydantic` steps 1–3 and 5 directly, lifts selected step-4 helpers (`phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups`), and **reimplements step 4 itself** to be holdings-aware:
+
+Line 445 — §8 Landmines item 4, same edit so the two stay consistent:
+4. **`practical_asset_allocation/pipeline.py` is one file on purpose.** It is past 1,000 lines and holds the models, the orchestrator, and the R157–R222 long-term math. Don't split it "for tidiness" — the math is easier to follow contiguously.
+
+Deliberately dropped from the originally proposed wording: "splitting has been considered and declined." No doc records such a decision, and `AI_Agents/src/practical_asset_allocation/CLAUDE.md:12` leans the other way ("not yet split into per-step modules"). The supportable justification is the contiguity rationale, not a decision record.. It calls `asset_allocation_pydantic` steps 1–3 and 5 directly, lifts selected step-4 helpers (`phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups`), and **reimplements step 4 itself** to be holdings-aware:
   - ELSS is **frozen** at the customer's existing exposure (SEBI 3-year lock-in means we can't trade it).
   - Non-MF equity (direct stocks / PMS) is **capped by an NFA-banded rule** — the cap scales with the client's net financial assets band. Excess is trimmed.
-  - Equity subgroups use the **v2 average-based sliding threshold**, replacing the static threshold used by the upstream module.
+  - - Equity subgroups run through the **same shared v2 average-based slider** as the upstream module ([equity_subgroup_slider.py](../../src/asset_allocation_pydantic/equity_subgroup_slider.py)) — what differs are the inputs. Practical passes a real `locked_amount` (frozen ELSS + capped non-MF equity) where the ideal engine passes `0`, and measures each subgroup's share against the TOTAL equity pool (MF residual + multi-asset + non-MF equity) rather than the MF residual alone. With nothing locked the slider pins at the flat 8% base, and it only starts sliding down once locked exposure passes 20% of the equity budget — so for a customer with no meaningful locked holdings, practical and ideal apply the same threshold.
 - **LLM:** none.
 - **Why a separate module:** the original `asset_allocation_pydantic` is what you'd recommend if the customer had no existing holdings. The practical one says "given what they already hold, here's the closest target we can realistically reach without a tax-suicidal rebalancing." If you confuse the two, the recommendation will tell the customer to sell things SEBI won't let them sell.
 
@@ -421,11 +459,13 @@ This is the first cross-agent import in the package and the only one that mutate
 
 The bridge from "ideal target" to "transactions you submit".
 
-- **In:** `RebalancingComputeRequest` — corpus, tax state (STCG budget, carryforward losses), and a single homogeneous list of `FundRowInput` rows. Recommended funds carry `rank ≥ 1`; held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`. Two things live on the request as **scalars**, not rows, and have special handling:
+- **In:** `RebalancingComputeRequest` — corpus, tax state (STCG budget, carryforward losses), and a single homogeneous list of `FundRowInput` rows. Recommended funds carry `rank ≥ 1`; In AI_Agents/Reference_docs/Tech_reference_docs/ARCHITECTURE.md:239, replace "held-but-not-recommended ("BAD") funds carry `rank = 0`, `is_recommended = False`, `target_amount_pre_cap = 0`" with:
+
+held-but-not-recommended ("BAD") funds arrive in two flavours, both `is_recommended = False`: **force-exit** — `rank = FORCE_EXIT_RANK` (9999), `target_amount_pre_cap = 0`; step 2 sets `exit_flag`, step 4 liquidates regardless of tax — and **NEUTRAL** — `rank = 0`, `target_amount_pre_cap = st_value_inr` (the locked ST minimum), so `diff = -lt_value` and only the migratable LT portion ever reads as sellable.. Two things live on the request as **scalars**, not rows, and have special handling:
   - **ELSS** → `practical_allocation_input.elss_corpus`. No trade is ever generated for ELSS (lock-in). [step6_presentation.py](../../src/Rebalancing/steps/step6_presentation.py) emits a frozen `SubgroupSummary` so the customer view still shows ELSS allocation.
   - **Non-MF equity** → `practical_allocation_input.non_mf_equity_corpus`. If the practical engine's NFA cap forces a trim, step 6 emits a single `SELL_DIRECT_STOCKS` trade for `excess_direct_stocks_inr`. No per-stock detail.
 - **Out:** `RebalancingComputeResponse` — per-fund rows after step 5, totals, the trade list, warnings, metadata. Also surfaces the upstream `practical_allocation` output verbatim for the customer view.
-- **How it thinks:** [pipeline.py](../../src/Rebalancing/pipeline.py) calls `practical_asset_allocation.run_practical_allocation` first (this is why the import edge exists), then lifts per-subgroup targets onto rank-1 fund rows, then runs the six steps in [steps/](../../src/Rebalancing/steps/):
+- **How it thinks:** [pipeline.py](../../src/Rebalancing/pipeline.py) calls `practical_asset_allocation.run_practical_allocation` first (this is why the import edge exists), then lifts per-subgroup targets onto rank-1 fund rows — an overwrite, not a fill: whatever the input builder set there is discarded, and the target is reduced (floored at zero) by the ST value of that subgroup's held-but-not-recommended `rank = 0` rows, because that locked ST is already exposure to the subgroup and skipping the offset double-allocates; the frozen subgroups (`tax_efficient_equities`, `non_mf_equities`) are exempt from the lift entirely — then runs the six steps in [steps/](../../src/Rebalancing/steps/):
 
   | Step | File | What it does |
   |---|---|---|
@@ -446,7 +486,7 @@ This is the only place we use LangGraph, and the only agent with a real loop.
 #### The engine — [engine/pipeline.py](../../src/cashflow_statement/engine/pipeline.py)
 
 - **In:** `GoalPlanningInput` — profile (age, income, expenses), retirement plan, properties (with mortgages), custom goals, one-off events.
-- **Out:** `GoalPlanningOutput` — headline status (on-track / shortfall / surplus), per-goal funding, monthly + annual cashflow projections, fund-flow summary.
+- **Out:** `GoalPlanningOutput` — headline status (on-track / shortfall / surplus), per-goal funding, annual cashflow projection, fund-flow summary. Month-by-month rows (`monthly_cashflow`) are emitted **only when `detail_level == "full"`** — otherwise the field is `None`. `detail_level` defaults to `"default"`, and the product goal-planning path (app `input_builder`) passes `"default"`; the REST compute route passes `"full"`.
 - **How it thinks:** an 8-stage pipeline, one file per stage:
 
   | Stage | File | What it does |
@@ -467,7 +507,9 @@ This is the only place we use LangGraph, and the only agent with a real loop.
 
 #### The agent — [agent/graph.py](../../src/cashflow_statement/agent/graph.py)
 
-This is the only LangGraph usage in the codebase. The reason it earns LangGraph: it's a genuine multi-turn loop where the LLM needs to (1) extract structured goals/properties/events from natural language, (2) decide which deterministic tool to call next, (3) see the tool result and decide again, (4) eventually summarise. That's what `StateGraph` + a tool-calling node was built for.
+This is the only LangGraph usage in the codebase — and, today, **it is not on the production path**: `app/` imports only `cashflow_statement.engine`, `models`, and the package facade for model types (`input_builder.py`), never `agent/`; the live customer conversation runs through the goal-planning chat bridge (`app/domains/cashflow/services/goal_planning_engine/`), which calls `compute_full_projection` directly. Everything below describes how the agent works, not how a customer question is answered. The reason it earns LangGraph: it's a genuine multi-turn loop where the LLM needs to (1) extract structured goals/properties/events from natural language, (2) decide which deterministic tool to call next, (3) see the tool result and decide again, (4) eventually summarise. That's what `StateGraph` + a tool-calling node was built for.
+
+Also worth fixing alongside: §3's LLM-driven row should qualify `cashflow_statement/agent` as not currently on the production path, since every other entry in that row is live.
 
 ##### LangChain vs LangGraph — they're different things
 
@@ -501,7 +543,7 @@ Four nodes, defined in `build_graph()` in [graph.py](../../src/cashflow_statemen
 
 | Node | What it does |
 |---|---|
-| `ingest_baseline` | Validates that staged overrides still reference real goals (drops orphans). Resets per-turn audit fields (`actions_taken_this_turn`, `extracted_events_this_turn`). Diffs the new baseline against the cached `last_output` and flags state as `dirty` if anything changed. |
+| `ingest_baseline` | `ingest_baseline` | Resets per-turn audit fields (`actions_taken_this_turn`, `extracted_events_this_turn`), diffs the new baseline against the cached `last_output`, and flags state as `dirty` if anything changed. It also carries an orphan check that applies only to overrides exposing a `property_name`, validated against `current_properties` + `goal_properties` — no current `OverrideSpec` variant (`NumericOverride`, `RateOverride`) has that attribute, so the branch never fires and nothing is dropped today. Goal-name orphans (e.g. a `GoalMutation` naming a deleted custom goal) are never validated here. Resets per-turn audit fields (`actions_taken_this_turn`, `extracted_events_this_turn`). Compares the new baseline's **profile block** against the cached `last_output` (`last_output.input_echo.profile != baseline_input.profile`); on a mismatch it discards the cache (`last_output` set to `None`) and flags state as `dirty` (dropping an orphaned override also sets `dirty`). Note the comparison is profile-only — a changed goal, property, mortgage or one-off event does not by itself invalidate the cached projection, which `compute_projection` short-circuits on whenever state is not `dirty`. |
 | `agent` | The LLM. Claude **Sonnet** (`claude-sonnet-4-6` — the `build_graph()` default in `graph.py`; note `nodes.py`'s `AGENT_MODEL_DEFAULT` Haiku constant is bypassed), system prompt = a compact summary of profile + goals + mortgages + one-off cashflows ([nodes.py: `_format_baseline_summary`](../../src/cashflow_statement/agent/nodes.py)). The six tools are *bound* via `.bind_tools(TOOLS)`. The LLM decides whether to call a tool or to finish. |
 | `tools` | LangGraph's prebuilt `ToolNode` over the six `@tool`-wrapped functions. Whichever tool the LLM called gets executed; its return value comes back as a `ToolMessage`. |
 | `finalize` | End-of-turn cleanup. If the LLM never called `compute_projection`, this runs the engine as a fallback so the snapshot is always populated. Then `summarize_plan` writes the customer-facing `PlanSummary`. |
@@ -530,9 +572,9 @@ Customer says: *"What if I delay retirement by 3 years?"*
 3. **tools** — `ToolNode` runs both. `apply_override` stages the override onto state. `compute_projection` merges all staged overrides into a fresh `GoalPlanningInput`, runs the 8-stage engine, stashes the result on `last_output`, and returns a bounded "feasibility + top-3 underfunded goals" summary as a `ToolMessage`.
 4. **agent (LLM turn 2)** — sees the `ToolMessage`s. Decides it has enough to answer; emits a final assistant message with no tool calls.
 5. **finalize** — `last_output` is already populated (skips the fallback compute), runs `summarize_plan` to produce a customer-facing `PlanSummary`.
-6. Done. Returns a `GoalPlanningSnapshot` to the app layer. The chat layer's responder LLM (a separate call, outside this graph) writes the actual customer reply using the snapshot as input.
+6. Done. Returns a `GoalPlanningSnapshot` — **in the agent's own tests.** No `app/` caller invokes this graph today: the live goal-planning turn calls the engine directly (`compute_full_projection`) from the chat bridge in `app/domains/cashflow/services/goal_planning_engine/service.py`, and `chat.py` hands the resulting `facts_pack` to the shared answer formatter. `summarize_plan`, the agent nodes, and `agent/prompts.py` never run in production. Read this section for how the graph is wired, not for how a customer question is answered.
 
-That whole sequence is two LLM calls + one engine run. The graph's job is to wire them up so the LLM can decide *during the turn* what to do, instead of you having to hand-write the if/else.
+That whole sequence is three LLM calls (two agent turns plus `summarize_plan` in `finalize`, which runs every turn) + one engine run. The graph's job is to wire them up so the LLM can decide *during the turn* what to do, instead of you having to hand-write the if/else. The graph's job is to wire them up so the LLM can decide *during the turn* what to do, instead of you having to hand-write the if/else.
 
 ##### Other pieces
 
@@ -548,13 +590,13 @@ That whole sequence is two LLM calls + one engine run. The graph's job is to wir
 Triggered by the `portfolio_query` intent.
 
 - **In:** `ClientContext`, `PortfolioContext` (asset-class + sub-category + per-fund detail), the question, optional conversation history.
-- **Out:** `PortfolioQueryResponse` — either an `answer` or a `redirect_message`, plus `guardrail_triggered: bool`.
+- **Out:** `PortfolioQueryResponse` — either an `answer` or a `redirect_message`, plus `guardrail_triggered: bool`, plus two telemetry-only fields: `path` (X = out of scope, M = market question, P = portfolio question; the skill tells the model to set it every turn, though only `guardrail_triggered` is schema-required) and `suggested_intent` (usually null). The app layer records `path` on every answered turn and `suggested_intent` only when it names a different module; neither changes the reply and nothing downstream branches on them.
 - **How it thinks:** [orchestrator.py](../../src/portfolio_query/orchestrator.py) is the entry point. It loads the market commentary markdown from [Reference_docs/market_commentary_latest.md](../market_commentary_latest.md) (this is why `market_commentary` is upstream — no Python import, just the file), packages it with the client + portfolio context, and runs a **single LLM call** through [skill_executor.py](../../src/portfolio_query/skill_executor.py), which loads:
   - [portfolio_query.md](../../src/portfolio_query/portfolio_query.md) — the system + user prompt skill, with YAML front matter
   - [guardrails.md](../../src/portfolio_query/guardrails.md) — embedded into the system prompt; defines in-scope vs. out-of-scope
 - **LLM:** Haiku via [llm_client.py](../../src/portfolio_query/llm_client.py) (a thin `ChatAnthropic` wrapper) with prompt caching and forced tool-use to constrain the output to `PortfolioQueryResponse`.
 - **Why "skill" markdown files:** the prompt is long and product-owned; keeping it in `.md` lets non-engineers iterate without touching code. The YAML front matter lets `SkillExecutor` parse out the system/user templates without bespoke string handling.
-- **The guardrail layer matters.** If the question drifts into "should I buy X?" territory or asks for things outside the portfolio, the LLM is instructed to set `guardrail_triggered=True` and return a `redirect_message`. The chat layer then doesn't pass the answer through as a normal reply.
+- **The guardrail layer matters.** If the question drifts into "should I buy X?" territory or asks for things outside the portfolio, the LLM is instructed to set `guardrail_triggered=True` and return a `redirect_message`. The guardrail is not prompt-only: `PortfolioQueryResponse`'s `_enforce_guardrail_contract` validator nulls `answer` whenever the flag is set (and falls back to a default redirect if the LLM left `redirect_message` blank). That backstop is what protects the customer — the chat bridge simply renders `answer or redirect_message` and never inspects the flag.
 
 ### 5.9 `additional_investment/` — deploying fresh money
 
@@ -595,7 +637,15 @@ flowchart LR
 
 The four things to internalise:
 
-1. **`AllocationInput` is the join point.** It carries fields from both `risk_profiling` and `market_commentary`, but neither of those agents imports allocation. The calling domain service does the joining.
+Replace ARCHITECTURE.md line 413 with:
+
+1. **`AllocationInput` is the join point — but only the risk half is actually wired.** It carries fields from both `risk_profiling` and `market_commentary`, and neither of those agents imports allocation; the calling domain service does the joining. Today that joining is one-sided: `app/domains/asset_allocation/services/aa_engine/input_builder.py` fills the risk fields (`effective_risk_score`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`, read off the persisted `effective_risk_assessments` row), but **no code in `app/` ever sets `market_commentary`** — the symbol `MarketCommentaryScores` does not appear anywhere under `app/`. The field falls through to its `default_factory`, so every production allocation runs on the neutral house view in `asset_allocation_pydantic/tables.py:134` (`DEFAULT_MARKET_COMMENTARY_SCORES`, all 5.0). The engine consumes those scores for real (`steps/step4_long_term.py` phase-2 asset-class percentages and the subgroup/others gates) — it just always sees neutral. Wiring a live view is a caller-side capability nobody has connected yet.
+
+Also fix the two supporting spots in section 6's diagram:
+- Line 404: `MC_out -.->|"score block NOT wired — engine defaults used"| AA_in`
+- Line 396 (node label): `MC_out["market_commentary output<br/>{MacroSnapshot + markdown file}"]` — the agent's output model (`AI_Agents/src/market_commentary/models.py`) is `MacroSnapshot` (14 macro indicators + `document_md`); it emits **no** 1–10 score block at all, so labelling its output as "{score block + markdown file}" overstates what exists. A `MarketCommentaryScores` block would have to be derived from the snapshot by a caller that does not exist today.
+
+(Note: the `market_commentary` agent's own `CLAUDE.md:3` — "Consumed downstream by `asset_allocation_pydantic/` (caller-supplied score fields)" — and ARCHITECTURE.md line 204 — "The risk and market fields come from the two agents named above; the caller wires them in" — carry the same overstatement and should be corrected in the same pass.)
 2. **`market_commentary` writes a file; `portfolio_query` reads it.** No code-level coupling. If you change the file, you change a contract.
 3. **`Rebalancing` builds on `practical_asset_allocation`'s output.** It calls `run_practical_allocation` first, then lifts subgroup targets onto rank-1 rows.
 4. **`additional_investment` consumes PAA output too — but caller-wired, not imported.** For lumpsum, the app layer runs PAA pinned at *holdings + deploy amount* (`CorpusPin`) and hands the engine both the ideal rows and the current per-subgroup values; the same subgroup vocabulary must hold on both sides or deficits silently misalign.
@@ -604,7 +654,13 @@ The four things to internalise:
 
 ## 7. Conventions
 
-- **`models.py` is the boundary.** Top-level pydantic schemas live here. The app layer imports only from `models.py` and from documented entry points (`pipeline.py`, `main.py`, `orchestrator.py`, `classifier.py`). It never reaches into `steps/` or `engine/`.
+- **`models.py` is the boundary — plus a short, named list of published exceptions.** Top-level pydantic schemas live in `models.py`, and the app layer imports from there and from the documented entry points (`pipeline.py`, `main.py`, `orchestrator.py`, `classifier.py`). It never reaches into `steps/` (one aa_engine test does; production code doesn't). It *does* reach past the boundary in five named places, and all five are part of the published surface — grep `app/` before renaming any of these symbols:
+  - `cashflow_statement.engine` → `compute_full_projection` (`goal_planning_engine/service.py`, `cashflow_compute_service.py`) and `ENGINE_VERSION` (`cashflow/routers/cashflow_router.py`). All three are re-exported from `cashflow_statement/__init__.py`; import from the package root, not the subpackage.
+  - `asset_allocation_pydantic.tables` → `LONG_TERM_BOUNDARY_MONTHS`, `MEDIUM_TERM_BOUNDARY_MONTHS` (`additional_investment/services/ainv_engine/input_builder.py`).
+  - `Rebalancing.config` → `OTHERS_FUND_CAP_PCT` and friends (`ainv_engine/input_builder.py`, `rebal_engine/tax_aging.py`); `Rebalancing.tables` → `cap_pct_for`.
+  - `risk_profiling.scoring` → `OSI_MAP` (`profile/services/_effective_risk/calculation.py`).
+  - `intent_classifier.prompts` → `OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE` (`intent_classifier_engine.py`, `general_chat_engine.py`).
+  Separately, `financial_primitives` is a library, not an agent — the app layer imports `xirr` / `twr_wealth_index` from it directly by design (see §4).
 - **One entry point per agent.** `pipeline.py` for engine modules, `main.py` for LCEL-chain modules, `orchestrator.py` for class-based orchestrators. If you find yourself adding a second entry point, you're probably building a second agent.
 - **Cross-module imports are forbidden by default.** The only blessed exceptions, listed in [AI_Agents/src/CLAUDE.md](../../src/CLAUDE.md), are:
   - `practical_asset_allocation` → `asset_allocation_pydantic` (steps 1–3, 5, helpers, models).
@@ -625,15 +681,23 @@ The four things to internalise:
 
 2. **`Reference_docs/market_commentary_latest.md` is a contract.** Two agents depend on its existence and shape. If you regenerate it during testing, do not commit the result. If you change its structure, search for `_load_market_commentary` first.
 
-3. **`asset_allocation_pydantic` step-4 phases are not numbered 1–7.** They're `phase1_bounds`, `phase4_multi_asset`, `phase5_equity_subgroups` — the gaps are intentional, from an earlier refactor. The names are stable now; don't renumber.
+Apply the proposed fix as written at AI_Agents/Reference_docs/Tech_reference_docs/ARCHITECTURE.md:443:
 
-4. **`practical_asset_allocation/pipeline.py` is one file on purpose.** Don't split it "for tidiness" — the design call is to revisit splitting only past ~500 lines. The R157–R222 math is easier to follow contiguously.
+3. **`asset_allocation_pydantic` step-4 phases are not numbered 1–7.** They're `phase1_bounds`, `phase2_asset_class_pcts`, `phase4_multi_asset`, `phase5_equity_subgroups` — only phase3 is missing, from an earlier refactor. All four are lifted by `practical_asset_allocation`, so they're cross-module symbols (landmine 8). The names are stable now; don't renumber.
+
+Additionally: the identical stale sentence is duplicated in the rendered sibling AI_Agents/Reference_docs/Tech_reference_docs/ARCHITECTURE.html:628. If that HTML is generated from the Markdown, regenerate it; if it is hand-maintained, apply the same edit there so the two do not diverge.
+
+4. **`practical_asset_allocation/pipeline.py` is one file on purpose.** Don't split it "for tidiness" — the R157–R222 math is easier to follow contiguously. Note the file now runs to ~1,050 lines, well past the ~500-line mark at which the design call was to *revisit* the question: the revisit is owed, so if you have a real reason to split, make the case rather than assuming the answer is still no.
+
+Apply the same correction at ARCHITECTURE.md:228, which repeats "single file by design — revisit splitting only past ~500 lines"; suggested: "single file by design — now ~1,050 lines, past the ~500-line mark at which splitting was to be revisited". Then regenerate ARCHITECTURE.html with `python3 -m scripts.build_reference_docs` rather than editing the .html by hand.
 
 5. **`Rebalancing` doesn't have per-stock or per-ELSS rows.** ELSS and non-MF equity are scalars on the request. If you're trying to add a row for either, you're misreading the input contract — re-read [Rebalancing/CLAUDE.md](../../src/Rebalancing/CLAUDE.md).
 
 6. **`cashflow_statement/engine/_types.py` is private.** It's not re-exported from `__init__.py`. If you need a type at the boundary, it goes in [models.py](../../src/cashflow_statement/models.py).
 
-7. **`financial_primitives/` is one-consumer today.** Don't add abstractions for hypothetical consumers. When a second consumer appears, extend then.
+7. **`financial_primitives/` now has four consumers — the rule survives, the count doesn't.** `cashflow_statement/engine/` plus three app-layer services (`portfolio/benchmark_service.py`, `portfolio/twr_service.py`, `mutual_funds/xirr_service.py`). Still don't add abstractions for *hypothetical* consumers — but the kernel is no longer private to one agent, and callers are split across two packages. Grep the whole repo (not just `AI_Agents/`) before changing a signature: `xirr.py` alone has two production callers.
+
+(Note: `ARCHITECTURE.html:636` carries the same stale sentence. Per `AI_Agents/Reference_docs/CLAUDE.md`, do not hand-edit the `.html` — edit the `.md`, then run `python3 -m scripts.build_reference_docs`.)
 
 8. **The blessed cross-module imports are by symbol name, not by package.** `practical_asset_allocation` imports `step1_emergency.run`, `phase1_bounds`, `round_to_100`, etc. by name. **Renaming any of those symbols on the upstream side is a cross-module change.** Grep before renaming.
 
@@ -657,7 +721,8 @@ The four things to internalise:
 | Adjust the risk-score scale | [risk_profiling/scoring.py](../../src/risk_profiling/scoring.py). Update `customer_test_data.py` cases too. |
 | Add a new intent | [intent_classifier/models.py](../../src/intent_classifier/models.py) (enum) + [intent_classifier/prompts.py](../../src/intent_classifier/prompts.py). Then one `flow_*` + one `FLOWS` row in `app/domains/ai_engine/services/flow.py`, and a `run(turn, ctx, prior)` module service in the owning domain — see `app/domains/ai_engine/CLAUDE.md`. |
 | Change how fresh money is split or which funds it buys | [additional_investment/ratio.py](../../src/additional_investment/ratio.py) (deficit-fill / bucket split) + [additional_investment/selection.py](../../src/additional_investment/selection.py) (ranking walk, caps) |
-| Tune the cashflow agent's behaviour | [cashflow_statement/agent/prompts.py](../../src/cashflow_statement/agent/prompts.py) (prose) + [cashflow_statement/agent/tools.py](../../src/cashflow_statement/agent/tools.py) (tool surface) |
+| Tune what a customer is told about their goal plan | [goal_planning_engine/chat.py](../../../app/domains/cashflow/services/goal_planning_engine/chat.py) — `_BODY_PROMPT` (the prose brief) and `_DETECT_SYSTEM` (the narrate / counterfactual / clarify routing), plus [overrides.py](../../../app/domains/cashflow/services/goal_planning_engine/overrides.py) for which what-if keys are allowed. The LangGraph agent is **not** on this path. |
+| Tune the LangGraph cashflow agent (dev / eval only) | [cashflow_statement/agent/prompts.py](../../src/cashflow_statement/agent/prompts.py) (prose) + [cashflow_statement/agent/tools.py](../../src/cashflow_statement/agent/tools.py) (tool surface) |
 | Add a new lever to the cashflow agent | [cashflow_statement/agent/levers.py](../../src/cashflow_statement/agent/levers.py) — deterministic Python, then expose it as a tool |
 | Reproduce a customer-reported allocation result | Run [asset_allocation_pydantic/Testing](../../src/asset_allocation_pydantic/Testing) with the customer's `AllocationInput`, or use `Master_testing/` for a parameter sweep |
 | Smoke-test the cashflow engine | `python -m cashflow_statement.dev_run` from `src/`, then open [cashflow_statement/Cash_flow.html](../../src/cashflow_statement/Cash_flow.html) |
@@ -666,7 +731,6 @@ The four things to internalise:
 ---
 
 If something here doesn't match the code, the code wins — tell me and I'll fix the doc. The first thing to verify when you're confused is: **am I in a deterministic engine or an LLM-driven agent?** If it's the former, read the steps in order. If it's the latter, read `prompts.py` and the structured-output schema. Those two questions answer 80% of "wait, why is it doing this".
-
 </script>
 
 <script>

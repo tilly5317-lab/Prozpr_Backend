@@ -8,12 +8,10 @@ Pure-Python engine: splits a deploy amount across allocation subgroups, then pic
 - Output: `SubgroupTarget` table, BUY list (`FundBuy`), `target_bucket` (in deficit mode a label — the dominant horizon of deployed money, not the split driver), `deployed_inr`/`undeployed_inr`.
 
 ## Files
-- `__init__.py` — public re-exports (entry + I/O models).
-- `models.py` — pydantic I/O models.
-- `ratio.py` — subgroup split: legacy bucket targeting (`select_target_bucket`, `compute_targets`) + deficit-fill (`compute_deficit_targets`, `dominant_bucket`).
-- `selection.py` — BUY-only fund selection from the ranking (`select_funds`).
 - `pipeline.py` — entry orchestrator: split-mode switch + SIP cadence framing.
-- `Testing/` — pytest suite (gitignored).
+- `ratio.py` — subgroup split: legacy bucket targeting + deficit-fill.
+- `selection.py` — BUY-only fund selection from the ranking.
+- `models.py` — pydantic I/O models; `__init__.py` re-exports the entry + those models.
 
 ## Gotchas & invariants
 - **Pure engine.** No LLM, no I/O, no cross-agent imports. Cap percentages are passed IN (caller sources `Rebalancing/tables.py`) — one source of truth (`models.py`).

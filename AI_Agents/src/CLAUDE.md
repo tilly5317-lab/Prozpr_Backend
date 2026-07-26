@@ -10,7 +10,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 
 ## Child modules
 
-- **asset_allocation_pydantic/** — pure-Python goal-based allocation pipeline over pydantic models; LLM use isolated to an optional rationale step. Entry: `pipeline.py`.
+- **asset_allocation_pydantic/** — pure-Python goal-based allocation pipeline over pydantic models; the one LLM touch is step 7's per-bucket rationale, and it is **opt-out, not opt-in**: with no `rationale_fn`, `step7_presentation` defaults to `_rationale_llm.generate_rationales` (ChatAnthropic), degrading to deterministic text if the call fails. Pass `_rationale_llm.no_llm_rationale_fn` to skip the LLM outright. Entry: `pipeline.py`.
 - **cashflow_statement/** — goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal, validated against an Excel-parity baseline. Entry: `engine/pipeline.py`, `agent/graph.py`. See `cashflow_statement/CLAUDE.md`.
 - **financial_primitives/** — shared numerical kernel (TVM, annuity, inflation, Indian FY dates, retirement, XIRR). Pure functions, no LLM, no I/O. Library not agent; not an LLM tool. See `financial_primitives/CLAUDE.md`.
 - **Rebalancing/** — pure-Python rebalancing engine; takes an ideal allocation + current holdings, emits per-fund target/buy/sell under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`. See `Rebalancing/CLAUDE.md`.
@@ -37,9 +37,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Conventions
 
 - Per-module file roles: `models.py` (pydantic I/O schemas), `prompts.py` (prompt strings / `ChatPromptTemplate`), `main.py` (LCEL chain), `orchestrator.py` (class-based orchestrator's top-level class).
-- `references/` — markdown/CSV domain references consumed by prompts (carve-outs, guardrails, fund mappings). Not product docs.
-- `Testing/` — pytest suites + sample runners.
-- `dev_run.py` — developer smoke-test (`python -m <module>.dev_run`); present only in `portfolio_query`, `risk_profiling`, `cashflow_statement`.
+- `references/` — markdown/CSV domain references consumed by prompts. Not product docs. `Testing/` — pytest suites + sample runners. `dev_run.py` — developer smoke-test (`python -m <module>.dev_run`).
 - Prompt-adjacent `.md` files are runtime skill/prompt sources, not docs.
 - LLM calls go through LangChain — see root `CLAUDE.md`.
 

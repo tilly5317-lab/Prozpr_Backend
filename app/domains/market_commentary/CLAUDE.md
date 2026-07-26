@@ -3,7 +3,7 @@
 Gateway domain over the bundled `AI_Agents` market_commentary agent. Owns no persistence — it drives the agent that writes the macro-commentary cache and hands the doc to the chat brain.
 
 ## Entry / contract
-- `market_commentary_module_service.run(turn, ctx, prior)` is the brain entry point and the single permitted caller of `generate_market_commentary`; a timeout degrades to an empty payload so the turn continues.
+- `market_commentary_module_service.run(turn, ctx, prior)` is the brain entry point and the only permitted caller of `generate_market_commentary` on the chat path; a 120s timeout — or any agent exception — degrades to an empty payload so the turn continues into `general_chat` without a macro doc. `ai_engine`'s debug router also calls the engine directly (`POST /api/v1/ai-modules/market-commentary/generate`), with no timeout and no degradation.
 
 ## Layers
 - **services/** — two files:
