@@ -25,6 +25,11 @@ class PortfolioQueryResponse(BaseModel):
     answer: Optional[str] = None
     guardrail_triggered: bool
     redirect_message: Optional[str] = None
+    # The agent's opinion that this question belongs to a different specialist.
+    # REPORTED, NEVER ACTED ON — the reply is unaffected. The app layer records
+    # it so we can measure how often the router and the agents disagree before
+    # deciding whether a routing handoff is worth building.
+    suggested_intent: Optional[str] = None
 
     @model_validator(mode="after")
     def _enforce_guardrail_contract(self) -> "PortfolioQueryResponse":

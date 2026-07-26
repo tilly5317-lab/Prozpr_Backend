@@ -346,10 +346,11 @@ _RELAY_BODY = (
     "FACTS_PACK has a single field, `boundary_message`: the exact limit or "
     "instruction to convey.\n"
     "\n"
-    "Open by briefly acknowledging, in your own words, what the customer asked, "
-    "then convey `boundary_message` faithfully in PI's voice. Do NOT perform or "
-    "simulate the requested action, and do NOT add capabilities, steps, or "
-    "requirements beyond `boundary_message`. Keep it to 2-4 sentences, warm."
+    "Convey `boundary_message` faithfully in PI's voice, leading with it as the "
+    "house rules describe — acknowledge what was asked only when the limit would "
+    "otherwise read as a non-sequitur. Do NOT perform or simulate the requested "
+    "action, and do NOT add capabilities, steps, or requirements beyond "
+    "`boundary_message`. Keep it to 2-4 sentences, warm."
 )
 
 
