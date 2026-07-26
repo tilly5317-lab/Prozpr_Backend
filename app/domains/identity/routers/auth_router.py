@@ -5,15 +5,19 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 
 from __future__ import annotations
 
+import logging
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from starlette.requests import ClientDisconnect
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
+from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import PersonalFinanceProfile
 from app.domains.identity.models.user import User
 from app.domains.identity.schemas.auth import (
@@ -28,6 +32,8 @@ from app.domains.identity.schemas.auth import (
     full_phone,
 )
 from app.core.security import create_access_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -94,6 +100,55 @@ async def _email_taken(
     return (await db.execute(stmt)).first() is not None
 
 
+def _identity_complete(user: User) -> bool:
+    """A signup becomes 'reportable' once the user has both a name and an email
+    — exactly the fields captured on the name / PIN / email setup page."""
+    full_name = " ".join(
+        p for p in (user.first_name or "", user.last_name or "") if p
+    ).strip()
+    return bool(full_name and user.email)
+
+
+def _maybe_notify_new_signup(
+    background_tasks: BackgroundTasks, user: User, was_complete_before: bool
+) -> None:
+    """Fire the one-time new-signup team notification (Slack + optional Sheet)
+    the first time a user's identity becomes complete — i.e. the moment they
+    submit the name / PIN / email page. Idempotent by design: a no-op if the
+    identity was already complete before this request, or is still incomplete
+    after it, so each user is reported exactly once. Best-effort background
+    task: runs after the response, never fails the request."""
+    if was_complete_before or not _identity_complete(user):
+        return
+    full_name = " ".join(
+        p for p in (user.first_name or "", user.last_name or "") if p
+    ).strip()
+    background_tasks.add_task(
+        notify_new_signup,
+        datetime.now(timezone.utc),
+        full_name,
+        user.email,
+        user.phone,
+        "Signup",
+    )
+
+
+async def _ensure_fp_investment_profile(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Create the user's investment-profile shell (``fp_exec_accounts`` row,
+    ``kyc_status='pending'``) at signup itself. The FP-side investor profile is
+    minted later, once the KYC page collects a PAN — the sandbox requires every
+    field inline at CREATE. Best-effort: never fails the signup."""
+    try:
+        from app.domains.execution.services.fp_service import ensure_account_row
+
+        await ensure_account_row(db, user_id)
+    except Exception:  # noqa: BLE001 — signup must never break on this
+        # A failed flush poisons the session; roll it back so the rest of the
+        # signup response can still be built.
+        await db.rollback()
+        logger.warning("FP investment-profile init skipped for %s", user_id)
+
+
 @router.post("/check-mobile", response_model=MobileStatusResponse)
 async def check_mobile(
     payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)
@@ -112,11 +167,19 @@ async def check_mobile(
 @router.post(
     "/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED
 )
-async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
+async def signup(
+    payload: SignUpRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     phone = full_phone(payload.country_code, payload.mobile)
     result = await db.execute(select(User).where(User.phone == phone))
     existing = result.scalar_one_or_none()
     if existing:
+        # Whether the team was already told about this user — captured before we
+        # apply the new identity fields so we can report exactly once, the first
+        # time name + email land (see `_maybe_notify_new_signup`).
+        was_complete_before = _identity_complete(existing)
         # A user actively setting their name / email / PIN must never be
         # dropped, even if a record for this phone already exists (e.g. one
         # created earlier via OTP). Persist the supplied identity fields.
@@ -134,6 +197,8 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
             existing.password_hash = hash_password(payload.password)
         await _save_inline_onboarding_profile(db, existing, payload)
         await db.commit()
+        await _ensure_fp_investment_profile(db, existing.id)
+        _maybe_notify_new_signup(background_tasks, existing, was_complete_before)
         access_token = create_access_token(existing.id, existing.phone)
         return SignUpResponse(
             user_id=existing.id,
@@ -169,6 +234,12 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
         )
     await db.refresh(user)
 
+    await _ensure_fp_investment_profile(db, user.id)
+
+    # Brand-new row, so nothing was reported before: notify the team now if the
+    # setup page supplied a name + email (it always does on the happy path).
+    _maybe_notify_new_signup(background_tasks, user, was_complete_before=False)
+
     access_token = create_access_token(user.id, user.phone)
 
     return SignUpResponse(
@@ -177,24 +248,43 @@ async def signup(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
+# Default country code, matching the app's login form (`+91`). Lets the Swagger
+# "Authorize" box — which only has a single username field — accept a bare
+# registered mobile number (e.g. 9876543210) and resolve it to the stored
+# +91XXXXXXXXXX, so authorizing works the same way it does in the app.
+_DEFAULT_COUNTRY_CODE = "91"
+
+
+def _phone_candidates(raw: str) -> list[str]:
+    """Resolve a login username into the full phone(s) to try. Accepts the app's
+    ``+91XXXXXXXXXX`` / ``countrycode,mobile`` forms AND a bare national mobile
+    (no country code, as typed in Swagger's single username box)."""
+    if "," in raw:
+        return [full_phone(*(p.strip() for p in raw.split(",", 1)))]
+    v = raw.strip()
+    had_plus = v.startswith("+")
+    digits = "".join(c for c in v if c.isdigit())
+    if not digits:
+        return []
+    candidates = ["+" + digits]
+    # Bare national number, no country code entered -> default to +91 like the app.
+    if not had_plus and len(digits) <= 10:
+        candidates.append("+" + _DEFAULT_COUNTRY_CODE + digits)
+    # de-dupe, keep only plausibly-complete numbers (matches the old >= 10 floor)
+    return [c for c in dict.fromkeys(candidates) if len(c) >= 10]
+
+
 async def _login_with_phone_password(
     phone: str, password: str | None, db: AsyncSession
 ) -> LoginResponse:
-    if "," in phone:
-        parts = phone.split(",", 1)
-        full = full_phone(parts[0].strip(), parts[1].strip())
-    else:
-        v = phone.strip()
-        digits = "".join(c for c in v if c.isdigit())
-        full = "+" + digits if digits else ""
-
-    if len(full) < 10:
+    candidates = _phone_candidates(phone)
+    if not candidates:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
-    result = await db.execute(select(User).where(User.phone == full))
-    user = result.scalar_one_or_none()
+    result = await db.execute(select(User).where(User.phone.in_(candidates)))
+    user = result.scalars().first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -222,13 +312,22 @@ async def token(request: Request, db: AsyncSession = Depends(get_db)):
     content_type = (
         (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     )
-    if content_type == "application/json":
-        body = await request.json()
-        payload = LoginRequest(**body)
-        phone = full_phone(payload.country_code, payload.mobile)
-        return await _login_with_phone_password(phone, payload.password, db)
+    # The body may fail to arrive if the client (browser / Swagger / a proxy
+    # probe) closes the connection mid-request — surface that as a quiet 400
+    # rather than an unhandled 500 traceback (there's no client left to read it).
+    try:
+        if content_type == "application/json":
+            body = await request.json()
+            payload = LoginRequest(**body)
+            phone = full_phone(payload.country_code, payload.mobile)
+            return await _login_with_phone_password(phone, payload.password, db)
+        form = await request.form()
+    except ClientDisconnect:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client disconnected before sending credentials.",
+        )
 
-    form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password")
     if not username:
@@ -267,6 +366,7 @@ async def me(current_user: CurrentUser = Depends(get_current_user)):
 @router.put("/me", response_model=CurrentUserResponse)
 async def update_me(
     payload: UserUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -276,6 +376,11 @@ async def update_me(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+    # The setup page calls this right after /signup as a safety net; report the
+    # signup here too if name + email first become complete on this call (a
+    # no-op when /signup already reported it — see `_maybe_notify_new_signup`).
+    was_complete_before = _identity_complete(user)
 
     updates = payload.model_dump(exclude_unset=True)
     new_email = updates.get("email")
@@ -293,6 +398,8 @@ async def update_me(
 
     await db.commit()
     await db.refresh(user)
+
+    _maybe_notify_new_signup(background_tasks, user, was_complete_before)
 
     return CurrentUserResponse(
         id=user.id,

@@ -1,4 +1,10 @@
-"""New Relic APM bootstrap — initialise the agent before the app imports anything.
+"""Observability bootstrap — New Relic APM, plus the PostHog LLM client.
+
+New Relic (below) must initialise before anything else is imported; PostHog is
+independent of that constraint and is built at lifespan startup instead. Both
+are no-ops unless their key is set, and neither may block boot.
+
+New Relic APM bootstrap — initialise the agent before the app imports anything.
 
 New Relic instruments third-party libraries (Starlette/FastAPI, asyncpg,
 SQLAlchemy, httpx, the stdlib ``logging`` module …) by registering import hooks
@@ -34,6 +40,10 @@ logger = logging.getLogger(__name__)
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 _initialized = False
+
+# Process-wide PostHog client (LLM observability). Built once at startup by
+# ``init_posthog()``; None whenever capture is disabled or unavailable.
+_posthog_client: object | None = None
 
 
 def _apply_env_override(settings: object, attr: str, env_name: str) -> None:
@@ -109,6 +119,76 @@ def init_newrelic() -> bool:
         environment or "default",
     )
     return True
+
+
+def init_posthog() -> object | None:
+    """Build the process-wide PostHog client used for LLM observability.
+
+    Returns the client, or None when ``POSTHOG_API_KEY`` is unset or the
+    ``posthog`` package is missing — in which case LLM capture is simply off and
+    the app runs untouched (same contract as ``init_newrelic``).
+
+    ``privacy_mode`` is set from ``POSTHOG_LLM_CAPTURE_CONTENT`` (default OFF).
+    It is applied on the *client*, so it holds for every handler regardless of
+    what any individual call site passes: the SDK redacts when either the client
+    or the handler asks for it, so this is a floor that a call site cannot lower.
+    """
+    global _posthog_client
+    if _posthog_client is not None:
+        return _posthog_client
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    api_key = settings.get_posthog_api_key()
+    if not api_key:
+        logger.info("PostHog LLM observability disabled (POSTHOG_API_KEY not set).")
+        return None
+
+    try:
+        from posthog import Posthog
+    except ImportError:
+        logger.warning(
+            "POSTHOG_API_KEY is set but the 'posthog' package is not installed; "
+            "skipping LLM observability. Run `pip install -r requirements.txt`."
+        )
+        return None
+
+    capture_content = settings.posthog_llm_capture_content()
+    try:
+        _posthog_client = Posthog(
+            api_key,
+            host=settings.get_posthog_host(),
+            privacy_mode=not capture_content,
+        )
+    except Exception as exc:  # pragma: no cover - defensive; never block boot
+        logger.warning("PostHog init failed (continuing without LLM capture): %s", exc)
+        return None
+
+    logger.info(
+        "PostHog LLM observability enabled (host=%s, prompt/state content=%s).",
+        settings.get_posthog_host(),
+        "CAPTURED" if capture_content else "redacted (privacy mode)",
+    )
+    return _posthog_client
+
+
+def get_posthog_client() -> object | None:
+    """The client built by ``init_posthog()``, or None when capture is off."""
+    return _posthog_client
+
+
+def shutdown_posthog() -> None:
+    """Flush buffered events on app shutdown. Never raises."""
+    global _posthog_client
+    if _posthog_client is None:
+        return
+    try:
+        _posthog_client.shutdown()
+    except Exception as exc:  # pragma: no cover - shutdown must never raise
+        logger.warning("PostHog shutdown failed: %s", exc)
+    finally:
+        _posthog_client = None
 
 
 def notice_error() -> None:

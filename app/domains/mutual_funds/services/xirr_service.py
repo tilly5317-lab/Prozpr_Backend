@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_primitives.xirr import xirr
@@ -51,25 +51,34 @@ class XirrResult:
 async def _latest_navs(
     db: AsyncSession, scheme_codes: set[str]
 ) -> dict[str, tuple[float, date]]:
-    """Most recent ``(nav, nav_date)`` per scheme."""
+    """Most recent ``(nav, nav_date)`` per scheme.
+
+    Resolved in SQL (max-date subquery + join) — fetching every scheme's full
+    NAV history to keep one row each pulled ~75k rows per call and pushed the
+    /portfolio/twr endpoint past the frontend's 45s request timeout.
+    """
     if not scheme_codes:
         return {}
+    latest = (
+        select(
+            MfNavHistory.scheme_code.label("scheme_code"),
+            func.max(MfNavHistory.nav_date).label("max_date"),
+        )
+        .where(MfNavHistory.scheme_code.in_(scheme_codes))
+        .group_by(MfNavHistory.scheme_code)
+        .subquery()
+    )
     rows = (
-        (
-            await db.execute(
-                select(MfNavHistory)
-                .where(MfNavHistory.scheme_code.in_(scheme_codes))
-                .order_by(MfNavHistory.scheme_code, MfNavHistory.nav_date.desc())
+        await db.execute(
+            select(MfNavHistory.scheme_code, MfNavHistory.nav, MfNavHistory.nav_date)
+            .join(
+                latest,
+                (MfNavHistory.scheme_code == latest.c.scheme_code)
+                & (MfNavHistory.nav_date == latest.c.max_date),
             )
         )
-        .scalars()
-        .all()
-    )
-    out: dict[str, tuple[float, date]] = {}
-    for r in rows:
-        if r.scheme_code not in out:  # first row per scheme is the latest by date
-            out[r.scheme_code] = (float(r.nav), r.nav_date)
-    return out
+    ).all()
+    return {code: (float(nav), nav_date) for code, nav, nav_date in rows}
 
 
 def _build_cashflows(
@@ -184,17 +193,26 @@ async def compute_scheme_xirr(
 
 
 async def compute_portfolio_xirr(db: AsyncSession, user_id: uuid.UUID) -> XirrResult:
-    """XIRR across all of a user's MF transactions. Switches are internal — excluded."""
+    """XIRR across all of a user's MF transactions. Switches are internal — excluded.
+
+    Fetches only the columns ``_build_cashflows`` reads (Row supports the same
+    attribute access) — hydrating full ORM entities for thousands of
+    transactions dominated the /portfolio/twr response time.
+    """
     txns = list(
         (
             await db.execute(
-                select(MfTransaction)
+                select(
+                    MfTransaction.transaction_date,
+                    MfTransaction.transaction_type,
+                    MfTransaction.amount,
+                    MfTransaction.units,
+                    MfTransaction.scheme_code,
+                )
                 .where(MfTransaction.user_id == user_id)
                 .order_by(MfTransaction.transaction_date.asc())
             )
-        )
-        .scalars()
-        .all()
+        ).all()
     )
     nav_lookup = await _latest_navs(db, {t.scheme_code for t in txns})
 

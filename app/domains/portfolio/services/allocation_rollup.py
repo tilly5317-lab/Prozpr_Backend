@@ -58,3 +58,40 @@ def current_asset_class_mix(holdings: list[Any]) -> dict[str, float]:
             fallback_asset_class=holding_single_asset_class(h),
         )
     return mix
+
+
+def current_sub_category_mix(holdings: list[Any]) -> dict[str, dict[str, float]]:
+    """Same rollup as ``current_asset_class_mix``, one level deeper:
+    ``{Equity/Debt/Others: {sub_category: inr}}``.
+
+    This is what the donut's slice drill-down renders. A blended fund appears
+    under EVERY asset class it splits into, carrying only that class's share —
+    so a Flexi Cap holding contributes 72.5% of its value to Equity's breakdown,
+    17.5% to Debt's and 10% to Others'. Grouping holdings by their single
+    ``asset_class`` instead would park the whole amount under the dominant class
+    and leave the other buckets empty (the drill-down would then contradict the
+    donut it hangs off).
+
+    Each holding is routed through ``add_to_asset_class_mix`` — the same single
+    entry point ``current_asset_class_mix`` uses — so per-class totals here sum
+    back to that function's by construction, and the weights table stays the one
+    source of the split rule.
+
+    Cash / non-holding balances are not included, for the same reason as above.
+    """
+    mix: dict[str, dict[str, float]] = {}
+    for h in holdings:
+        md = getattr(h, "fund_metadata", None)
+        sub_category = md.sub_category if md else None
+        label = (sub_category or "").strip() or "Other"
+        per_holding: dict[str, float] = {}
+        add_to_asset_class_mix(
+            per_holding,
+            amount=float(getattr(h, "current_value", 0) or 0),
+            sub_category=sub_category,
+            fallback_asset_class=holding_single_asset_class(h),
+        )
+        for asset_class, amount in per_holding.items():
+            bucket = mix.setdefault(asset_class, {})
+            bucket[label] = bucket.get(label, 0.0) + amount
+    return mix

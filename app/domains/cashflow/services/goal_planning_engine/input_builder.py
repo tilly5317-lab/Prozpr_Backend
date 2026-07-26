@@ -16,6 +16,7 @@ from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
 )
 from app.domains.cashflow.services.goal_planning_engine.readiness import (
     evaluate_cashflow_readiness,
+    retirement_age_from_goals,
 )
 from app.domains.profile.services.profile_finance import (
     current_portfolio_corpus_pfp,
@@ -156,12 +157,23 @@ def build_goal_planning_input_for_user(
     # for those. Real values only for the figures that can't be assumed.
     scalars = personal_finance_scalars(user)
 
-    # Retirement age comes from the goal-planning inputs (investment profile). It
-    # defaults to 60 when the user hasn't set one — a standard planning assumption,
-    # mirroring assumed_lifespan_years=100 below. The projection horizon then always
-    # runs to at least this retirement age (see cashflow_statement pipeline).
+    # Retirement age — SSOT is the Retirement GOAL's target year (goal_type
+    # RETIREMENT / name "retire…"): the goals/profile routers keep the goal and
+    # investment_profiles.retirement_age mirrored (goals.services.retirement_sync),
+    # so normally the two agree; when they don't (legacy rows written before the
+    # sync existed), the goal wins. Without such a goal, the stored age applies;
+    # without either, the standard 60 — a planning assumption mirroring
+    # assumed_lifespan_years=100 below. The projection horizon always runs to
+    # max(this retirement age, last goal) (see cashflow_statement pipeline).
+    goal_retirement_age = retirement_age_from_goals(user, anchor_date)
     raw_retirement_age = getattr(inv, "retirement_age", None) if inv is not None else None
-    if raw_retirement_age is not None:
+    if goal_retirement_age is not None:
+        retirement_age = goal_retirement_age
+        if raw_retirement_age is None or int(raw_retirement_age) != goal_retirement_age:
+            defaults_applied.append(
+                f"retirement_age={goal_retirement_age} (from Retirement goal year)"
+            )
+    elif raw_retirement_age is not None:
         retirement_age = int(raw_retirement_age)
     else:
         retirement_age = DEFAULT_RETIREMENT_AGE

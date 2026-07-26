@@ -5,7 +5,7 @@ Hosts all Prozpr AI agent pipelines, runtime reference data, and archived implem
 ## Child modules
 
 - **src/** — active agent pipelines; each subfolder is one self-contained agent. See `src/CLAUDE.md` for the module map.
-- **Reference_docs/** — runtime data consumed by agents (market-commentary cache, fund ranking) plus the system-wide `ARCHITECTURE.md`. Agents may overwrite the cache files on a schedule. See `Reference_docs/CLAUDE.md`.
+- **Reference_docs/** — runtime data consumed by agents (market-commentary cache, fund ranking) plus human-facing docs: the `ARCHITECTURE` walkthrough, per-module engineer guides (`Module_reference_docs/`), and client-facing Logics theses. Agents may overwrite the cache files on a schedule. See `Reference_docs/CLAUDE.md`.
 - **archive/** — historical agent implementations; not on active import paths.
 - **lifecycle_sim_testing/** — DEV-ONLY (gitignored) multi-year lifecycle simulation harness: replays the engines over a simulated portfolio and writes HTML reports. Not imported by runtime.
 - **tests/** — pytest/eval harness for the bundled agents: a reusable suite runner (`_eval_harness.py`) + its self-tests, an intent-classifier test, and a `cashflow_statement/` eval subfolder. Not imported by runtime.

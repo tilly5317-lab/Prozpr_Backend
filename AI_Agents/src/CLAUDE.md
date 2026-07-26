@@ -18,7 +18,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **market_commentary/** — web-search-extracts Indian macro indicators into a structured `MacroSnapshot`, writes the markdown commentary doc to `Reference_docs/`, and answers commentary Q&A (`chat_qa.py`). Entry: `main.py`.
 - **portfolio_query/** — answers client questions about their own portfolio from market commentary + client profile + holdings, with in/out-of-scope guardrails. Entry: `orchestrator.py`.
 - **practical_asset_allocation/** — holdings-aware allocation. Wraps `asset_allocation_pydantic` with four extra corpus inputs; reimplements long-term with ELSS freeze, non-MF-equity NFA-banded cap, and v2 equity-subgroup slider. Entry: `pipeline.py`. See `practical_asset_allocation/CLAUDE.md`.
-- **additional_investment/** — pure-Python engine that deploys fresh money into specific funds (BUY-only): lumpsum-with-holdings fills deficits vs the post-investment practical ideal, SIP follows the ideal mix; emits a per-fund BUY list. Entry: `pipeline.py`. See `additional_investment/CLAUDE.md`.
+- **additional_investment/** — pure-Python engine that deploys fresh money into specific funds (BUY-only): lumpsum-with-holdings fills deficits vs the post-investment practical ideal, SIP follows the ideal mix into the latest rebalancing run's BUY funds; emits a per-fund BUY list. Entry: `pipeline.py`. See `additional_investment/CLAUDE.md`.
 - **risk_profiling/** — deterministic scoring of a client's risk profile (inputs → scores/flags) + an LLM-generated summary paragraph. Entry: `main.py`.
 - **chat_eval/** — (gitignored; dev-only) eval harness: replays a YAML question set through the chat pipeline, emits JSON/HTML reports. Entry: `run_eval.py`.
 

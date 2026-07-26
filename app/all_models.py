@@ -84,6 +84,7 @@ from app.domains.cashflow.models import (  # noqa: F401
     one_off_event,
     plan_run,
 )
+from app.domains.execution.models import fp_models  # noqa: F401
 from app.domains.advisory.models import ips, meeting_note  # noqa: F401
 from app.domains.notifications.models import notification  # noqa: F401
 from app.domains.chat.models import (  # noqa: F401

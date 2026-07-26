@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rebalancing — Business Logic Flowchart</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(1020px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 880px; margin: 0 auto; }
+  article h1 { font-size: 32px; line-height: 1.25; margin: 0 0 8px 0; letter-spacing: -0.01em; }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 { font-size: 17px; margin: 28px 0 10px 0; scroll-margin-top: 24px; }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table { border-collapse: collapse; margin: 18px 0; width: 100%; font-size: 14px; }
+  article th, article td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px; font-weight: 600; color: #7a4a12;
+    background: #f2e6d6; border: 1px solid #e3d2ba;
+    border-radius: 999px; padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.rule { border-left-color: #1d6fb8; background: #eff5fb; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout.rule .title { color: #1a5c9a; }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">Prozpr · Business Logic Trace</div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Rebalancing · engine v1.3.0</div>
+      <div class="meta">
+        Internal document · not for external circulation<br />Traced against the live code on 2026-07-19
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# Rebalancing — the decision logic, end to end
+
+> **Where this document starts.** Two things are already known: **what the customer holds** (each fund, split into short-term and long-term units) and **the ideal plan** (a rupee target per subgroup, from the practical asset-allocation engine). Everything from that point on is what this document traces.
+>
+> **Every section ends with the same real customer**, so you can watch one portfolio move through each rule as you read it.
+>
+> **Internal document.** It contains our proprietary caps, bands and ordering rules. The client-facing version, which deliberately omits the numbers, is `Logics_reference_docs/Rebalancing.md`.
+
+<div class="at-glance">
+  <div class="cell"><div class="k">What it decides</div><div class="v">Per fund: buy, trim, exit, or leave alone — and by how much</div></div>
+  <div class="cell"><div class="k">How it decides</div><div class="v">Fixed arithmetic. No AI, no judgement calls</div></div>
+  <div class="cell"><div class="k">Repeatable?</div><div class="v">Same inputs always give the same trades</div></div>
+  <div class="cell"><div class="k">Engine version</div><div class="v">1.3.0</div></div>
+</div>
+
+---
+
+## The two inputs
+
+**1 — What the customer holds.** Every fund, with four figures each. The short-term/long-term split is by holding period per purchase lot, oldest units first: **24 months** for debt, **12 months** for everything else. Units held exactly at the threshold count as long-term.
+
+| Per fund | |
+|---|---|
+| Short-term value / cost | Units bought inside the threshold, at today's price and at purchase price |
+| Long-term value / cost | Units bought before the threshold, same two prices |
+
+**2 — The ideal plan.** A rupee target per subgroup (`low_beta_equities`, `short_debt`, `gold_commodities`, `multi_asset`, and so on), plus two scalars: the frozen ELSS amount, and any excess direct-stock holding to be trimmed.
+
+The corpus being rebalanced is **what is already invested in mutual funds** — this is a rebalance, not a deployment of fresh money.
+
+### Vocabulary
+
+| Term | Meaning |
+|---|---|
+| **Subgroup** | A sleeve of the portfolio. Targets are set per subgroup, then split across funds. |
+| **Rank** | Research's ordering of funds within a subgroup. Rank 1 is our top pick. |
+| **Off-list fund** | Held, evaluated by research, not recommended. Handled gently — see Step 1. |
+| **Force-exit fund** | Held, explicitly flagged for removal. Sold in full regardless of tax. |
+
+### The customer we will follow
+
+Every worked panel below is a genuine engine output from our five-profile simulation, engine 1.3.0, run 19 July 2026. The customer is synthetic; the arithmetic is not.
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Name</div><div class="v">Harpreet Singh · age 49</div></div>
+  <div class="cell"><div class="k">Risk score</div><div class="v">4.1 · old regime</div></div>
+  <div class="cell"><div class="k">Mutual funds</div><div class="v">₹59,00,000</div></div>
+  <div class="cell"><div class="k">Direct stocks</div><div class="v">₹9,00,000</div></div>
+  <div class="cell"><div class="k">ELSS, frozen</div><div class="v">₹1,50,000</div></div>
+  <div class="cell"><div class="k">Total corpus</div><div class="v">₹68,00,000</div></div>
+</div>
+
+The allocation engine handed over per-subgroup targets, a direct-stock cap of **₹4,03,920** against ₹9,00,000 held — so **₹4,96,080 of excess stock to sell** — and ₹1,50,000 of ELSS to leave alone.
+
+---
+
+## The flow on one page
+
+```mermaid
+flowchart TB
+  A["Holdings, split ST/LT<br/>+ per-subgroup targets"] --> B["STEP 1<br/>Split each subgroup target<br/>across its funds"]
+  B --> C["STEP 2<br/>Apply the per-fund<br/>concentration cap"]
+  C --> D["STEP 3<br/>Is this change<br/>worth making?"]
+  D --> E["STEP 4<br/>Cancel debt-for-debt<br/>switches"]
+  E --> F["STEP 5<br/>Price the gain on<br/>everything we plan to sell"]
+  F --> G["STEP 6<br/>Decide who sells, in what order,<br/>under the short-term-gains budget"]
+  G --> H["STEP 7<br/>Use available losses to<br/>unlock more selling"]
+  H --> I["STEP 8<br/>Write the trade list<br/>and the reasons"]
+```
+
+Each step adds a decision and never revisits an earlier one. The consequence worth checking hardest: **the "worth changing" test at Step 3 runs before any tax is calculated**, so a change we judge too small is never even priced.
+
+---
+
+## Step 1 — splitting a subgroup target across its funds
+
+This step carries the single most consequential business rule in the engine, changed July 2026.
+
+### The problem it solves
+
+Historically the whole subgroup target went to our rank-1 fund and every other rank got zero. A customer holding a perfectly good rank-2 fund had all of it sold to buy rank-1 — pure churn, real tax, no change in what they actually owned.
+
+Not an edge case: **around 69% of real holdings sit at rank 2 or worse.** In one simulated portfolio it produced ₹16.5 lakh of paired buy-and-sell in a single rebalance.
+
+### The rule: reserve, then residual
+
+```mermaid
+flowchart TB
+  A["Subgroup target"] --> B["Deduct the locked short-term portion<br/>of any off-list holdings"]
+  B --> C{"For each held<br/>recommended fund"}
+  C --> D{"Rank gap to the best-ranked<br/>fund present is under 5?"}
+  D -->|"No — gap 5 or more"| E["No protection.<br/>Target 0 — available to be sold"]
+  D -->|"Yes"| F{"Fund rating<br/>at least 5?"}
+  F -->|"No"| E
+  F -->|"Yes"| G["PROTECTED.<br/>Reserve what it already holds"]
+  G --> H{"Do the reserves exceed<br/>the subgroup target?"}
+  H -->|"Yes"| I["Trim reserves,<br/>worst-ranked first,<br/>until they fit"]
+  H -->|"No"| J["Residual = target − reserves"]
+  I --> J
+  J --> K["Residual goes to the best-ranked fund.<br/>Every other fund gets just its reserve"]
+```
+
+**The band is 5 and it is exclusive.** Gap of 4 protects; gap of 5 sells. The gap is measured from the best-ranked fund *actually present* in that subgroup, not from a hardcoded rank 1.
+
+| Situation | Outcome |
+|---|---|
+| Holds rank 3, best available rank 1. Gap 2 | Kept. Their money stays; new money goes to rank 1. |
+| Holds rank 7, best available rank 1. Gap 6 | Sold. Too far down the ladder to defend. |
+| Holds rank 2 **and** rank 4, together exceeding the target | Rank 4 trimmed first — they lose the poorer position. |
+| Holds a fund rated below 5 | Not protected, whatever its rank. Quality bar overrides the band. |
+
+<div class="callout">
+  <div class="title">Confirm this one</div>
+  <p>The band of 5 is <strong>absolute</strong>, not a fraction of ladder depth. A subgroup with 3 ranked funds protects all of them; one with 20 protects only the top 5. As research ladders deepen the rule automatically gets stricter at the bottom. Deliberate — but worth confirming it is what you intended.</p>
+</div>
+
+### Three kinds of row
+
+| Type | Its target | What happens to it |
+|---|---|---|
+| **Recommended** | Reserve + residual, per above | Bought, trimmed, or held |
+| **Off-list** | Its **short-term value** | Only the long-term portion may migrate into a recommended fund. Short-term units stay put — we do not realise short-term tax on a fund that is merely off-list. |
+| **Force-exit** | **Zero** | Sold in full, regardless of tax cost |
+
+Setting the off-list target to the short-term value makes the shortfall exactly equal to the long-term value — so the engine offers up precisely the long-term units and nothing else.
+
+### See it run
+
+Two subgroups, showing both halves of the rule.
+
+<div class="step-panel">
+<div class="label">arbitrage_plus_income — a reserve, then a residual</div>
+<pre><code>Subgroup target                                        ₹31,51,100
+Rank 1  HDFC Income Plus Arbitrage FOF   held          ₹26,90,437
+        Gap to best rank = 0 (under 5), rating 8 (at least 5)
+        → PROTECTED. Reserve = ₹26,90,400   (rounded down to ₹100)
+
+Residual = ₹31,51,100 − ₹26,90,400 =                    ₹4,60,700
+Residual goes to the best-ranked row:
+
+        Rank 1 target = ₹26,90,400 + ₹4,60,700 =       ₹31,51,100
+        Rank 2 target =                                        ₹0</code></pre>
+</div>
+
+<div class="step-panel">
+<div class="label">low_beta_equities — the off-list deduction, then a trimmed reserve</div>
+<pre><code>Subgroup target                                         ₹2,07,180
+
+Off-list holding: Aditya Birla SL Large Cap    held     ₹3,90,856
+        of which short-term (locked)                    ₹1,56,342
+        → its own target = ₹1,56,342, and the subgroup target
+          is reduced by the same amount so we do not double-allocate
+
+Target available to recommended funds
+        ₹2,07,180 − ₹1,56,342 =                           ₹50,838
+
+Rank 2  HDFC Large Cap                          held    ₹2,24,821
+        Protected — but its reserve of ₹2,24,821 exceeds
+        the ₹50,838 left, so the reserve is trimmed to fit
+        → Reserve = ₹50,838, rounded at Step 2 to          ₹50,800</code></pre>
+</div>
+
+The second panel is the rule working against the customer's holding, and correctly so: he is over-allocated to large-cap, and the reserve can only protect what the plan actually calls for.
+
+---
+
+## Step 2 — the per-fund concentration cap
+
+| Subgroup | Cap | Why it differs |
+|---|---|---|
+| `multi_asset` | **20%** | Internally diversified across asset classes; single-fund risk is lower |
+| `short_debt` | **30%** | Small, high-quality universe — concentration risk correspondingly lower |
+| `arbitrage`, `arbitrage_plus_income` | **30%** | Low-volatility wrappers, same reasoning |
+| Everything else | **10%** | Default |
+
+**The rupee floor.** The cap in rupees is `the larger of (cap% × corpus) and ₹1,00,000`. For a ₹5 lakh portfolio at the 10% default, 10% is ₹50,000 — which would force a split across ten or more funds. Above a ₹10 lakh corpus at the default, the floor never binds.
+
+```mermaid
+flowchart TB
+  A["Start at rank 1<br/>in this subgroup"] --> B["Ceiling = larger of the cap<br/>and this fund's protected reserve"]
+  B --> C{"Target plus anything spilled<br/>from above exceeds the ceiling?"}
+  C -->|"No"| D["Assign the full amount.<br/>Round to nearest ₹100"]
+  C -->|"Yes"| E["Assign the ceiling.<br/>Overflow moves down"]
+  E --> F{"Is there a<br/>next rank?"}
+  F -->|"Yes"| G["Add the overflow to<br/>the next rank's target"]
+  G --> B
+  F -->|"No"| H["Report as unallocated remainder<br/>+ raise a warning.<br/>Never silently dropped"]
+  D --> I{"More ranks?"}
+  I -->|"Yes"| B
+  I -->|"No"| J["Subgroup done"]
+```
+
+<div class="callout rule">
+  <div class="title">The cap governs deployment, not custody</div>
+  <p>A fund's ceiling is raised to its protected reserve, so a customer already above the cap in a good fund is <strong>not forced to sell down to it</strong>. The cap only limits where <em>new</em> money goes; over time new investment dilutes the over-weight position instead of a taxed sale correcting it now.</p>
+  <p>A real trade-off to confirm: a fund can sit above its stated cap indefinitely. We judged the certain tax cost of correcting it worse than the concentration risk of leaving it.</p>
+</div>
+
+### See it run
+
+<div class="step-panel">
+<div class="label">arbitrage_plus_income — the ceiling binds and the excess spills</div>
+<pre><code>Rank 1 ceiling = larger of ( 30% × ₹68,00,000 = ₹20,40,000 )
+                       and ( its reserve of  ₹26,90,400 )
+               = ₹26,90,400          reported as 39.6% of corpus
+
+Target ₹31,51,100 exceeds the ceiling by                ₹4,60,700
+        → Rank 1 capped at                             ₹26,90,400
+        → ₹4,60,700 spills down to Rank 2
+          (ICICI Prudential Income plus Arbitrage)</code></pre>
+</div>
+
+Note what did **not** happen. The old rule would have given rank 1 a target of ₹20,40,000 against a holding of ₹26,90,437 and **sold ₹6,50,437 of a fund we recommend**, purely to satisfy a percentage. The protected reserve turned that forced sale into a ceiling for new money instead.
+
+---
+
+## Step 3 — is this change worth making?
+
+```mermaid
+flowchart TB
+  A["Difference between<br/>target and holding"] --> B{"Force-exit flagged,<br/>or rated below 5?"}
+  B -->|"Yes"| C["MUST ACT.<br/>Full exit, no size test"]
+  B -->|"No"| D{"Is the difference at least 10%<br/>of the larger of target and holding?"}
+  D -->|"No"| E["LEAVE ALONE.<br/>No trade, no tax,<br/>no further processing"]
+  D -->|"Yes, positive"| F["BUY candidate"]
+  D -->|"Yes, negative"| G["SELL candidate"]
+```
+
+**The 10% materiality band** is a percentage of the position, not a flat rupee amount — a ₹5,000 drift matters in a ₹40,000 position and does not in a ₹40 lakh one.
+
+**Two conditions bypass the test entirely** and force a full exit: research has flagged the fund for removal, or its rating has fallen below **5** on our 1–10 scale. Neither is size-tested and neither is tax-tested — a fund that fails the quality bar is sold in full even if that realises short-term gains.
+
+### See it run
+
+| Subgroup | Target | Held | Difference | 10% threshold | Verdict |
+|---|---|---|---|---|---|
+| `arbitrage_plus_income` rank 1 | ₹26,90,400 | ₹26,90,437 | −₹37 | ₹2,69,044 | **Leave alone** |
+| `us_equities` | ₹1,27,900 | ₹1,20,656 | +₹7,244 | ₹12,790 | **Leave alone** |
+| `gold_commodities` rank 2 | ₹1,36,700 | ₹1,36,773 | −₹73 | ₹13,677 | **Leave alone** |
+| `gold_commodities` rank 3 | ₹54,700 | ₹54,709 | −₹9 | ₹5,471 | **Leave alone** |
+| `low_beta_equities` rank 2 | ₹50,800 | ₹2,24,821 | −₹1,74,021 | ₹22,482 | **Sell** |
+| `multi_asset` rank 1 | ₹22,65,400 | ₹16,46,593 | +₹6,18,900 | ₹2,26,540 | **Buy** |
+
+`us_equities` is the clearest illustration: a genuine ₹7,244 shortfall, deliberately ignored because it is under the ₹12,790 bar. Six of his funds fell inside the band and were left completely untouched — at least six trades avoided, each with a cost and none with a benefit.
+
+---
+
+## Step 4 — never sell debt to buy debt
+
+**The problem.** The allocation engine picks a debt wrapper — short-duration, arbitrage, or arbitrage-plus-income — from the customer's tax rate and the goal's remaining tenure. As either drifts the preferred wrapper changes, one subgroup's target falls and another's rises, and the naive rebalance executes a switch that **leaves total debt exposure unchanged and costs real tax**.
+
+**The rule.** We treat `short_debt`, `arbitrage` and `arbitrage_plus_income` as **one economic sleeve**. Matched sell and buy intentions inside it are cancelled against each other before any tax is computed.
+
+```mermaid
+flowchart TB
+  A["Collect all debt-sleeve<br/>sell and buy intentions"] --> B["Carve out sells we must keep:<br/>force-exit funds, and off-list funds<br/>migrating into recommended ones"]
+  B --> C["Reserve buy demand equal to any<br/>forced-exit proceeds — that cash<br/>already has a destination"]
+  C --> D["Cancel amount = smaller of<br/>remaining sells and<br/>remaining buy capacity"]
+  D --> E["Reduce the sell side<br/>proportionally"]
+  E --> F["Reduce the buy side by walking surviving<br/>demand down the rank ladder<br/>under the per-fund cap"]
+  F --> G{"Does a leftover sliver still<br/>fail the 10% test?"}
+  G -->|"Yes"| H["Cancel it too, and book it —<br/>so the plan still reconciles"]
+  G -->|"No"| I["Keep it"]
+```
+
+**Why here and not later.** Once Step 6 has selected lots and scaled buys, those operations cannot be reversed cleanly. Cancelling while it is still an *intention* means the tax arithmetic runs once, forward, on the corrected picture.
+
+**Two deliberate carve-outs:** force-exit sells survive (a bad fund is still bad, even in debt), and off-list migrations survive (an off-list holding must still be able to move into a recommended fund).
+
+**What the customer is told:** *"Kept ₹X in your existing debt funds rather than moving it into similar ones — switching would have triggered a tax bill without changing what you actually hold."* If this leaves a fund above its cap, we say so, and say new investment will correct it rather than a sale.
+
+### See it run
+
+<div class="step-panel">
+<div class="label">Harpreet's debt sleeve — nothing to cancel</div>
+<pre><code>short_debt              target ₹2,40,000   held ₹1,14,198   → BUY
+arbitrage_plus_income   target      —      held ₹26,90,437  → BUY (rank 2)
+
+Debt-sleeve sell intentions:                                    none
+Cancel amount = smaller of (₹0 sells, buy capacity)  =            ₹0
+        → step passes through untouched, no warning raised</code></pre>
+</div>
+
+His debt sleeve is entirely under-weight, so there is no sell leg to match. The step is a no-op here — which is the common case. It bites when the allocation engine's preferred wrapper has moved since the last run, turning one debt subgroup into a seller and another into a buyer on the same day.
+
+---
+
+## Step 5 — pricing the gain
+
+For each fund we intend to sell:
+
+```
+short-term gain = short-term value − short-term cost
+long-term gain  = long-term value − long-term cost
+```
+
+Both are **signed** — a negative figure is a realised loss, and losses are useful at Step 7. Funds we are not selling carry zero; they realise nothing.
+
+### See it run
+
+<div class="step-panel">
+<div class="label">Bandhan Small Cap — a holding split across both buckets</div>
+<pre><code>Held                                                      ₹49,921
+        long-term value                                   ₹29,953
+        short-term value                                  ₹19,968
+
+Target                                                         ₹0
+        → a sell candidate; both buckets are priced
+
+Only the long-term bucket will actually be sold — see Step 6.</code></pre>
+</div>
+
+---
+
+## Step 6 — who sells, in what order
+
+The heart of the tax logic. Three pools, fixed order.
+
+```mermaid
+flowchart TB
+  A["Sort all sell candidates by average<br/>tax cost per rupee sold, cheapest first"] --> B["POOL 1 — FORCED SELLS<br/>Force-exit and below-rating funds"]
+  B --> C["Sell each in FULL, whether or not<br/>anyone needs the cash.<br/>Long-term units first, then short-term<br/>up to the short-term-gains budget"]
+  C --> D["Cash raised<br/>+ direct-stock proceeds"]
+  D --> E{"Enough to cover<br/>total buy demand?"}
+  E -->|"Yes"| F["No optional selling at all"]
+  E -->|"No"| G["POOL 2 — OPTIONAL SELLS<br/>Recommended funds above target"]
+  G --> H["Sell only up to the remaining shortfall,<br/>cheapest fund first.<br/>LONG-TERM UNITS ONLY"]
+  H --> I["POOL 3 — BUYS"]
+  F --> I
+  I --> J{"Available cash at least<br/>equal to buy demand?"}
+  J -->|"Yes"| K["Everyone gets their full buy"]
+  J -->|"No"| L["Scale every buy by the same factor,<br/>then round each DOWN to ₹100"]
+```
+
+<div class="callout rule">
+  <div class="title">The three rules that define our tax posture</div>
+  <p><strong>1. Long-term units are always sold before short-term ones</strong> — 12.5% against 20%.</p>
+  <p><strong>2. A routine trim never realises short-term gains.</strong> Optional sells are long-term-only, full stop. Short-term gains are realised <em>only</em> on a forced exit, where the quality problem outweighs the tax.</p>
+  <p><strong>3. The engine never invents cash.</strong> Total buys can never exceed total sells plus available cash. When cash falls short every buy is scaled down proportionally and the shortfall is reported, not hidden.</p>
+</div>
+
+**Cheapest-first ordering.** Each candidate is scored on its average tax cost per rupee sold — its long-term and short-term gain ratios weighted by how much of the holding sits in each bucket, at the respective rates. A fund sitting on a loss scores negative and is sold *first*: it raises cash and a useful loss at once.
+
+**The short-term-gains budget** is an optional per-run ceiling on the short-term gain the plan may realise. If a forced sale would breach it we sell only the fraction that fits and record the rest, with a warning. Realised *losses* increase the remaining budget, because they absorb gains.
+
+**Direct-stock proceeds.** If the allocation engine trimmed the customer's direct stocks, that cash is treated as spendable in the same plan — it both funds buys and reduces how much fund selling is needed. Without it the plan would tell the customer to liquidate stock, allocate nothing against the proceeds, and sell funds to raise cash they already have.
+
+### See it run
+
+<div class="step-panel">
+<div class="label">The long-term-only rule on an optional trim</div>
+<pre><code>Bandhan Small Cap        held ₹49,921, target ₹0
+
+        long-term  ₹29,953   → SOLD
+        short-term ₹19,968   → NOT SOLD. Optional trims are LT-only
+
+Final holding                                             ₹19,968</code></pre>
+</div>
+
+The customer is told exactly this: *"Only the long-held portion is being trimmed… We've held back ₹19,968 of the short-term portion this round to avoid short-term capital-gains tax; this portion will be sold once it ages past the short-term threshold."*
+
+<div class="step-panel">
+<div class="label">Scaling the buys to the cash actually available</div>
+<pre><code>Total buy demand across four funds                     ₹12,68,600
+Cash from sales                                         ₹5,91,981
+Direct-stock proceeds                                   ₹4,96,080
+                                       AVAILABLE      ₹10,88,061
+
+scale = ₹10,88,061 ÷ ₹12,68,600 = 0.8577
+
+arbitrage_plus_income  ₹4,60,700 × 0.8577 = ₹3,95,135 → ₹3,95,100
+multi_asset            ₹6,18,900 × 0.8577 = ₹5,30,832 → ₹5,30,800
+gold_commodities         ₹63,100 × 0.8577 =   ₹54,120 →   ₹54,100
+short_debt             ₹1,25,900 × 0.8577 = ₹1,07,983 → ₹1,07,900
+                                       TOTAL BUY     ₹10,87,900</code></pre>
+</div>
+
+₹10,87,900 sits just below the ₹10,88,061 available. Rounding every buy **down** to ₹100 is what guarantees the plan never spends money it does not have.
+
+---
+
+## Step 7 — putting losses to work
+
+```mermaid
+flowchart TB
+  A["Available offset = carried-forward<br/>short-term losses + short-term losses<br/>realised in this plan"] --> B["Net off against short-term gains<br/>realised in this plan"]
+  B --> C["Leftover offset<br/>becomes extra headroom"]
+  C --> D{"Was any FORCED sale blocked<br/>by the short-term budget?"}
+  D -->|"No"| E["Done"]
+  D -->|"Yes"| F["Re-run those sales against the extra<br/>headroom, least-gain-per-rupee first"]
+  F --> G["Convert what fits<br/>into actual sales"]
+```
+
+<div class="callout">
+  <div class="title">Only short-term losses are pooled here — a statutory requirement</div>
+  <p>Under Indian capital-gains rules a <strong>long-term</strong> capital loss may be set off only against long-term gains, never against short-term. Carried-forward long-term losses are recorded but deliberately unused in this calculation.</p>
+</div>
+
+Only **forced** sales are eligible for this second pass. An optional trim that stopped at the long-term boundary did so by rule, not because a budget blocked it — loss headroom cannot unlock what was never blocked.
+
+**The tax estimate:** short-term gains net of offsets at **20%**; long-term gains above the **₹1,25,000** annual exemption at **12.5%**. Losses do not generate refunds — the figure is floored at zero.
+
+### See it run
+
+<div class="step-panel">
+<div class="label">The tax on Harpreet's plan</div>
+<pre><code>Short-term gains realised                                      ₹0
+        every sale was an optional trim or an off-list
+        migration — both are long-term-only by rule
+
+Long-term gains realised                                  ₹88,797
+Long-term annual exemption                              ₹1,25,000
+        ₹88,797 is below the exemption
+
+Carried-forward losses available                               ₹0
+Forced sales blocked by the budget                           none
+
+                                    TOTAL TAX ESTIMATE         ₹0</code></pre>
+</div>
+
+Zero short-term gains is not luck — it is Step 6's rule 2 holding. And because the long-term gain lands under the annual exemption, the whole rebalance costs the customer nothing in tax.
+
+---
+
+## Step 8 — the instruction and its reason
+
+```mermaid
+flowchart TB
+  A["Fund row after all steps"] --> B{"Any units<br/>sold?"}
+  B -->|"Yes"| C{"Force-exit or<br/>below rating?"}
+  C -->|"Rating below 5"| D["EXIT — 'rating below threshold'"]
+  C -->|"Flagged by research"| E["EXIT — 'flagged for removal'"]
+  C -->|"No, and off-list"| F["SELL — 'migrate to recommended fund'"]
+  C -->|"No, recommended"| G["SELL — 'trim back to target'"]
+  B -->|"No"| H{"Any units<br/>bought?"}
+  H -->|"Yes, rank 1"| I["BUY — 'top up to target'"]
+  H -->|"Yes, rank 2 or lower"| J["BUY — 'diversifying via alternate fund'"]
+  H -->|"No"| K["No instruction.<br/>The fund is left alone"]
+```
+
+An eighth instruction type exists outside the per-fund loop: a single **SELL_DIRECT_STOCKS** for the excess direct-stock amount. Direct stocks and PMS are never traded name by name.
+
+Two labels worth noting for review:
+
+- A **rank 2+ buy says "diversifying via alternate fund"**, not "top up" — the honest explanation that our top pick hit its cap and the money went to the next-best fund.
+- A **trim of a recommended fund explicitly says the fund is still recommended.** Without that, a customer reading "SELL" on a fund we told them to buy would reasonably conclude we had changed our mind.
+
+Each instruction also carries research's own written reason for that fund — the selection reason on a buy or trim, the rejection reason on an exit or migration. **ELSS** appears with its amount and is never traded: SEBI's 3-year lock-in would make the instruction undeliverable.
+
+### See it run — the plan Harpreet receives
+
+| Action | Amount | Fund | Reason given |
+|---|---|---|---|
+| BUY | ₹5,30,800 | ICICI Prudential Equity & Debt | Top up to target |
+| BUY | ₹3,95,100 | ICICI Prudential Income plus Arbitrage | Diversifying via alternate fund |
+| BUY | ₹1,07,900 | ICICI Prudential Short Term | Top up to target |
+| BUY | ₹54,100 | Nippon India ETF Gold BeES | Top up to target |
+| SELL | ₹2,34,514 | Aditya Birla SL Large Cap | Migrate to recommended fund |
+| SELL | ₹1,64,659 | UTI Aggressive Hybrid | Trim back to target |
+| SELL | ₹1,34,893 | HDFC Large Cap | Trim back to target |
+| SELL | ₹29,953 | Bandhan Small Cap | Trim back to target |
+| SELL | ₹27,962 | HDFC Mid Cap | Trim back to target |
+| SELL_DIRECT_STOCKS | ₹4,96,080 | — | Trim direct-stock holdings |
+
+**Ten instructions. Six funds untouched. ₹1,50,000 of ELSS shown and frozen. Zero tax.**
+
+The Aditya Birla line is the off-list rule from Step 1 completing its journey: held ₹3,90,856, of which ₹2,34,514 long-term and ₹1,56,342 short-term. Its target was set to the short-term value, so exactly the long-term portion became available — we migrated ₹2,34,514 into recommended large-cap and left the short-term units alone.
+
+### What the July 2026 change was worth
+
+Same customer, same holdings, previous engine version:
+
+| | Before (v1.2.0) | After (v1.3.0) | Change |
+|---|---|---|---|
+| Total sold | ₹14,48,063 | ₹5,91,981 | **−59%** |
+| Total bought | ₹19,44,000 | ₹10,87,900 | −44% |
+| Long-term gains realised | ₹2,17,210 | ₹88,797 | −59% |
+| **Tax estimate** | **₹11,526** | **₹0** | **−₹11,526** |
+| Instructions | 14 | 10 | −4 |
+
+Across all five simulated profiles the pattern holds: substantially less churn, and tax falling to zero in four of five cases — with the customer owning materially the same portfolio.
+
+---
+
+## Every number in the logic
+
+| # | Setting | Value | Acts at | Tunable without code change? |
+|---|---|---|---|---|
+| 1 | Default per-fund cap | **10%** of corpus | Step 2 | Yes |
+| 2 | Multi-asset per-fund cap | **20%** | Step 2 | Yes |
+| 3 | Short-duration debt per-fund cap | **30%** | Step 2 | Yes |
+| 4 | Arbitrage per-fund cap | **30%** | Step 2 | Yes |
+| 5 | Rupee floor under the per-fund cap | **₹1,00,000** | Step 2 | Yes |
+| 6 | Materiality band | **10%** of the larger of target and holding | Step 3 | Yes |
+| 7 | Rank protection band | **5**, exclusive | Step 1 | Yes |
+| 8 | Rating floor for a forced exit | below **5** on 1–10 | Steps 3, 6 | Yes |
+| 9 | Force-exit marker | rank **9999** in the research file | Steps 1, 3, 6 | Research file |
+| 10 | Long-term threshold, debt | **24 months** | Input | Yes |
+| 11 | Long-term threshold, everything else | **12 months** | Input | Yes |
+| 12 | Short-term capital-gains rate | **20%** | Steps 6, 7 | Yes |
+| 13 | Long-term capital-gains rate | **12.5%** | Steps 6, 7 | Yes |
+| 14 | Long-term annual exemption | **₹1,25,000** | Step 7 | Yes |
+| 15 | Trade rounding | **₹100** | Steps 2, 6 | Per run |
+| 16 | Debt-switch suppression | **On** | Step 4 | Yes |
+| 17 | Debt sleeve treated as one | short_debt, arbitrage, arbitrage_plus_income | Step 4 | Code |
+| 18 | Holdings-aware targets | **On** | Step 1 | Yes |
+
+Every value used is stamped onto the saved plan, so any run can be explained from its own record even after a default changes.
+
+---
+
+## Every rule, in the order it applies
+
+| Order | If this is true | Then |
+|---|---|---|
+| 1 | Fund is ELSS | Show it; never trade it |
+| 2 | Holding is direct stock or PMS | One instruction only, no per-stock trades |
+| 3 | Research flagged the fund for removal | Full exit, regardless of tax |
+| 4 | Fund rating below 5 | Full exit, regardless of tax |
+| 5 | Fund is off-list but not flagged | Target = short-term value; only long-term units may migrate |
+| 6 | Held recommended fund, rank gap under 5, rating at least 5 | Reserve what it holds; never sold to fund a neighbour |
+| 7 | Reserves within a subgroup exceed its target | Trim worst-ranked first |
+| 8 | Target exceeds the per-fund ceiling | Spill the excess to the next rank down |
+| 9 | Nothing left in the ladder to absorb the spill | Report as unallocated; raise a warning |
+| 10 | Difference under 10% of the position and no exit rule applies | Leave the fund completely alone |
+| 11 | Sell and buy both land inside the debt sleeve | Cancel them against each other |
+| 12 | Selling units | Long-term first, always |
+| 13 | Sale is an optional trim | Long-term only; never realise short-term gains |
+| 14 | Sale is a forced exit | May realise short-term gains, up to the budget |
+| 15 | Short-term budget exhausted mid-sale | Sell only the fraction that fits; report the rest |
+| 16 | Short-term losses available | Net them off, then reopen blocked forced sales |
+| 17 | Long-term losses available | Recorded, not used against short-term gains — statutory |
+| 18 | Cash raised is less than buy demand | Scale all buys proportionally and round each down |
+
+---
+
+## The decisions we would most want you to confirm
+
+1. **The rank protection band of 5.** Step 1. It decides whether a held fund is defended or liquidated, it is absolute rather than proportional to ladder depth, and it is the largest single driver of how much churn a plan produces.
+2. **The cap governs deployment, not custody.** Step 2. A fund may sit above its stated concentration cap indefinitely; we correct with new money instead of a taxed sale.
+3. **Debt is never sold to buy debt.** Step 4. This accepts wrapper drift as the price of avoiding tax on an economically neutral switch.
+4. **A routine trim never realises short-term gains.** Step 6. Some over-weight positions are therefore only partly corrected this round; the rest waits for the units to age.
+5. **The 10% materiality band.** Step 3. A percentage of the position, not a rupee floor — so a small portfolio's small drifts are still acted on.
+6. **Direct-stock proceeds are spendable in the same plan.** Step 6. The buy side depends on the customer actually executing the stock sale.
+
+---
+
+*Business logic trace · rebalancing engine v1.3.0 · traced against the live code on 19 July 2026. Worked panels from the five-profile simulation of the same date. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
