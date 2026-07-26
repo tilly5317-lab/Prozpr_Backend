@@ -30,6 +30,11 @@ from app.domains.profile.services._effective_risk.merge import merge_computation
 logger = logging.getLogger(__name__)
 
 
+def _fmt_score(value: Optional[float]) -> str:
+    """Two-decimal string for logs; ``None`` when the score is absent."""
+    return "None" if value is None else f"{float(value):.2f}"
+
+
 async def upsert_effective_risk_assessment(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -57,6 +62,17 @@ async def upsert_effective_risk_assessment(
     previous_inputs = (
         (existing.payload or {}).get("inputs")
         if existing and existing.payload
+        else None
+    )
+    # Snapshot the prior scores so we can log how the recompute moves them.
+    prev_effective_risk_score = (
+        float(existing.effective_risk_score)
+        if existing and existing.effective_risk_score is not None
+        else None
+    )
+    prev_risk_willingness = (
+        float(existing.risk_willingness)
+        if existing and existing.risk_willingness is not None
         else None
     )
 
@@ -105,15 +121,33 @@ async def upsert_effective_risk_assessment(
     inputs = doc.get("inputs") or {}
     rw = inputs.get("risk_willingness")
 
+    new_effective_risk_score = float(eff) if eff is not None else None
+    new_risk_capacity_score = float(cap) if cap is not None else None
+    new_risk_willingness = float(rw) if rw is not None else None
+
+    # How the recompute moved the effective risk score and risk willingness —
+    # the numbers a risk-question change ultimately drives. Logged even when a
+    # value is unchanged so the trigger→outcome trail is always present.
+    logger.info(
+        "Effective risk recomputed user=%s trigger=%s "
+        "effective_risk_score %s -> %s | risk_willingness %s -> %s",
+        user_id,
+        trigger_reason,
+        _fmt_score(prev_effective_risk_score),
+        _fmt_score(new_effective_risk_score),
+        _fmt_score(prev_risk_willingness),
+        _fmt_score(new_risk_willingness),
+    )
+
     now = datetime.now(timezone.utc)
     if existing:
         existing.step_name = doc.get("step_name") or "risk_profile"
         existing.payload = doc
         existing.calculations = calculations
         existing.output = out
-        existing.effective_risk_score = float(eff) if eff is not None else None
-        existing.risk_capacity_score = float(cap) if cap is not None else None
-        existing.risk_willingness = float(rw) if rw is not None else None
+        existing.effective_risk_score = new_effective_risk_score
+        existing.risk_capacity_score = new_risk_capacity_score
+        existing.risk_willingness = new_risk_willingness
         existing.trigger_reason = trigger_reason[:64] if trigger_reason else None
         existing.computed_at = now
         await db.flush()
@@ -126,9 +160,9 @@ async def upsert_effective_risk_assessment(
         payload=doc,
         calculations=calculations,
         output=out,
-        effective_risk_score=float(eff) if eff is not None else None,
-        risk_capacity_score=float(cap) if cap is not None else None,
-        risk_willingness=float(rw) if rw is not None else None,
+        effective_risk_score=new_effective_risk_score,
+        risk_capacity_score=new_risk_capacity_score,
+        risk_willingness=new_risk_willingness,
         trigger_reason=trigger_reason[:64] if trigger_reason else None,
         computed_at=now,
     )

@@ -6,7 +6,9 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from datetime import date
 
 from fastapi import (
     APIRouter,
@@ -20,13 +22,21 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.ingestion.schemas import (
+    CamsCapabilitiesResponse,
     CamsPdfImportResponse,
+    CamsStatementRequestBody,
+    CamsStatementRequestResponse,
     MfAaNormalizeOneResponse,
     MfAaNormalizePendingRequest,
     MfAaNormalizePendingResponse,
+)
+from app.domains.ingestion.services.casparser_client import (
+    CasParserApiError,
+    get_casparser_client,
 )
 from app.domains.mutual_funds.schemas.mfapi import (
     BackfillIsinResultSchema,
@@ -63,6 +73,149 @@ router = APIRouter(prefix="/mf-ingest", tags=["MF Ingest"])
 
 # Generous ceiling — a multi-year consolidated CAS rarely exceeds a few MB.
 _MAX_CAS_PDF_BYTES = 20 * 1024 * 1024
+
+# Full-history statement window for the CAS mailback request. CAMS accepts a
+# very early from_date and simply returns everything the investor has.
+_CAS_REQUEST_FROM_DATE = "1990-01-01"
+
+# Per-user cooldown so a double-tap can't spam the registrar (each request
+# consumes an API credit and lands another email in the user's inbox).
+# In-process only — good enough for a single-instance deployment.
+_CAS_REQUEST_COOLDOWN_SECONDS = 60.0
+_cas_request_last_sent: dict[uuid.UUID, float] = {}
+
+
+# CAS Parser feature names gating each half of the flow (from /v1/credits
+# enabled_features). Cached briefly so the flow's mount-time capability check
+# doesn't hit the API on every modal open.
+_FEATURE_PARSER = "cams_kfintech_cas_parser"
+_FEATURE_GENERATOR = "kfintech_cas_generator"
+_CAPS_CACHE_TTL_SECONDS = 900.0
+_caps_cache: dict[str, object] = {}
+
+
+@router.get("/cams-capabilities", response_model=CamsCapabilitiesResponse)
+async def cams_capabilities(
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Which halves of the CAMS import the configured API key supports.
+
+    Lets the frontend start the flow at the upload step (with manual-generation
+    guidance) on plans without the CAS generator, and light the email step up
+    automatically after a plan upgrade — no deploy needed.
+    """
+    if not Settings.casparser_enabled():
+        return CamsCapabilitiesResponse(parse_available=False, mailback_available=False)
+
+    now = time.monotonic()
+    cached = _caps_cache.get("data")
+    ts = _caps_cache.get("ts")
+    if cached is not None and isinstance(ts, float) and (now - ts) < _CAPS_CACHE_TTL_SECONDS:
+        return cached  # type: ignore[return-value]
+
+    try:
+        body = await get_casparser_client().credits()
+        features = {str(f) for f in (body.get("enabled_features") or [])}
+        caps = CamsCapabilitiesResponse(
+            parse_available=_FEATURE_PARSER in features,
+            mailback_available=_FEATURE_GENERATOR in features,
+        )
+    except CasParserApiError as exc:
+        # Can't read the feature list right now — assume the common shape
+        # (parser yes, generator unknown→yes) and let the real calls surface
+        # their own errors. Not cached, so recovery is immediate.
+        logger.warning("CAS capabilities probe failed: %s", exc.short_reason)
+        return CamsCapabilitiesResponse(parse_available=True, mailback_available=True)
+
+    _caps_cache["data"] = caps
+    _caps_cache["ts"] = now
+    return caps
+
+
+@router.post("/cams-request", response_model=CamsStatementRequestResponse)
+async def request_cams_statement_email(
+    payload: CamsStatementRequestBody,
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Ask CAMS/KFintech to EMAIL the investor a detailed CAS PDF.
+
+    The statement covers the investor's full history and is protected with the
+    password chosen here; the user then uploads the received PDF to
+    ``POST /mf-ingest/cams-pdf`` with the same password. Asynchronous on the
+    registrar's side — the email usually arrives within a few minutes.
+    """
+    if not Settings.casparser_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Statement requests are unavailable on this server "
+                "(the CAS Parser API key is not configured)."
+            ),
+        )
+
+    now = time.monotonic()
+    last = _cas_request_last_sent.get(current_user.id)
+    if last is not None and (now - last) < _CAS_REQUEST_COOLDOWN_SECONDS:
+        wait = int(_CAS_REQUEST_COOLDOWN_SECONDS - (now - last)) + 1
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"A statement was just requested — wait {wait}s before requesting "
+                "another (the first email may still be on its way)."
+            ),
+        )
+
+    try:
+        result = await get_casparser_client().generate_kfintech_cas(
+            email=payload.email,
+            password=payload.password,
+            from_date=_CAS_REQUEST_FROM_DATE,
+            to_date=date.today().isoformat(),
+            pan_no=payload.pan_no,
+        )
+    except CasParserApiError as exc:
+        logger.warning("CAS mailback request failed: %s", exc.short_reason)
+        # 402/403 = our CAS Parser subscription lacks credits / the generator
+        # feature — a permanent config/plan problem, not a transient outage.
+        # Tell the user to use the upload path instead of "try again later".
+        if exc.status_code in (402, 403):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Statement-by-email isn't enabled on our statement service "
+                    "right now. Please generate the statement on the CAMS "
+                    "website (or use a CAS PDF you already have) and upload it "
+                    "here instead."
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Couldn't reach the statement service. Please try again in a "
+                "minute, or generate the statement manually on the CAMS website."
+            ),
+        ) from exc
+
+    if str(result.get("status") or "").strip().lower() == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(
+                result.get("msg")
+                or "The registrar rejected the statement request. Check the "
+                "email and PAN and try again."
+            ),
+        )
+
+    _cas_request_last_sent[current_user.id] = now
+    return CamsStatementRequestResponse(
+        status="success",
+        email=payload.email,
+        message=(
+            "Statement requested. CAMS/KFintech will email the PDF to "
+            f"{payload.email} within a few minutes — upload it here with the "
+            "password you just set."
+        ),
+    )
 
 
 @router.post("/cams-pdf", response_model=CamsPdfImportResponse)

@@ -169,12 +169,20 @@ async def get_latest_plan_run(
     return result.scalar_one_or_none()
 
 
-async def mark_stale(db: AsyncSession, user_id: uuid.UUID) -> None:
-    """Mark latest plan run as stale so next fetch triggers recomputation."""
+async def mark_stale(
+    db: AsyncSession, user_id: uuid.UUID, *, commit: bool = True
+) -> None:
+    """Mark latest plan run as stale so next fetch triggers recomputation.
+
+    Pass ``commit=False`` to enlist in a transaction the caller owns — needed when
+    the cashflow input changed as part of a larger write that must land atomically
+    (e.g. a SIP plan whose amount updates ``starting_monthly_investment``).
+    """
     stmt = (
         update(CashflowPlanRun)
         .where(CashflowPlanRun.user_id == user_id, CashflowPlanRun.is_stale == False)  # noqa: E712
         .values(is_stale=True)
     )
     await db.execute(stmt)
-    await db.commit()
+    if commit:
+        await db.commit()

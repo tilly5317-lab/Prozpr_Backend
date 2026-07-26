@@ -360,8 +360,34 @@ async def apply_postgres_schema_patches() -> None:
                     "WHERE goal_date IS NULL AND target_date IS NOT NULL"
                 )
             )
+        # FP execution: KYC readiness columns on fp_exec_accounts (the table
+        # itself comes from create_all; these ALTERs cover a pre-existing table
+        # created before the KYC columns were added).
+        for ddl in (
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ADD COLUMN IF NOT EXISTS kyc_status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ADD COLUMN IF NOT EXISTS kyc_pv_id VARCHAR(80)",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMPTZ",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ADD COLUMN IF NOT EXISTS raw JSON",
+            # The account row is now a shell created at signup — FP-side ids
+            # arrive later (post-KYC), so the v1 NOT NULLs must go.
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ALTER COLUMN fp_investor_id DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ALTER COLUMN fp_investment_account_id DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ALTER COLUMN holder_name DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ALTER COLUMN pan DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts "
+            "ALTER COLUMN bank_account_masked DROP NOT NULL",
+        ):
+            await conn.execute(text(ddl))
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc)"
     )
 
 

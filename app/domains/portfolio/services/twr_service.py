@@ -80,7 +80,16 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
 
     tri_rows = await load_value_series(db, NIFTY_INDEX_NAME)
     tri_lookup = build_step_lookup([(d, float(v)) for d, v in tri_rows])
+    # Anchor the Nifty index at the first portfolio date that has benchmark data.
+    # A user whose history starts BEFORE the stored benchmark series (step lookup
+    # returns None there) would otherwise lose the entire Nifty line; instead the
+    # earlier points stay None and the line starts where the data does — the
+    # frontend rebases each range from its first non-null benchmark point.
     baseline = tri_lookup(daily_values[0][0])
+    if not baseline:
+        baseline = next(
+            (tri_lookup(d) for d, _ in daily_values if tri_lookup(d)), None
+        )
 
     wealth = twr_wealth_index(daily_values, dict(cashflows))
     points: list[TwrPoint] = []

@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>asset_allocation_pydantic — goal-based allocation engine — Module Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+  nav.toc .home { margin-bottom: 8px; font-size: 13px; }
+  nav.toc .home a { color: var(--link); padding: 2px 6px; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(960px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 820px; margin: 0 auto; }
+  article h1 {
+    font-size: 32px;
+    line-height: 1.25;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 {
+    font-size: 17px;
+    margin: 28px 0 10px 0;
+    scroll-margin-top: 24px;
+  }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article strong { color: var(--ink); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table {
+    border-collapse: collapse;
+    margin: 18px 0;
+    width: 100%;
+    font-size: 14px;
+  }
+  article th, article td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a4a12;
+    background: #f2e6d6;
+    border: 1px solid #e3d2ba;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* --- module-guide visual components --- */
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+  .at-glance .v code { font-size: 12px; overflow-wrap: anywhere; }
+
+  .chat { margin: 20px 0; }
+  .bubble {
+    max-width: 84%; padding: 11px 16px; border-radius: 14px; margin: 10px 0;
+    font-size: 14.5px; line-height: 1.55;
+  }
+  .bubble.user {
+    background: #eaeef3; border: 1px solid #dbe2ea; margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.pi {
+    background: #faf5ee; border: 1px solid #ecdcc6; margin-right: auto;
+    border-bottom-left-radius: 4px;
+  }
+  .bubble .who {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; margin-bottom: 4px; color: var(--muted);
+  }
+  .bubble.pi .who { color: var(--accent); }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: -2px 0; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.danger { border-left-color: #c0392b; background: #fbf0ee; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">AI_Agents · Module Guide</div>
+    <div class="home"><a href="index.html">← All modules</a></div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Deterministic engine · optional LLM rationale</div>
+      <div class="meta">
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# `asset_allocation_pydantic` — the goal-based allocation engine
+
+> **One line:** given a customer's risk score, corpus, and goals, this module decides *how much money goes where* — emergency cushion, then short / medium / long-term buckets, then asset classes, then equity subgroups — using **seven deterministic Python steps**. The only place an LLM is allowed near it is the last step, and only to *narrate*, never to compute.
+>
+> This is the engineer's guide to the module. For the client-facing philosophy (the "protect what you can't lose, grow what you can" thesis), see [Logics_reference_docs/Asset_Allocation.md](../Logics_reference_docs/Asset_Allocation.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(computes; never narrates numbers)</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">none for the math<br/><code>claude-haiku-4-5</code> for optional rationale</div></div>
+  <div class="cell"><div class="k">Caller / gateway</div><div class="v"><code>asset_allocation_module_service.run</code> → dispatch → <code>aa_engine</code> (chat → service)</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_allocation(inp, rationale_fn=None)</code></div></div>
+  <div class="cell"><div class="k">Steps</div><div class="v">7 · <code>steps/step1…step7</code></div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">steps 1–6 fully deterministic<br/>step 7 numbers deterministic, prose optional-LLM</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none — imported <em>by</em> practical_asset_allocation</div></div>
+  <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer builds input + persists output</div></div>
+</div>
+
+---
+
+## 1. What it's about
+
+The module lives at [`AI_Agents/src/asset_allocation_pydantic/`](../../src/asset_allocation_pydantic/). It is the **ideal** goal-based allocation engine: pure Python over pydantic models, no I/O, no database, and — for the arithmetic — no LLM. You hand it an [`AllocationInput`](../../src/asset_allocation_pydantic/models.py) and it returns a fully-reconciled [`GoalAllocationOutput`](../../src/asset_allocation_pydantic/models.py).
+
+"Ideal" because it plans the *target* portfolio from first principles — what a customer with this risk score and these goals *should* hold — independent of what they actually own today. The holdings-aware variant ([`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py)) wraps this engine; rebalancing wraps that. This is the bottom of that stack.
+
+The pipeline ([`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py)) runs seven steps in strict order, each consuming the previous step's leftover corpus:
+
+```mermaid
+flowchart TB
+    IN([AllocationInput<br/>risk score · corpus · goals · market view]) --> S1
+    S1["<b>Step 1 · emergency</b><br/>carve out cushion + negative-NFA"] -->|remaining_corpus| S2
+    S2["<b>Step 2 · short-term</b><br/>goals &lt; 24 mo → one debt bucket"] -->|remaining_corpus| S3
+    S3["<b>Step 3 · medium-term</b><br/>24–59 mo → equity/debt split by horizon×risk"] -->|remaining_corpus| S4
+    S4["<b>Step 4 · long-term</b><br/>Phase 1–5: asset classes → multi-asset → equity subgroups"] --> S5
+    S5["<b>Step 5 · aggregation</b><br/>roll subgroups up across buckets"] --> S6
+    S6["<b>Step 6 · guardrails</b><br/>validate only — flags, never mutates"] -.state.-> OUT
+    S5 --> S7["<b>Step 7 · presentation</b><br/>assemble output + attach rationale"]
+    S7 --> OUT([GoalAllocationOutput])
+```
+
+The defining design decision: **every rupee is decided by code.** The optional LLM at step 7 writes the *why* ("we set aside a safety cushion so an unexpected expense won't force you to touch the rest") — it never touches an amount, a percentage, or a subgroup. Pull the LLM out entirely and the numbers are byte-for-byte identical.
+
+---
+
+## 2. Where it sits
+
+The engine is a peer agent that imports **no other agent**. Its two "external" inputs — the risk score and the market-commentary view — arrive as plain fields on `AllocationInput`; the caller fills them in. That is a data edge, not an import edge.
+
+| Direction | Who | What flows |
+|---|---|---|
+| **Upstream (risk)** | `risk_profiling/` → app DB row | `effective_risk_score` (1–10) is read from `effective_risk_assessments` by the input builder and set on `AllocationInput` |
+| **Upstream (view)** | `market_commentary/` (conceptually) | the `market_commentary` `MarketCommentaryScores` block — **caller-wireable**, but the ideal-engine gateway currently leaves it at neutral `5.0` defaults |
+| **Gateway** | [`asset_allocation_module_service.run`](../../../app/domains/asset_allocation/services/asset_allocation_module_service.py) → dispatch → [`aa_engine/chat.py`](../../../app/domains/asset_allocation/services/aa_engine/chat.py) → [`aa_engine/service.py`](../../../app/domains/asset_allocation/services/aa_engine/service.py) | the chat-flow entry for the `asset_allocation` intent: the module service does not import the engine — it `dispatch_chat("asset_allocation", …)` to the registered handler, which builds the input from a `User` graph, runs the pipeline in a thread, persists, formats chat markdown |
+| **Input build** | [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | `User` ORM row → `AllocationInput` (persisted DB rows only; absent risk row ⇒ score `7.0`) |
+| **Downstream (peer)** | [`practical_asset_allocation/`](../../src/practical_asset_allocation/pipeline.py) | imports steps 1–3 + 5, selected step-4 helpers, the slider, `tables`, `utils.round_to_100`, and the public models — the **first blessed cross-agent import** ([Practical_Asset_Allocation.md](../Logics_reference_docs/Practical_Asset_Allocation.md)) |
+
+> **The engine touches no DB and no network** (for the math). If you are asking "where does the corpus / the goals / the risk score come from", it is **not** in this module — it is the app-layer `input_builder`. The engine only receives the finished `AllocationInput`.
+
+### What `ctx` must carry (chat path)
+
+The engine itself takes a pydantic model, but the *chat* path reaches it through the module gateway `run(turn, ctx, prior)`, which dispatches to `aa_engine`. For that turn to produce a live allocation, `ctx` (resolved inside `aa_engine`) must supply:
+
+| Attribute | Used for |
+|---|---|
+| a pre-loaded `User` graph | age, income, goals, holdings-free profile fields the input builder reads |
+| the persisted `effective_risk_assessment` row | `effective_risk_score`; absent ⇒ deterministic `7.0` fallback in the input builder |
+| an Anthropic API key (settings) | the step-7 rationale prose. In the **app path** the gateway *pre-gates* on the key: if `get_anthropic_asset_allocation_key()` returns nothing, `service.py` returns a "briefly unavailable, try again" blocking message and the pipeline never runs. (The pure engine, run directly, would instead fall back to deterministic template prose with numbers unaffected — see §6.) |
+
+---
+
+## 3. Input contract
+
+`AllocationInput` ([`models.py`](../../src/asset_allocation_pydantic/models.py)) is the whole contract. The load-bearing fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `effective_risk_score` | `float` 1–10 | drives Phase-1/Phase-5 bounds (looked up via `ceil_to_half`) and the medium-term risk bucket (direct threshold, `≤4`→Low, `≤7`→Medium, else High) |
+| `total_corpus` | `float ≥ 0` | the money being allocated; coerced to `int` in step 1 |
+| `goals` | `list[Goal]` | each has `time_to_goal_months`, `amount_needed`, `goal_priority`, `investment_goal`; horizon decides its bucket |
+| `monthly_household_expense` | `float ≥ 0` | emergency cushion = months × this |
+| `effective_tax_rate` | `float` 0–100 | routes debt: arbitrage vs short_debt (short-term `>20%`, medium/long `≥15%`) |
+| `market_commentary` | `MarketCommentaryScores` | 1–10 views per asset class + equity subgroup; **defaults to neutral 5.0** so a caller that supplies nothing gets the un-tilted plan |
+| `multi_asset_composition` | `MultiAssetFundComposition` | equity/debt/others split of the multi-asset fund; default `(65, 25, 10)` |
+| `net_financial_assets` | `float?` | if **negative**, its magnitude is carved into the emergency bucket (debt) |
+| `emergency_fund_needed`, `primary_income_from_portfolio`, `intergenerational_transfer` | flags | toggle whether a cushion exists (3 vs 6 months) and the Phase-1 override |
+
+`age`, `annual_income`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`, `effective_tax_rate` are required; several risk-decomposition fields (`risk_willingness`, `risk_capacity_score`, `net_financial_assets`, `occupation_type`) are optional and used narrowly.
+
+---
+
+## 4. Output contract
+
+`GoalAllocationOutput` ([`models.py`](../../src/asset_allocation_pydantic/models.py)):
+
+| Field | Type | Notes |
+|---|---|---|
+| `client_summary` | `ClientSummary` | echoed inputs (age, score, corpus, goals, cushion months) |
+| `bucket_allocations` | `list[BucketAllocation]` | one per bucket (emergency / short / medium / long): goals, `allocated_amount`, `subgroup_amounts`, plus `rationale` + per-goal `goal_rationales` (step-7 prose) |
+| `aggregated_subgroups` | `list[AggregatedSubgroupRow]` | the money-by-subgroup grid, one row per non-zero subgroup, in canonical order |
+| `future_investments_summary` | `list[FutureInvestment]` | per bucket where goals exceeded available corpus — "wealth to create through monthly investing", never framed as a shortfall |
+| `grand_total` | `float` | equals step 5's `grand_total`, which reconciles against `round_to_100(total_corpus)` |
+| `all_amounts_in_multiples_of_100` | `bool` | self-check — every reported amount is an exact ₹100 multiple |
+| `asset_class_breakdown` | `AssetClassBreakdown` | `planned` (pre-multi-asset) vs `recommended` (post-adjustment deployment) equity/debt/others, per bucket and total, plus a nested subgroup breakdown |
+
+> **`recommended` is not the customer's current holdings.** The field carries the historical alias `actual` (`AliasChoices("recommended", "actual")`) but it is the engine's *post-adjustment deployment plan*. Current holdings come from `PortfolioAllocation` rows read by the chat bridge — never from this engine. Don't let the word `actual` mislead you (see the docstrings on `AssetClassBreakdown` / `SubgroupBreakdown`).
+
+Each step also has its own `StepNOutput` model, which is what makes single-step debugging possible (§9).
+
+---
+
+## 5. How it thinks
+
+Seven steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py). `run_allocation_with_state` returns both the final output **and** a `state` dict keyed by step name — invaluable for tracing.
+
+| Step | File | What it decides |
+|---|---|---|
+| **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); adds the magnitude of any **negative** `net_financial_assets`; always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
+| **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals `< 24 mo`; the whole bucket routes through **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Corpus runs out mid-bucket ⇒ `FutureInvestment`. |
+| **3 · medium-term** | [`step3_medium_term.py`](../../src/asset_allocation_pydantic/steps/step3_medium_term.py) | goals `24–59 mo`; per goal, `MEDIUM_TERM_SPLIT[(horizon_years, risk_bucket)]` gives equity/debt %. A very bearish equities view (`≤3`) forces the conservative `Low` column. Equity → `multi_asset`, debt → `arbitrage_plus_income` (tax `≥15%`) or `short_debt`. |
+| **4 · long-term** | [`step4_long_term.py`](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | the heavy step (see below) — five phases from asset-class bounds down to the equity-subgroup split. |
+| **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == round_to_100(total_corpus)`). It flags — it does not assert. |
+| **6 · guardrails** | [`step6_guardrails.py`](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | **validation only** — checks Phase-1 asset-class bounds, Phase-5 equity-subgroup shares, and subgroup→asset-class mapping. Collects `violations_found`; **never mutates the plan.** |
+| **7 · presentation** | [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | assembles `GoalAllocationOutput`, builds the planned-vs-recommended breakdowns, and calls `rationale_fn` for the prose. |
+
+### Inside step 4 (the core)
+
+```mermaid
+flowchart LR
+    P1["<b>Phase 1</b><br/>asset-class min/max<br/>from PHASE1_RISK_BOUNDS<br/>+ intergen / others-gate overrides"] --> P2
+    P2["<b>Phase 2</b><br/>tilt to market view,<br/>clamp+redistribute to<br/>eq/debt/others % summing 100"] --> P4
+    P4["<b>Phase 4</b><br/>multi-asset fund carve-out<br/>(equity slice ≤ 50% of equity)"] --> P5
+    P5["<b>Phase 5</b><br/>equity_for_subgroups split<br/>across 6 subgroups + v2 slider"]
+```
+
+Phase 3 (goal sizing) is folded into the orchestration; the numbered phases follow the `references/long-term-goals.md` spec the tables cite. The key structural fact: **Phase 5 splits only the equity left *after* the multi-asset carve-out** (`multi.equity_for_subgroups`), and step 6 validates against that same denominator (§8).
+
+### A run, end to end (worked example)
+
+*All rupee figures below are **illustrative**, chosen to show the flow — not a captured run. Don't grep for them.*
+
+<div class="step-panel">
+  <div class="label">Input · AllocationInput (illustrative)</div>
+<pre><code>{ "effective_risk_score": 7.0, "age": 35,
+  "total_corpus": 1000000, "monthly_household_expense": 50000,
+  "effective_tax_rate": 12.0, "emergency_fund_needed": true,
+  "goals": [ { "goal_name": "Retirement", "time_to_goal_months": 240,
+               "amount_needed": 500000, "goal_priority": "non_negotiable",
+               "investment_goal": "retirement" } ],
+  "market_commentary": "neutral (all 5.0 defaults)" }</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 1 · emergency → Step1Output</div>
+<pre><code>emergency_fund_months = 3            # standard income source
+emergency_fund_amount = 150000       # round_to_100(3 × 50000)
+total_emergency       = 150000       # no negative NFA to carve
+subgroup_amounts      = { "short_debt": 150000 }
+remaining_corpus      = 850000       # 1,000,000 − 150,000</code></pre>
+</div>
+
+<div class="flow-arrow">↓ (no goals &lt; 24 mo or 24–59 mo → steps 2 &amp; 3 pass 850,000 through untouched)</div>
+
+<div class="step-panel">
+  <div class="label">Step 4 · long-term → Step4Output (illustrative split at score 7.0, neutral view)</div>
+<pre><code>asset_class_allocation = { equities_pct: 62, debt_pct: 28, others_pct: 10 }  # Phase 1–2 → 527000 / 238000 / 85000 of 850000
+multi_asset.multi_asset_amount   = 405000    # Phase 4, equity slice capped at 50% of equity
+multi_asset.equity_for_subgroups = 264000    # equity left AFTER the multi-asset carve
+subgroup_amounts = { multi_asset: 405000,
+                     low_beta_equities: 75000, medium_beta_equities: 84000,
+                     high_beta_equities: 50000, us_equities: 55000,   # Phase 5 + v2 slider → sum 264000 = equity_for_subgroups
+                     short_debt: 136000,        # debt left after the multi-asset debt slice
+                     gold_commodities: 45000 }  # others left after the multi-asset others slice
+                     # long-term subgroups total 850000 (value/sector gated out at neutral view)</code></pre>
+</div>
+
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Step 5 · aggregation → grand_total check</div>
+<pre><code>grand_total = 1000000
+grand_total_matches_corpus = true    # 150,000 (emergency) + 850,000 (long-term)</code></pre>
+</div>
+
+<div class="flow-arrow">↓  step 6 validates the split (flags nothing here) · step 7 assembles + narrates</div>
+
+<div class="step-panel">
+  <div class="label">Step 7 · rationale_fn (deterministic fallback shown) attaches prose — numbers untouched</div>
+<pre><code>bucket "emergency".rationale =
+  "We set aside a safety cushion so an unexpected expense won't force you
+   to touch the rest of your money."
+bucket "long_term".goal_rationales["Retirement"] =
+  "For Retirement (your retirement nest egg) — 20 years away, earmarking
+   ₹500,000 — we lean into growth. Over this horizon compounding does the
+   heavy lifting…"</code></pre>
+</div>
+
+Notice the money is fully decided by step 5. Step 7's prose describes that plan; it can be swapped for LLM prose or deterministic templates without moving a single rupee.
+
+---
+
+## 6. Where the LLM is
+
+**Steps 1–6 never call an LLM. Step 7 calls one only for prose, and only if wired.**
+
+| Part | Deterministic? | Detail |
+|---|---|---|
+| all amounts, %, subgroups, guardrails | **yes, fully** | pure Python; identical output for identical input |
+| step-7 `bucket_rationales`, `goal_rationales`, `future_investment_messages` | LLM **or** template | `rationale_fn` is injected; default is `generate_rationales` (Haiku), auto-fallback on no-key/exception is `_fallback_response` (template constants). `no_llm_rationale_fn` is the drop-in you pass to skip the LLM outright |
+
+The LLM seam is `rationale_fn` — a `Callable` passed into `run_allocation`. When the gateway has an Anthropic key it passes [`generate_rationales`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) (a `ChatAnthropic` structured-output call, `claude-haiku-4-5-20251001`, `temperature=0`, `LLM_MAX_RETRIES=2`). At the **engine seam**, with no key or on any exception, step 7 falls back to `_fallback_response` — hand-written per-bucket and per-goal templates. **The numbers are the same either way.** (Note: the *app* gateway pre-gates on the key and blocks the whole run before it starts when the key is absent — see §2 — so that deterministic-prose fallback fires mainly when the engine is run directly or the LLM call itself errors.)
+
+<div class="callout danger">
+  <div class="title">⚠ Why the LLM is fenced out of the arithmetic</div>
+  <p>Haiku reliably <strong>drops an order of magnitude</strong> when asked to convert rupee amounts at inference time (₹5,00,000 → "₹50,000"). The defence is structural: the engine computes every number, and the rationale payload ships each rupee field <strong>already formatted</strong> as a sibling <code>*_indian</code> string (via <code>format_inr_indian</code>) with a prompt that says <em>copy these verbatim, do not convert</em>. The model writes the <em>why</em>; it is never asked to do math. If you extend the rationale prompt, keep that contract — never hand the model a raw number and ask it to phrase an amount.</p>
+</div>
+
+---
+
+## 7. File map
+
+| File | Role |
+|---|---|
+| [`__init__.py`](../../src/asset_allocation_pydantic/__init__.py) | flat public API: `run_allocation`, `AllocationInput`, `Goal`, `GoalAllocationOutput` |
+| [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py) | `run_allocation` + `run_allocation_with_state` — runs steps 1–7, returns output (+ state dict) |
+| [`models.py`](../../src/asset_allocation_pydantic/models.py) | all pydantic I/O: `AllocationInput`, `Goal`, `GoalAllocationOutput`, and every `StepNOutput` |
+| [`tables.py`](../../src/asset_allocation_pydantic/tables.py) | static lookups + tuneable constants: `PHASE1_RISK_BOUNDS`, `PHASE5_EQUITY_SUBGROUP_BOUNDS`, `MEDIUM_TERM_SPLIT`, tax thresholds, LLM settings. **Asset-class only — no fund/ISIN mappings.** |
+| [`utils.py`](../../src/asset_allocation_pydantic/utils.py) | `round_to_100` (round-half-up, negatives→0), `ceil_to_half` (risk-score lookup key), `proportional_scale` |
+| [`equity_subgroup_slider.py`](../../src/asset_allocation_pydantic/equity_subgroup_slider.py) | single source of truth for the v2 average-based equity-subgroup slider; **shared with the practical engine** |
+| [`steps/step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) … [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | one file per step |
+| [`steps/_rationale_llm.py`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) | the optional LLM rationale: `generate_rationales`, `no_llm_rationale_fn`, template fallbacks, `apply_rationales` |
+| [`CLAUDE.md`](../../src/asset_allocation_pydantic/CLAUDE.md) | the folder's own context card (invariants, cross-agent reuse) |
+
+App-layer companions (not part of the engine, but its chat-flow caller):
+
+| File | Role |
+|---|---|
+| [`asset_allocation_module_service.py`](../../../app/domains/asset_allocation/services/asset_allocation_module_service.py) | the chat-module gateway for the `asset_allocation` intent. Does **not** import the engine directly — it `dispatch_chat`es to the `aa_engine` chat handler |
+| [`aa_engine/service.py`](../../../app/domains/asset_allocation/services/aa_engine/service.py) | orchestrates: build input → run pipeline in a thread → persist → format markdown. This is where `asset_allocation_pydantic` is actually imported and run |
+| [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | `User` ORM graph → `AllocationInput` |
+
+> The engine's public models / `pipeline` / `steps` are also imported directly by the peer engines — `practical_asset_allocation` (the first blessed cross-`src/` import), and, at the app layer, rebalancing and additional-investment input builders + the allocation persistence services. So the module service is the *chat gateway*, not the sole importer.
+
+---
+
+## 8. Invariants & landmines
+
+- **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names, ISINs, or SEBI sub-category strings. Fund picking lives in Rebalancing's ranking CSV, not here. Enforced by [`Testing/test_no_fund_mapping.py`](../../src/asset_allocation_pydantic/Testing/test_no_fund_mapping.py).
+- **Phase-5 guardrail denominator is `step4.multi_asset.equity_for_subgroups`, not total equity.** Phase 5 splits the pool left *after* the multi-asset carve-out; step 6 must validate shares against that same base. Use total equity and you silently flag valid plans (`step6_guardrails.py` Rule 3, and the same denominator in `step4._drop_small_equity_subgroups`).
+- **Step 6 never mutates.** It only *reports* violations into `Step6Output.validation` (the `violations_found` list); the pipeline stores `s6` into the state dict and returns step 7's output regardless. Hard correctness is enforced upstream by `step4._verify_invariants`, which **asserts** at runtime (asset-class pcts sum to 100, equity subgroups sum to `equity_for_subgroups`, everything a non-negative ₹100 multiple). Don't relocate correctness into step 6 expecting it to fix anything.
+- **Money is integers in ₹100 multiples.** `round_to_100` is round-half-up and clamps negatives/zero to `0`. Reconciliation drift below `ASSET_CLASS_RECONCILIATION_TOLERANCE` (₹500) and Phase-5 share tolerance `PHASE5_SHARE_TOLERANCE_PP` (1pp) are absorbed on purpose — they come from independent rounding, not logic errors.
+- **Risk-score lookups go through `ceil_to_half`.** `PHASE1_RISK_BOUNDS` and `PHASE5_EQUITY_SUBGROUP_BOUNDS` are keyed at 0.5 granularity; a raw float will `KeyError`. Always round the score first.
+- **The LLM must never state a computed number.** The rationale payload ships pre-formatted `*_indian` strings for the model to copy; the prompt bans it from converting amounts. Keep that when editing `_rationale_llm.py`.
+- **`recommended` ≠ current holdings.** The `AliasChoices("recommended", "actual")` alias is historical; it is the deployment plan, not what the customer owns.
+- **Symbols are re-used cross-agent.** `practical_asset_allocation` imports steps 1–3 + 5, step-4 helpers, the slider, `tables`, `utils.round_to_100`, and the public models. Renaming any of them needs a cross-`src/` sweep — this is the one blessed cross-agent edge, so it is easy to break silently.
+- **`market_commentary` defaults to neutral.** The current gateway leaves the view at `5.0` across the board, so the shipped plan is the un-tilted one. If you wire a live house view in, remember `equities ≤ 3` forces medium-term to the conservative column and Phase-5 gates drop `value`/`sector` equities at views `≤ 7` — a change to the view materially changes the plan, and the Logics thesis doc must move with it.
+
+---
+
+## 9. Extend & test
+
+- **Tests** live in `Testing/` — [`test_part_a.py`](../../src/asset_allocation_pydantic/Testing/test_part_a.py) (step/pipeline behaviour) and [`test_no_fund_mapping.py`](../../src/asset_allocation_pydantic/Testing/test_no_fund_mapping.py) (the asset-class-only invariant). `Master_testing/` is a large-scale profile sweep: [`Master_testing/runner.py`](../../src/asset_allocation_pydantic/Master_testing/runner.py) over `profiles.py`, output in `Master_testing/results/`. App-side coverage lives in [`app/domains/asset_allocation/services/aa_engine/tests/`](../../../app/domains/asset_allocation/services/aa_engine/tests/).
+- **Run them (mac venv):**
+
+  ```
+  .venv-mac/bin/python -m pytest AI_Agents/src/asset_allocation_pydantic/Testing/
+  ```
+
+- **Run one step in isolation** — every step's `run()` takes typed inputs and returns a `StepNOutput`, no DB, no LLM. This is the engine's answer to the "single-step JSON" seam:
+
+  ```python
+  from asset_allocation_pydantic.models import AllocationInput, Goal
+  from asset_allocation_pydantic.steps import step1_emergency, step4_long_term
+
+  inp = AllocationInput(effective_risk_score=7.0, age=35, total_corpus=1_000_000,
+                        monthly_household_expense=50_000, effective_tax_rate=12.0,
+                        annual_income=1_500_000, osi=0.3, gap_exceeds_3=False,
+                        savings_rate_adjustment="none",
+                        goals=[Goal(goal_name="Retirement", time_to_goal_months=240,
+                                    amount_needed=500_000, goal_priority="non_negotiable")])
+
+  s1 = step1_emergency.run(inp)                 # → Step1Output, inspect .remaining_corpus
+  s4 = step4_long_term.run(inp, s1.remaining_corpus)   # → Step4Output, dump .model_dump()
+  ```
+
+- **Trace a whole run** without the LLM: `run_allocation_with_state(inp, rationale_fn=no_llm_rationale_fn)` returns `(state, output)` where `state["step4_long_term"]` etc. is each `StepNOutput` — deterministic prose, no Anthropic call, nothing to stub.
+- **Change the rationale wording/guardrails** → edit [`steps/_rationale_llm.py`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) (`_RATIONALE_BODY`, template fallbacks). Because these are customer-facing, bump [Logics_reference_docs/Asset_Allocation.md](../Logics_reference_docs/Asset_Allocation.md) when the *approach* changes, and run the prompt eval gate before merging.
+- **Change a band/threshold** → edit [`tables.py`](../../src/asset_allocation_pydantic/tables.py) only (step code reads from it) — then re-run the profile sweep to confirm the `_verify_invariants` asserts and step-6 guardrails still pass across the profile matrix, and update the matching Logics doc.
+
+---
+
+*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  // Convert ```mermaid code blocks into <div class="mermaid"> for rendering.
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

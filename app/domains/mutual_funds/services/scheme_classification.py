@@ -413,11 +413,31 @@ def _classify_fof_overseas(scheme_name: Optional[str]) -> str:
 
 
 def _classify_fof_domestic(scheme_name: Optional[str]) -> str:
+    """Classify a domestic FoF by looking through to the scheme it wraps.
+
+    A domestic FoF holds a single underlying fund/ETF, so the same name-pattern
+    logic used for Index/ETF schemes identifies its asset class: an equity-index
+    FoF (e.g. "Nifty India Internet ETF FoF") reads as equity, a G-Sec / target-
+    maturity FoF as debt, gold/silver as commodities. Debt detection runs first
+    because debt-index names often contain "Nifty"/"BSE" that would otherwise
+    trip the equity heuristics. Names matching no known underlying pattern keep
+    the conservative ``Others (FoF)`` bucket rather than guessing an asset class.
+    """
     name = (scheme_name or "").lower()
+    if not name:
+        return "Others (FoF)"
+    if _match_any(_DEBT_INDEX_PATTERNS, name):
+        return "Debt Index Linked (Index/ETF)"
     if re.search(r"\bgold\b", name):
         return "Gold Linked (Index/ETF)"
     if re.search(r"\bsilver\b", name):
         return "Silver Linked (Index/ETF)"
+    if _match_any(_LARGE_CAP_PATTERNS, name):
+        return "Large Cap Index Linked (Index/ETF)"
+    if _match_any(_SECTORAL_PATTERNS, name):
+        return "Sectoral & Thematic Index Linked (Index/ETF)"
+    if _match_any(_INTERNATIONAL_PATTERNS, name):
+        return "Others (Index/ETF)"
     return "Others (FoF)"
 
 
@@ -480,7 +500,7 @@ def is_income_plus_arbitrage_fund(scheme_name: Optional[str]) -> bool:
 
     Detection is name-based. Canonical names contain "Income Plus Arbitrage"
     (the rebalancing fund-ranking CSV at
-    ``AI_Agents/Reference_docs/prozpr_fund_ranking_may_2026.csv`` uses this
+    ``AI_Agents/Reference_docs/prozpr_fund_ranking_june_2026_v2.csv`` uses this
     same signal — top-ranked entries are HDFC / ICICI / Bandhan / ABSL
     "Income Plus Arbitrage Active FOF" schemes).
     """

@@ -35,6 +35,9 @@ from app.domains.goals.schemas.goal import (
 from app.domains.cashflow.services.cashflow_persist_service import (
     mark_stale as mark_cashflow_stale,
 )
+from app.domains.goals.services.retirement_sync import (
+    sync_retirement_age_from_goal,
+)
 
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
@@ -126,6 +129,9 @@ async def create_goal(
     db.add(goal)
     await db.commit()
     await db.refresh(goal)
+    # A Retirement goal's target year IS the planned retirement age (SSOT):
+    # mirror it onto investment_profiles.retirement_age.
+    await sync_retirement_age_from_goal(db, current_user.id, goal)
     await mark_cashflow_stale(db, current_user.id)
     return goal_to_response(goal, invested_amount=0.0, current_value=0.0)
 
@@ -230,6 +236,9 @@ async def update_goal(
 
     await db.commit()
     await db.refresh(goal)
+    # A moved/renamed Retirement goal re-anchors the planned retirement age
+    # (SSOT: target year ↔ retirement_age).
+    await sync_retirement_age_from_goal(db, current_user.id, goal)
     await mark_cashflow_stale(db, current_user.id)
     totals = await _goal_totals_map(db, [goal.id])
     inv, cur = totals.get(goal.id, (0.0, 0.0))
