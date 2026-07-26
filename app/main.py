@@ -22,7 +22,7 @@ init_newrelic()
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Side-effect import: registers every domain's ORM class with ``Base.metadata``
@@ -35,6 +35,7 @@ import app.all_models  # noqa: F401
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.observability import capture_http_client_error
 from app.core.lifespan import lifespan
 from app.routers import all_routers
 from app.routers.tags import OPENAPI_TAG_METADATA
@@ -84,6 +85,26 @@ app.add_middleware(
     # without this the preflight is refused even for allow-listed origins.
     allow_private_network=True,
 )
+
+
+# ---------------------------------------------------------------------------
+# 3b. Track selected 4xx client errors as PostHog events (a trend/volume signal,
+#     kept separate from 5xx error tracking). No-op when PostHog is off. 404 is
+#     intentionally excluded — it's mostly bot/scanner noise (and event cost).
+# ---------------------------------------------------------------------------
+_TRACKED_CLIENT_ERROR_CODES = frozenset({400, 401, 403, 409, 422, 429})
+
+
+@app.middleware("http")
+async def _track_client_errors(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code in _TRACKED_CLIENT_ERROR_CODES:
+        capture_http_client_error(
+            status_code=response.status_code,
+            path=request.url.path,
+            method=request.method,
+        )
+    return response
 
 
 # ---------------------------------------------------------------------------
