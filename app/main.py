@@ -80,6 +80,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Chrome sends a Private-Network-Access preflight when a public https site
+    # (e.g. the GitHub Pages FP sandbox tester) calls a loopback/private address;
+    # without this the preflight is refused even for allow-listed origins.
+    allow_private_network=True,
 )
 
 

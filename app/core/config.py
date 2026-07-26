@@ -534,6 +534,28 @@ class Settings:
             and Settings.get_fp_preverify_client_secret()
         )
 
+    # ── CAS Parser API (casparser.in): remote CAS PDF parsing + CAS-to-email ──
+    @staticmethod
+    def get_casparser_base_url() -> str:
+        return (
+            (_getenv("CASPARSER_BASE_URL") or "https://api.casparser.in")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_casparser_api_key() -> str | None:
+        """API key for api.casparser.in (`x-api-key` header). The docs' sandbox
+        key ``sandbox-with-json-responses`` works for wiring tests without
+        consuming credits."""
+        v = (_getenv("CASPARSER_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def casparser_enabled() -> bool:
+        """CAS statement import is inert (503s) unless the API key is set."""
+        return bool(Settings.get_casparser_api_key())
+
     @staticmethod
     def get_openai_api_key() -> str | None:
         """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""

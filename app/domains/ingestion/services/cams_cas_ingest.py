@@ -1,7 +1,8 @@
 """Application service — `cams_cas_ingest.py`.
 
-Parse an uploaded CAMS / KFintech *Consolidated Account Statement* (CAS) PDF and
-land it in the canonical ingestion tables:
+Parse an uploaded CAMS / KFintech *Consolidated Account Statement* (CAS) PDF —
+via the CAS Parser API (https://casparser.in, see ``casparser_client`` /
+``casparser_adapter``) — and land it in the canonical ingestion tables:
 
 1. Raw audit rows → ``mf_aa_imports`` + ``mf_aa_summaries`` + ``mf_aa_transactions``
    (same tables the Account-Aggregator feed used; the CAS shape maps cleanly onto them).
@@ -18,14 +19,16 @@ land it in the canonical ingestion tables:
 This replaces the (now sidelined) Finvu account-aggregator *fetch-by-mobile* flow,
 which is paused for licensing reasons — see ``app/services/finvu_portfolio_sync.py``.
 
-Heavy / optional dependency: ``casparser`` (imported lazily so the rest of the app boots
-even when it is not installed).
+Parsing is REMOTE: the PDF is posted to ``api.casparser.in`` (`/v4/smart/parse`)
+and the unified JSON response is adapted back onto the legacy parsed-CAS shape
+(``casparser_adapter.to_legacy_parsed``) so every downstream invariant —
+transaction-derived holdings, the statement-balance guard, SUMMARY/zero-value
+rejection — is untouched. The old in-process ``casparser``/``pymupdf`` parsing
+(and its version-pinning woes) is gone.
 """
 
 from __future__ import annotations
 
-import asyncio
-import io
 import logging
 import re
 import uuid
@@ -55,7 +58,16 @@ from app.domains.portfolio.models.portfolio import (
     PortfolioAllocation,
     PortfolioHolding,
 )
+from app.core.config import Settings
 from app.domains.identity.models.user import User
+from app.domains.ingestion.services.casparser_adapter import (
+    CasResponseShapeError,
+    to_legacy_parsed,
+)
+from app.domains.ingestion.services.casparser_client import (
+    CasParserApiError,
+    get_casparser_client,
+)
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
 from app.domains.ingestion.services.user_data_reset import reset_user_financial_data
 from app.domains.portfolio.services.portfolio_service import (
@@ -174,53 +186,6 @@ def _resolve_scheme_identifiers(
     return amfi, isin
 
 
-def _enrich_missing_isins_from_pdf(
-    parsed: dict[str, Any], data: bytes, password: str
-) -> None:
-    """Set ``scheme['isin']`` when missing by scanning raw PDF text near the scheme title (CAMS banner)."""
-    try:
-        import pymupdf  # noqa: PLC0415
-    except ImportError:
-        return
-    try:
-        doc = pymupdf.open(stream=data, filetype="pdf")
-    except Exception:
-        logger.debug("CAS ISIN enrichment: could not open PDF", exc_info=True)
-        return
-    if doc.is_encrypted and not doc.authenticate(password):
-        doc.close()
-        return
-    chunks: list[str] = []
-    for page in doc:
-        chunks.append(page.get_text() or "")
-    doc.close()
-    pdf_text = "\n".join(chunks)
-    if not pdf_text.strip():
-        return
-    for folio in parsed.get("folios") or []:
-        for scheme in folio.get("schemes") or []:
-            if _clean(scheme.get("isin")):
-                continue
-            name = _clean(scheme.get("scheme"))
-            if not name or len(name) < 8:
-                continue
-            needle = name[: min(72, len(name))].strip()
-            hit = pdf_text.find(needle)
-            if hit < 0 and "-" in name:
-                hit = pdf_text.find(name.split("-")[0].strip()[:48])
-            if hit < 0:
-                continue
-            window = pdf_text[max(0, hit - 280) : hit + len(needle) + 420]
-            guess = _isin_from_scheme_strings(window)
-            if guess:
-                scheme["isin"] = guess
-                logger.info(
-                    "CAS ingest: inferred ISIN %s for scheme %r from PDF text",
-                    guess,
-                    name[:60],
-                )
-
-
 def _num(value: object, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -320,7 +285,7 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
     # Sanity gate: the extracted transactions must reproduce the statement's own
     # closing balance (opening + Σtxns == close). When they don't, the txn table
     # was extracted incompletely / misparsed for this scheme (this varies with
-    # the installed casparser/pymupdf versions), and pricing those units would
+    # the upstream parser for this scheme), and pricing those units would
     # inflate or deflate the holding — trust the statement's stated position.
     if stated_units > 0 and abs(units - stated_units) > max(0.5, stated_units * 0.01):
         logger.warning(
@@ -410,335 +375,68 @@ _NOT_MF_CAS_MESSAGE = (
 )
 
 
-# --------------------------------------------------------------------------- pymupdf fallback parser
-#
-# casparser's pdfminer-based extraction sometimes garbles or drops transactions
-# entirely — especially on newer CAMS V3.4-format PDFs where the tabular layout
-# trips it up.  When that happens the CAS import lands zero (or near-zero)
-# transactions even though the statement clearly lists them.
-#
-# The fallback uses PyMuPDF (``pymupdf``) to re-extract the text and walks
-# through it with a simple state machine that understands the fixed columnar
-# format of CAMS CAS PDFs:
-#   Date | Amount (INR) | Price/NAV (INR) | Units | Description | Unit Balance
-# Stamp-duty / STT rows have only three fields: Date | Amount | Marker.
-#
-# After casparser runs, ``_patch_parsed_with_fallback`` checks whether the
-# fallback found more transactions and patches the dict before the downstream
-# persister ever sees it.
-
-_FB_DATE_RE = re.compile(
-    r"^\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4}$"
-)
-_FB_NUMBER_RE = re.compile(r"^\(?[\d,]+\.?\d*\)?$")
-_FB_STAMP_RE = re.compile(r"\*\*\*\s*(Stamp Duty|STT Paid)\s*\*\*\*", re.IGNORECASE)
-_FB_PAGE_HEADER_RE = re.compile(
-    r"^(CAMSCASWS|Consolidated Account Statement|Page \d+ of )"
-)
-_FB_OPENING_RE = re.compile(r"Opening Unit Balance", re.IGNORECASE)
-_FB_NAV_END_RE = re.compile(r"^NAV on ", re.IGNORECASE)
-_FB_COL_HEADERS = frozenset(
-    {"Date", "Amount", "Price", "Units", "Transaction", "Unit", "(INR)", "Balance"}
-)
+# --------------------------------------------------------------------------- remote parse
 
 
-def _fb_parse_number(text: str) -> float:
-    text = text.strip()
-    neg = text.startswith("(") and text.endswith(")")
-    if neg:
-        text = text[1:-1]
-    val = float(text.replace(",", ""))
-    return -val if neg else val
+def _looks_like_password_error(text: str) -> bool:
+    t = (text or "").lower()
+    return any(k in t for k in ("password", "decrypt", "encrypt", "crypt"))
 
 
-def _fb_classify_desc(desc: str) -> str:
-    d = desc.upper()
-    if "SWITCH" in d and "OUT" in d:
-        return "SWITCH_OUT"
-    if "SWITCH" in d and "IN" in d:
-        return "SWITCH_IN"
-    if "DIVIDEND" in d and "REINVEST" in d:
-        return "DIVIDEND_REINVEST"
-    if "REDEMPTION" in d or "REDEEM" in d:
-        return "REDEMPTION"
-    return "PURCHASE"
-
-
-def _fb_extract_transactions(data: bytes, password: str) -> list[list[dict[str, Any]]]:
-    """Extract per-scheme transaction lists from the PDF using PyMuPDF.
-
-    Returns one list of transaction dicts per scheme, in the same order the
-    schemes appear in the PDF — so they can be matched 1-to-1 against the
-    casparser scheme list.
-    """
-    try:
-        import pymupdf  # noqa: PLC0415
-    except ImportError:
-        logger.debug("pymupdf not installed; fallback parser unavailable")
-        return []
-
-    try:
-        doc = pymupdf.open(stream=data, filetype="pdf")
-    except Exception:
-        logger.debug("pymupdf failed to open PDF", exc_info=True)
-        return []
-
-    if doc.is_encrypted and not doc.authenticate(password):
-        doc.close()
-        return []
-
-    # Flatten all pages into a single line list, stripping page headers and
-    # column-header words so that page breaks inside a scheme section are
-    # invisible to the state machine.
-    lines: list[str] = []
-    for page in doc:
-        for raw in page.get_text().split("\n"):
-            s = raw.strip()
-            if not s:
-                continue
-            if _FB_PAGE_HEADER_RE.match(s):
-                continue
-            if " To " in s and _FB_DATE_RE.match(s.split(" To ")[0].strip()):
-                continue
-            if s in _FB_COL_HEADERS:
-                continue
-            lines.append(s)
-    doc.close()
-
-    all_scheme_txns: list[list[dict[str, Any]]] = []
-    i = 0
-    while i < len(lines):
-        # "Opening Unit Balance" marks the start of a scheme's transaction block.
-        if _FB_OPENING_RE.search(lines[i]):
-            i += 1
-            txns: list[dict[str, Any]] = []
-            while i < len(lines):
-                if _FB_NAV_END_RE.match(lines[i]) or lines[i].startswith(
-                    "Closing Unit Balance"
-                ):
-                    break
-
-                if _FB_DATE_RE.match(lines[i]):
-                    txn_date = lines[i]
-
-                    # Stamp-duty / STT: date, amount, ***marker***
-                    # Attach the amount to the preceding transaction.
-                    if i + 2 < len(lines) and _FB_STAMP_RE.search(lines[i + 2]):
-                        marker = lines[i + 2]
-                        duty_amount = _fb_parse_number(lines[i + 1])
-                        if txns:
-                            if "STT" in marker.upper():
-                                txns[-1]["stt"] = duty_amount
-                            else:
-                                txns[-1]["stamp_duty"] = duty_amount
-                        i += 3
-                        continue
-
-                    # Regular transaction: date, amount, nav, units, desc, balance
-                    if i + 5 < len(lines):
-                        a, n, u, d, b = (
-                            lines[i + 1],
-                            lines[i + 2],
-                            lines[i + 3],
-                            lines[i + 4],
-                            lines[i + 5],
-                        )
-                        if (
-                            _FB_NUMBER_RE.match(a)
-                            and _FB_NUMBER_RE.match(n)
-                            and _FB_NUMBER_RE.match(u)
-                            and _FB_NUMBER_RE.match(b)
-                            and not _FB_NUMBER_RE.match(d)
-                            and not _FB_DATE_RE.match(d)
-                        ):
-                            txns.append(
-                                {
-                                    "date": txn_date,
-                                    "amount": _fb_parse_number(a),
-                                    "nav": _fb_parse_number(n),
-                                    "units": _fb_parse_number(u),
-                                    "description": d,
-                                    "type": _fb_classify_desc(d),
-                                }
-                            )
-                            i += 6
-                            continue
-
-                i += 1
-
-            all_scheme_txns.append(txns)
-            continue
-
-        i += 1
-
-    return all_scheme_txns
-
-
-def _fb_txns_reconcile(scheme: dict[str, Any], txns: list[dict[str, Any]]) -> bool:
-    """True when *txns* reproduce the scheme's own opening→closing balance.
-
-    The fallback matches its transaction blocks to casparser's scheme list by
-    document order; when the two lists don't line up a scheme would silently
-    receive ANOTHER scheme's transactions, corrupting units and value. Since the
-    statement prints each scheme's opening and closing unit balance, requiring
-    ``open + Σ(signed units) ≈ close`` proves the block really belongs here.
-    """
-    close = _num(scheme.get("close") or scheme.get("close_calculated"))
-    units = _num(scheme.get("open"))
-    seen = False
-    for txn in txns:
-        flag = _TXN_TYPE_FLAG.get(str(txn.get("type") or "").upper())
-        if flag is None:
-            continue
-        seen = True
-        u = abs(_num(txn.get("units")))
-        units += u if flag in _INFLOW_FLAGS else -u
-    if not seen:
-        return False
-    return abs(units - close) <= max(0.5, abs(close) * 0.01)
-
-
-def _patch_parsed_with_fallback(
-    parsed: dict[str, Any], data: bytes, password: str
-) -> None:
-    """Replace casparser transactions with pymupdf-parsed ones when the
-    fallback found more.  Modifies *parsed* in place."""
-    fb_scheme_txns = _fb_extract_transactions(data, password)
-    if not fb_scheme_txns:
-        return
-
-    # Build a flat list of casparser scheme dicts in document order.
-    cp_schemes: list[dict[str, Any]] = []
-    for folio in parsed.get("folios") or []:
-        for scheme in folio.get("schemes") or []:
-            cp_schemes.append(scheme)
-
-    cp_total = sum(len(s.get("transactions") or []) for s in cp_schemes)
-    fb_total = sum(len(t) for t in fb_scheme_txns)
-
-    if fb_total <= cp_total:
-        return
-
-    # The index-based match below is only meaningful when the fallback found a
-    # block for every casparser scheme; a shifted list would attach transactions
-    # to the wrong schemes.
-    if len(fb_scheme_txns) != len(cp_schemes):
-        logger.warning(
-            "CAS fallback parser found %d scheme blocks vs casparser's %d schemes; "
-            "cannot align — keeping casparser transactions",
-            len(fb_scheme_txns),
-            len(cp_schemes),
+async def _parse_cas_via_api(
+    file_bytes: bytes, source_filename: Optional[str], password: str
+) -> dict[str, Any]:
+    """Parse the uploaded CAS PDF remotely via the CAS Parser API and adapt the
+    response onto the legacy parsed-CAS dict. Every user-facing failure raises
+    :class:`CamsPdfParseError` (``bad_password=True`` → HTTP 400, else 422)."""
+    if not Settings.casparser_enabled():
+        raise CamsPdfParseError(
+            "CAS statement parsing is unavailable on this server "
+            "(CASPARSER_API_KEY is not configured)."
         )
-        return
-
-    logger.info(
-        "CAS fallback parser found %d txns vs casparser's %d; patching",
-        fb_total,
-        cp_total,
-    )
-
-    for idx, cp_scheme in enumerate(cp_schemes):
-        fb_txns = fb_scheme_txns[idx]
-        cp_txns = cp_scheme.get("transactions") or []
-        if len(fb_txns) <= len(cp_txns):
-            continue
-        # Adopt the fallback's transactions only when they reproduce this
-        # scheme's own opening→closing balance — proof the block is aligned.
-        if _fb_txns_reconcile(cp_scheme, fb_txns):
-            cp_scheme["transactions"] = fb_txns
-        else:
-            logger.warning(
-                "CAS fallback txns for scheme %r do not reconcile with its "
-                "closing balance; keeping casparser transactions",
-                _clean(cp_scheme.get("scheme"), limit=60),
-            )
-
-
-# ---------------------------------------------------------------------------
-
-
-def _to_plain_dict(result: object) -> dict[str, Any]:
-    """`casparser.read_cas_pdf(output="dict")` returns a pydantic ``CASData`` model
-    (>= 0.8) or a plain dict (older). Normalize to a JSON-safe dict either way."""
-    if isinstance(result, dict):
-        return result
-    model_dump = getattr(result, "model_dump", None)  # pydantic v2
-    if callable(model_dump):
-        return model_dump(by_alias=True, mode="json")
-    legacy_dict = getattr(result, "dict", None)  # pydantic v1
-    if callable(legacy_dict):
-        return legacy_dict(by_alias=True)
-    raise CamsPdfParseError("Unexpected response from the CAS parser.")
-
-
-def _parse_cas_pdf(data: bytes, password: str) -> dict[str, Any]:
-    """Run casparser on the uploaded bytes. Synchronous / CPU-bound — call via a thread."""
+    client = get_casparser_client()
     try:
-        import casparser  # noqa: PLC0415  (heavy, optional — import lazily)
-        from casparser.exceptions import (  # noqa: PLC0415
-            CASParseError,
-            IncorrectPasswordError,
-            ParserException,
+        payload = await client.smart_parse(
+            file_bytes, source_filename or "cams_cas.pdf", password
         )
-    except ImportError as exc:  # pragma: no cover - depends on deployment
+    except CasParserApiError as exc:
+        reason = exc.short_reason
+        if exc.status_code in (401, 402):
+            # Our key is bad or the account ran out of credits — an ops problem,
+            # never the user's fault. Log loudly; ask the user to retry later.
+            logger.error("CAS Parser API auth/credit failure: %s", reason)
+            raise CamsPdfParseError(
+                "The statement-parsing service is temporarily unavailable. "
+                "Please try again in a little while."
+            ) from exc
+        if exc.status_code == 400:
+            if _looks_like_password_error(reason):
+                raise CamsPdfParseError(
+                    _BAD_PASSWORD_MESSAGE, bad_password=True
+                ) from exc
+            raise CamsPdfParseError(
+                f"Couldn't read this file as a CAMS / KFintech statement: {reason}"
+            ) from exc
         raise CamsPdfParseError(
-            "CAMS PDF parsing is unavailable on this server "
-            "(the 'casparser' package is not installed or is too old)."
+            "The statement-parsing service could not be reached. "
+            "Please try again in a minute."
         ) from exc
 
-    def _looks_like_password_error(text: str) -> bool:
-        t = text.lower()
-        return any(k in t for k in ("password", "decrypt", "encrypt", "crypt"))
-
-    try:
-        result = casparser.read_cas_pdf(io.BytesIO(data), password, output="dict")
-    except IncorrectPasswordError as exc:
-        raise CamsPdfParseError(_BAD_PASSWORD_MESSAGE, bad_password=True) from exc
-    except (CASParseError, ParserException) as exc:
-        text = str(exc)
-        if _looks_like_password_error(text):
-            raise CamsPdfParseError(_BAD_PASSWORD_MESSAGE, bad_password=True) from exc
-        if "pdfminer does not support" in text.lower() or "pymupdf" in text.lower():
-            raise CamsPdfParseError(_NOT_MF_CAS_MESSAGE) from exc
+    # Domain failures arrive INSIDE a 200 body: {"status": "failed", "msg": ...}
+    if str(payload.get("status") or "").strip().lower() == "failed":
+        reason = str(payload.get("msg") or "unknown parse failure")
+        if _looks_like_password_error(reason):
+            raise CamsPdfParseError(_BAD_PASSWORD_MESSAGE, bad_password=True)
         raise CamsPdfParseError(
-            f"Couldn't read this file as a CAMS / KFintech statement: {text}"
-        ) from exc
-    except Exception as exc:  # last resort — e.g. a low-level pdf decryption error
-        text = str(exc)
-        bad_pw = _looks_like_password_error(text)
-        raise CamsPdfParseError(
-            _BAD_PASSWORD_MESSAGE
-            if bad_pw
-            else f"Couldn't read this file as a CAMS / KFintech statement: {text}",
-            bad_password=bad_pw,
-        ) from exc
-
-    parsed = _to_plain_dict(result)
-    if not isinstance(parsed, dict):
-        raise CamsPdfParseError("Unexpected response from the CAS parser.")
-    if not parsed.get("folios"):
-        # NSDL / CDSL e-CAS comes back with "accounts" instead of "folios".
-        if parsed.get("accounts"):
-            raise CamsPdfParseError(_NOT_MF_CAS_MESSAGE)
-        raise CamsPdfParseError("No mutual-fund folios were found in this statement.")
-
-    # casparser's pdfminer extraction often garbles or drops transactions on
-    # newer CAMS V3.4 PDFs.  Re-extract with pymupdf and patch any schemes
-    # where the fallback found more transactions.
-    try:
-        _patch_parsed_with_fallback(parsed, data, password)
-    except Exception:
-        logger.warning(
-            "CAS fallback transaction parser failed; using casparser output as-is",
-            exc_info=True,
+            f"Couldn't read this file as a CAMS / KFintech statement: {reason}"
         )
 
     try:
-        _enrich_missing_isins_from_pdf(parsed, data, password)
-    except Exception:
-        logger.warning("CAS ISIN enrichment from PDF failed", exc_info=True)
-
-    return parsed
+        return to_legacy_parsed(payload)
+    except CasResponseShapeError as exc:
+        raise CamsPdfParseError(
+            _NOT_MF_CAS_MESSAGE if exc.demat_statement else str(exc)
+        ) from exc
 
 
 def _build_import_row(
@@ -1151,7 +849,7 @@ async def ingest_cams_pdf(
     ``replace_existing`` is retained for API compatibility but no longer changes
     behaviour — the full reset now runs unconditionally on every upload.
     """
-    parsed = await asyncio.to_thread(_parse_cas_pdf, file_bytes, password)
+    parsed = await _parse_cas_via_api(file_bytes, source_filename, password)
 
     # Reject statement variants we can't build a real portfolio from — BEFORE any
     # DB writes, and before the reset wipes the user's prior data:
