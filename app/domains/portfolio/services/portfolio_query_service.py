@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable, Sequence
 
 from anthropic import AuthenticationError as AnthropicAuthenticationError
 
 from app.core.config import get_settings
-from app.domains.ai_engine.common import ensure_ai_agents_path
+from app.domains.ai_engine.common import ensure_ai_agents_path, with_gap_notes
+from app.domains.ai_engine.types import AIModule
+from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
 
 ensure_ai_agents_path()
 
@@ -428,15 +431,35 @@ def _build_portfolio_context(user: Any) -> PortfolioContext | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_history(history: list[dict[str, str]] | None) -> list[ConversationTurn]:
+# Prior REPLIES enter as excerpts. A goal-planning answer runs to ~14,000 chars
+# (30-year cashflow table); six of those at the shared 24,000-char cap drown the
+# prompt, and measured live the agent then answered the previous turn's thread
+# instead of the question asked. History is here to resolve pronouns and
+# shorthand — an excerpt does that, the full table only adds noise. The
+# customer's own messages are never truncated: they are short, and they are the
+# questions.
+_MAX_HISTORY_REPLY_CHARS = 600
+_HISTORY_EXCERPT_MARKER = " …"
+
+
+def _build_history(history: list[dict[str, Any]] | None) -> list[ConversationTurn]:
+    """Map chat history to the agent's turn model, oldest first.
+
+    ConversationTurn has no timestamp field, so the age of a resumed thread rides
+    inside the content — this agent misread a fortnight-old goal question as live
+    context on 2026-07-25. Annotate BEFORE slicing so a gap that falls on the
+    window edge still shows.
+    """
     if not history:
         return []
     turns: list[ConversationTurn] = []
-    for msg in history[-6:]:
+    for msg in with_gap_notes(history)[-6:]:
         role = msg.get("role")
         content = msg.get("content") or ""
         if role not in ("user", "assistant"):
             continue
+        if role == "assistant" and len(content) > _MAX_HISTORY_REPLY_CHARS:
+            content = content[:_MAX_HISTORY_REPLY_CHARS] + _HISTORY_EXCERPT_MARKER
         turns.append(ConversationTurn(role=role, content=content))
     return turns
 
@@ -446,24 +469,39 @@ def _build_history(history: list[dict[str, str]] | None) -> list[ConversationTur
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PortfolioQueryOutcome:
+    """The reply, plus the agent's (advisory) view of where the question belongs.
+
+    ``suggested_intent`` is REPORTED, NEVER ACTED ON — it exists so we can
+    measure router/agent disagreement before deciding whether a routing handoff
+    is worth building. Local failure paths below return text only.
+    """
+
+    text: str
+    suggested_intent: str | None = None
+
+
 async def generate_portfolio_query_response(
     user: Any,
     user_question: str,
-    conversation_history: list[dict[str, str]] | None = None,
-) -> str:
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> PortfolioQueryOutcome:
     """Answer the user's portfolio question via the AI_Agents.portfolio_query agent."""
 
     portfolio = _build_portfolio_context(user)
     if portfolio is None:
         first_name = getattr(user, "first_name", None) or "there"
-        return _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
+        return PortfolioQueryOutcome(
+            _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
+        )
 
     api_key = (
         get_settings().get_anthropic_portfolio_query_key()
         or get_settings().get_anthropic_key()
     )
     if not api_key:
-        return _MISSING_KEY_REPLY
+        return PortfolioQueryOutcome(_MISSING_KEY_REPLY)
 
     client_ctx = _build_client_context(user)
     history = _build_history(conversation_history)
@@ -477,15 +515,18 @@ async def generate_portfolio_query_response(
         )
     except FileNotFoundError as exc:
         logger.warning("portfolio_query: market commentary file missing — %s", exc)
-        return _MISSING_COMMENTARY_REPLY
+        return PortfolioQueryOutcome(_MISSING_COMMENTARY_REPLY)
     except AnthropicAuthenticationError as exc:
         logger.warning("portfolio_query: Anthropic authentication failed — %s", exc)
-        return _INVALID_ANTHROPIC_KEY_REPLY
+        return PortfolioQueryOutcome(_INVALID_ANTHROPIC_KEY_REPLY)
     except Exception:
         logger.exception("portfolio_query: orchestrator failed")
-        return _GENERIC_FAILURE_REPLY
+        return PortfolioQueryOutcome(_GENERIC_FAILURE_REPLY)
 
-    return result.answer or result.redirect_message or _GENERIC_FAILURE_REPLY
+    return PortfolioQueryOutcome(
+        text=result.answer or result.redirect_message or _GENERIC_FAILURE_REPLY,
+        suggested_intent=result.suggested_intent,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -500,8 +541,43 @@ async def answer_portfolio_query(question: str, ctx) -> str:
     user ORM graph and the conversation history this function needs, so the
     flow can call us with just ``(question, ctx)``.
     """
-    return await generate_portfolio_query_response(
+    outcome = await generate_portfolio_query_response(
         user=ctx.user_ctx,
         user_question=question,
         conversation_history=ctx.conversation_history,
     )
+    await _record_intent_disagreement(question, ctx, outcome)
+    return outcome.text
+
+
+async def _record_intent_disagreement(
+    question: str,
+    ctx,
+    outcome: PortfolioQueryOutcome,
+) -> None:
+    """Note that the agent would have sent this question elsewhere.
+
+    Reaching this module means the router chose ``portfolio_query``, so a
+    ``suggested_intent`` naming anything else IS the disagreement. Recorded, not
+    acted on — the reply above is already the customer's. Best-effort: telemetry
+    must never cost a turn.
+    """
+    suggested = outcome.suggested_intent
+    if not suggested or suggested == AIModule.PORTFOLIO_QUERY.value:
+        return
+    try:
+        await record_ai_module_run(
+            getattr(ctx, "db", None),
+            user_id=ctx.effective_user_id,
+            session_id=getattr(ctx, "session_id", None),
+            module=AIModule.PORTFOLIO_QUERY.value,
+            reason="intent_disagreement",
+            intent_detected=AIModule.PORTFOLIO_QUERY.value,
+            extra={
+                "router_intent": AIModule.PORTFOLIO_QUERY.value,
+                "agent_suggested_intent": suggested,
+                "question": question[:500],
+            },
+        )
+    except Exception:
+        logger.exception("portfolio_query: failed to record intent disagreement")

@@ -122,7 +122,7 @@ def _start_speculative_detect(ctx: TurnContext) -> asyncio.Task | None:
 
 
 def _is_llm_auth_failure(exc: BaseException) -> bool:
-    """Anthropic/OpenAI rejected credentials — expected until .env keys are valid."""
+    """The LLM provider rejected our credentials — expected until .env keys are valid."""
     if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
         if exc.response.status_code == 401:
             return True

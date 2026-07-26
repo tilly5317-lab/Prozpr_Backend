@@ -331,10 +331,11 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
             }
         )
 
-    # Annual cashflow table for the formatter LLM. Mirrors the columns the
-    # formatter renders (chat.py §5 "Annual Cashflow Table"); the EMI splits and
-    # corpus_opening are persisted in CashflowAnnualRow but the table never shows
-    # them, so they're omitted here to keep the prompt small.
+    # Annual cashflow rows for the formatter LLM — reference material for
+    # year-specific questions, NOT a table to render (the reply never reproduces
+    # the year-by-year statement; the frontend charts it). The EMI splits and
+    # corpus_opening are persisted in CashflowAnnualRow but aren't useful to the
+    # formatter, so they're omitted here to keep the prompt small.
     facts["annual_cashflow"] = []
     for row in output.annual_cashflow:
         facts["annual_cashflow"].append(

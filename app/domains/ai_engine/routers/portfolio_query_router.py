@@ -22,5 +22,5 @@ async def portfolio_answer(
     payload: PortfolioQueryRequest,
     user_ctx: User = Depends(get_ai_user_context),
 ):
-    text = await generate_portfolio_query_response(user_ctx, payload.question)
-    return PortfolioQueryResponse(answer_markdown=text)
+    outcome = await generate_portfolio_query_response(user_ctx, payload.question)
+    return PortfolioQueryResponse(answer_markdown=outcome.text)

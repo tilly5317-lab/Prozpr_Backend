@@ -66,8 +66,8 @@ class _LLMOutput(BaseModel):
 
     Constraining ``intent`` to a literal causes the Anthropic tool schema to
     enforce the enum at the API level — the LLM physically cannot emit an
-    unknown intent string, which avoids silently falling back to OpenAI on
-    typos / hallucinated categories.
+    unknown intent string, so typos / hallucinated categories cannot reach the
+    router.
     """
 
     intent: _IntentLiteral = Field(description="The classified intent category.")
@@ -165,8 +165,8 @@ class IntentClassifier:
             # `reasoning` is capped to a ≤12-word phrase (schema + prompt), so
             # normal output is well under 100 tokens. 1024 stays as pure headroom:
             # hitting max_tokens truncates the tool call, which raises a
-            # ValidationError and drops the turn to the OpenAI fallback — and
-            # headroom costs nothing (billing is per generated token).
+            # ValidationError and fails the turn (there is no second provider) —
+            # and headroom costs nothing (billing is per generated token).
             max_tokens=1024,
         )
         self.chain = llm.with_structured_output(_LLMOutput)

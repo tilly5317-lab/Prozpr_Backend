@@ -1,7 +1,7 @@
 """Environment-backed settings (``.env`` loading, database URL, API keys).
 
 ``Settings`` centralizes secrets and feature flags: JWT auth, CORS (comma-separated origins,
-``ALLOWED_ORIGINS=*`` / ``0.0.0.0/0`` / ``any`` for allow-any), OpenAI, optional shared
+``ALLOWED_ORIGINS=*`` / ``0.0.0.0/0`` / ``any`` for allow-any), optional shared
 ``ANTHROPIC_API_KEY``, and feature-specific Anthropic keys (intent, market commentary,
 asset allocation, risk profiling, portfolio query) resolved with sensible fallbacks.
 ``get_settings`` is cached so repeated access does not re-parse the environment.
@@ -441,16 +441,6 @@ class Settings:
         """Shared secret the signup-sheet Apps Script checks so strangers
         cannot post junk rows if the webhook URL ever leaks."""
         v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
-        return v or None
-
-    @staticmethod
-    def get_openai_api_key() -> str | None:
-        """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
-        v = (_getenv("OPENAI_API_KEY") or "").strip()
-        if v:
-            return v
-        load_dotenv(_backend_dir / ".env", override=False, encoding="utf-8-sig")
-        v = (_getenv("OPENAI_API_KEY") or "").strip()
         return v or None
 
 
