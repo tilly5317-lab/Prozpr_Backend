@@ -1,7 +1,7 @@
 # Ask PI · Additional Investment Thesis
 
 *Why fresh money goes where it goes — and why it never chases last quarter's winner*
-*Thesis version 1.0 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -20,7 +20,7 @@ Fresh money should close the gap between the portfolio you hold and the portfoli
 | **1. Buy-only, by design** | This step only adds money. It never sells, swaps or trims — so a fresh investment can never trigger a tax bill or an exit you didn't ask for. If your existing portfolio needs re-shaping, that's a rebalance, handled separately with full tax awareness. |
 | **2. Fill the biggest gaps first** | A lumpsum is split across the parts of your plan that are furthest below their target, in proportion to how far below they are. Bigger gaps get more money. This is the opposite of performance-chasing: the money flows to what your plan is missing, not to what went up recently. |
 | **3. A SIP follows your goals; a lumpsum follows your holdings** | One-time money is deployed against your actual portfolio — filling today's gaps. Monthly money is pointed at the goal horizon that needs funding soonest, because a SIP is a stream that builds toward a date, not a patch on today's shape. Two different questions, two different answers. |
-| **4. The emergency reserve is never a deployment target** | Fresh investment money never gets routed into the emergency cushion. The reserve is protection, not a market position. |
+| **4. Fresh money follows the plan, not a rush to inflate the reserve** | We don't invent reasons to add to your emergency reserve — it isn't a growth engine and we don't treat it as one. But if your low-volatility holdings sit below what the plan calls for overall (of which the reserve is one part), a lumpsum brings that up to target the same way it would for any other underfunded part of your plan. |
 | **5. Locked and untradeable holdings sit outside fresh deployment** | No fresh money goes into tax-saving (ELSS) funds — their lock-in cuts against the flexibility fresh money should keep — and none goes into direct stocks or PMS, where fund-style deployment doesn't apply. Their value still counts toward your plan; they're just not buy targets. |
 | **6. No single fund dominates the deployment** | Each part of your plan maps to funds ranked by our research. Money goes to the top-ranked fund first, but only up to a cap; the overflow walks down to the next-ranked fund we have conviction in. You end up with meaningful positions in funds we rate highly, never a single outsized bet. |
 | **7. If money can't be placed, we say so** | Caps and eligibility rules occasionally mean part of an amount can't be deployed as asked. That remainder is reported to you with the reason — never quietly absorbed, never silently dropped. |
@@ -32,9 +32,9 @@ We are a fresh-money deployment approach — not a market-timing engine, not a f
 
 Every Ask PI deployment moves through four deliberate, auditable steps. We can walk through the reasoning behind any of them on demand.
 
-### Step 0 — Refresh the plan with the new money included
+### Step 0 — For a lumpsum, refresh the plan with the new money included
 
-Before anything is placed, the practical allocation step recomputes your plan on the corpus *including* the fresh amount — pinned to your actual holdings. This is the honest baseline: the target your portfolio should have once the new money is in.
+Before a lumpsum is placed, the practical allocation step recomputes your plan on the corpus *including* the fresh amount — pinned to your actual holdings. This is the honest baseline: the target your portfolio should have once the new money is in. (A SIP doesn't trigger this refresh — it's judged against your goal timeline instead; see Step 1.)
 
 ### Step 1 — Split the amount
 
@@ -77,4 +77,4 @@ This document is a directional reference for the *why* of fresh-money deployment
 
 ---
 
-*Ask PI · Additional Investment Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Additional Investment Thesis v1.1 · Owner: Investment Research · Cycle: reviewed quarterly*

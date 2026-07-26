@@ -480,6 +480,10 @@ class PortfolioQueryOutcome:
 
     text: str
     suggested_intent: str | None = None
+    # Which internal path the agent took: "X" out of scope, "M" market, "P"
+    # portfolio. Telemetry only — this agent has no detector and nothing branches
+    # on it; the choice has already shaped the reply by the time we see it.
+    path: str | None = None
 
 
 async def generate_portfolio_query_response(
@@ -526,6 +530,7 @@ async def generate_portfolio_query_response(
     return PortfolioQueryOutcome(
         text=result.answer or result.redirect_message or _GENERIC_FAILURE_REPLY,
         suggested_intent=result.suggested_intent,
+        path=result.path,
     )
 
 
@@ -546,8 +551,32 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         user_question=question,
         conversation_history=ctx.conversation_history,
     )
+    await _record_path(ctx, outcome)
     await _record_intent_disagreement(question, ctx, outcome)
     return outcome.text
+
+
+async def _record_path(ctx, outcome: PortfolioQueryOutcome) -> None:
+    """Note which of Path X / M / P the agent chose.
+
+    Kept as its own row rather than folded into the disagreement row: the path is
+    recorded every answered turn, a disagreement is rare, and mixing them would
+    make either one awkward to query. Best-effort — telemetry never costs a turn.
+    """
+    if not outcome.path:
+        return
+    try:
+        await record_ai_module_run(
+            getattr(ctx, "db", None),
+            user_id=ctx.effective_user_id,
+            session_id=getattr(ctx, "session_id", None),
+            module=AIModule.PORTFOLIO_QUERY.value,
+            reason="path",
+            intent_detected=AIModule.PORTFOLIO_QUERY.value,
+            extra={"path": outcome.path},
+        )
+    except Exception:
+        logger.exception("portfolio_query: failed to record path")
 
 
 async def _record_intent_disagreement(

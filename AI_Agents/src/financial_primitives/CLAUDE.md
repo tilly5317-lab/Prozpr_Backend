@@ -14,11 +14,11 @@ Shared, deterministic financial-math kernel: pure functions, no LLM calls and no
 
 ## Gotchas & invariants
 - **No single day-count basis.** `xirr` annualises on `_DAYS_PER_YEAR = 365.0` (`xirr.py`) while `dates.year_fraction` uses calendar-days / 365.25 (`dates.py`). Deliberately different — don't "unify" them without checking each caller.
-- **Sign conventions are the contract.** `xirr`/`twr`: outflows negative, inflows positive. `annuity`: positive principal in, positive payments out (the `pmt`/`ipmt` wrappers flip the sign internally).
+- **Sign conventions are the contract — and `xirr` and `twr` are opposites.** `xirr` is investor-centric: a purchase is negative, a redemption positive (`xirr.py`). `twr` is portfolio-centric: that same purchase is a *positive* external cashflow, a redemption negative (`twr.py`). Feed one transaction ledger to both without flipping the sign and the wealth index silently double-counts every contribution. `annuity`: positive principal in, positive payments out (the `pmt`/`ipmt` wrappers flip the sign internally).
 - **`RATEConvergenceError` has two triggers** — non-convergence *and* an economically implausible solved rate, not just failure to converge (`annuity.py`).
 
 ## Shared library
-Library, not an agent — no pipeline, not an LLM tool. Imported cross-agent (e.g. `cashflow_statement/`) and by the app layer (`xirr` powers `app/domains/portfolio/services/benchmark_service.py` and the mutual-funds XIRR service) — the documented exception to "agents don't import each other."
+Library, not an agent — no pipeline, not an LLM tool. Imported cross-agent (e.g. `cashflow_statement/`) and by the app layer (`xirr` powers `app/domains/portfolio/services/benchmark_service.py` and the mutual-funds XIRR service; `twr_wealth_index` powers `app/domains/portfolio/services/twr_service.py`) — the documented exception to "agents don't import each other."
 
 ## Don't read
 - `__pycache__/`.

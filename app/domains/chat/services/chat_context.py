@@ -85,11 +85,34 @@ async def load_conversation_history(
         turn = list(group)
         question = next((m for m in turn if m.role is ChatMessageRole.user), None)
         answer = next((m for m in turn if m.role is ChatMessageRole.assistant), None)
-        if question is None or answer is None:
+        if question is None:
+            # Assistant-only: the turn errored and the brain's apology was the
+            # only row written. Nothing the customer said, nothing worth reading.
             continue
         history.append(_entry(question, asked_at))
-        history.append(_entry(answer, asked_at))
+        history.append(
+            _entry(answer, asked_at)
+            if answer is not None
+            else _failed_turn(asked_at)
+        )
     return history
+
+
+# Stands in for the reply on a turn that errored before one was written. The
+# customer's question is kept — dropping it lost the antecedent for a follow-up
+# like "try again" — but a lone user message reads to an LLM as a live, unanswered
+# question, which is what sent the portfolio agent down the wrong path on
+# 2026-07-25. Saying plainly that nothing was sent removes the ambiguity.
+FAILED_TURN_MARKER = "(this turn failed — no reply was sent to the customer)"
+
+
+def _failed_turn(asked_at: datetime) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": FAILED_TURN_MARKER,
+        "intent": None,
+        "asked_at": asked_at,
+    }
 
 
 def _entry(msg: ChatMessage, asked_at: datetime) -> dict[str, Any]:

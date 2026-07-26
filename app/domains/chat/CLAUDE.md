@@ -11,7 +11,7 @@ Persistence + the HTTP send endpoint only. Orchestration of the chat *turn* live
 
 ## Gotchas & invariants
 
-- `chat_title_service.generate_chat_title` is a best-effort Haiku call that names a session from its first turn; on any error it falls back to a deterministic intent+snippet label and never raises, so titling can't block the reply (`services/chat_title_service.py`).
+- **A turn, not a message, is the unit of history.** `load_conversation_history` groups rows by shared `created_at` (both rows are written in one transaction). A turn missing its assistant row KEEPS the customer's question and gets `FAILED_TURN_MARKER` in the assistant slot — dropping the question loses the antecedent for a follow-up like "try again", but a lone user message reads to an LLM as a live unanswered question, which sent the portfolio agent down its goal-planning guardrail on 2026-07-25. Assistant-only turns (the brain's apology, nothing the customer said) are dropped outright (`services/chat_context.py`, `FAILED_TURN_MARKER`).
 
 ## Don't read
 

@@ -135,3 +135,11 @@ issue_reports/
 /app/domains/additional_investment/models/tests
 /app/domains/asset_allocation/services/aa_engine/tests
 /app/domains/asset_allocation/services/aa_engine/tests
+/AI_Agents/lifecycle_sim_testing
+/app/domains/profile/services/_effective_risk/tests
+/app/routers/tests
+/app/domains/intent_classifier/tests
+/app/domains/chat/tests
+/app/domains/cashflow/services/goal_planning_engine/tests
+/app/domains/cashflow/services/goal_planning_engine/tests
+/app/domains/asset_allocation/services/tests

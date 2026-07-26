@@ -1,11 +1,17 @@
-"""Build a self-contained HTML viewer for docs/ARCHITECTURE.md.
+"""Build the self-contained HTML viewers for the Tech_reference_docs markdown.
 
-Reads docs/ARCHITECTURE.md, embeds its content in a single HTML page that
-renders markdown via marked.js and Mermaid diagrams via mermaid.js (both
-loaded from CDN). Output: docs/ARCHITECTURE.html.
+Each doc is a `.md` source plus an `.html` viewer shell that renders it via
+marked.js + mermaid.js (CDN). The markdown is embedded inside the shell in a
+``<script type="text/markdown" id="source-md">`` block.
 
-Run from anywhere:
-    python3 scripts/build_architecture_html.py
+The primary path SWAPS that block in the existing `.html` rather than
+re-rendering from ``HTML_TEMPLATE``. The live shells carry hand-edits the
+template never received (sidebar width, title), so re-rendering would silently
+revert them. ``HTML_TEMPLATE`` is the fallback used only to bootstrap a doc whose
+`.html` does not exist yet.
+
+Run from the repo root:
+    python3 -m scripts.build_reference_docs
 """
 
 from __future__ import annotations
@@ -13,8 +19,16 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MD_PATH = ROOT / "docs" / "ARCHITECTURE.md"
-HTML_PATH = ROOT / "docs" / "ARCHITECTURE.html"
+_TECH_DOCS = ROOT / "AI_Agents" / "Reference_docs" / "Tech_reference_docs"
+
+MARKER_OPEN = '<script type="text/markdown" id="source-md">'
+MARKER_CLOSE = "</script>"
+
+# doc key -> markdown source. The .html sibling is the build target.
+DOCS: dict[str, Path] = {
+    "architecture": _TECH_DOCS / "ARCHITECTURE.md",
+    "chat_flow": _TECH_DOCS / "CHAT_FLOW.md",
+}
 
 
 HTML_TEMPLATE = r"""<!doctype html>
@@ -198,7 +212,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     <div class="header-strip">
       <div></div>
       <div class="meta">
-        Source: <a href="ARCHITECTURE.md">docs/ARCHITECTURE.md</a> · Rebuild: <code>python3 scripts/build_architecture_html.py</code>
+        Source: <a href="ARCHITECTURE.md">ARCHITECTURE.md</a> · Rebuild: <code>python3 -m scripts.build_reference_docs</code>
       </div>
     </div>
     <article id="content"></article>
@@ -293,23 +307,64 @@ __MARKDOWN_CONTENT__
 """
 
 
-def main() -> None:
-    if not MD_PATH.exists():
-        raise SystemExit(f"Source markdown not found: {MD_PATH}")
-    md = MD_PATH.read_text(encoding="utf-8")
+def extract_markdown(html: str) -> str:
+    """Return the markdown embedded in the source-md block."""
+    start = html.find(MARKER_OPEN)
+    if start == -1:
+        raise ValueError(f"marker not found: {MARKER_OPEN}")
+    start += len(MARKER_OPEN)
+    end = html.find(MARKER_CLOSE, start)
+    if end == -1:
+        raise ValueError("unterminated source-md block")
+    return html[start:end].strip("\n")
 
-    # The MD goes inside a <script type="text/markdown"> block. To survive that
-    # safely we only need to ensure it contains no literal "</script". None of
-    # the current content does; assert defensively in case future edits add one.
-    if "</script" in md.lower():
-        raise SystemExit(
-            "ARCHITECTURE.md contains a literal '</script' which would break "
-            "the HTML embedding. Rephrase before rebuilding."
+
+def replace_markdown(html: str, markdown: str) -> str:
+    """Swap the source-md block's content, leaving the shell byte-identical.
+
+    The markdown sits inside a <script> element, so a literal "</script" in the
+    source would terminate the block early and break the page.
+    """
+    if "</script" in markdown.lower():
+        raise ValueError(
+            "markdown contains a literal '</script' which would break the HTML "
+            "embedding. Rephrase before rebuilding."
         )
+    start = html.find(MARKER_OPEN)
+    if start == -1:
+        raise ValueError(f"marker not found: {MARKER_OPEN}")
+    body_start = start + len(MARKER_OPEN)
+    end = html.find(MARKER_CLOSE, body_start)
+    if end == -1:
+        raise ValueError("unterminated source-md block")
+    return f"{html[:body_start]}\n{markdown}\n{html[end:]}"
 
-    html = HTML_TEMPLATE.replace("__MARKDOWN_CONTENT__", md)
-    HTML_PATH.write_text(html, encoding="utf-8")
-    print(f"Wrote {HTML_PATH.relative_to(ROOT)} ({len(html):,} bytes)")
+
+def build(key: str) -> Path:
+    """Regenerate one doc's .html from its .md. Returns the html path."""
+    md_path = DOCS[key]
+    html_path = md_path.with_suffix(".html")
+    if not md_path.exists():
+        raise SystemExit(f"Source markdown not found: {md_path}")
+    md = md_path.read_text(encoding="utf-8").strip("\n")
+
+    if html_path.exists():
+        # Preserve the existing shell exactly — it carries hand-edits the
+        # bundled HTML_TEMPLATE does not have (sidebar width, title).
+        html = replace_markdown(html_path.read_text(encoding="utf-8"), md)
+    else:
+        if "</script" in md.lower():
+            raise SystemExit(f"{md_path.name} contains a literal '</script'.")
+        html = HTML_TEMPLATE.replace("__MARKDOWN_CONTENT__", md)
+
+    html_path.write_text(html, encoding="utf-8")
+    print(f"Wrote {html_path.relative_to(ROOT)} ({len(html):,} bytes)")
+    return html_path
+
+
+def main() -> None:
+    for key in DOCS:
+        build(key)
 
 
 if __name__ == "__main__":

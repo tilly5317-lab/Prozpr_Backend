@@ -1,20 +1,20 @@
 # cashflow_statement/ — Goal-planning engine + agent
 
-Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile, retirement, properties, custom goals, one-off events) and produces a `GoalPlanningOutput` (headline status, per-goal funding, monthly & annual cashflow projections). A thin LangChain/LangGraph agent wraps the engine for conversational goal extraction and lever proposal.
+Pure-Python financial-planning engine that takes a `GoalPlanningInput` (profile, retirement, properties, custom goals, one-off events) and produces a `GoalPlanningOutput` (headline status, per-goal funding, monthly & annual cashflow projections). A thin LangChain/LangGraph agent wraps the engine for conversational goal extraction and lever proposal — **not on the production path**: `app/` imports only `engine` and `models`, and the live customer conversation is driven by the goal-planning chat bridge (`app/domains/cashflow/services/goal_planning_engine/`), not by this agent.
 
 ## Child modules
 
-- **engine/** — 8-stage projection pipeline (profile → retirement → mortgages → properties → goals_table → cashflow → funding → summary), one file per stage. Plus `pipeline.py` (orchestration), `_types.py` (internal types), `dates.py` (FY helpers + ROUND_THOUSAND), `exceptions.py`. Pure-Python; no LLM calls.
-- **agent/** — LangGraph agent driving the engine from natural language: `extractor.py` (Claude Haiku structured-output extractor), `graph.py` + `nodes.py` (StateGraph wiring), `state.py`, `tools.py` (engine-invoking tools), `levers.py` (deterministic feasibility levers A–F), `prompts.py`.
-- **Testing/** — pytest suites: `unit/` (per-stage), `integration/` (end-to-end), `agent/` (extractor + levers), `boundary/` (public-API surface).
+- **engine/** — 8-stage projection pipeline (profile → retirement → mortgages → properties → goals_table → cashflow → funding → summary), one file per stage, orchestrated by `pipeline.py`. Pure-Python; no LLM calls.
+- **agent/** — LangGraph agent driving the engine from natural language (Haiku extractor, StateGraph wiring, engine-invoking tools, deterministic feasibility levers A–F). Not on the production path.
+- **Testing/** — pytest suites (per-stage, end-to-end, agent, public-API boundary).
 
 ## Files at this level
 
 - `models.py` — all public Pydantic contracts (inputs, outputs, agent types, enums). The single source of truth for the engine↔agent boundary.
 - `__init__.py` — public API re-exports; the app layer (cashflow domain services) imports only from here.
-- `summarizer.py` — Haiku LCEL chain turning a `GoalPlanningOutput` into a customer-facing `PlanSummary`. Rupee values are pre-formatted to Indian notation; the LLM copies them verbatim, never doing its own arithmetic.
+- `summarizer.py` — Haiku LCEL chain turning a `GoalPlanningOutput` into a customer-facing `PlanSummary`. Rupee values are pre-formatted to Indian notation; the LLM copies them verbatim, never doing its own arithmetic. **No production caller**: `summarize_plan` runs only in `dev_run.py` and the LangGraph agent's finalize node, and neither is wired into `app/` — the chat bridge dropped the call on purpose (it double-narrated against the answer formatter, and an app-side test now asserts chat never re-imports it), while the REST path builds its snapshot from `compute_full_projection`, which never populates `GoalPlanningSnapshot.summary`.
 - `dev_run.py` — developer smoke-test; runs the engine on a sample profile and writes `dev_artifacts/data.json` + `data.js`. Run as `python -m cashflow_statement.dev_run` from `src/`.
-- `Cash_flow.html` — static HTML viewer for `dev_artifacts/data.js`; end-user display logic, not docs. (`dev_run.py` still prints the old `viewer.html` name.)
+- `Cash_flow.html` — static HTML viewer for `dev_artifacts/data.js`; end-user display logic, not docs.
 
 ## Conventions
 

@@ -4,7 +4,7 @@ No business logic — only the infra every domain depends on.
 
 ## Files
 
-- `config.py` — `get_settings()`: DB URL, `JWT_SECRET`, `ENCRYPTION_KEY`, CORS origins, per-feature Anthropic keys with `ANTHROPIC_API_KEY` as shared fallback.
+- `config.py` — `get_settings()`: DB URL, `JWT_SECRET`, `ENCRYPTION_KEY`, CORS origins, per-feature Anthropic keys with `ANTHROPIC_API_KEY` as shared fallback. Answer-formatter calls resolve their key per calling module via `get_anthropic_formatter_key_for(module_name)` (`<MODULE>_API_KEY` → `ANTHROPIC_<MODULE>_API_KEY` → `ANSWER_FORMATTER_API_KEY` → `ANTHROPIC_API_KEY`) so a module's reply cost is attributable; the `ANTHROPIC_`-prefixed spelling is what lets goal planning resolve (`ANTHROPIC_GOAL_PLANNING_API_KEY`). A no-op until distinct keys are actually set in `.env` (`config.py:338-356`).
 - `database.py` — `Base` (`DeclarativeBase`), async engine + session factory, `get_db()` dependency, `create_all_tables`, `dispose_engine`, `apply_postgres_schema_patches`.
 - `dependencies.py` — `get_current_user` JWT auth; `get_effective_user` family-member resolver (reads `X-Family-Member-Id` header); `get_ai_user_context` User-with-relations loader for AI handlers.
 - `security.py` — password hashing (`bcrypt`) + JWT encode/decode.

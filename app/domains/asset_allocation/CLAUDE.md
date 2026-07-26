@@ -1,8 +1,8 @@
 # app/domains/asset_allocation/ — allocation runs, buckets, aggregates, targets (persistence + reads)
 
 ## Entry / contract
-- The AI bridge that *produces* allocations lives in `app/domains/ai_engine`; this domain only persists and reads them.
-- `allocation_persist_service` is the single write surface, called by `ai_engine.asset_allocation_bridge`.
+- Allocations are produced HERE, in `services/aa_engine/`; `asset_allocation_module_service.run(turn, ctx, prior)` is the ONLY gateway the brain calls (it lazy-imports `aa_engine/chat.py` for its `@register` side-effect, then dispatches).
+- The live write surface is `aa_engine/persistence/` (`save_asset_allocation_from_engine_output`), called from `aa_engine/service.py` alongside `allocation_recommendation_persist_service`. `allocation_persist_service.persist_asset_allocation_run` is currently UNCALLED — check before reusing it.
 
 ## Layers
 - **models/** — `AssetAllocationRun` + `AssetAllocationRunTarget` + bucket children (asset_class, run_target, subgroup) + aggregate enums.

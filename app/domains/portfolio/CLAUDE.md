@@ -5,7 +5,7 @@
 - **models/** — `Portfolio` (+ `PortfolioAllocation` / `PortfolioHolding` / `PortfolioHistory` in one file); `UserPortfolioNavHistory` (daily series); `PortfolioNetworthJob` (backfill lifecycle row the UI polls).
 - **schemas/** — portfolio + history/nav-history payloads.
 - **routers/** — `/portfolio` (detail, allocations, holdings, history, nav-history, TWR, net-worth build/status; deprecated `/finvu/sync`).
-- **services/** — `portfolio_service`, `nav_history_service`, `networth_history_service`, `benchmark_service` (portfolio-vs-Nifty-50 chart), `portfolio_query_service` (gateway to the `AI_Agents` portfolio_query agent).
+- **services/** — `portfolio_service`, `nav_history_service`, `networth_history_service`, `benchmark_service` (portfolio-vs-Nifty-50 chart), `twr_service` (DB adapter feeding the `financial_primitives.twr_wealth_index` kernel for the Returns tab), `allocation_rollup` (the SINGLE source for the Equity/Debt/Others mix — shared by the dashboard donut and chat's current-mix narration in `aa_engine`, so the two can never disagree; callers add their own cash bucket), `portfolio_query_service` (gateway to the `AI_Agents` portfolio_query agent).
 
 ## Gotchas & invariants
 

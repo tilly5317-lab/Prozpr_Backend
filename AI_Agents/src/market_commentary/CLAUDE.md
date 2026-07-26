@@ -3,7 +3,7 @@
 Gathers 14 macro indicators via Claude + Anthropic web_search, extracts them into a `MacroSnapshot`, then renders a markdown commentary. Consumed downstream by `asset_allocation_pydantic/` (caller-supplied score fields) and read as a file by `portfolio_query/`.
 
 ## Entry / contract
-- `main.py` exposes `MarketCommentaryAgent`; `.run()` does websearch → extract → cache → doc-gen and WRITES `market_commentary_latest.json` + `.md` to its `output_dir` (the caller points this at `AI_Agents/Reference_docs/`). `_DOCUMENT_FILENAME` / `_CACHE_FILENAME` name those files (`main.py`).
+- `main.py` exposes `MarketCommentaryAgent(api_key, output_dir, generate_document=True)`; the caller points `output_dir` at `AI_Agents/Reference_docs/`. Production calls `run_from_cache(max_age_sec)` first and only falls through to `.run()` (websearch → extract → cache → doc-gen). `.run()` writes `market_commentary_latest.json` only when the snapshot is non-empty — an all-null run with no cache on disk leaves the JSON untouched but still regenerates the `.md` from nulls — and writes the `.md` only when `generate_document=True`. `_DOCUMENT_FILENAME` / `_CACHE_FILENAME` name those files (`main.py`).
 
 ## Files
 - `main.py` — agent, web-search extraction, `CacheManager`.

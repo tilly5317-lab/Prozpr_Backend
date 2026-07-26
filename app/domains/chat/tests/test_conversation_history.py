@@ -26,7 +26,10 @@ from sqlalchemy.ext.asyncio import (
 
 import app.all_models  # noqa: F401  -- registers FK target tables with Base.metadata
 from app.domains.chat.models.chat import ChatMessage, ChatMessageRole, ChatSession
-from app.domains.chat.services.chat_context import load_conversation_history
+from app.domains.chat.services.chat_context import (
+    FAILED_TURN_MARKER,
+    load_conversation_history,
+)
 
 T0 = datetime(2026, 7, 12, 9, 3, 21, tzinfo=timezone.utc)
 
@@ -67,8 +70,15 @@ async def _seed(db: AsyncSession, rows: list[tuple[str, str, datetime]]) -> uuid
 
 
 @pytest.mark.asyncio
-async def test_unanswered_user_message_is_not_surfaced(db_session):
-    """The exact failure mode: a half-turn whose reply never landed."""
+async def test_a_failed_turn_keeps_the_question_and_marks_it_unanswered(db_session):
+    """The customer's words survive; the dangling-question ambiguity does not.
+
+    Dropping the question outright (the first fix) lost real context: a customer
+    whose turn errored and who then types "try again" left the next agent with no
+    idea what they meant. Keeping it bare is what caused the 2026-07-25 incident —
+    it reads as a live question. So keep the words and say plainly that no reply
+    was sent.
+    """
     session_id = await _seed(
         db_session,
         [
@@ -81,7 +91,10 @@ async def test_unanswered_user_message_is_not_surfaced(db_session):
 
     history = await load_conversation_history(session_id, db_session)
 
-    assert [m["content"] for m in history] == ["answered question", "the answer"]
+    assert [m["role"] for m in history] == ["user", "assistant", "user", "assistant"]
+    assert history[2]["content"] == "Wil I be able to meet my goals?"
+    assert history[3]["content"] == FAILED_TURN_MARKER
+    assert history[3]["intent"] is None
 
 
 @pytest.mark.asyncio

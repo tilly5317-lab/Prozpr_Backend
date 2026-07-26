@@ -144,6 +144,15 @@ _PORTFOLIO_QUERY_TOOL = {
                     "true. Set to null when the answer is in-scope."
                 ),
             },
+            "path": {
+                "type": ["string", "null"],
+                "enum": ["X", "M", "P", None],
+                "description": (
+                    "Which path you took in Step 1: 'X' out of scope, 'M' general "
+                    "market question, 'P' portfolio-specific question. Recorded for "
+                    "review; it does not change your reply. Always set it."
+                ),
+            },
             "suggested_intent": {
                 "type": ["string", "null"],
                 "description": (
