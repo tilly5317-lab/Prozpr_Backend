@@ -21,6 +21,15 @@ def _headers() -> dict[str, str]:
     return {"authkey": AUTH_KEY, "Content-Type": "application/json"}
 
 
+def _mask_number(number: str) -> str:
+    """Last 4 digits only — full mobile numbers must never reach a log sink.
+
+    Logs are exported to PostHog (a US vendor) and retained 14 days; a phone
+    number is a direct identifier for an Indian personal-finance user.
+    """
+    return f"*****{number[-4:]}" if len(number) >= 4 else "*****"
+
+
 def _mobile_international(country_code: str, mobile: str) -> str:
     """Return mobile in MSG91 format: country digits + mobile digits (no +)."""
     cc = "".join(c for c in country_code if c.isdigit())
@@ -41,7 +50,7 @@ async def send_otp(country_code: str, mobile: str, otp_length: int = 6) -> dict:
             json=payload,
         )
     data = resp.json() if resp.status_code != 204 else {}
-    logger.info("MSG91 send_otp %s -> %s %s", number, resp.status_code, data)
+    logger.info("MSG91 send_otp %s -> %s", _mask_number(number), resp.status_code)
     if resp.status_code >= 400:
         raise RuntimeError(data.get("message", f"MSG91 error {resp.status_code}"))
     return data
@@ -58,7 +67,7 @@ async def verify_otp(country_code: str, mobile: str, otp: str) -> dict:
             params=params,
         )
     data = resp.json() if resp.status_code != 204 else {}
-    logger.info("MSG91 verify_otp %s -> %s %s", number, resp.status_code, data)
+    logger.info("MSG91 verify_otp %s -> %s", _mask_number(number), resp.status_code)
     if resp.status_code >= 400:
         raise RuntimeError(data.get("message", f"MSG91 error {resp.status_code}"))
     return data
@@ -72,7 +81,7 @@ async def verify_widget_token(access_token: str) -> dict:
             headers={"Content-Type": "application/json"},
         )
     data = resp.json() if resp.status_code != 204 else {}
-    logger.info("MSG91 verify_widget_token -> %s %s", resp.status_code, data)
+    logger.info("MSG91 verify_widget_token -> %s", resp.status_code)
     if resp.status_code >= 400:
         raise RuntimeError(data.get("message", f"MSG91 error {resp.status_code}"))
     return data
@@ -89,7 +98,7 @@ async def resend_otp(country_code: str, mobile: str, retry_type: str = "text") -
             params=params,
         )
     data = resp.json() if resp.status_code != 204 else {}
-    logger.info("MSG91 resend_otp %s -> %s %s", number, resp.status_code, data)
+    logger.info("MSG91 resend_otp %s -> %s", _mask_number(number), resp.status_code)
     if resp.status_code >= 400:
         raise RuntimeError(data.get("message", f"MSG91 error {resp.status_code}"))
     return data
