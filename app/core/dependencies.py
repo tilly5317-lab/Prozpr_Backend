@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,7 @@ class CurrentUser:
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
@@ -65,6 +66,9 @@ async def get_current_user(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Tag the request so a later 5xx can be attributed to this user without the
+    # exception handler needing DB access. Read in app/core/exceptions.py.
+    request.state.distinct_id = str(user.id)
     return CurrentUser(
         id=user.id,
         country_code=user.country_code,
