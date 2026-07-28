@@ -20,7 +20,10 @@ module.exports = {
       // cover the restart). The May-2026 memory leak it was added to mask was fixed in
       // code; max_memory_restart (below) is the memory backstop now — it restarts only
       // if memory actually climbs to 800M, instead of on a blind request counter.
-      args: "main:app --host 0.0.0.0 --port 8000",
+      // --timeout-graceful-shutdown bounds uvicorn's wait for in-flight requests.
+      // It defaults to unbounded, so without it the lifespan shutdown (and the
+      // telemetry flush in it) may never start before PM2 gives up.
+      args: "main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5",
       interpreter: "none",
       instances: 1,
       exec_mode: "fork",
@@ -32,6 +35,10 @@ module.exports = {
       max_memory_restart: "800M",
       merge_logs: true,
       time: true,
+      // Telemetry flush budget. PM2 SIGKILLs 1600ms after SIGINT by default, which
+      // truncates the PostHog and OTLP batch flushes in lifespan _shutdown().
+      // Sized above uvicorn's 5s graceful wait + the 5s OTLP export timeout ceiling.
+      kill_timeout: 8000,
     },
   ],
 };
