@@ -1,124 +1,40 @@
-"""Observability bootstrap — New Relic APM, plus the PostHog LLM client.
+"""PostHog telemetry — the process-wide client and the backend event emitters.
 
-New Relic (below) must initialise before anything else is imported; PostHog is
-independent of that constraint and is built at lifespan startup instead. Both
-are no-ops unless their key is set, and neither may block boot.
+Three distinct signals, deliberately kept apart because they retain differently:
 
-New Relic APM bootstrap — initialise the agent before the app imports anything.
+- **Events** (``capture_http_request``, LLM traces) — 12 months. Anything that
+  needs long history must be an event.
+- **Exceptions** (``capture_exception``) — PostHog Error Tracking, stack traces.
+- **Spans and logs** — exported over OTLP by ``app/core/otel.py``, ~14 days.
 
-New Relic instruments third-party libraries (Starlette/FastAPI, asyncpg,
-SQLAlchemy, httpx, the stdlib ``logging`` module …) by registering import hooks
-when ``newrelic.agent.initialize()`` runs. For full coverage the agent must be
-initialised **before** those libraries are first imported, so ``init_newrelic()``
-is called as the very first statement in ``app/main.py`` (which every launch path
-— ``uvicorn main:app``, ``uvicorn app.main:app``, ``python main.py`` — imports).
-
-We initialise *programmatically* rather than via the ``newrelic-admin
-run-program`` wrapper because this project keeps all secrets in a ``.env`` file
-loaded by ``python-dotenv`` (see ``app/core/config.py``). The wrapper reads
-``NEW_RELIC_*`` from the real process environment at launch, before that ``.env``
-is loaded; initialising here — after we load ``.env`` ourselves — lets the agent
-pick up ``NEW_RELIC_LICENSE_KEY`` and friends the same way every other secret is
-provided.
-
-Everything here is a **no-op unless ``NEW_RELIC_LICENSE_KEY`` is set**, so local
-dev, CI, and the test suite run completely untouched. Any failure to initialise
-is logged and swallowed — observability must never keep the API from booting.
+The client is built at lifespan startup by ``init_posthog()``. Everything here is
+a no-op unless ``POSTHOG_API_KEY`` is set, and nothing may block boot or raise
+into the request path — telemetry failures must never become user-visible.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
-
-from dotenv import load_dotenv
+import time
 
 logger = logging.getLogger(__name__)
-
-# Prozpr_Backend/  (observability.py is app/core/observability.py → parents[2])
-_BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-_initialized = False
 
 # Process-wide PostHog client (LLM observability). Built once at startup by
 # ``init_posthog()``; None whenever capture is disabled or unavailable.
 _posthog_client: object | None = None
 
 
-def _apply_env_override(settings: object, attr: str, env_name: str) -> None:
-    """Set ``settings.attr`` from ``env_name`` when the env var is non-empty."""
-    value = (os.getenv(env_name) or "").strip()
-    if value:
-        setattr(settings, attr, value)
+SERVICE_NAME = "prozpr-backend"
 
 
-def init_newrelic() -> bool:
-    """Initialise the New Relic agent. Returns True iff the agent was started.
+def _service_version() -> str:
+    """Short git SHA of the running build, or 'unknown'.
 
-    Safe to call more than once (subsequent calls are cheap no-ops). No-op when
-    ``NEW_RELIC_LICENSE_KEY`` is unset or the ``newrelic`` package is missing.
+    Deploys are the single most common explanation for a change in any metric, so
+    every event and span carries the version that produced it.
     """
-    global _initialized
-    if _initialized:
-        return True
-
-    # Load .env so NEW_RELIC_* are visible before agent init — config.py loads
-    # the same file later; load_dotenv is idempotent and won't override real env.
-    for env_path in (_BACKEND_DIR / ".env", Path.cwd() / ".env"):
-        if env_path.exists():
-            load_dotenv(env_path, encoding="utf-8-sig")
-            break
-
-    if not (os.getenv("NEW_RELIC_LICENSE_KEY") or "").strip():
-        logger.info("New Relic disabled (NEW_RELIC_LICENSE_KEY not set).")
-        return False
-
-    try:
-        import newrelic.agent
-    except ImportError:
-        logger.warning(
-            "NEW_RELIC_LICENSE_KEY is set but the 'newrelic' package is not "
-            "installed; skipping APM. Run `pip install -r requirements.txt`."
-        )
-        return False
-
-    config_file = (os.getenv("NEW_RELIC_CONFIG_FILE") or "").strip() or str(
-        _BACKEND_DIR / "newrelic.ini"
-    )
-    # NEW_RELIC_ENVIRONMENT selects the [newrelic:<env>] section in the ini.
-    environment = (os.getenv("NEW_RELIC_ENVIRONMENT") or "").strip() or None
-
-    try:
-        if Path(config_file).exists():
-            newrelic.agent.initialize(config_file, environment)
-        else:
-            # No ini on disk — rely entirely on NEW_RELIC_* environment variables.
-            logger.warning(
-                "newrelic.ini not found at %s; initialising from environment only.",
-                config_file,
-            )
-            newrelic.agent.initialize()
-
-        # Agent 13.x does NOT override settings present in newrelic.ini with the
-        # NEW_RELIC_* environment variables during programmatic initialize() — the
-        # ini's (empty) license_key/app_name shadow the env. Since this project
-        # keeps secrets in .env, push the connection-critical values on explicitly.
-        # Env wins over the ini, matching New Relic's documented precedence.
-        _apply_env_override(newrelic.agent.global_settings(), "license_key", "NEW_RELIC_LICENSE_KEY")
-        _apply_env_override(newrelic.agent.global_settings(), "app_name", "NEW_RELIC_APP_NAME")
-        _apply_env_override(newrelic.agent.global_settings(), "host", "NEW_RELIC_HOST")
-    except Exception as exc:  # pragma: no cover - defensive; never block boot
-        logger.warning("New Relic init failed (continuing without APM): %s", exc)
-        return False
-
-    _initialized = True
-    logger.info(
-        "New Relic agent initialised (app=%r, environment=%s).",
-        os.getenv("NEW_RELIC_APP_NAME", "Prozpr Backend"),
-        environment or "default",
-    )
-    return True
+    return (os.getenv("GIT_COMMIT") or "unknown")[:12]
 
 
 def init_posthog() -> object | None:
@@ -126,7 +42,7 @@ def init_posthog() -> object | None:
 
     Returns the client, or None when ``POSTHOG_API_KEY`` is unset or the
     ``posthog`` package is missing — in which case LLM capture is simply off and
-    the app runs untouched (same contract as ``init_newrelic``).
+    the app runs untouched.
 
     ``privacy_mode`` is set from ``POSTHOG_LLM_CAPTURE_CONTENT`` (default OFF).
     It is applied on the *client*, so it holds for every handler regardless of
@@ -155,11 +71,20 @@ def init_posthog() -> object | None:
         return None
 
     capture_content = settings.posthog_llm_capture_content()
+    settings_env = getattr(settings, "DEPLOY_ENV", "development")
     try:
         _posthog_client = Posthog(
             api_key,
             host=settings.get_posthog_host(),
             privacy_mode=not capture_content,
+            # Stamped onto EVERY event from this process. Without these, prod and
+            # staging events are indistinguishable and no event can be tied to a
+            # deploy. The OTel resource in otel.py carries the same three values.
+            super_properties={
+                "service": SERVICE_NAME,
+                "environment": settings_env,
+                "service_version": _service_version(),
+            },
         )
     except Exception as exc:  # pragma: no cover - defensive; never block boot
         logger.warning("PostHog init failed (continuing without LLM capture): %s", exc)
@@ -199,9 +124,9 @@ def capture_exception(
 ) -> None:
     """Report an exception to PostHog error tracking, if the client is active.
 
-    The PostHog analogue of ``notice_error`` (New Relic): the centralised handler
-    in ``app/core/exceptions.py`` calls both, so a caught 5xx reaches both sinks.
-    Reuses the process-wide client built by ``init_posthog`` for LLM observability.
+    Called by the centralised handler in ``app/core/exceptions.py``: that handler
+    catches the exception and returns JSON, so nothing else can see it. Reuses the
+    process-wide client built by ``init_posthog`` for LLM observability.
 
     No-op when PostHog is disabled (``POSTHOG_API_KEY`` unset / package missing);
     best-effort — reporting must never raise into the request path. ``distinct_id``
@@ -222,28 +147,49 @@ def capture_exception(
         pass
 
 
-def capture_http_client_error(*, status_code: int, path: str, method: str) -> None:
-    """Record a 4xx client-error response as a PostHog *event* (not an exception).
+# Paths excluded from http_request. These are load-balancer and doc polling: pure
+# volume with no diagnostic value, and they would dominate a per-request event stream.
+_UNTRACKED_PATHS = frozenset(
+    {"/api/v1/health", "/api/v1/", "/docs", "/redoc", "/openapi.json"}
+)
 
-    A trend/volume signal, kept SEPARATE from 5xx error tracking: the count of
-    client errors by status/path. Reuses the process-wide client. No-op when
-    PostHog is disabled; best-effort — must never raise into the request path.
+# Key under which the server span's start time is stashed on the ASGI scope.
+_START_NS_KEY = "_prozpr_otel_start_ns"
 
-    Sent with ``$process_person_profile: False``: the middleware has no user
-    context, so this must not create or mutate a person profile — it's an
-    aggregate signal, not a per-user event.
+
+def capture_http_request(
+    *, status_code: int, path: str, method: str, duration_ms: float
+) -> None:
+    """Record one HTTP request as a durable PostHog *event*.
+
+    This is the LONG-HISTORY counterpart to the OTLP span for the same request.
+    Spans retain ~14 days; events retain 12 months. Error rate, endpoint latency
+    trends and throughput are therefore answerable here and only here.
+
+    ``path`` must be the route TEMPLATE. Raw paths embed user IDs in an analytics
+    property and explode cardinality — 58 of 222 routes are parameterised.
+
+    Sent with ``$process_person_profile: False``: this is an aggregate signal, and
+    12 months of per-user request rows is not something you can un-send.
+
+    No-op when PostHog is disabled; best-effort — must never raise into the request.
     """
     client = _posthog_client
-    if client is None:
+    if client is None or path in _UNTRACKED_PATHS:
         return
     try:
+        from app.core.exceptions import _service_from_path
+
         client.capture(
-            "http_client_error",
+            "http_request",
             distinct_id="backend",
             properties={
                 "status_code": status_code,
+                "status_class": f"{status_code // 100}xx",
                 "path": path,
                 "method": method,
+                "duration_ms": round(duration_ms, 2),
+                "service": _service_from_path(path),
                 "$process_person_profile": False,
             },
         )
@@ -251,17 +197,41 @@ def capture_http_client_error(*, status_code: int, path: str, method: str) -> No
         pass
 
 
-def notice_error() -> None:
-    """Report the exception currently being handled to New Relic, if active.
+def otel_request_hook(span, scope) -> None:
+    """OTel ``server_request_hook`` — stamp the request start onto the ASGI scope.
 
-    Used by the centralised exception handlers in ``app/core/exceptions.py``:
-    those handlers catch exceptions and return JSON, so the agent's automatic
-    error capture never sees them — we report them explicitly here. No-op when
-    the agent isn't running or there's no active transaction.
+    Necessary because ``client_response_hook`` is handed the ``http send`` CHILD
+    span, not the server span: timing from *its* ``start_time`` measures the few
+    microseconds spent emitting the response, so a 150ms request would be
+    recorded as ~0.1ms. The ``scope`` dict is the same object in both hooks, so
+    it is the reliable carrier for the true start.
     """
     try:
-        import newrelic.agent
+        if span is not None and span.start_time:
+            scope[_START_NS_KEY] = span.start_time
+    except Exception:  # pragma: no cover - hooks must never raise into ASGI
+        pass
 
-        newrelic.agent.notice_error()
-    except Exception:  # pragma: no cover - reporting must never raise
+
+def otel_response_hook(span, scope, message) -> None:
+    """OTel ``client_response_hook`` — emits ``http_request`` at response start.
+
+    Runs OUTSIDE Starlette's ServerErrorMiddleware, so it sees true 500s as well as
+    the app's DB-error 503 (app/core/exceptions.py). A BaseHTTPMiddleware cannot:
+    there, ``call_next`` raises on an unhandled exception and no response exists.
+    """
+    try:
+        if message.get("type") != "http.response.start":
+            return
+        route = scope.get("route")
+        path = getattr(route, "path", None) or "(unmatched)"
+        start_ns = scope.get(_START_NS_KEY)
+        duration_ms = (time.time_ns() - start_ns) / 1e6 if start_ns else 0.0
+        capture_http_request(
+            status_code=message.get("status", 0),
+            path=path,
+            method=scope.get("method", ""),
+            duration_ms=duration_ms,
+        )
+    except Exception:  # pragma: no cover - hooks must never raise into ASGI
         pass

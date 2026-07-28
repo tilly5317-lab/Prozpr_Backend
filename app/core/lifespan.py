@@ -32,6 +32,7 @@ from app.core.database import (
     dispose_engine,
 )
 from app.core.observability import init_posthog, shutdown_posthog
+from app.core.otel import shutdown_otel
 from app.domains.mutual_funds.services.mfapi_scheduler import (
     shutdown_scheduler,
     start_scheduler,
@@ -62,6 +63,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 async def _startup() -> None:
+    # First: anything that fails below this line should be reportable.
+    init_posthog()
+
     logger.info(_BANNER)
     logger.info("Starting Ask PI API v2.0")
     logger.info(_BANNER)
@@ -69,7 +73,6 @@ async def _startup() -> None:
     _log_db_engine_info()
     await _initialize_database()
     _start_schedulers()
-    init_posthog()
 
     logger.info("Server ready! Docs at /docs")
     logger.info(_BANNER)
@@ -165,5 +168,8 @@ async def _shutdown() -> None:
     # Flush buffered LLM events before the process goes away, or the last turns'
     # traces are lost.
     shutdown_posthog()
+    # Same for OTLP spans and logs. PM2 SIGKILLs ~1.6s after SIGINT by default, so
+    # ecosystem.config.cjs raises kill_timeout to give these a chance to complete.
+    shutdown_otel()
     await dispose_engine()
     logger.info("Shutdown complete")
