@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from starlette.requests import ClientDisconnect
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -312,21 +311,15 @@ async def token(request: Request, db: AsyncSession = Depends(get_db)):
     content_type = (
         (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     )
-    # The body may fail to arrive if the client (browser / Swagger / a proxy
-    # probe) closes the connection mid-request — surface that as a quiet 400
-    # rather than an unhandled 500 traceback (there's no client left to read it).
-    try:
-        if content_type == "application/json":
-            body = await request.json()
-            payload = LoginRequest(**body)
-            phone = full_phone(payload.country_code, payload.mobile)
-            return await _login_with_phone_password(phone, payload.password, db)
-        form = await request.form()
-    except ClientDisconnect:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Client disconnected before sending credentials.",
-        )
+    # A client (browser / Swagger / a proxy probe) that closes the connection
+    # mid-request raises ClientDisconnect here; the global handler in
+    # app/core/exceptions.py turns that into a quiet 499 rather than a 5xx.
+    if content_type == "application/json":
+        body = await request.json()
+        payload = LoginRequest(**body)
+        phone = full_phone(payload.country_code, payload.mobile)
+        return await _login_with_phone_password(phone, payload.password, db)
+    form = await request.form()
 
     username = (form.get("username") or "").strip()
     password = form.get("password")

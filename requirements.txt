@@ -24,10 +24,6 @@ apscheduler>=3.10.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.22
 
-# Observability — New Relic APM, error tracking, and log forwarding.
-# No-op unless NEW_RELIC_LICENSE_KEY is set (see app/core/observability.py).
-newrelic>=9.7.0
-
 # CAMS / KFintech CAS statement parsing now happens REMOTELY via the CAS Parser
 # API (https://casparser.in) — see app/domains/ingestion/services/casparser_client.py.
 # Requires CASPARSER_API_KEY in the environment. The old in-process casparser +
@@ -53,3 +49,12 @@ tzdata>=2024.1
 # >=6.7.13 is the first release whose posthog.ai.langchain module imports cleanly
 # under LangChain 1.x. No extra needed — LangChain is already a dependency.
 posthog>=6.7.13
+
+# OpenTelemetry -> PostHog OTLP (logs + traces). Exact pins: these are the versions
+# the migration was verified against, and instrumentation packages use a separate
+# 0.x line that must move in lockstep with the 1.x SDK.
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+# Pulls opentelemetry-instrumentation-asgi and -util-http transitively.
+opentelemetry-instrumentation-fastapi==0.65b0
