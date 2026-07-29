@@ -24,6 +24,7 @@ following up with a ``PUT /profile/personal-finance``. That happens for EVERY
 from __future__ import annotations
 
 import uuid
+from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,7 @@ async def create_sip_plan_for_user(
     *,
     acting_user_id: uuid.UUID,
     monthly_amount_inr: float,
+    progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
 ) -> SipPlanResponse:
     """Compute + persist a fresh monthly SIP plan, then return it in read shape.
 
@@ -88,6 +90,7 @@ async def create_sip_plan_for_user(
         cadence=Cadence.SIP_MONTHLY,
         chat_ctx=ctx,
         persist=True,
+        progress=progress,
     )
 
     if outcome.blocking_message:

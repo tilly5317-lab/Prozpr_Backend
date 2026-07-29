@@ -18,7 +18,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,8 +133,14 @@ async def compute_additional_investment_result(
     chat_ctx: "TurnContext",
     persist: bool = False,
     focus_category: Optional[str] = None,
+    progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
 ) -> AdditionalInvestmentRunOutcome:
     """Prime allocation → build input → run the engine.
+
+    ``progress`` (optional) is awaited at each real stage boundary with
+    (percent, customer-facing message) — the Invest page's SIP create endpoint
+    passes a writer so its progress poller can show the live pipeline stage.
+    The chat path passes nothing and is unchanged.
 
     Mirrors ``compute_rebalancing_result``: the practical allocation is primed
     first (its ``aggregated_subgroups`` feed the per-subgroup deploy split; the
@@ -153,6 +159,11 @@ async def compute_additional_investment_result(
     Invest-page create service) get it, and both own the commit.
     """
     trace_line("module: additional_investment — start")
+
+    # Stage messages are customer-facing: describe the benefit, never the
+    # mechanics (no engine/strategy internals — ranks, mirrors, caps).
+    if progress:
+        await progress(8, "Reading your profile & goals…")
 
     # Deficit fill (spec 2026-07-03), lumpsum only: the ideal is PAA at actual
     # holdings + fresh money, so both the corpus and the per-subgroup `current`
@@ -176,6 +187,9 @@ async def compute_additional_investment_result(
             f"elss={snapshot.elss_inr}, stocks={snapshot.non_mf_equity_inr}, "
             f"unknown={snapshot.unknown_inr}"
         )
+
+    if progress:
+        await progress(18, "Designing your personalised mix…")
 
     paa_outcome = await compute_practical_allocation_result(
         user,
@@ -212,6 +226,9 @@ async def compute_additional_investment_result(
                 f"additional_investment SIP mirrors rebalancing run {rebal_run_id}"
             )
 
+    if progress:
+        await progress(60, "Shortlisting funds for you…")
+
     try:
         inp, debug = await build_additional_investment_input_for_user(
             chat_ctx,
@@ -243,6 +260,9 @@ async def compute_additional_investment_result(
         )
 
     trace_line(f"additional_investment input debug: {debug}")
+
+    if progress:
+        await progress(75, "Allocating your monthly amount…")
 
     try:
         response: AdditionalInvestmentOutput = await asyncio.to_thread(
@@ -317,6 +337,8 @@ async def compute_additional_investment_result(
 
     run_id: Optional[uuid.UUID] = None
     if persist:
+        if progress:
+            await progress(92, "Saving your plan…")
         # ``chat_session_id`` is None for a non-chat create (the Invest-page
         # "Start a SIP" endpoint): the run still persists, just unlinked to a
         # chat session (the FK column is nullable). In the chat path it is always
