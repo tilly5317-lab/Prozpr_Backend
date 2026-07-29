@@ -4,6 +4,7 @@ Boots top-to-bottom as a recipe:
 
     1. configure logging
     2. build the FastAPI instance with the lifespan hook
+    2b. attach OpenTelemetry request instrumentation (module scope — see below)
     3. attach CORS middleware
     4. mount every router under ``/api/v1``
     5. register exception handlers
@@ -13,12 +14,12 @@ Each step's *how* lives in ``app.core`` — keep this file boring.
 
 from __future__ import annotations
 
-# New Relic must initialise BEFORE FastAPI/Starlette, the DB drivers, and httpx
-# are imported, so its import hooks can instrument them. No-op unless
-# NEW_RELIC_LICENSE_KEY is set. Keep this as the first executable line.
-from app.core.observability import init_newrelic
+# OpenTelemetry must initialise BEFORE FastAPI/Starlette, the DB drivers, and
+# httpx are imported, so its instrumentation attaches. No-op unless
+# POSTHOG_API_KEY is set. Keep this as the first executable line.
+from app.core.otel import init_otel
 
-init_newrelic()
+init_otel()
 
 import logging
 
@@ -35,6 +36,7 @@ import app.all_models  # noqa: F401
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.observability import otel_request_hook, otel_response_hook
 from app.core.lifespan import lifespan
 from app.routers import all_routers
 from app.routers.tags import OPENAPI_TAG_METADATA
@@ -50,6 +52,11 @@ logging.basicConfig(
 for _noisy in ("httpx", "primp", "ddgs", "duckduckgo_search"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
+# Ship WARNING and above to PostHog Logs. Local stdout/PM2 keeps everything at INFO.
+from app.core.otel import attach_otel_logging
+
+attach_otel_logging()
+
 
 # ---------------------------------------------------------------------------
 # 2. FastAPI instance.
@@ -64,6 +71,32 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
     openapi_tags=OPENAPI_TAG_METADATA,
+)
+
+
+# ---------------------------------------------------------------------------
+# 2b. OpenTelemetry request instrumentation.
+#     MUST be at module scope. Calling this inside the lifespan is a SILENT no-op:
+#     Starlette caches app.middleware_stack on the first __call__ (which the lifespan
+#     scope itself triggers), and the instrumentor only patches build_middleware_stack.
+#     app/core/tests/test_otel_instrumentation_slot.py guards this.
+#
+#     The provider is passed explicitly rather than letting the instrumentor resolve
+#     the global one: OTel's global provider can only be set once per process, so
+#     after any shutdown/re-init cycle the global points at a dead provider that
+#     silently drops spans. See the note in app/core/otel.py.
+# ---------------------------------------------------------------------------
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+from app.core.otel import get_tracer_provider
+
+FastAPIInstrumentor.instrument_app(
+    app,
+    tracer_provider=get_tracer_provider(),
+    # The request hook only stamps the start time; the response hook emits the
+    # durable http_request event. Both are needed — see observability.py.
+    server_request_hook=otel_request_hook,
+    client_response_hook=otel_response_hook,
 )
 
 

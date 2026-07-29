@@ -147,3 +147,15 @@ docs/superpowers/specs/2026-05-10-rebalancing-output-tables.md
 docs/superpowers/plans/2026-07-12-lifecycle-simulation.md
 docs/superpowers/specs/2026-07-12-lifecycle-simulation-design.md
 /app/domains/profile/services/_effective_risk/tests
+/app/routers/tests
+/app/domains/cashflow/services/goal_planning_engine/tests
+/app/domains/intent_classifier/tests
+/app/domains/asset_allocation/services/tests
+docs/superpowers/notes/2026-07-26-behaviour-delta.md
+docs/superpowers/notes/2026-07-26-track1-gate-a-findings.md
+docs/superpowers/notes/2026-07-26-track1-gate-b-wording.md
+docs/superpowers/notes/2026-07-26-track2a-findings.md
+docs/superpowers/notes/2026-07-26-track3b-architecture-findings.md
+docs/superpowers/plans/2026-07-26-context-layer-reconciliation.md
+docs/superpowers/specs/2026-07-26-context-layer-reconciliation-design.md
+docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
