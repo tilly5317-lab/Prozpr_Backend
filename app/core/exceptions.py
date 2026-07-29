@@ -44,6 +44,14 @@ _DB_ERROR_PATTERNS: tuple[tuple[tuple[str, ...], str], ...] = (
         ("connection was closed",),
         "Database connection was closed. Retry the request.",
     ),
+    # Windows WSAEACCES (10013): the OS sporadically forbids the outbound socket
+    # (firewall/AV interception or an excluded local port range). database.py
+    # already retries these; if a burst outlasts the retries, answer 503 so the
+    # client knows to retry instead of a raw 500.
+    (
+        ("connect call failed", "forbidden by its access permissions", "10013"),
+        "Database temporarily unreachable. Retry the request.",
+    ),
 )
 
 
