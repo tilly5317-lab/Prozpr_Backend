@@ -58,3 +58,12 @@ opentelemetry-sdk==1.44.0
 opentelemetry-exporter-otlp-proto-http==1.44.0
 # Pulls opentelemetry-instrumentation-asgi and -util-http transitively.
 opentelemetry-instrumentation-fastapi==0.65b0
+# DB query + outbound-call spans. Without these the only thing OTel sees is
+# "a request arrived and left" — every query and every third-party call inside
+# it is invisible, which is how an 800s job could die on a NUMERIC overflow
+# with no span to show for it. Wired in app/main.py.
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-instrumentation-httpx==0.65b0
+# CPU / memory / disk gauges, exported to PostHog's OTLP metrics endpoint.
+# Pulls psutil transitively. Wired in app/core/otel.py:init_metrics.
+opentelemetry-instrumentation-system-metrics==0.65b0

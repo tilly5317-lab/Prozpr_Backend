@@ -32,7 +32,7 @@ from app.core.database import (
     dispose_engine,
 )
 from app.core.observability import init_posthog, shutdown_posthog
-from app.core.otel import shutdown_otel
+from app.core.otel import init_metrics, shutdown_otel
 from app.domains.mutual_funds.services.mfapi_scheduler import (
     shutdown_scheduler,
     start_scheduler,
@@ -65,6 +65,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 async def _startup() -> None:
     # First: anything that fails below this line should be reportable.
     init_posthog()
+    # Metrics start here, not at module scope like the tracer: this begins a
+    # background collection loop, and importing app.main (tests, tooling) must
+    # not silently start shipping gauges. shutdown_otel() flushes it.
+    init_metrics()
 
     logger.info(_BANNER)
     logger.info("Starting Ask PI API v2.0")

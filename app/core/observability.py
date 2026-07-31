@@ -153,6 +153,14 @@ _UNTRACKED_PATHS = frozenset(
     {"/api/v1/health", "/api/v1/", "/docs", "/redoc", "/openapi.json"}
 )
 
+# Path value used when a request matched no route. Excluded from http_request:
+# the box is on a public IP, and scanner traffic (BitTorrent tracker probes,
+# .env hunting, PHP shell scans) was 93% of all events — enough to read the
+# aggregate 4xx rate as ~93% when the real rate on served routes is under 1%.
+# The exclusion is on the unmatched ROUTE, not the 404 status: a handler
+# answering "no such goal" is real signal about a real endpoint and is kept.
+_UNMATCHED_PATH = "(unmatched)"
+
 # Key under which the server span's start time is stashed on the ASGI scope.
 _START_NS_KEY = "_prozpr_otel_start_ns"
 
@@ -175,7 +183,7 @@ def capture_http_request(
     No-op when PostHog is disabled; best-effort — must never raise into the request.
     """
     client = _posthog_client
-    if client is None or path in _UNTRACKED_PATHS:
+    if client is None or path in _UNTRACKED_PATHS or path == _UNMATCHED_PATH:
         return
     try:
         from app.core.exceptions import _service_from_path
@@ -224,7 +232,7 @@ def otel_response_hook(span, scope, message) -> None:
         if message.get("type") != "http.response.start":
             return
         route = scope.get("route")
-        path = getattr(route, "path", None) or "(unmatched)"
+        path = getattr(route, "path", None) or _UNMATCHED_PATH
         start_ns = scope.get(_START_NS_KEY)
         duration_ms = (time.time_ns() - start_ns) / 1e6 if start_ns else 0.0
         capture_http_request(

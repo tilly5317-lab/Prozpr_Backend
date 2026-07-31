@@ -87,6 +87,8 @@ app = FastAPI(
 #     silently drops spans. See the note in app/core/otel.py.
 # ---------------------------------------------------------------------------
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
 from app.core.otel import get_tracer_provider
 
@@ -98,6 +100,18 @@ FastAPIInstrumentor.instrument_app(
     server_request_hook=otel_request_hook,
     client_response_hook=otel_response_hook,
 )
+
+# Inside a request these turn "something took 400ms" into "which query, and how
+# long did mfapi.in take". Both patch at CLASS level, so they cover clients and
+# engines created later — which matters because ``_get_engine()`` is lazy and
+# builds the engine on first use, well after this line runs.
+#
+# In BACKGROUND JOBS these would be ruinous: the mfapi sweep touches ~8k schemes,
+# so one run would emit ~25k spans in a single unreadable trace. The schedulers
+# wrap their per-item loops in ``suppress_instrumentation()`` and keep only
+# run/phase spans — see app/core/job_tracing.py.
+SQLAlchemyInstrumentor().instrument(tracer_provider=get_tracer_provider())
+HTTPXClientInstrumentor().instrument(tracer_provider=get_tracer_provider())
 
 
 # ---------------------------------------------------------------------------

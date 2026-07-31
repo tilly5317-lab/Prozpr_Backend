@@ -26,6 +26,12 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import (
+    Decision,
+    ParentBased,
+    Sampler,
+    SamplingResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,77 @@ _EXPORT_TIMEOUT_MILLIS = 5000
 
 _tracer_provider: TracerProvider | None = None
 _logger_provider: LoggerProvider | None = None
+_meter_provider: object | None = None
+
+# How often infra gauges are shipped. 60s matches the resolution anyone actually
+# looks at and keeps the series count — not the sample count — the thing that
+# matters for cost.
+_METRIC_EXPORT_INTERVAL_MILLIS = 60_000
+
+# Deliberately NOT the SystemMetricsInstrumentor default. Its default config
+# includes per-CPU-core, per-disk and per-NIC breakdowns, and a series is one
+# unique attribute combination — that config turns 4 questions into hundreds of
+# series. These five answer "is the box healthy".
+_SYSTEM_METRICS = {
+    "system.cpu.utilization": ["idle", "user", "system", "iowait"],
+    "system.memory.usage": ["used", "free", "cached"],
+    "system.memory.utilization": ["used", "free", "cached"],
+    "system.disk.usage": ["used", "free"],
+    "process.runtime.memory": ["rss", "vms"],
+}
+
+# Where the ASGI layer puts the request path. ``url.path`` is the stable HTTP
+# semconv name selected by the opt-in below; ``http.target`` is the legacy name,
+# kept as a fallback so the filter still works if that opt-in ever goes away.
+_PATH_ATTRIBUTES = ("url.path", "http.target")
+
+
+class _ServedPathSampler(Sampler):
+    """Drop spans for requests to paths this API does not serve.
+
+    The box answers on a public IP, so most of what reaches it is internet
+    background noise: BitTorrent tracker probes (``/announce``, ``/scrape``),
+    ``.env`` hunting, PHP shell scans. That was 93% of span volume — paid for,
+    retained, and diagnostically worthless.
+
+    The matched ROUTE would be the ideal signal, but it is not known until the
+    request is dispatched and sampling is decided at span START. The PATH is
+    known then, and everything this app serves lives under ``API_V1_PREFIX``, so
+    the prefix is the discriminator.
+
+    Only spans that CARRY a path are candidates. Internal spans — schedulers,
+    LLM chains — have no path attribute and are always sampled.
+
+    Wrapped in ``ParentBased`` by the caller: the ``http send`` children end
+    before their server span does, so they cannot be judged on their own; an
+    unsampled parent has to take its whole subtree with it.
+    """
+
+    def __init__(self, served_prefix: str) -> None:
+        self._served_prefix = served_prefix
+
+    def should_sample(
+        self,
+        parent_context,
+        trace_id,
+        name,
+        kind=None,
+        attributes=None,
+        links=None,
+        trace_state=None,
+    ) -> SamplingResult:
+        path = None
+        for key in _PATH_ATTRIBUTES:
+            value = (attributes or {}).get(key)
+            if value:
+                path = str(value)
+                break
+        if path is not None and not path.startswith(self._served_prefix):
+            return SamplingResult(Decision.DROP, attributes, trace_state)
+        return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes, trace_state)
+
+    def get_description(self) -> str:
+        return f"ServedPathSampler({self._served_prefix})"
 
 
 def init_otel() -> tuple[TracerProvider | None, LoggerProvider | None]:
@@ -72,7 +149,12 @@ def init_otel() -> tuple[TracerProvider | None, LoggerProvider | None]:
     )
 
     try:
-        _tracer_provider = TracerProvider(resource=resource)
+        _tracer_provider = TracerProvider(
+            resource=resource,
+            sampler=ParentBased(
+                root=_ServedPathSampler(settings.API_V1_PREFIX),
+            ),
+        )
         _tracer_provider.add_span_processor(
             BatchSpanProcessor(
                 OTLPSpanExporter(endpoint=f"{host}/i/v1/traces", headers=headers),
@@ -108,6 +190,78 @@ def init_otel() -> tuple[TracerProvider | None, LoggerProvider | None]:
 
     logger.info("OTel enabled (host=%s, traces + logs).", host)
     return _tracer_provider, _logger_provider
+
+
+def init_metrics() -> object | None:
+    """Start CPU / memory / disk gauges, exported to PostHog over OTLP. Idempotent.
+
+    The third OTLP signal, alongside the tracer and logger providers built by
+    ``init_otel()``. Answers the one question spans and logs cannot: was the BOX
+    healthy. Nothing else in PostHog can tell you the process was at its memory
+    ceiling when a job died.
+
+    Same no-op contract as the rest of this module: off without
+    ``POSTHOG_API_KEY``, and never allowed to block boot.
+    """
+    global _meter_provider
+    if _meter_provider is not None:
+        return _meter_provider
+
+    from app.core.config import get_settings
+    from app.core.observability import SERVICE_NAME, _service_version
+
+    settings = get_settings()
+    token = (settings.get_posthog_api_key() or "").strip()
+    if not token:
+        logger.info("OTel metrics disabled (POSTHOG_API_KEY not set).")
+        return None
+
+    try:
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
+        from opentelemetry.instrumentation.system_metrics import (
+            SystemMetricsInstrumentor,
+        )
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+        host = (settings.get_posthog_host() or "https://us.i.posthog.com").rstrip("/")
+        resource = Resource.create(
+            {
+                "service.name": SERVICE_NAME,
+                "service.version": _service_version(),
+                "deployment.environment": getattr(
+                    settings, "DEPLOY_ENV", "development"
+                ),
+            }
+        )
+        reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(
+                endpoint=f"{host}/i/v1/metrics",
+                headers={"Authorization": f"Bearer {token}"},
+            ),
+            export_interval_millis=_METRIC_EXPORT_INTERVAL_MILLIS,
+        )
+        _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+        # Not set as the OTel global, for the same reason the tracer provider is
+        # passed explicitly everywhere: the global can only be set once per
+        # process, so a re-init leaves it pointing at a dead provider.
+        SystemMetricsInstrumentor(config=_SYSTEM_METRICS).instrument(
+            meter_provider=_meter_provider
+        )
+    except Exception as exc:  # pragma: no cover - never block boot
+        logger.warning("OTel metrics init failed (continuing without it): %s", exc)
+        _meter_provider = None
+        return None
+
+    logger.info("OTel metrics enabled (host=%s, %d gauges).", host, len(_SYSTEM_METRICS))
+    return _meter_provider
+
+
+def get_meter_provider() -> object | None:
+    """The provider built by ``init_metrics()``, or None when metrics are off."""
+    return _meter_provider
 
 
 def attach_otel_logging(level: int = logging.WARNING) -> None:
@@ -148,13 +302,14 @@ def shutdown_otel() -> None:
     The flush is bounded by ``_EXPORT_TIMEOUT_MILLIS`` on the batch processors —
     see the note there for why the SDK default is unusable under PM2.
     """
-    global _tracer_provider, _logger_provider
-    for provider in (_tracer_provider, _logger_provider):
+    global _tracer_provider, _logger_provider, _meter_provider
+    for provider in (_tracer_provider, _logger_provider, _meter_provider):
         if provider is None:
             continue
         try:
-            provider.shutdown()
+            provider.shutdown()  # type: ignore[attr-defined]
         except Exception as exc:  # pragma: no cover - shutdown must never raise
             logger.warning("OTel provider shutdown failed: %s", exc)
     _tracer_provider = None
     _logger_provider = None
+    _meter_provider = None
