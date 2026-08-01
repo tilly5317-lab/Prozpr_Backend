@@ -51,17 +51,34 @@ _meter_provider: object | None = None
 # matters for cost.
 _METRIC_EXPORT_INTERVAL_MILLIS = 60_000
 
-# Deliberately NOT the SystemMetricsInstrumentor default. Its default config
-# includes per-CPU-core, per-disk and per-NIC breakdowns, and a series is one
-# unique attribute combination — that config turns 4 questions into hundreds of
-# series. These five answer "is the box healthy".
+# Deliberately NOT the SystemMetricsInstrumentor default, which also collects
+# swap, per-NIC network and three separate disk-IO metrics. A series is one
+# unique attribute combination, so the default turns "is the box healthy" into
+# a hundred-odd billable series.
+#
+# Keys are validated against the instrumentor's own table — an unsupported name
+# is SILENTLY IGNORED, which is how a "system.disk.usage" entry here produced no
+# disk metric at all until the preflight caught it. ``test_metrics_bootstrap``
+# now asserts every key exists.
+#
+# ``system.cpu.utilization`` is unavoidably PER CORE — the instrumentor calls
+# psutil with percpu=True and stamps a ``cpu`` label — so its series count is
+# cores x states, not just states. On a 2-vCPU box that is 8.
+# ``iowait`` exists on Linux only; the instrumentor skips it on macOS.
 _SYSTEM_METRICS = {
     "system.cpu.utilization": ["idle", "user", "system", "iowait"],
     "system.memory.usage": ["used", "free", "cached"],
     "system.memory.utilization": ["used", "free", "cached"],
-    "system.disk.usage": ["used", "free"],
-    "process.runtime.memory": ["rss", "vms"],
+    # Spec-compliant replacements for the deprecated process.runtime.* keys,
+    # which the instrumentor warns are slated for removal.
+    "process.memory.usage": None,
+    "process.memory.virtual": None,
 }
+
+# Disk FREE SPACE has no entry in the instrumentor at all — its three disk
+# metrics are all throughput (io/operations/time). A full disk is a classic
+# way to take a box down, so it gets a hand-rolled gauge.
+_DISK_PATH = "/"
 
 # Where the ASGI layer puts the request path. ``url.path`` is the stable HTTP
 # semconv name selected by the opt-in below; ``http.target`` is the legacy name,
@@ -192,6 +209,31 @@ def init_otel() -> tuple[TracerProvider | None, LoggerProvider | None]:
     return _tracer_provider, _logger_provider
 
 
+def _add_disk_free_gauge(meter_provider: object) -> None:
+    """Register ``system.filesystem.utilization`` — fraction of ``_DISK_PATH`` used.
+
+    One series, one number, the semconv name. Answers the question the
+    instrumentor's throughput metrics cannot: is the disk about to fill up.
+    """
+    from opentelemetry.metrics import CallbackOptions, Observation
+
+    def observe(_options: CallbackOptions):
+        import psutil
+
+        try:
+            usage = psutil.disk_usage(_DISK_PATH)
+        except OSError:  # pragma: no cover - path vanished / permission
+            return
+        yield Observation(usage.percent / 100.0, {"path": _DISK_PATH})
+
+    meter_provider.get_meter(__name__).create_observable_gauge(  # type: ignore[attr-defined]
+        name="system.filesystem.utilization",
+        callbacks=[observe],
+        unit="1",
+        description=f"Fraction of {_DISK_PATH} in use",
+    )
+
+
 def init_metrics() -> object | None:
     """Start CPU / memory / disk gauges, exported to PostHog over OTLP. Idempotent.
 
@@ -250,6 +292,7 @@ def init_metrics() -> object | None:
         SystemMetricsInstrumentor(config=_SYSTEM_METRICS).instrument(
             meter_provider=_meter_provider
         )
+        _add_disk_free_gauge(_meter_provider)
     except Exception as exc:  # pragma: no cover - never block boot
         logger.warning("OTel metrics init failed (continuing without it): %s", exc)
         _meter_provider = None
