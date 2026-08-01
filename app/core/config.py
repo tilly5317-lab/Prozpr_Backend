@@ -471,6 +471,159 @@ class Settings:
         v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
         return v or None
 
+    # ── Fintech Primitives (execution domain): sandbox order execution ──────
+    @staticmethod
+    def get_fp_base_url() -> str:
+        return (_getenv("FP_BASE_URL") or "https://s.finprim.com").strip().rstrip("/")
+
+    @staticmethod
+    def get_fp_tenant() -> str | None:
+        v = (_getenv("FP_TENANT") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_key() -> str | None:
+        v = (_getenv("FP_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_secret() -> str | None:
+        v = (_getenv("FP_API_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_enabled() -> bool:
+        """FP order execution is inert unless the tenant credentials are set."""
+        return bool(
+            Settings.get_fp_tenant()
+            and Settings.get_fp_api_key()
+            and Settings.get_fp_api_secret()
+        )
+
+    @staticmethod
+    def get_fp_sandbox_schemes() -> list[str]:
+        """ISINs known to be transactable on the FP sandbox tenant. The sandbox
+        only enables a handful of ICICI schemes — any other ISIN 400s with
+        "scheme is not available for transaction". Override via
+        ``FP_SANDBOX_SCHEMES`` (comma-separated ISINs) as FP enables more."""
+        raw = (_getenv("FP_SANDBOX_SCHEMES") or "").strip()
+        if raw:
+            return [s.strip().upper() for s in raw.split(",") if s.strip()]
+        return [
+            "INF109K01423",
+            "INF109KC1TY0",
+            "INF109KC1TV6",
+            "INF109KC1TU8",
+            "INF109K01605",
+            "INF109KC11U2",
+            "INF109KC19T7",
+        ]
+
+    @staticmethod
+    def get_fp_scheme_gateway() -> str:
+        """Gateway segment for FP scheme-plan lookups
+        (``/v2/mf_scheme_plans/{gateway}/{isin}``). Override via
+        ``FP_SCHEME_GATEWAY``."""
+        return (_getenv("FP_SCHEME_GATEWAY") or "cybrillapoa").strip()
+
+    @staticmethod
+    def fp_test_reports_enabled() -> bool:
+        """Whether the SIMULATED FP folios/holdings/returns reports are served.
+        The sandbox can't produce real folios (nothing settles), so these are
+        demo-only test data. Default: on for the sandbox host, off elsewhere;
+        force with ``FP_TEST_REPORTS_ENABLED=true|false``. Must stay OFF in
+        production — it fabricates holdings."""
+        raw = (_getenv("FP_TEST_REPORTS_ENABLED") or "").strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
+        return "s.finprim.com" in Settings.get_fp_base_url()
+
+    @staticmethod
+    def get_fp_preverify_tenant() -> str:
+        return (_getenv("FP_PREVERIFY_TENANT") or "cybrillarta").strip()
+
+    @staticmethod
+    def get_fp_preverify_client_id() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_ID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_preverify_client_secret() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_preverify_enabled() -> bool:
+        """The Pre-Verification (KYC) service has its own tenant + creds."""
+        return bool(
+            Settings.get_fp_preverify_client_id()
+            and Settings.get_fp_preverify_client_secret()
+        )
+
+    # ── CAS Parser API (casparser.in): remote CAS PDF parsing + CAS-to-email ──
+    @staticmethod
+    def get_casparser_base_url() -> str:
+        return (
+            (_getenv("CASPARSER_BASE_URL") or "https://api.casparser.in")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_casparser_api_key() -> str | None:
+        """API key for api.casparser.in (`x-api-key` header). The docs' sandbox
+        key ``sandbox-with-json-responses`` works for wiring tests without
+        consuming credits."""
+        v = (_getenv("CASPARSER_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def casparser_enabled() -> bool:
+        """CAS statement import is inert (503s) unless the API key is set."""
+        return bool(Settings.get_casparser_api_key())
+
+    @staticmethod
+    def get_openai_api_key() -> str | None:
+        """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
+        if v:
+            return v
+        load_dotenv(_backend_dir / ".env", override=False, encoding="utf-8-sig")
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
+        return v or None
+
+    # -- PostHog LLM observability -----------------------------------------
+
+    @staticmethod
+    def get_posthog_api_key() -> str | None:
+        """PostHog project token for backend LLM observability (trimmed).
+
+        Same project token the frontend uses (``VITE_PUBLIC_POSTHOG_KEY``);
+        unset disables LLM capture entirely."""
+        v = (_getenv("POSTHOG_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_posthog_host() -> str:
+        """PostHog ingestion host. Defaults to US cloud, matching the frontend."""
+        return (_getenv("POSTHOG_HOST") or "").strip() or "https://us.i.posthog.com"
+
+    @staticmethod
+    def posthog_llm_capture_content() -> bool:
+        """Send prompts, completions, and LangGraph state to PostHog.
+
+        Default OFF: production must not ship customer holdings/cashflow data to
+        a third party. When false the handler runs in privacy mode — costs,
+        tokens, latency, model, trace/span structure, and per-user attribution
+        are still captured; only ``$ai_input``, ``$ai_output_choices``,
+        ``$ai_input_state`` and ``$ai_output_state`` are redacted.
+
+        Set ``POSTHOG_LLM_CAPTURE_CONTENT=true`` in dev/staging only."""
+        raw = (_getenv("POSTHOG_LLM_CAPTURE_CONTENT") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
 
 @lru_cache
 def get_settings() -> Settings:
