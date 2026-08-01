@@ -29,6 +29,7 @@ import uuid
 
 import httpx
 
+from app.core.observability import capture_flow_completed
 from app.domains.ai_engine.common import trace_line, trace_response_preview
 from app.domains.ai_engine.services.flow import (
     FLOWS,
@@ -313,6 +314,8 @@ class ChatBrain:
                     uid=uid,
                     sid=sid,
                     usage_cb=usage_cb,
+                    outcome="failed",
+                    failure_reason="timeout",
                 )
 
             # ---- 6. The flow's result owns the reply ------------------------
@@ -359,6 +362,12 @@ class ChatBrain:
                 uid=uid,
                 sid=sid,
                 usage_cb=usage_cb,
+                outcome="failed",
+                failure_reason=(
+                    "llm_auth_failure"
+                    if _is_llm_auth_failure(exc)
+                    else type(exc).__name__
+                ),
             )
         finally:
             # Any speculation that was never consumed (intent changed, canned
@@ -389,6 +398,8 @@ class ChatBrain:
         sid,
         final: ModuleOutput | None = None,
         usage_cb=None,
+        outcome: str = "ok",
+        failure_reason: str | None = None,
     ) -> ChatBrainResult:
         """Shape the assistant reply + write end-of-turn telemetry."""
         ms = int((time.perf_counter() - t0) * 1000)
@@ -426,6 +437,15 @@ class ChatBrain:
                 "Chat turn telemetry failed (session=%s); returning reply anyway",
                 sid,
             )
+        # The turn's durable outcome. Here rather than at each exit because all
+        # four of them already funnel through _finalize.
+        capture_flow_completed(
+            intent=intent.name if intent else None,
+            outcome=outcome,
+            failure_reason=failure_reason,
+            duration_ms=ms,
+            distinct_id=uid,
+        )
         return ChatBrainResult(
             content=text,
             intent=intent.name if intent else None,

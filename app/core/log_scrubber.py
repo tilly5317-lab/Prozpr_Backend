@@ -1,11 +1,8 @@
 """Defence-in-depth redaction for log bodies leaving the process.
 
-Call sites are fixed at source (see the OTP service and the 422 handler), but this
-runs on EVERY exported record so a future careless log line cannot leak. It is a
-backstop, not a licence to log PII.
-
-Deliberately narrow: broad patterns mangle legitimate messages (order ids, amounts)
-and make incidents harder to read.
+A backstop, not a licence to log PII — call sites are still fixed at source.
+Deliberately narrow: broad patterns mangle order ids and amounts, making
+incidents harder to read.
 """
 
 from __future__ import annotations
