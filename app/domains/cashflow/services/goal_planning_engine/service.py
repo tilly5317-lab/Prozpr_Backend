@@ -1,9 +1,11 @@
 """Goal-planning service — runs the cashflow engine and builds a facts_pack.
 
-Bridges ``AI_Agents/src/cashflow_statement`` engine + summarizer into chat.
-The output ``GoalPlanningServiceOutcome`` carries both the LLM-ready
-``facts_pack`` dict and a deterministic ``fallback_text`` for when the
-formatter LLM fails.
+Bridges the ``AI_Agents/src/cashflow_statement`` engine into chat. The output
+``GoalPlanningServiceOutcome`` carries both the LLM-ready ``facts_pack`` dict
+and a deterministic ``fallback_text`` for when the formatter LLM fails.
+
+Deliberately NOT bridged: ``cashflow_statement.summarizer``. See the note in
+``compute_goal_planning_snapshot``.
 """
 
 from __future__ import annotations
@@ -17,7 +19,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.domains.identity.models.user import User
 from app.domains.ai_engine.common import ensure_ai_agents_path, format_inr_indian
 from app.domains.cashflow.services.goal_planning_engine.cashflow_trace import (
@@ -50,13 +51,23 @@ async def compute_goal_planning_snapshot(
     chat_session_id: str,
     anchor_date: date,
     db: AsyncSession | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> GoalPlanningServiceOutcome:
     """Run the cashflow engine for the given user and produce a facts_pack.
+
+    ``overrides`` makes this a COUNTERFACTUAL run — "what if I retire at 50?".
+    The engine is pure Python, so the honest way to answer is to rebuild the
+    input with the field changed and run it again. Allowed keys are whitelisted
+    in ``overrides.ALLOWED_OVERRIDE_KEYS``.
+
+    A counterfactual run does NOT persist. Every base turn writes ~30 rows and
+    the Goal Planning screen reads the latest one, so persisting a hypothetical
+    would overwrite the customer's real plan.
 
     Raises ValueError("missing_date_of_birth") or
     ValueError("missing_required_inputs:<comma-separated keys>") when the user
     profile is incomplete — the engine never substitutes default/placeholder
-    values for missing inputs.
+    values for missing inputs. Raises ValueError on an unknown override key.
     """
     ensure_ai_agents_path()
 
@@ -98,30 +109,40 @@ async def compute_goal_planning_snapshot(
         )
         raise
 
+    from app.domains.cashflow.services.goal_planning_engine.overrides import (
+        apply_overrides,
+    )
+
+    # Same object back when there are no overrides — that identity IS the
+    # base-vs-counterfactual test used to gate persistence below.
+    gp_input = apply_overrides(gp_input, overrides)
+    is_counterfactual = bool(overrides)
+
     from cashflow_statement.models import GoalPlanningOutput
     from cashflow_statement.engine import compute_full_projection
-    from cashflow_statement.summarizer import summarize_plan
 
     output: GoalPlanningOutput = await asyncio.to_thread(
         compute_full_projection, gp_input
     )
 
-    summary = None
-    try:
-        # Attribute the summarizer LLM call to the goal-planning key (falls back
-        # to the shared ANTHROPIC_API_KEY when unset). Passed explicitly — the
-        # old env-mutation scoping raced under async concurrency (audit F8).
-        summary = await asyncio.to_thread(
-            summarize_plan,
-            output,
-            api_key=get_settings().get_anthropic_goal_planning_key(),
-        )
-    except Exception:
-        logger.warning(
-            "summarize_plan failed; proceeding without narrative", exc_info=True
-        )
+    # No ``summarize_plan`` here on purpose. That second Haiku call narrated the
+    # engine output into bullets, which then went into facts_pack["narrative"]
+    # for the formatter to narrate again — and it ran question_aware=False, so its
+    # prose pulled against the formatter's brief to answer what was asked.
+    #
+    # This was its last production caller. The REST path builds its snapshot from
+    # ``compute_full_projection`` (cashflow_compute_service), which never populates
+    # ``GoalPlanningOutput.summary``, so ``persist_plan_run``'s summary branch has
+    # never fired — ``cashflow_plan_summary`` holds 0 rows against 321 plan runs.
+    # ``summarize_plan`` now runs only in ``dev_run.py`` and the LangGraph agent,
+    # neither of which is wired into ``app/``.
 
-    plan_run_id = await _persist_plan_run(db, user.id, chat_session_id, output)
+    # A hypothetical is never written down — see the docstring.
+    plan_run_id = (
+        None
+        if is_counterfactual
+        else await _persist_plan_run(db, user.id, chat_session_id, output)
+    )
 
     log_output(
         path="chat",
@@ -131,8 +152,13 @@ async def compute_goal_planning_snapshot(
         session_id=chat_session_id,
     )
 
-    facts_pack = _build_facts_pack(output, summary, user)
-    fallback_text = _build_fallback_text(output, summary)
+    facts_pack = _build_facts_pack(
+        output,
+        user,
+        retirement_age=gp_input.retirement.retirement_age,
+        retirement_modelled=gp_input.model_retirement,
+    )
+    fallback_text = _build_fallback_text(output)
 
     return GoalPlanningServiceOutcome(
         facts_pack=facts_pack,
@@ -237,7 +263,60 @@ async def _persist_plan_run(
         return None
 
 
-def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
+def _retirement_facts(
+    retirement: Any,
+    *,
+    retirement_age: int | None,
+    retirement_modelled: bool,
+) -> dict[str, Any]:
+    """The retirement block, scoped to what the plan actually uses.
+
+    ``retirement_age`` is supplied rather than derived: the formatter is told to
+    quote facts and never compute, and with no age in the pack it invented one
+    ("retire at 52" for a customer retiring at 55).
+
+    The corpus figures are included ONLY when the engine models retirement as a
+    goal. On the product path it does not (``input_builder`` sets
+    ``model_retirement=False``), so ``corpus_required_used`` never reaches the
+    funding math — ``goals_table.py`` uses it only under ``include_retirement``.
+    Shipping it anyway put a second, unrelated "retirement corpus" next to the
+    customer's own Retirement goal, and the two differed threefold.
+    """
+    # Field names do the disambiguating. A plain ``retirement_date`` sitting next
+    # to a customer goal named "Retirement" got blended: for a user retiring at 55
+    # in 2047 whose own goal is dated 2052, the reply read "you retire on 8 July
+    # 2052 (age 52)" — day and month from here, year from the goal, and the year
+    # misread as an age. Self-describing keys leave nothing to blend.
+    facts: dict[str, Any] = {
+        "planned_retirement_date_from_profile": str(retirement.retirement_date),
+        "planned_retirement_age_from_profile": retirement_age,
+        "years_to_planned_retirement": retirement.years_to_retirement,
+        "annual_household_expense_today": retirement.annual_household_expense_today,
+        "annual_household_expense_today_indian": format_inr_indian(
+            retirement.annual_household_expense_today
+        ),
+        "post_retirement_years": retirement.post_retirement_years,
+        "is_funded_as_a_goal": retirement_modelled,
+    }
+    if retirement_modelled:
+        facts["corpus_required_used"] = retirement.corpus_required_used
+        facts["corpus_required_used_indian"] = format_inr_indian(
+            retirement.corpus_required_used
+        )
+        facts["corpus_required_pv_today"] = retirement.corpus_required_pv_today
+        facts["corpus_required_pv_today_indian"] = format_inr_indian(
+            retirement.corpus_required_pv_today
+        )
+    return facts
+
+
+def _build_facts_pack(
+    output: Any,
+    user: User,
+    *,
+    retirement_age: int | None = None,
+    retirement_modelled: bool = False,
+) -> dict[str, Any]:
     """Build the facts_pack dict consumed by the answer-formatter LLM."""
 
     headline = output.headline
@@ -269,23 +348,11 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
                 headline.total_funded_amount
             ),
         },
-        "retirement": {
-            "retirement_date": str(retirement.retirement_date),
-            "years_to_retirement": retirement.years_to_retirement,
-            "corpus_required_used": retirement.corpus_required_used,
-            "corpus_required_used_indian": format_inr_indian(
-                retirement.corpus_required_used
-            ),
-            "corpus_required_pv_today": retirement.corpus_required_pv_today,
-            "corpus_required_pv_today_indian": format_inr_indian(
-                retirement.corpus_required_pv_today
-            ),
-            "annual_household_expense_today": retirement.annual_household_expense_today,
-            "annual_household_expense_today_indian": format_inr_indian(
-                retirement.annual_household_expense_today
-            ),
-            "post_retirement_years": retirement.post_retirement_years,
-        },
+        "retirement": _retirement_facts(
+            retirement,
+            retirement_age=retirement_age,
+            retirement_modelled=retirement_modelled,
+        ),
         "cashflow_horizon": {
             "corpus_opening": fund_flow.corpus_opening,
             "corpus_opening_indian": format_inr_indian(fund_flow.corpus_opening),
@@ -331,10 +398,11 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
             }
         )
 
-    # Annual cashflow table for the formatter LLM. Mirrors the columns the
-    # formatter renders (chat.py §5 "Annual Cashflow Table"); the EMI splits and
-    # corpus_opening are persisted in CashflowAnnualRow but the table never shows
-    # them, so they're omitted here to keep the prompt small.
+    # Annual cashflow rows for the formatter LLM — reference material for
+    # year-specific questions, NOT a table to render (the reply never reproduces
+    # the year-by-year statement; the frontend charts it). The EMI splits and
+    # corpus_opening are persisted in CashflowAnnualRow but aren't useful to the
+    # formatter, so they're omitted here to keep the prompt small.
     facts["annual_cashflow"] = []
     for row in output.annual_cashflow:
         facts["annual_cashflow"].append(
@@ -353,32 +421,11 @@ def _build_facts_pack(output: Any, summary: Any, user: User) -> dict[str, Any]:
             }
         )
 
-    if summary:
-        facts["narrative"] = {
-            "top_line": summary.top_line,
-            "retirement_note": summary.retirement_note,
-            "cashflow_note": summary.cashflow_note,
-            "risks": summary.risks,
-            "next_steps": summary.next_steps,
-            "goals": [
-                {
-                    "name": gb.name,
-                    "verdict": gb.verdict,
-                    "headline_amount": gb.headline_amount,
-                    "note": gb.note,
-                }
-                for gb in summary.goals
-            ],
-        }
-        facts["next_steps"] = summary.next_steps
-    else:
-        facts["narrative"] = None
-        facts["next_steps"] = []
 
     return facts
 
 
-def _build_fallback_text(output: Any, summary: Any) -> str:
+def _build_fallback_text(output: Any) -> str:
     """Deterministic fallback text when the formatter LLM fails."""
 
     headline = output.headline
@@ -398,15 +445,5 @@ def _build_fallback_text(output: Any, summary: Any) -> str:
     funded_count = sum(1 for g in output.goals if g.is_funded)
     total_count = len(output.goals)
     lines.append(f"{funded_count}/{total_count} goals are fully funded.")
-
-    if summary and summary.top_line:
-        lines.append("")
-        lines.append(summary.top_line)
-
-    if summary and summary.next_steps:
-        lines.append("")
-        lines.append("**Next steps:**")
-        for step in summary.next_steps[:3]:
-            lines.append(f"- {step}")
 
     return "\n".join(lines)

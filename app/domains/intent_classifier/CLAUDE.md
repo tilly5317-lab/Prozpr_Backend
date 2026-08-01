@@ -3,12 +3,12 @@
 Gateway domain: classifies each chat message into an intent. The ONLY place permitted to touch the bundled `AI_Agents` intent_classifier agent — no persistence, schemas, or router.
 
 ## Entry / contract
-- `intent_classifier_service.run(turn, ctx, prior)` runs first every turn; `ai_engine`'s brain uses its result to pick the rest of the module sequence (`services/`).
+- `intent_classifier_service.run(turn, ctx, prior)` runs first every turn; `ai_engine`'s brain uses its result to pick the rest of the module sequence (`services/`). The loop closes the other way too: `run` forwards `ctx.active_intent` — the session's most recent intent excluding canned-redirect ones, loaded by `ai_engine`'s turn context — into the classifier, which biases follow-ups toward staying on that intent (this is what makes intents sticky across a thread); an unrecognised value raises `ValueError`.
 
 ## Layers
 - **services/** — two files:
   - `intent_classifier_service` — the uniform module-service surface (above). Returns a `ModuleOutput` whose `payload` is an `IntentDecision` (types owned by `ai_engine`). Never last in a flow, so it produces no user-visible `text`.
-  - `intent_classifier_engine` — the bridge to the bundled agent (loaded via `ai_engine.common.ensure_ai_agents_path`). Anthropic primary + OpenAI fallback; scrubs canned-redirect turns from history and applies a rebalancing keyword override. Entry `classify_user_message`, also called by `ai_engine`'s debug intent router.
+  - `intent_classifier_engine` — the bridge to the bundled agent (loaded via `ai_engine.common.ensure_ai_agents_path`). Anthropic-only — a classifier failure propagates and the brain turns it into a recovery reply. There is deliberately NO second provider: the old OpenAI fallback attached `out_of_scope_message` for OUT_OF_SCOPE only, so a `stock_advice` result arrived without one, the brain's classifier-only short-circuit was skipped, and the question fell through to general_chat, which answered it (`services/intent_classifier_engine.py`, `classify_user_message`). Also scrubs canned-redirect turns from history and applies a rebalancing keyword override. Entry `classify_user_message`, also called by `ai_engine`'s debug intent router.
 
 ## Don't read
 - `__pycache__/`.

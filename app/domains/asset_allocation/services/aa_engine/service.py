@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -33,7 +32,6 @@ ensure_ai_agents_path()
 
 from asset_allocation_pydantic.models import AllocationInput, GoalAllocationOutput
 from asset_allocation_pydantic.pipeline import run_allocation_with_state
-from asset_allocation_pydantic.steps._rationale_llm import generate_rationales
 
 from app.domains.asset_allocation.services.aa_engine.input_builder import (
     build_goal_allocation_input_for_user,
@@ -42,19 +40,20 @@ from app.domains.asset_allocation.services.aa_engine.input_builder import (
 
 def _invoke_pipeline(
     alloc_input: AllocationInput,
-    anthropic_api_key: str,
 ) -> tuple[dict[str, Any], GoalAllocationOutput]:
-    """Run the 7-step pipeline with ``ANTHROPIC_API_KEY`` set for the LLM rationale step."""
-    key = anthropic_api_key.strip()
-    prev = os.environ.get("ANTHROPIC_API_KEY")
-    os.environ["ANTHROPIC_API_KEY"] = key
-    try:
-        return run_allocation_with_state(alloc_input, rationale_fn=generate_rationales)
-    finally:
-        if prev is None:
-            os.environ.pop("ANTHROPIC_API_KEY", None)
-        else:
-            os.environ["ANTHROPIC_API_KEY"] = prev
+    """Run the 7-step allocation pipeline. Pure Python — no LLM, no credential.
+
+    No ``rationale_fn``. That optional step called Haiku to write per-bucket prose,
+    and reaching it required assigning ``os.environ["ANTHROPIC_API_KEY"]`` around
+    the call — process-global mutation that races across concurrent turns.
+
+    The prose was also unread on the happy path: ``compute_allocation_result``
+    replaces this output with the PRACTICAL allocation for display, and the
+    practical pipeline sets no rationales, so ``goals[].rationale`` reached the
+    facts pack as ``None`` every time. It appeared only when the practical engine
+    threw and the code fell back to showing the ideal output.
+    """
+    return run_allocation_with_state(alloc_input)
 
 
 logger = logging.getLogger(__name__)
@@ -510,11 +509,7 @@ async def compute_allocation_result(
         return AllocationRunOutcome(result=None, blocking_message=_MSG_NO_API_KEY)
 
     try:
-        full_state, output = await asyncio.to_thread(
-            _invoke_pipeline,
-            alloc_input,
-            api_key,
-        )
+        full_state, output = await asyncio.to_thread(_invoke_pipeline, alloc_input)
     except Exception as exc:
         logger.exception("asset_allocation pipeline failed: %s", exc)
         trace_line(f"asset_allocation ERROR: {exc!s}")

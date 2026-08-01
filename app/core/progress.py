@@ -20,18 +20,31 @@ from typing import Optional, TypedDict
 _TTL_S = 300.0
 
 _lock = Lock()
-_store: dict[tuple[str, str], tuple[float, float, str]] = {}  # (user, task) -> (ts, pct, msg)
+# (user, task) -> (ts, pct, [stage messages so far, oldest first])
+_store: dict[tuple[str, str], tuple[float, float, list[str]]] = {}
 
 
 class ProgressView(TypedDict):
     active: bool
     progress_pct: float
     message: Optional[str]
+    messages: list[str]
 
 
 def set_progress(user_id: object, task: str, pct: float, message: str) -> None:
+    """Record a stage. The full message HISTORY is kept (not just the latest)
+    so a poller can render every completed stage even when stages flip faster
+    than its poll interval."""
     with _lock:
-        _store[(str(user_id), task)] = (time.monotonic(), float(pct), message)
+        key = (str(user_id), task)
+        entry = _store.get(key)
+        now = time.monotonic()
+        messages: list[str] = (
+            list(entry[2]) if entry is not None and (now - entry[0]) <= _TTL_S else []
+        )
+        if not messages or messages[-1] != message:
+            messages.append(message)
+        _store[key] = (now, float(pct), messages)
 
 
 def clear_progress(user_id: object, task: str) -> None:
@@ -45,5 +58,12 @@ def get_progress(user_id: object, task: str) -> ProgressView:
         if entry is None or (time.monotonic() - entry[0]) > _TTL_S:
             if entry is not None:
                 _store.pop((str(user_id), task), None)
-            return ProgressView(active=False, progress_pct=0.0, message=None)
-        return ProgressView(active=True, progress_pct=entry[1], message=entry[2])
+            return ProgressView(
+                active=False, progress_pct=0.0, message=None, messages=[]
+            )
+        return ProgressView(
+            active=True,
+            progress_pct=entry[1],
+            message=entry[2][-1] if entry[2] else None,
+            messages=list(entry[2]),
+        )

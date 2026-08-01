@@ -41,11 +41,16 @@ _SIP_PROGRESS_TASK = "sip_plan_compute"
 
 
 class ComputeProgressResponse(BaseModel):
-    """Live stage of an in-flight SIP build (polled while the POST runs)."""
+    """Live stage of an in-flight SIP build (polled while the POST runs).
+
+    ``messages`` is the full stage history so far (oldest first) so the UI can
+    show every completed step even when stages advance faster than the poll.
+    """
 
     active: bool
     progress_pct: float
     message: str | None = None
+    messages: list[str] = []
 
 
 @router.get("/sip", response_model=SipPlanResponse)

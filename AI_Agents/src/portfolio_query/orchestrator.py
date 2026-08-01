@@ -144,6 +144,31 @@ _PORTFOLIO_QUERY_TOOL = {
                     "true. Set to null when the answer is in-scope."
                 ),
             },
+            "path": {
+                "type": ["string", "null"],
+                "enum": ["X", "M", "P", None],
+                "description": (
+                    "Which path you took in Step 1: 'X' out of scope, 'M' general "
+                    "market question, 'P' portfolio-specific question. Recorded for "
+                    "review; it does not change your reply. Always set it."
+                ),
+            },
+            "suggested_intent": {
+                "type": ["string", "null"],
+                "description": (
+                    "Usually null. Set it in exactly two cases: (a) you hit a "
+                    "capability limit — name its owner, e.g. goal_planning for "
+                    "feasibility maths; or (b) the customer's CURRENT question is "
+                    "one you genuinely could not answer from portfolio, profile and "
+                    "market data, its whole substance belonging elsewhere. Valid "
+                    "values: goal_planning, asset_allocation, rebalancing, "
+                    "additional_investment, general_market_query. A portfolio "
+                    "review, holdings, performance or market question you answered "
+                    "is NEVER a suggested_intent. Judge the current question only, "
+                    "never an earlier one in the history. RECORDED FOR REVIEW ONLY — "
+                    "it never changes your reply."
+                ),
+            },
         },
         "required": ["guardrail_triggered"],
     },

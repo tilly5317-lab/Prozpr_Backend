@@ -47,7 +47,13 @@ def test_canned_messages_single_pi_identity():
     assert "Tilly" not in OOS and "Tilly" not in STK
 
 
-def test_chat_facing_surfaces_question_aware():
+def test_chat_facing_surfaces_lead_with_the_answer():
+    """Restating the question is conditional, not a required opening.
+
+    Every reply beginning "You're asking whether…" reads as filler by the third
+    time. The rule now leads with the answer and keeps the restatement for
+    questions where naming the reading earns its place.
+    """
     from app.domains.general_chat.services.general_chat_engine import (
         _SYSTEM_PROMPT as GC,
     )
@@ -55,6 +61,8 @@ def test_chat_facing_surfaces_question_aware():
 
     # The AA composer was removed; AA chat now renders through the answer_formatter (FMT).
     for s in (GC, FMT):
+        low = s.lower()
         assert "You are PI" in s
-        assert "restating" in s.lower()  # chat surfaces acknowledge the question
+        assert "lead with the answer" in low
+        assert "restat" in low  # the conditional case is still described
     assert "no acknowledgment" not in GC.lower()  # ban removed

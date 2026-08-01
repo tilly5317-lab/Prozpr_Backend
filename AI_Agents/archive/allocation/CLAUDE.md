@@ -17,7 +17,7 @@ NO
 - `schemas/` — pydantic schemas (`ClientProfile`, `Portfolio`, `AllocationResponse`, …).
 - `utilities/` — fund-view loader, delta calculator, response formatter.
 
-Data contract: `ClientProfile` (+ optional `Portfolio`) → `AllocationResponse`. Needs `langchain-anthropic` (Claude Haiku), `ANTHROPIC_API_KEY`, and a `data/fund_view.txt`.
+Data contract: `ClientProfile` (+ optional `Portfolio`) → `AllocationResponse`. Needs the raw `anthropic` SDK (Claude Haiku via `messages.create` — pre-dates the LangChain-only convention; do not port this client), `ANTHROPIC_API_KEY`, and a `fund_view.txt` at `AI_Agents/archive/data/` — one level above this folder, and absent from the repo.
 
 ## Don't read
 

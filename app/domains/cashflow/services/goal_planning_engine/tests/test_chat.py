@@ -26,7 +26,7 @@ def _stub_dependencies(monkeypatch):
     )
 
     async def fake_compute(
-        *, user, user_question, chat_session_id, anchor_date, db=None
+        *, user, user_question, chat_session_id, anchor_date, db=None, overrides=None
     ):
         if getattr(user, "date_of_birth", None) is None:
             raise ValueError("missing_date_of_birth")
@@ -44,6 +44,12 @@ def _stub_dependencies(monkeypatch):
         # mirror the helper: relayed text carries the canned message faithfully
         return message
 
+    # Stub the detector too: it is a live Haiku call, and these tests are about
+    # the readiness/apology paths, not routing.
+    async def fake_detect(ctx):
+        return gp_chat.GoalChatAction(mode="narrate")
+
+    monkeypatch.setattr(gp_chat, "_detect_goal_action", fake_detect)
     monkeypatch.setattr(gp_chat, "compute_goal_planning_snapshot", fake_compute)
     monkeypatch.setattr(gp_chat, "format_with_telemetry", fake_formatter)
     monkeypatch.setattr(gp_chat, "format_relay_or_canned", fake_relay)

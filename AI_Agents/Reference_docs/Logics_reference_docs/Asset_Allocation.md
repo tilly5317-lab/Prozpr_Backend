@@ -69,16 +69,16 @@ The remaining corpus is allocated across **equities**, **debt** and **others** b
 
 #### Step 4c — Guardrails: validation before delivery
 
-- Class totals reconcile to 100%; every subgroup sits inside its band; subgroup sums reconcile to their parent class.
+- Class totals reconcile to 100%, and that reconciliation is enforced — a plan that doesn't sum correctly is never shown to you; it fails safely instead.
+- Every market-view nudge is clamped inside its band as it is computed, by construction, so a band breach shouldn't occur; a final check confirms every subgroup sits inside its band and every position rolls up to its parent class, and any anomaly is logged for our research team to review.
 - Allocations are presented in clean, round percentages and rupee amounts — no fictitious precision.
-- Guardrails are enforced by construction — every market-view nudge is clamped inside its band as it is computed — and a final reconciliation checks that every position rolls up correctly.
 
 ## Exploring and changing your plan in chat
 
 - **What-if questions are live but hypothetical.** Ask "what if my risk score were 7?", "what if I add ₹50 lakh?", or "what if I switch tax regime?" and the full plan recomputes on the spot for comparison — but the result is never saved.
 - **Chat does not save changes.** Saying "save this" or "lock it in" in chat does not persist anything. To change your plan durably, update your Profile — the plan regenerates from the updated inputs.
 - **The numbers you see are holdings-aware.** Chat shows the practical allocation built on these ideal targets (see `Practical_Asset_Allocation.md`), so the displayed mix reflects the portfolio you actually own, not just the theory.
-- **When the plan recomputes.** A fresh plan runs when you start a new conversation, when you explicitly ask for a full redo, or when your profile changes.
+- **When the plan recomputes.** A fresh plan runs when you start a new conversation or when you explicitly ask for a full redo. If you update your profile, the fresh numbers show up the next time you start a new conversation — a same-session edit won't change the plan already in front of you until then.
 
 ## Why a customer should trust this approach
 
@@ -96,4 +96,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Allocation Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Allocation Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly*

@@ -157,7 +157,7 @@ async def format_answer(
         logic_reference=logic_reference,
     )
     try:
-        text = await _invoke_llm(prompt["system"], prompt["user"])
+        text = await _invoke_llm(prompt["system"], prompt["user"], module_name)
     except FormatterFailure:
         raise
     except Exception as exc:
@@ -170,7 +170,7 @@ async def format_answer(
     return text
 
 
-async def _invoke_llm(system_text: str, user_text: str) -> str:
+async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str:
     """Single Haiku 4.5 call via a forced answer-only tool.
 
     A discarded reasoning-first scratchpad was tried here, but on long
@@ -187,7 +187,10 @@ async def _invoke_llm(system_text: str, user_text: str) -> str:
 
     from app.core.config import get_settings
 
-    api_key = get_settings().get_anthropic_answer_formatter_key()
+    # Attributed to the module whose reply this is, so per-module cost tracking
+    # covers formatter spend too. Falls back to the shared formatter key, then
+    # the global one.
+    api_key = get_settings().get_anthropic_formatter_key_for(module_name)
     tool = {
         "name": "return_formatted_answer",
         "description": (
@@ -346,10 +349,11 @@ _RELAY_BODY = (
     "FACTS_PACK has a single field, `boundary_message`: the exact limit or "
     "instruction to convey.\n"
     "\n"
-    "Open by briefly acknowledging, in your own words, what the customer asked, "
-    "then convey `boundary_message` faithfully in PI's voice. Do NOT perform or "
-    "simulate the requested action, and do NOT add capabilities, steps, or "
-    "requirements beyond `boundary_message`. Keep it to 2-4 sentences, warm."
+    "Convey `boundary_message` faithfully in PI's voice, leading with it as the "
+    "house rules describe — acknowledge what was asked only when the limit would "
+    "otherwise read as a non-sequitur. Do NOT perform or simulate the requested "
+    "action, and do NOT add capabilities, steps, or requirements beyond "
+    "`boundary_message`. Keep it to 2-4 sentences, warm."
 )
 
 

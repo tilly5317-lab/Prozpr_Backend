@@ -23,6 +23,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 - `requirements.txt` — Python runtime dependencies for the backend (pip install target).
 - `Dockerfile` — container image definition used to build the deployable backend image.
 - `pyrightconfig.json` — Pyright static type-checker configuration for the repo.
+- `pyproject.toml` — pytest configuration: `asyncio_mode=auto`, custom markers, and `pythonpath = ["AI_Agents/src", "."]` so agent imports resolve in tests without `ensure_ai_agents_path()`.
 - `ruff.toml` — Ruff linter/formatter configuration applied across the project.
 
 ## Conventions
@@ -40,9 +41,9 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Flows
 
 Cross-cutting flows live with their home folders:
-- Typical authenticated call → `app/CLAUDE.md`.
+- Typical authenticated call → `app/core/CLAUDE.md`.
 - Chat turn (`ChatBrain.run_turn`) → `app/domains/ai_engine/CLAUDE.md`.
-- Allocation (produced by the AI bridge in `ai_engine`; persisted/read in `asset_allocation`) → `app/domains/asset_allocation/CLAUDE.md`.
+- Allocation (computed in `asset_allocation/services/aa_engine/`, persisted/read by the same domain; `ai_engine` only sequences the call from `flow_asset_allocation`) → `app/domains/asset_allocation/CLAUDE.md`.
 - CAMS CAS PDF ingest, SimBanks sync, Finvu (legacy) → `app/domains/ingestion/CLAUDE.md`.
 
 ## Don't read
@@ -50,7 +51,7 @@ Cross-cutting flows live with their home folders:
 - `__pycache__/`, `.pytest_cache/`, `.venv/`, `.obsidian/` — build/editor caches.
 - `*.db`, `*.db.bak-*`, `*.db.partial-*`, `*.db.probe-artifact-*` — local SQLite dev state.
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
-- `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding, `charts.md`, `flowchart_chat_flow.html`). Not product code.
+- `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding: `specs/`, `plans/`, `notes/`). Not product code.
 
 ## Context-layer convention
 

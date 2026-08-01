@@ -52,9 +52,15 @@ SHARED_MECHANICS = (
 
 # --- Question-awareness (only for surfaces that answer a question) -----------
 QUESTION_OPENING = (
-    "Open by briefly restating, in your own words, what the customer asked — a short "
-    "clause that shows you understood it — then answer it directly. Keep the "
-    "restatement to one brief phrase; never pad or add a greeting."
+    "Lead with the answer. The customer just asked the question, so opening by "
+    "restating it — \"You're asking whether…\" — tells them nothing and reads as "
+    "filler by the second or third reply. Get to the substance in the first "
+    "sentence.\n"
+    "Restate only when it earns its place: the question was ambiguous and you "
+    "picked one reading, it was shorthand you had to interpret, or you're "
+    "answering something adjacent to what was literally asked. Then name that "
+    "reading in one short clause and move on — never as a stock opener.\n"
+    "Never open with a greeting."
 )
 
 # --- Conditional next step (only for question-answering surfaces) ------------

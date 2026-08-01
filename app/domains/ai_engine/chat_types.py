@@ -23,7 +23,9 @@ class ChatTurnInput:
 
     user_ctx: User
     user_question: str
-    conversation_history: list[dict[str, str]]
+    # Entries are {role, content, intent, asked_at} — asked_at is a datetime,
+    # so this is not a str-valued dict. See chat_context.load_conversation_history.
+    conversation_history: list[dict[str, Any]]
     client_context: dict[str, Any] | None
     session_id: uuid.UUID
     db: AsyncSession | None = None

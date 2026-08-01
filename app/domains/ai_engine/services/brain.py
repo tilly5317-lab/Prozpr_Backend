@@ -47,6 +47,7 @@ from app.domains.ai_engine.posthog_tracing import (
     set_turn_trace_name,
     track_turn_posthog,
 )
+from app.domains.ai_engine.thinking import publish_turn_thinking
 from app.domains.ai_engine.types import IntentDecision, ModuleOutput
 from app.domains.ai_engine.usage_tracking import (
     jsonable_llm_usage,
@@ -192,6 +193,12 @@ class ChatBrain:
             trace_line("--- ChatBrain.run_turn ---")
             trace_line(f"user message: {turn.user_question}")
 
+            # Live thinking feed: each real step below publishes a line the
+            # chat UI polls and shows while this POST is in flight.
+            publish_turn_thinking(
+                turn, 4, "Reading your conversation and financial profile…"
+            )
+
             # ---- 1. Per-turn context ----------------------------------------
             ctx: TurnContext = await build_turn_context(turn)
             trace_line(
@@ -209,8 +216,19 @@ class ChatBrain:
                 )
 
             # ---- 2. Intent classification (always first) --------------------
+            publish_turn_thinking(
+                turn, 12, "Finding the intent behind your question…"
+            )
             ic_out = await intent_classifier_service.run(turn, ctx, {})
             intent = ic_out.payload
+            # Surface the classifier's REAL reasoning — this is the model
+            # genuinely thinking aloud, not a canned line.
+            publish_turn_thinking(
+                turn,
+                26,
+                (intent.reasoning or "").strip()
+                or f"Understood — treating this as a {intent.name.replace('_', ' ')} question.",
+            )
             flow.append(f"identified intent: {intent.name}")
             # Name the PostHog trace now that we know the intent — otherwise it is
             # labelled "RunnableSequence" and the trace list is unreadable.
@@ -301,6 +319,9 @@ class ChatBrain:
                 )
 
             # ---- 6. The flow's result owns the reply ------------------------
+            publish_turn_thinking(
+                turn, 96, "Putting the finishing touches on your answer…"
+            )
             return await self._finalize(
                 text=final.text or "",
                 intent=intent,
