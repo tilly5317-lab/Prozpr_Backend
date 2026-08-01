@@ -7,6 +7,9 @@ together so SQLAlchemy can resolve relationship strings.
 
 from app.domains.identity.models.family_member import FamilyMember  # noqa: F401
 from app.domains.identity.models.linked_account import LinkedAccount  # noqa: F401
+from app.domains.identity.models.onboarding_generation_job import (  # noqa: F401
+    OnboardingGenerationJob,
+)
 from app.domains.identity.models.user import User  # noqa: F401
 
-__all__ = ["FamilyMember", "LinkedAccount", "User"]
+__all__ = ["FamilyMember", "LinkedAccount", "OnboardingGenerationJob", "User"]

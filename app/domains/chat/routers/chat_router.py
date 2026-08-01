@@ -33,11 +33,24 @@ from app.domains.chat.schemas.chat import (
     ChatSessionUpdate,
 )
 from app.domains.ai_engine import ChatBrain, ChatTurnInput
+from app.domains.ai_engine.thinking import clear_thinking, get_thinking
 from app.domains.chat.services.chat_context import load_conversation_history
 from app.domains.chat.services.chat_title_service import generate_chat_title
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+class ChatThinkingResponse(BaseModel):
+    """Live thinking feed of this user's in-flight chat turn (polled while the
+    send-message POST runs). ``messages`` is the full history so far (oldest
+    first) so no line is missed between polls."""
+
+    active: bool
+    progress_pct: float
+    message: str | None = None
+    messages: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +108,20 @@ async def list_session_ai_module_runs(
         .all()
     )
     return [ChatAiModuleRunResponse.model_validate(r) for r in rows]
+
+
+@router.get("/sessions/{session_id}/thinking", response_model=ChatThinkingResponse)
+async def get_session_thinking(
+    session_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> ChatThinkingResponse:
+    """Live "thinking aloud" line of this session's in-flight AI turn (if any).
+
+    Deliberately no DB hit: the store is keyed by (effective user, session), so
+    another user's session id can never read this user's feed, and the chat UI
+    polls this every second while a reply is pending.
+    """
+    return ChatThinkingResponse(**get_thinking(current_user.id, session_id))
 
 
 @router.get("/sessions/active", response_model=ChatSessionDetailResponse)
@@ -221,18 +248,23 @@ async def send_message(
     )
     db.add(user_msg)
 
-    # Run the AI brain.
-    brain_result = await ChatBrain().run_turn(
-        ChatTurnInput(
-            user_ctx=user_ctx,
-            user_question=payload.content,
-            conversation_history=conversation_history,
-            client_context=payload.client_context,
-            session_id=session_id,
-            db=db,
-            user_id=current_user.id,
+    # Run the AI brain. It publishes live "thinking aloud" lines to the
+    # per-session store as it works (polled via GET .../thinking); always
+    # clear on the way out so the feed can never present as stuck active.
+    try:
+        brain_result = await ChatBrain().run_turn(
+            ChatTurnInput(
+                user_ctx=user_ctx,
+                user_question=payload.content,
+                conversation_history=conversation_history,
+                client_context=payload.client_context,
+                session_id=session_id,
+                db=db,
+                user_id=current_user.id,
+            )
         )
-    )
+    finally:
+        clear_thinking(current_user.id, session_id)
 
     # Re-add user message in case the brain rolled back the transaction.
     insp = sa_inspect(user_msg)

@@ -37,6 +37,7 @@ turn_context.py   TurnContext + build_turn_context
 common.py         sys.path inject (ensure_ai_agents_path), tracing, money fmt
 classifier_llm.py shared Haiku structured-output helper
 chat_dispatcher.py per-intent chat-handler registry + dispatch
+thinking.py       live "thinking aloud" feed for a turn (brain + flows publish; polled via GET /chat/sessions/{id}/thinking)
 answer_formatter/ shared question-aware answer formatter
 logic_docs.py    module→Logics-thesis-doc loader; formatter attaches docs on educate/narrate
 usage_tracking.py  per-turn LLM token/usage accounting
