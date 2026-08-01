@@ -1,22 +1,17 @@
-"""Spans and error reporting for background jobs — the half HTTP instrumentation cannot see.
+"""Spans, events and error reporting for background jobs.
 
-The ASGI instrumentation only ever creates a span because *a request arrived*.
-Schedulers are not requests, so before this module they were a black box: an
-800-second mfapi sweep produced no duration, no success record, no tree, and
-never became an Error Tracking issue — ``capture_exception`` is wired only into
-the HTTP handler in ``app/core/exceptions.py``, which a job never reaches.
+ASGI instrumentation only creates a span because *a request arrived*, so
+schedulers were a black box: an 800-second mfapi sweep produced no duration, no
+success record, and no Error Tracking issue.
 
-Two tools, deliberately separate because the schedulers already catch their own
-exceptions rather than letting them propagate:
+Two entry points, separate because the schedulers catch their own exceptions
+rather than letting them propagate: ``job_span`` for work that raises out of the
+block, ``report_job_failure`` for one the caller already caught.
 
-- ``job_span`` for work that raises out of the block.
-- ``report_job_failure`` for an exception the caller has already caught.
-
-``suppress_instrumentation`` is re-exported here so the reason lives in one
-place: SQLAlchemy and httpx are instrumented globally (``app/main.py``), which
-is right inside a request and ruinous inside a bulk loop — the mfapi sweep
-touches ~8k schemes, so one run would emit ~25k spans in a single trace no
-viewer can render and no human can read. Wrap the per-item loop, keep the
+``suppress_instrumentation`` is re-exported so the reason lives in one place:
+SQLAlchemy and httpx are instrumented globally (``app/main.py``), which is right
+inside a request and ruinous in a bulk loop — the ~8k-scheme mfapi sweep would
+emit ~25k spans into one unreadable trace. Wrap the per-item loop; keep the
 run/phase spans outside it.
 """
 
@@ -25,7 +20,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
+import time
 from collections.abc import Awaitable, Callable, Iterator
+from contextvars import ContextVar
 from typing import Any, TypeVar
 
 from opentelemetry import trace
@@ -34,7 +31,28 @@ from opentelemetry.instrumentation.utils import (  # noqa: F401  (re-export)
 )
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 
+# Module-level, unlike the function-local observability imports below: the
+# decorator calls it, and tests monkeypatch `job_tracing.capture_job_completed`,
+# which only works if the name is bound here. No cycle — observability does not
+# import this module.
+from app.core.observability import capture_job_completed
+
 logger = logging.getLogger(__name__)
+
+# Per-run state for the enclosing @traced_job. A ContextVar, not a global, so
+# concurrent jobs in different asyncio tasks never see each other's numbers.
+_job_state: ContextVar[dict | None] = ContextVar("prozpr_job_state", default=None)
+
+
+def record_job_counts(**counts: object) -> None:
+    """Attach per-run numbers to the enclosing job's ``job_completed`` event.
+
+    A job that "succeeds" while inserting zero rows is broken; these counts are
+    what make that visible. No-op outside a ``@traced_job``.
+    """
+    state = _job_state.get()
+    if state is not None:
+        state["counts"].update(counts)
 
 _NOOP_TRACER = trace.NoOpTracer()
 
@@ -42,9 +60,8 @@ _NOOP_TRACER = trace.NoOpTracer()
 def _tracer() -> trace.Tracer:
     """Real tracer when OTel is on, a no-op one otherwise.
 
-    Resolved per call rather than at import: ``init_otel()`` runs at the top of
-    ``app/main.py``, but schedulers are imported from the lifespan, and a module
-    that cached the provider at import time would pin whichever one existed then.
+    Resolved per call, not at import: caching the provider would pin whichever
+    one existed when this module was first imported.
     """
     from app.core.otel import get_tracer_provider
 
@@ -54,19 +71,14 @@ def _tracer() -> trace.Tracer:
     return provider.get_tracer(__name__)
 
 
-# Stamped on an exception once it has been sent to Error Tracking. Job spans
-# nest (run > phase), so one failure passes through several ``job_span`` blocks
-# on its way out. Every span it crosses SHOULD be marked ERROR — that is what
-# makes the trace readable — but the issue must be filed exactly once.
-_REPORTED_FLAG = "_prozpr_job_failure_reported"
-
-
 def report_job_failure(exc: BaseException, *, job: str, **attributes: object) -> None:
     """Mark the active span failed and report ``exc`` to PostHog Error Tracking.
 
-    For the common scheduler shape where the exception is caught and logged
-    rather than raised. Best-effort: telemetry must never turn a handled job
-    failure into an unhandled one.
+    For the scheduler shape where the exception is caught and logged, not raised.
+
+    Job spans nest (run > phase), so one failure crosses several of these. Every
+    span it touches goes ERROR — that is what makes the trace readable — while
+    ``capture_exception`` dedupes so the issue files once.
     """
     from app.core.observability import capture_exception
 
@@ -75,13 +87,13 @@ def report_job_failure(exc: BaseException, *, job: str, **attributes: object) ->
         if span is not None and span.is_recording():
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
-        if getattr(exc, _REPORTED_FLAG, False):
-            return
+        # The schedulers catch their own exceptions, so the decorator's `except`
+        # never fires and the run would otherwise report success.
+        state = _job_state.get()
+        if state is not None:
+            state["outcome"] = "failed"
+            state["failure_reason"] = type(exc).__name__
         capture_exception(exc, properties={"job": job, **attributes})
-        try:
-            setattr(exc, _REPORTED_FLAG, True)
-        except AttributeError:  # pragma: no cover - exotic exceptions
-            pass
     except Exception:  # pragma: no cover - reporting must never raise
         logger.warning("job failure reporting failed for %s", job, exc_info=True)
 
@@ -90,13 +102,11 @@ def report_job_failure(exc: BaseException, *, job: str, **attributes: object) ->
 def job_span(name: str, **attributes: object) -> Iterator[Span]:
     """Trace one background job run, or one phase of it.
 
-    On an exception leaving the block the span is marked ERROR, the exception is
-    recorded on it, and it is reported to Error Tracking — then re-raised
-    unchanged. Observing a failure must not swallow it.
+    An exception leaving the block marks the span ERROR, files it, and re-raises
+    unchanged — observing a failure must not swallow it.
     """
     # record_exception/set_status_on_exception OFF: this block owns the error
-    # path, and leaving OTel's defaults on records the same exception twice —
-    # once by the SDK, once by report_job_failure.
+    # path, and OTel's defaults would record the same exception twice.
     with _tracer().start_as_current_span(
         name,
         kind=SpanKind.INTERNAL,
@@ -116,18 +126,34 @@ _F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
 
 
 def traced_job(name: str, **attributes: object) -> Callable[[_F], _F]:
-    """Decorator form of ``job_span`` for an async job entry point.
+    """Decorator form of ``job_span``, plus the ``job_completed`` event.
 
-    Exists so wrapping an existing scheduler costs one line instead of
-    re-indenting its whole body — a diff that would collide with anyone else
-    editing the same job.
+    Emitting the event here rather than in each job is what makes a new job fully
+    tracked by adding one line, with no second step to forget.
     """
 
     def decorate(func: _F) -> _F:
         @functools.wraps(func)
         async def wrapper(*args: object, **kwargs: object) -> object:
-            with job_span(name, **attributes):
-                return await func(*args, **kwargs)
+            state: dict = {"outcome": "ok", "failure_reason": None, "counts": {}}
+            token = _job_state.set(state)
+            t0 = time.monotonic()
+            try:
+                with job_span(name, **attributes):
+                    return await func(*args, **kwargs)
+            except BaseException as exc:
+                state["outcome"] = "failed"
+                state["failure_reason"] = type(exc).__name__
+                raise
+            finally:
+                _job_state.reset(token)
+                capture_job_completed(
+                    job=name,
+                    outcome=state["outcome"],
+                    failure_reason=state["failure_reason"],
+                    duration_ms=(time.monotonic() - t0) * 1000,
+                    counts=state["counts"],
+                )
 
         return wrapper  # type: ignore[return-value]
 
