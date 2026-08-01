@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 
+from app.domains.ai_engine.thinking import publish_turn_thinking as _think
 from app.domains.ai_engine.types import AIModule, ModuleOutput
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def flow_asset_allocation(turn, ctx) -> ModuleOutput:
         run as run_asset_allocation,
     )
 
+    _think(turn, 42, "Designing your ideal asset mix from your risk profile…")
     return await run_asset_allocation(turn, ctx, {})
 
 
@@ -60,7 +62,13 @@ async def flow_rebalancing(turn, ctx) -> ModuleOutput:
         run as run_rebalancing,
     )
 
+    _think(turn, 38, "Designing your personalised target asset mix…")
     paa = await run_practical_asset_allocation(turn, ctx, {})
+    _think(
+        turn,
+        68,
+        "Comparing your current holdings with the target and drafting trades…",
+    )
     return await run_rebalancing(turn, ctx, {AIModule.ASSET_ALLOCATION.value: paa})
 
 
@@ -69,6 +77,7 @@ async def flow_goal_planning(turn, ctx) -> ModuleOutput:
         run as run_cashflow,
     )
 
+    _think(turn, 45, "Running your cashflow and goal projections…")
     return await run_cashflow(turn, ctx, {})
 
 
@@ -78,6 +87,7 @@ async def flow_portfolio_query(turn, ctx) -> ModuleOutput:
         answer_portfolio_query,
     )
 
+    _think(turn, 45, "Looking through your portfolio holdings…")
     return ModuleOutput(text=await answer_portfolio_query(turn.user_question, ctx))
 
 
@@ -86,6 +96,7 @@ async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:
     # No persistence; grounded facts are built inside the domain service.
     from app.domains.mutual_funds.services.mutual_fund_query_service import answer_mutual_fund_query
 
+    _think(turn, 45, "Pulling this fund's data and our research view on it…")
     return ModuleOutput(text=await answer_mutual_fund_query(turn.user_question, ctx))
 
 
@@ -99,7 +110,9 @@ async def flow_market(turn, ctx) -> ModuleOutput:
         run as run_market_commentary,
     )
 
+    _think(turn, 40, "Reviewing today's market context…")
     macro = await run_market_commentary(turn, ctx, {})
+    _think(turn, 72, "Writing your answer against that market view…")
     return await run_general_chat(turn, ctx, {AIModule.MARKET_COMMENTARY.value: macro})
 
 
@@ -108,6 +121,7 @@ async def flow_general_chat(turn, ctx) -> ModuleOutput:
         run as run_general_chat,
     )
 
+    _think(turn, 50, "Researching and composing your answer…")
     return await run_general_chat(turn, ctx, {})
 
 
@@ -121,6 +135,7 @@ async def flow_additional_investment(turn, ctx) -> ModuleOutput:
         run as run_additional_investment,
     )
 
+    _think(turn, 42, "Working out how to deploy your money across funds…")
     return await run_additional_investment(turn, ctx, {})
 
 

@@ -29,11 +29,16 @@ _PROGRESS_TASK = "rebalance_compute"
 
 
 class ComputeProgressResponse(BaseModel):
-    """Live stage of an in-flight compute (polled while the POST runs)."""
+    """Live stage of an in-flight compute (polled while the POST runs).
+
+    ``messages`` is the full stage history so far (oldest first) so the UI can
+    show every completed step even when stages advance faster than the poll.
+    """
 
     active: bool
     progress_pct: float
     message: str | None = None
+    messages: list[str] = []
 
 
 @router.post("/compute", response_model=RebalancingComputeApiResponse)
