@@ -4,7 +4,10 @@
 
 - **models/** — `InvestmentPolicyStatement`; `MeetingNote` + `MeetingNoteItem`.
 - **schemas/** — `ips`, `meeting_note`, `discovery` payloads.
-- **routers/** — `/ips`, `/meeting-notes`, `/discovery`.
+- - **routers/** — three thin HTTP surfaces, one per file:
+  - `/ips` — read the current investment policy statement, generate a new one from the stored profile tables, list version history.
+  - `/meeting-notes` — CRUD on meeting notes and their line items, plus mandate approval.
+  - `/discovery` — read-only mutual-fund catalogue browsing (funds, sectors, trending, house-view) over `mutual_funds`' `Fund` model; despite the domain name it is not an advisory artefact, it just shares the folder.
 
 ## Gotchas & invariants
 

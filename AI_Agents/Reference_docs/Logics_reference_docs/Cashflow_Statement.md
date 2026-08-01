@@ -1,7 +1,7 @@
 # Ask PI · Cashflow & Goal-Planning Thesis
 
 *Why we project the way we do — and what the corpus picture is really telling you*
-*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
 
 ---
 
@@ -63,6 +63,12 @@ This is the heart of the plan: one pool, walked forward month by month. The open
 
 We aggregate into two views: a headline status (today's corpus, what's required, the surplus or shortfall, the projected end-of-horizon balance, and the feasibility verdict) and a fund-flow reconciliation that ties opening balance, contributions, returns, inflows, outflows and goal payouts to the closing balance — every rupee accounted for.
 
+## Exploring and changing your plan in chat
+
+- **What-if questions are live but hypothetical.** Ask "what if I retire at 50?", "what if I invested ₹50,000 more a month?", "what if my expenses rose to ₹3 lakh a month?", or "can I afford a ₹10 lakh trip next year?" and we re-run the full eight-stage projection with that one change applied — but the result is never saved.
+- **Chat does not save changes.** A what-if answer is a look, not a commitment. To change your plan durably, update your profile — the plan regenerates from the updated inputs.
+- **We don't let you shop for a rosier assumption.** Return rates, inflation and income growth are not explorable this way — only inputs you actually control (when you retire, how much you invest or spend, a specific one-off) can be changed.
+
 ## Why a customer should trust this approach
 
 | Question | Our answer |
@@ -73,7 +79,7 @@ We aggregate into two views: a headline status (today's corpus, what's required,
 | **A goal a few years away — shouldn't it earn long-term returns?** | We assign returns by horizon, and a few years out is treated as medium-term, not long-term. We deliberately don't let a goal near a boundary "pick the better band" — the time math has to stay consistent so the today ↔ future-value pair reconciles. |
 | **Why didn't you split corpus equally across my goals in a shortfall?** | We keep a single shared corpus, not per-goal balances — that's how real household money works. When a period under-funds, the shortfall is split *proportionally* to each outflow's size. Goal-priority routing would be a deliberate policy change, not the default. |
 | **Why isn't my contribution showing tax savings?** | This plan applies your effective tax rate to gross income only. Tax-shield effects on investments live in the allocation approach, not here — keeping the projection deterministic and avoiding double-counting between the two. |
-| **What if my income jumps in a few years — does the plan know?** | Not unless you tell it. Year-on-year income growth is applied uniformly. A specific event — a bonus, a salary jump, a property sale, a maturity — should be entered as a one-off inflow or outflow on its exact date. (The projection engine models one-offs precisely; entering them through the chat plan isn't available yet.) |
+| **What if my income jumps in a few years — does the plan know?** | Not unless you tell it. Year-on-year income growth is applied uniformly. A specific event — a bonus, a salary jump, a property sale, a maturity — should be entered as a one-off inflow or outflow on its exact date. (The projection engine models one-offs precisely. You can ask a one-off "what if" in chat — e.g. "can I afford a ₹10 lakh trip next year?" — and get a real answer on the spot; making it a permanent part of your saved plan isn't available through chat yet.) |
 
 ## What this thesis is — and is not
 
@@ -81,4 +87,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Cashflow & Goal-Planning Thesis v1.1 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Cashflow & Goal-Planning Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*

@@ -65,13 +65,14 @@ conftest.py
 # Large data files (CSV)
 *.csv
 !AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
-!AI_Agents/Reference_docs/prozpr_fund_ranking_june_2026.csv
-!AI_Agents/Reference_docs/prozpr_fund_ranking_june_2026_v2.csv
+!AI_Agents/Reference_docs/prozpr_fund_ranking_may_2026.csv
 
 # Alembic auto-generated (keep versions/, ignore stamps)
 # alembic/versions/ is tracked
 
 # Superpowers (local only)
+docs/superpowers/
+**/docs/superpowers/
 **/.claude/agents/
 **/.claude/hooks/
 
@@ -134,18 +135,7 @@ issue_reports/
 /app/domains/additional_investment/models/tests
 /app/domains/asset_allocation/services/aa_engine/tests
 /app/domains/asset_allocation/services/aa_engine/tests
-/app/domains/rebalancing/services/rebal_engine/tests
-/app/domains/rebalancing/services/rebal_engine/tests
-/app/domains/rebalancing/services/rebal_engine/tests
-docs/superpowers/specs/db-schema.md
-docs/superpowers/specs/2026-05-09-projection-run-tables.md
-docs/superpowers/specs/2026-05-10-projection-input-tables.md
-docs/superpowers/specs/2026-05-10-rebalancing-input-tables.md
-docs/superpowers/specs/2026-05-10-rebalancing-output-tables.md
-/AI_Agents/lifecycle_sim_testing/tests
 /AI_Agents/lifecycle_sim_testing
-docs/superpowers/plans/2026-07-12-lifecycle-simulation.md
-docs/superpowers/specs/2026-07-12-lifecycle-simulation-design.md
 /app/domains/profile/services/_effective_risk/tests
 /app/routers/tests
 /app/domains/cashflow/services/goal_planning_engine/tests

@@ -10,7 +10,16 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, SmallInteger, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    SmallInteger,
+    String,
+    Text,
+    case,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -66,7 +75,9 @@ class ChatSession(Base):
     messages: Mapped[List["ChatMessage"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
-        order_by="ChatMessage.created_at",
+        # Lambda, not a string: the tiebreak needs ChatMessage, defined below.
+        # Resolved at mapper-configuration time, so the forward reference is fine.
+        order_by=lambda: [ChatMessage.created_at, message_role_rank()],
     )
     ai_module_runs: Mapped[List["ChatAiModuleRun"]] = relationship(
         back_populates="session"
@@ -104,3 +115,21 @@ class ChatMessage(Base):
     )
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")
+
+
+def message_role_rank():
+    """Sort key placing a turn's user row before its assistant row.
+
+    Both rows of a turn are written in ONE transaction and ``created_at`` is
+    ``server_default=func.now()`` — the TRANSACTION timestamp in Postgres — so
+    they carry byte-identical timestamps and ``ORDER BY created_at`` alone is
+    ambiguous. Whichever way that tie resolved, nothing downstream could tell:
+    on 2026-07-25 it resolved assistant-first and the prompt history handed the
+    portfolio_query agent a dangling user message, which sent it down its
+    goal-planning guardrail instead of answering the question asked.
+
+    Every ordering of ``chat_messages`` must carry this tiebreak. Sort DESCENDING
+    on it wherever ``created_at`` is descending, so a later reversal still lands
+    question-before-answer.
+    """
+    return case((ChatMessage.role == ChatMessageRole.user, 0), else_=1)

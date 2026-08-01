@@ -3,9 +3,9 @@
 Pure-Python pipeline over pydantic models: processes emergency carve-out, short / medium / long-term goals, then aggregates, applies guardrails, and assembles the presentation. LLM use is isolated to an optional rationale step.
 
 ## Entry / contract
-- `run_allocation` (`__init__.py`, defined in `pipeline.py`) is the public entry.
+- `run_allocation` (`__init__.py`, defined in `pipeline.py`) is the public entry. Its sibling `run_allocation_with_state` returns `(per-step state dict, output)` and is NOT re-exported from `__init__.py`, but the app's allocation bridge imports it directly from `pipeline.py` — treat its signature as a live contract.
 - Input `AllocationInput`; output `GoalAllocationOutput` (asset-class-only — see invariant).
-- LLM rationale is optional, via an injected `rationale_fn` (Anthropic when enabled).
+- LLM rationale is opt-OUT, not opt-in: step7 defaults to `_rationale_llm.generate_rationales` (Anthropic) when no `rationale_fn` is injected, and any failure falls through to deterministic fallbacks. Pass `_rationale_llm.no_llm_rationale_fn` to suppress the call — that is what the Master_testing runners do. Note that no production caller injects anything today, so the live allocation path lands on the LLM default.
 
 ## Files
 - `__init__.py` — flat public API: `run_allocation` + the public models.

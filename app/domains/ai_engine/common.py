@@ -8,7 +8,9 @@ keep importing it from this module unchanged.
 from __future__ import annotations
 
 import sys
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 # project_root/app/domains/ai_engine/common.py → parents[3] is project root.
 _AI_AGENTS_SRC = str((Path(__file__).resolve().parents[3] / "AI_Agents" / "src"))
@@ -50,12 +52,68 @@ def ensure_ai_agents_path() -> None:
         sys.path.insert(0, _AI_AGENTS_SRC)
 
 
-def build_history_block(history: list[dict[str, str]] | None) -> str:
-    """Format the last 6 conversation turns into a text block for LLM prompts."""
+# A same-session gap this long means the customer left and came back. Sessions
+# here are long-lived threads, not single sittings, so without a time signal a
+# fortnight-old question reads as live context — which is how the 2026-07-25
+# turn inherited a 13-day-old goal question.
+_SESSION_GAP = timedelta(hours=24)
+
+
+def gap_note(previous_at, asked_at) -> str | None:
+    """``"13 days later"`` when two turns straddle a break, else ``None``."""
+    if previous_at is None or asked_at is None:
+        return None
+    gap = asked_at - previous_at
+    if gap < _SESSION_GAP:
+        return None
+    # Rounded, not floored: timedelta.days truncates, so a 47-hour break would
+    # read as "1 day later" and a 12d23h one as "12 days later".
+    days = round(gap / timedelta(days=1))
+    return f"{days} days later" if days > 1 else "1 day later"
+
+
+def with_gap_notes(history: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Fold each gap note into the content of the turn that resumed the thread.
+
+    For consumers that rebuild history into their own ``{role, content}`` message
+    models — the intent classifier's ``ConversationMessage`` and portfolio_query's
+    ``ConversationTurn`` — where a standalone marker line has nowhere to live.
+    Entries are copied, never mutated. History without ``asked_at`` passes
+    through untouched.
+    """
+    if not history:
+        return []
+    annotated: list[dict[str, Any]] = []
+    previous_at = None
+    for msg in history:
+        asked_at = msg.get("asked_at")
+        note = gap_note(previous_at, asked_at)
+        if asked_at is not None:
+            previous_at = asked_at
+        if note:
+            msg = {**msg, "content": f"[{note}] {msg.get('content', '')}"}
+        annotated.append(msg)
+    return annotated
+
+
+def build_history_block(history: list[dict[str, Any]] | None) -> str:
+    """Format the last 6 conversation turns into a text block for LLM prompts.
+
+    Entries carrying ``asked_at`` (everything from ``load_conversation_history``)
+    get a marker inserted wherever consecutive turns are more than
+    ``_SESSION_GAP`` apart. Hand-built history without it renders unchanged.
+    """
     if not history:
         return ""
     lines = ["--- Recent Conversation History ---"]
+    previous_at = None
     for msg in history[-6:]:
+        asked_at = msg.get("asked_at")
+        note = gap_note(previous_at, asked_at)
+        if asked_at is not None:
+            previous_at = asked_at
+        if note:
+            lines.append(f"--- {note} ---")
         label = "Customer" if msg["role"] == "user" else "PI"
         lines.append(f"{label}: {msg['content']}")
     lines.append("---")
