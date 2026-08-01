@@ -14,6 +14,7 @@ from app.domains.identity.models import (  # noqa: F401
     user,
     family_member,
     linked_account,
+    onboarding_generation_job,
 )
 from app.domains.profile.models import (  # noqa: F401
     personal_finance_profile,

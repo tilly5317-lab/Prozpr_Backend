@@ -18,7 +18,10 @@ from dotenv import load_dotenv
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine.url import URL
 
-_backend_dir = Path(__file__).resolve().parents[1]
+# config.py is app/core/config.py -> parents[2] is the Prozpr_Backend root, which is
+# where .env actually lives. parents[1] (the app/ package) has no .env, so the loader
+# silently fell through to Path.cwd() and only worked because PM2 sets cwd to the root.
+_backend_dir = Path(__file__).resolve().parents[2]
 
 for _env_path in (
     _backend_dir / ".env",
@@ -194,6 +197,11 @@ class Settings:
 
     ALLOWED_ORIGINS: list[str] = _CORS_ORIGINS
     CORS_ALLOW_ANY_ORIGIN: bool = _CORS_ALLOW_ANY_ORIGIN
+
+    # Which deployment this process is. Feeds PostHog super_properties and the OTel
+    # resource, so prod and staging events are distinguishable. New Relic used to
+    # provide this separation via app_name; nothing else does once it is gone.
+    DEPLOY_ENV: str = (_getenv("DEPLOY_ENV", "development") or "development").strip() or "development"
 
     @staticmethod
     def get_database_url() -> str:

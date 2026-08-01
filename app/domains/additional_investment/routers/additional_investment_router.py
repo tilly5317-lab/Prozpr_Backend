@@ -9,10 +9,12 @@ there is no create/update route here — new plans are produced by chatting.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
+from app.core.progress import clear_progress, get_progress, set_progress
 from app.domains.additional_investment.schemas import (
     LumpsumCreateRequest,
     LumpsumPlanResponse,
@@ -34,6 +36,21 @@ from app.domains.identity.models.user import User
 router = APIRouter(
     prefix="/additional-investment", tags=["Additional Investment"]
 )
+
+_SIP_PROGRESS_TASK = "sip_plan_compute"
+
+
+class ComputeProgressResponse(BaseModel):
+    """Live stage of an in-flight SIP build (polled while the POST runs).
+
+    ``messages`` is the full stage history so far (oldest first) so the UI can
+    show every completed step even when stages advance faster than the poll.
+    """
+
+    active: bool
+    progress_pct: float
+    message: str | None = None
+    messages: list[str] = []
 
 
 @router.get("/sip", response_model=SipPlanResponse)
@@ -63,11 +80,30 @@ async def create_sip_plan(
     user, so ``user.id`` is the acting user. 422 carries a customer-facing gate
     message when the profile is too incomplete to plan.
     """
-    return await create_sip_plan_for_user(
-        db,
-        user,
-        acting_user_id=user.id,
-        monthly_amount_inr=payload.monthly_amount_inr,
+    # Publish each pipeline stage to the in-process progress store so the
+    # Invest page's poller (GET /sip/progress) can show real stage + %.
+    async def _progress(pct: float, message: str) -> None:
+        set_progress(user.id, _SIP_PROGRESS_TASK, pct, message)
+
+    try:
+        return await create_sip_plan_for_user(
+            db,
+            user,
+            acting_user_id=user.id,
+            monthly_amount_inr=payload.monthly_amount_inr,
+            progress=_progress,
+        )
+    finally:
+        clear_progress(user.id, _SIP_PROGRESS_TASK)
+
+
+@router.get("/sip/progress", response_model=ComputeProgressResponse)
+async def sip_build_progress(
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> ComputeProgressResponse:
+    """Live progress of this user's in-flight SIP build (if any)."""
+    return ComputeProgressResponse(
+        **get_progress(current_user.id, _SIP_PROGRESS_TASK)
     )
 
 

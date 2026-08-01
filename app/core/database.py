@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # reset/refused, server still warming up). Each retry waits a short, growing
 # backoff. A hard failure (bad password, host genuinely gone) still surfaces
 # after the attempts are exhausted.
-_CONNECT_RETRIES = 3
+_CONNECT_RETRIES = 5
 _CONNECT_BACKOFF_S = 0.5
 # Per-attempt connect timeout (TCP + TLS handshake + auth). Keeps a stalled
 # handshake from hanging the request for asyncpg's 60s default before retrying.
@@ -114,6 +114,15 @@ def _get_engine() -> AsyncEngine:
             engine_kw = {
                 "pool_pre_ping": True,
                 "pool_recycle": 300,
+                # Explicit pool sizing (previously SQLAlchemy defaults: 5 + 10 = 15).
+                # This single uvicorn instance shares one pool across request handlers,
+                # the in-process APScheduler jobs, and net-worth backfills, so give some
+                # headroom — but keep it modest: prozpr-dev is a db.t3.micro
+                # (max_connections ~112) and every open connection costs RAM on a 1 GiB
+                # DB. 20 max stays well under the DB limit with room for other clients.
+                "pool_size": 10,
+                "max_overflow": 10,
+                "pool_timeout": 30,
                 "connect_args": {"timeout": _CONNECT_TIMEOUT_S},
             }
         _engine = create_async_engine(url, **engine_kw)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,8 +54,13 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     else:
         backend = parsed.drivername
 
-    return {
+    payload = {
         "status": "ok" if db_status == "healthy" else "degraded",
         "database": db_status,
         "database_backend": backend,
     }
+    # Report unhealthy via the HTTP status code (503), not just the body, so a
+    # status-code-based uptime monitor actually alarms on a DB outage.
+    if db_status != "healthy":
+        return JSONResponse(content=payload, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return payload

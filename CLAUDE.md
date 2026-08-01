@@ -29,6 +29,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Conventions
 
 - **LLM calls go through LangChain.** All Claude calls must use `langchain-anthropic` (`ChatAnthropic` directly or via LCEL chains). Do not import `anthropic` for `messages.create` — the only permitted raw `anthropic` imports are exception classes (e.g. `from anthropic import AuthenticationError`) for `except` clauses, since those live only in the SDK.
+- **Observability is PostHog-only.** OTel (`app/core/otel.py`) exports spans and logs over OTLP; the PostHog Python SDK emits durable events. New Relic was removed on 2026-07-27 — do not reintroduce an APM agent alongside the OTel SDK, they fight over the same instrumentation hooks (`NEW_RELIC_OPENTELEMETRY_ENABLED` hijacks the TracerProvider, silently sending your exporter zero spans).
 - **Reference docs refresh manually, not on code changes.** A logic or production-wiring change is complete without updating any `AI_Agents/Reference_docs/` doc — do not rewrite, version-bump, or hunt for drift in them as a side effect. Refresh a reference doc only when a human explicitly asks. (The `Logics_reference_docs/*.md` ground customer-facing chat answers, so their accuracy is owned by whoever triggers the refresh.) CLAUDE.md files are exempt — those may still be kept current.
 
 ## Testing

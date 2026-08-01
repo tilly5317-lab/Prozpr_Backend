@@ -12,7 +12,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -577,8 +577,14 @@ async def compute_rebalancing_result(
     persist: bool = True,
     force_fresh_allocation: bool = False,
     chat_ctx: "TurnContext | None" = None,
+    progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
 ) -> RebalancingRunOutcome:
     """Top-level orchestrator: cache → builder → engine → persist → format.
+
+    ``progress`` (optional) is awaited at each real stage boundary with
+    (percent, customer-facing message) — the Invest page's compute endpoint
+    passes a writer so its progress poller can show the live pipeline stage.
+    The chat path passes nothing and is unchanged.
 
     When ``persist=False`` (counterfactual_explore path), the engine still
     runs and reads from the database (holdings, NAVs, metadata, cached
@@ -592,6 +598,11 @@ async def compute_rebalancing_result(
     wouldn't reflect.
     """
     trace_line("module: rebalancing — start")
+
+    # Stage messages are customer-facing: describe the benefit, never the
+    # mechanics (no engine/strategy internals — ranks, caps, tax lots, caches).
+    if progress:
+        await progress(5, "Reviewing your portfolio & profile…")
 
     if getattr(user, "date_of_birth", None) is None:
         return RebalancingRunOutcome(
@@ -623,6 +634,9 @@ async def compute_rebalancing_result(
             chat_overrides=None,
         )
 
+    if progress:
+        await progress(12, "Designing your personalised target mix…")
+
     if force_fresh_allocation:
         # Counterfactual scenarios with AA-affecting overrides: skip cache.
         cached_output = None
@@ -640,6 +654,8 @@ async def compute_rebalancing_result(
         trace_line(
             "rebalancing: allocation cache miss/stale — running allocation inline",
         )
+        if progress:
+            await progress(18, "Designing your personalised target mix…")
         alloc_outcome: AllocationRunOutcome = await compute_allocation_result(
             user,
             user_question,
@@ -664,6 +680,9 @@ async def compute_rebalancing_result(
         source_allocation_id = alloc_outcome.asset_allocation_run_id
         allocation_snapshot_id = alloc_outcome.allocation_snapshot_id
 
+    if progress:
+        await progress(58, "Comparing your investments with your target…")
+
     try:
         request, debug = await build_rebalancing_input_for_user(
             chat_ctx,
@@ -677,6 +696,9 @@ async def compute_rebalancing_result(
         )
 
     trace_line(f"rebalancing input debug: {debug}")
+
+    if progress:
+        await progress(70, "Preparing your recommendations…")
 
     try:
         response: RebalancingComputeResponse = await asyncio.to_thread(
@@ -705,6 +727,8 @@ async def compute_rebalancing_result(
 
     rec_id: Optional[uuid.UUID] = None
     if persist:
+        if progress:
+            await progress(90, "Finalising your plan…")
         rec_id = await persist_rebalancing_recommendation(
             db,
             acting_user_id,

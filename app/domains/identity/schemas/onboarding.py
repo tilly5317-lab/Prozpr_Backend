@@ -6,7 +6,8 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. Kep
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,30 @@ class OnboardingProfileResponse(PersonalProfileResponse):
 
 class OnboardingCompleteRequest(BaseModel):
     is_complete: bool = True
+
+
+class GenerationStepInfo(BaseModel):
+    """One row of the loading page's checklist."""
+
+    key: str
+    label: str
+    state: Literal["pending", "active", "done"]
+
+
+class OnboardingGenerationStatusResponse(BaseModel):
+    """Polled status of the "Generate my portfolio" personalisation job.
+
+    ``status="none"`` means no job has ever been started for this user — the
+    loading page then kicks one off via ``POST /onboarding/generate``.
+    """
+
+    status: Literal["none", "pending", "running", "success", "failed"]
+    phase: Optional[str] = None
+    progress_pct: float = 0
+    message: Optional[str] = None
+    steps: list[GenerationStepInfo] = []
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
 
 
 class OtherAssetCreate(BaseModel):

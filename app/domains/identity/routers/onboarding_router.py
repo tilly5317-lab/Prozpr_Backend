@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
+from app.domains.identity.models.onboarding_generation_job import (
+    OnboardingGenerationJob,
+)
 from app.domains.identity.models.user import User
+from app.domains.identity.services.onboarding_generation_service import (
+    GENERATION_STEPS,
+    create_job as create_generation_job,
+    get_latest_job as get_latest_generation_job,
+    has_running_job as has_running_generation_job,
+    run_onboarding_generation,
+)
 from app.domains.profile.models import (
     OtherInvestment,
     OtherInvestmentStatus,
@@ -20,7 +30,9 @@ from app.domains.profile.services._effective_risk import (
     maybe_recalculate_effective_risk,
 )
 from app.domains.identity.schemas.onboarding import (
+    GenerationStepInfo,
     OnboardingCompleteRequest,
+    OnboardingGenerationStatusResponse,
     OnboardingProfileCreate,
     OnboardingProfileResponse,
     OtherAssetBulkCreate,
@@ -270,3 +282,103 @@ async def complete_onboarding(
     user.is_onboarding_complete = payload.is_complete
     user.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+
+# ─────────────── "Generate my portfolio" personalisation job ───────────────
+
+
+# A running job whose row hasn't been touched for this long is considered
+# stalled (e.g. the process died mid-job or lost its DB connection for good) —
+# report it failed so the loading page offers a retry instead of hanging.
+_GENERATION_STALL_S = 180
+
+
+def _generation_status(
+    job: OnboardingGenerationJob | None,
+) -> OnboardingGenerationStatusResponse:
+    """Map a job row (or its absence) to the polled status shape.
+
+    The checklist derives from ``GENERATION_STEPS``: everything before the
+    current phase is done, the current phase is active while the job runs, and
+    a successful job marks every step done.
+    """
+    keys = [k for k, _ in GENERATION_STEPS]
+    if job is None:
+        steps = [
+            GenerationStepInfo(key=k, label=label, state="pending")
+            for k, label in GENERATION_STEPS
+        ]
+        return OnboardingGenerationStatusResponse(status="none", steps=steps)
+
+    job_status = job.status
+    if job_status in ("pending", "running") and job.updated_at is not None:
+        updated = job.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age_s = (datetime.now(timezone.utc) - updated).total_seconds()
+        if age_s > _GENERATION_STALL_S:
+            job_status = "failed"
+
+    if job_status == "success" or job.phase == "done":
+        active_idx = len(keys)
+    elif job.phase in keys:
+        active_idx = keys.index(job.phase)
+    else:  # "queued"
+        active_idx = 0
+
+    steps = []
+    for i, (k, label) in enumerate(GENERATION_STEPS):
+        if i < active_idx:
+            state = "done"
+        elif i == active_idx and job_status == "running":
+            state = "active"
+        else:
+            state = "pending"
+        steps.append(GenerationStepInfo(key=k, label=label, state=state))
+
+    stalled = job_status == "failed" and job.status != "failed"
+    return OnboardingGenerationStatusResponse(
+        status=job_status,  # type: ignore[arg-type] — constrained by the job writer
+        phase=job.phase,
+        progress_pct=float(job.progress_pct or 0),
+        message="Failed: the setup stalled. Please try again." if stalled else job.message,
+        steps=steps,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
+
+
+@router.post("/generate", response_model=OnboardingGenerationStatusResponse)
+async def start_generation(
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Kick off the post-signup personalisation job and return its status.
+
+    Idempotent: if a job is already pending/running its status is returned
+    instead of starting a duplicate, so the button and the loading page can
+    both call this safely.
+    """
+    running = await has_running_generation_job(db, current_user.id)
+    if running is not None:
+        current = _generation_status(running)
+        if current.status != "failed":
+            return current
+        # The "running" row is stalled (see _GENERATION_STALL_S) — mark it
+        # failed for the record and fall through to start a fresh job.
+        running.status = "failed"
+        running.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+    job = await create_generation_job(db, current_user.id)
+    background.add_task(run_onboarding_generation, current_user.id, job.id)
+    return _generation_status(job)
+
+
+@router.get("/generate/status", response_model=OnboardingGenerationStatusResponse)
+async def generation_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Latest personalisation-job status — the loading page polls this."""
+    return _generation_status(await get_latest_generation_job(db, current_user.id))

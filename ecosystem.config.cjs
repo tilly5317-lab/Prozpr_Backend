@@ -15,7 +15,15 @@ module.exports = {
       name: "prozpr_backend",
       cwd: __dirname,
       script: "venv/bin/uvicorn",
-      args: "main:app --host 0.0.0.0 --port 8000 --limit-max-requests 1000 --limit-max-requests-jitter 100",
+      // No --limit-max-requests: on this single-instance setup, recycling the worker
+      // every ~1000 requests caused a ~11s 502 on every recycle (no sibling worker to
+      // cover the restart). The May-2026 memory leak it was added to mask was fixed in
+      // code; max_memory_restart (below) is the memory backstop now — it restarts only
+      // if memory actually climbs to 800M, instead of on a blind request counter.
+      // --timeout-graceful-shutdown bounds uvicorn's wait for in-flight requests.
+      // It defaults to unbounded, so without it the lifespan shutdown (and the
+      // telemetry flush in it) may never start before PM2 gives up.
+      args: "main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5",
       interpreter: "none",
       instances: 1,
       exec_mode: "fork",
@@ -27,6 +35,10 @@ module.exports = {
       max_memory_restart: "800M",
       merge_logs: true,
       time: true,
+      // Telemetry flush budget. PM2 SIGKILLs 1600ms after SIGINT by default, which
+      // truncates the PostHog and OTLP batch flushes in lifespan _shutdown().
+      // Sized above uvicorn's 5s graceful wait + the 5s OTLP export timeout ceiling.
+      kill_timeout: 8000,
     },
   ],
 };
