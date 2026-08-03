@@ -205,7 +205,7 @@ flowchart TD
     B --> C{"Understand: what kind of question is this?"}
     C -->|"asks us to pick a stock"| Z1["Quick redirect: we focus on funds, not single stocks — re-worded to fit the question"]
     C -->|"off-topic / gibberish / security"| Z2["Quick redirect: canned or tailored, depending on the reason"]
-    C -->|"one of the 6 real question types"| D["Route: pick the matching flow recipe"]
+    C -->|"one of the 7 real question types"| D["Route: pick the matching flow recipe"]
     D --> E["Work: run the specialist module(s) in order"]
     E --> F["Reply: Answer Writer phrases it in Prozpr's voice"]
     Z1 --> G["Save the reply and send it to the customer"]
@@ -216,7 +216,8 @@ flowchart TD
 **Two things worth knowing up front:**
 
 - **Every customer, every message, follows this same path.** There is no "special" or "side door" route for some users — the web chat sends all messages through the ChatBrain. (There are a few internal testing endpoints used by engineers, but no live customer chat ever uses them.)
-- **The answer arrives all at once**, not word-by-word streaming. The customer waits while the work happens, then sees the complete reply.
+- **The answer can now arrive word-by-word.** There are two ways to ask the same question. The original one does the whole turn and returns the finished reply in one piece. A newer one streams: the customer sees progress lines while the specialists work, then watches the answer being typed out as it's written. Both run the *identical* turn — the streaming version is a different delivery pipe, not a different brain.
+  - One caveat worth knowing, because it shapes what the app does: **the streamed words are provisional.** In a few cases the finished reply differs from what was streamed — if the AI's answer gets cut off mid-way the system throws it away and substitutes a pre-written factual summary, and general chat re-shapes its answer before returning it. So the app paints the streaming text as it arrives, then replaces it with the final version when the turn completes.
 
 ---
 
@@ -231,6 +232,8 @@ A few important properties:
 - It can **only** ever return one of the nine known labels — it is technically prevented from inventing a new one. This keeps routing predictable.
 - It looks at **recent history**, so follow-up questions ("what about with more risk?") are understood in context, not in isolation.
 - Two of the nine labels (stock advice and out-of-scope) skip the specialists. The classifier supplies a standard message for them — but for most of these the **Answer Writer** then re-words it so it acknowledges the customer's actual question. See the next section.
+- **"Out of scope" is not a shrug.** The receptionist is required to have a positive reason for it — the question is about something Prozpr doesn't handle, it's chatter, or it's an attempt to misuse the assistant. A message that's merely short or vague is *not* enough; those get resolved against what the conversation was already about. ("Try again", "cool, what do I do right now?" — these used to fall through to the canned "I didn't catch that", which was the single most visible chat failure.)
+- **It also flags what data the answer will need**, separately from the topic. Today that's one flag: does answering this need a view on the market? It's a deliberately separate decision, because the two questions have different answers — someone asking how their portfolio did against the Nifty is asking about *their own returns*, not about the market.
 
 ---
 
@@ -243,10 +246,10 @@ Here are all nine question types the AI recognises, what the customer is really 
 | **Asset allocation** | "How should I invest? What mix is right for me?" | Builds an ideal investment mix and explains it. *Saved.* |
 | **Goal planning** | "Can I afford this goal? Can I retire at 55?" | Runs a cashflow projection and tells them if the goal is fundable. *Saved.* |
 | **Portfolio query** | "What's in my portfolio? What's my biggest holding?" | Answers factually from their actual holdings. *Read-only.* |
+| **Mutual fund query** | "What are this fund's returns? How does it compare to peers? Which are the best large-cap funds?" | Answers about **funds themselves** — whether or not the customer owns them — using our own returns data and house view. *Read-only.* |
 | **General market query** | "What's happening in the markets right now?" | Pulls fresh market data and explains it in plain language. |
 | **Rebalancing** | "Rebalance my portfolio / swap these funds." | Works out the ideal mix, then the exact buy/sell trades. *Saved.* |
 | **Additional investment** | "I have ₹5 lakh fresh to invest — which funds?" / "Which small-cap fund should I buy?" | Works out where the new money fits best in their plan and recommends specific funds to buy; category asks get an honest, named-picks answer. *Saved.* |
-| **Mutual fund query** | "Why do you recommend this fund? What's it returned? How does it compare?" | Answers about one **specific named fund** using only figures it can back up — the recommendation reason, returns from stored data, like-for-like peers — and says so plainly when it lacks the history. *Read-only.* |
 | **Stock advice** | "Which individual stock should I buy?" | **Polite redirect** — Prozpr advises on funds, not single stocks — *re-worded to fit the customer's question*. |
 | **Out of scope** | Off-topic, gibberish, security questions, "summarise this chat" | **Gentle redirect** back to what Prozpr can help with. Each *reason* (gibberish, identity question, security probe, chat-summary ask, off-topic) gets its own appropriate message; general off-topic ones are re-worded to fit the question. |
 | *(General chat)* | Catch-all / safety net | A friendly conversational reply. Also writes the final answer for market questions (see below). |
@@ -270,8 +273,8 @@ flowchart LR
     IC -->|asset allocation| F1["Asset Allocation"]
     IC -->|goal planning| F2["Goal Planning (Cashflow)"]
     IC -->|portfolio query| F3["Portfolio Query — read only"]
+    IC -->|mutual fund query| F7["Mutual Fund Query — read only"]
     IC -->|additional investment| F6["Additional Investment — fresh money → fund picks"]
-    IC -->|mutual fund query| F7["Mutual Fund Query — one named fund, grounded"]
     IC -->|stock advice| F4["Redirect reply (re-worded to fit)"]
     IC -->|out of scope| F5["Redirect reply (canned or tailored)"]
 
@@ -341,27 +344,21 @@ Answers factual questions about the customer's **own portfolio** — "What's my 
 
 It has built-in **guardrails**: if a question is really asking for stock-picking advice or strays outside what it can responsibly answer, it politely redirects instead. This module is **read-only** — it answers questions but never changes or saves anything.
 
+It can also report **how each individual fund has performed**, annualised, not just the portfolio as a whole — so "rank my funds by return" is answerable. Funds bought too recently to work that out, and holdings that aren't mutual funds, are named as exceptions rather than causing the whole question to be refused.
+
 ### Mutual Fund Query
-Answers a question about **one specific fund by name** — why Prozpr recommends it, what it has returned, or how it compares with similar funds. Every figure it gives is one Prozpr can stand behind: returns are computed from stored data, the ranking is Prozpr's own house view, and if it doesn't have enough history it says so rather than inventing a number. For a fund Prozpr doesn't cover it shares what it has but never manufactures a rationale. Like Portfolio Query, it is **read-only**.
+Answers questions about **funds themselves**, whether or not the customer owns them: "what are this fund's returns?", "how does it compare to its peers?", "why do you recommend it?", "which are the best large-cap funds?"
+
+The dividing line from Portfolio Query is **whose funds** the question is about. "The best funds" is a question about the market of funds and comes here; "**my** best funds" is a question about the customer's own holdings and goes to Portfolio Query. A superlative doesn't override a possessive. And a question asking for a *verdict* on what they hold — "do I have the right funds?", "should I stop this SIP?" — is neither: it goes to **Rebalancing**, because answering it means comparing their holdings against what we'd recommend.
+
+It works in two passes: first work out which fund(s) are being asked about (resolving "it" and "that one" from the conversation), then write the answer from data we've assembled — the fund's returns, our own reason for shortlisting it if it's on our list, and peer funds for comparison. When we have no view on a fund, it says so rather than inventing one. **Read-only.**
 
 ### Market Commentary
 Gathers a current snapshot of the **Indian market** — around 14 macro indicators such as inflation, interest rates, key indices, currency moves, and commodity prices — using AI together with live web search. It distils those numbers into a short plain-English commentary.
 
-In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. Two edits in AI_Agents/Reference_docs/Tech_reference_docs/CHAT_FLOW.md.
+In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. If a saved snapshot from the last day is still current, it is used as-is — no fresh gathering, no wait. Otherwise fresh data is gathered, and if that takes too long (more than ~2 minutes) the system **doesn't make the customer wait**: General Chat is handed no commentary and answers from its own quick web search instead, so the customer still gets an answer.
 
-Line 158 — replace:
-"In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. If gathering fresh data takes too long (more than ~2 minutes), the system **doesn't make the customer wait** — it falls back to the most recent saved snapshot and continues, so the customer still gets an answer."
-
-with:
-"In a chat turn, this commentary is produced first and handed to General Chat to write the final reply. If a saved snapshot from the last day is still current, it is used as-is — no fresh gathering, no wait. Otherwise fresh data is gathered, and if that takes too long (more than ~2 minutes) the system **doesn't make the customer wait**: General Chat is handed no commentary and answers from its own quick web search instead, so the customer still gets an answer."
-
-Line 260 (Example C) — replace:
-"**Path:** understand → *general market query* → Market Commentary gathers fresh macro data (or falls back to the latest saved snapshot if it's slow) → General Chat writes the reply using that data → answer. ✅"
-
-with:
-"**Path:** understand → *general market query* → Market Commentary reuses the last day's saved snapshot if it's still current, otherwise gathers fresh macro data (and if that's too slow, hands over nothing) → General Chat writes the reply using that data, falling back to its own web search if no commentary arrived → answer. ✅"
-
-After editing the .md, regenerate the viewer with `python3 -m scripts.build_reference_docs`; do not hand-edit CHAT_FLOW.html.
+**The commentary is no longer loaded for every portfolio question.** It used to be pulled in whenever a customer asked about their own holdings, and that caused real mistakes — in one case the AI compared a customer's 26% small-cap *holding* against a "35.5x expensive *valuation*", which are not comparable numbers. Now the receptionist decides: it flags whether answering actually needs a market view, and only then is the commentary fetched. A question answerable from the customer's own portfolio gets no market view at all — and the AI is explicitly told not to speculate about markets, and not to mention that it's missing.
 
 ### General Chat
 The friendly **catch-all writer**. It handles conversational questions that don't need a specialist, and it writes the **final answer for market questions** (using the commentary that Market Commentary just gathered). It reads the question, the conversation history, and any market context — and it can also run a quick **web search of its own** to ground the reply in fresh facts before writing. If the market context happens to be missing or causes a hiccup, it simply answers from the question alone — the conversation never breaks.
@@ -381,15 +378,11 @@ The receptionist in Step 1 already decided *which topic* a question belongs to. 
 - **Explain** — talk about *this* customer's plan or numbers ("why is so much in debt?").
 - **Teach** — define a concept in general, then tie it back to their situation ("what's an arbitrage fund?").
 - **What-if** — try a hypothetical with a specific value, shown only for comparison and **not** saved ("what if my risk were 7?").
-- **Redo** — re-run the plan from scratch with their current saved details.
+- **Redo** — re-run the plan from scratch with their current saved details. (Internally this is no longer a separate mode: a re-run is an ordinary compute with a "they've seen this before" flag, so the reply opens by acknowledging the re-run and leads with what changed.)
 - **Ask back** — when the customer signals a direction but gives no number ("I can take more risk"), ask a precise follow-up ("your risk is 5.5 — would 7 feel right?").
 - **Redirect** — when they want something chat can't change from here (like editing a goal), point them to the right place instead.
 
-So a follow-up turn really happens in **two steps**: first a quick sorting into one of these *modes*, then the actual writing. Replace the last sentence of CHAT_FLOW.md:182 with:
-
-"For allocation and rebalancing, the very first question about a topic skips the sorting — the specialist simply builds the plan — so there the modes only come into play on follow-ups. Goal planning sorts on every turn, the first one included, because a customer's opening question can already be a what-if ('what if I retire at 50?') or too vague to run ('what if I retire earlier?' — earlier than what?)."
-
-Optionally also soften the glossary entry at CHAT_FLOW.md:336, which repeats the follow-up-only framing: change "On a follow-up question, the *kind* of answer needed" to "The *kind* of answer needed — explain, teach, what-if, redo, ask-back, or redirect."
+So a follow-up turn really happens in **two steps**: first a quick sorting into one of these *modes*, then the actual writing. For allocation and rebalancing, the very first question about a topic skips the sorting — the specialist simply builds the plan — so there the modes only come into play on follow-ups. Goal planning sorts on every turn, the first one included, because a customer's opening question can already be a what-if ("what if I retire at 50?") or too vague to run ("what if I retire earlier?" — earlier than what?).
 
 This sorting step is also where the **boundaries** live. A "what-if" is only allowed on a small, defined set of inputs (things like risk score, total corpus, or tax rate); ask to change anything outside that list and it becomes a polite redirect rather than a made-up answer. (It's the same instinct as the stock-picking and off-topic guardrails — just applied *inside* a topic.)
 
@@ -401,7 +394,7 @@ flowchart TD
       P1["House style — Prozpr's voice, tone, and rules (shared by every specialist)"]
       P0["The specialist's briefing — what THIS module's numbers mean, and how long and what shape the answer should take"]
       P6["The mode — what kind of answer to write (explain, teach, what-if, …)"]
-      P2["The Facts Pack — the exact numbers the specialist computed (it may ONLY use these)"]
+      P2["The Customer Record — the exact numbers the specialist computed (it may ONLY use these)"]
       P3["The customer's profile — first name, situation"]
       P4["The last 6 messages — recent context"]
       P5["The customer's actual question"]
@@ -412,11 +405,11 @@ flowchart TD
     FB --> R
 ```
 
-Notice that the Writer's instructions come in **two halves**: a *shared house style* that every specialist uses (so the voice never changes), plus a *module-specific briefing* that only makes sense for that one specialist — an allocation briefing explains what an "equity/debt mix" means, a rebalancing briefing explains what a "buy/sell trade" means. On top of that, when the customer is in *explain* or *teach* mode — asking how or why the approach works — the four planning specialists (allocation, rebalancing, goal planning, additional investment) also hand over a **third piece**: Prozpr's published methodology write-up for that topic, philosophy only, with none of the proprietary thresholds, caps or weights in it. The Writer is told to ground those "how does this work" explanations in that write-up and nothing else, so the reasoning a customer reads is what Prozpr actually publishes rather than the model's general knowledge. The customer never sees any of the three — only the finished reply. — an allocation briefing explains what an "equity/debt mix" means, a rebalancing briefing explains what a "buy/sell trade" means. The shared half keeps Prozpr sounding like one person across every kind of question; the specific half lets each answer be accurate. The customer never sees either — only the finished reply.
+Notice that the Writer's instructions come in **two halves**: a *shared house style* that every specialist uses (so the voice never changes), plus a *module-specific briefing* that only makes sense for that one specialist — an allocation briefing explains what an "equity/debt mix" means, a rebalancing briefing explains what a "buy/sell trade" means. On top of that, when the customer is in *explain* or *teach* mode — asking how or why the approach works — the four planning specialists (allocation, rebalancing, goal planning, additional investment) also hand over a **third piece**: Prozpr's published methodology write-up for that topic, philosophy only, with none of the proprietary thresholds, caps or weights in it. The Writer is told to ground those "how does this work" explanations in that write-up and nothing else, so the reasoning a customer reads is what Prozpr actually publishes rather than the model's general knowledge. The shared half keeps Prozpr sounding like one person across every kind of question; the specific half lets each answer be accurate. The customer never sees any of the three — only the finished reply.
 
 **The rules that keep answers trustworthy:**
 
-- **No making things up.** The Writer is told it may only cite numbers that are in the Facts Pack. If it's asked *how* a figure was derived and the underlying rate isn't in the pack, it describes the result without inventing the method.
+- **No making things up.** The Writer is told it may only cite numbers that are in the Customer Record. If it's asked *how* a figure was derived and the underlying rate isn't in it, it describes the result without inventing the method. It is also forbidden from ever *naming* these internal sections to the customer: when it can't answer, it must say what's missing in the customer's own words ("I can't see the returns on each individual fund yet") rather than describing its own plumbing ("that isn't in my Customer Record").
 - **Consistent presentation.** Percentages are shown as whole numbers; the customer's first name is used to greet them on a fresh plan, and sparingly after that.
 - **A safety net.** If the Writer fails for any reason (an error, or it takes too long), the system falls back to a **pre-written, deterministic summary** built straight from the facts — so the customer always gets a coherent answer, never an error page.
 
@@ -468,7 +461,7 @@ sequenceDiagram
 
 ### Example C — "What's going on with the Indian markets?"
 
-**Path:** understand → *general market query* → Market Commentary gathers fresh macro data (or falls back to the latest saved snapshot if it's slow) → General Chat writes the reply using that data → answer. ✅
+**Path:** understand → *general market query* → Market Commentary reuses the last day's saved snapshot if it's still current, otherwise gathers fresh macro data (and if that's too slow, hands over nothing) → General Chat writes the reply using that data, falling back to its own web search if no commentary arrived → answer. ✅
 
 ### Example D — "Rebalance my portfolio."
 
@@ -543,8 +536,8 @@ The original review flagged two issues around the two-turn "what-if → save" fe
 | **Flow** | A recipe that says which specialist module(s) to run for a given question type, and in what order. |
 | **Module / specialist** | A self-contained expert that does one job (e.g. Rebalancing, Goal Planning). |
 | **Answer Formatter / Answer Writer** | The shared component that turns a specialist's facts into the final, on-brand reply. |
-| **Facts Pack** | The bundle of computed numbers a specialist hands to the Answer Writer — the only figures it's allowed to cite. |
-| **Mode** | On a follow-up question, the *kind* of answer needed — explain, teach, what-if, redo, ask-back, or redirect. The AI picks it before writing, and it shapes how the reply reads. |
+| **Customer Record** | The bundle of computed numbers a specialist hands to the Answer Writer — the only figures it's allowed to cite. Called the *Facts Pack* until August 2026, and still named that in the code. |
+| **Mode** | The *kind* of answer needed — explain, teach, what-if, redo, ask-back, or redirect. The AI picks it before writing, and it shapes how the reply reads. |
 | **Claude / Haiku** | The underlying AI models. "Haiku" is a small, fast model used for the receptionist and the Answer Writer. |
 | **Read-only** | A path that answers a question without changing or saving anything (e.g. Portfolio Query). |
 | **Saved** | The result is stored so it can be referenced later (e.g. an allocation or rebalancing plan). |

@@ -72,16 +72,7 @@ _FORMATTER_FACTS_NOTES = (
     "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
     "`your_actual_holdings_today_pct` (show a separate **Cash** label when a `cash` key is present).\n"
     "- On a fresh-plan (compute-mode) reply you may greet with the customer's first_name; in "
-    "follow-ups use it only when it adds warmth.\n"
-    "- **Never name an internal section to the customer.** CUSTOMER_RECORD, PROFILE, "
-    "LOGIC_REFERENCE, ACTION_MODE, MODULE and the field names inside them are how we organise our "
-    "own inputs — they mean nothing to the customer and must never appear in a reply. Do not "
-    "describe your own plumbing either: no \"in my data\", \"in my dataset\", \"in the record I was "
-    "given\", \"the information provided to me\".\n"
-    "- When you cannot answer, name the MISSING THING in the customer's own terms, then offer a "
-    'next step: say "I can\'t see the returns on each individual fund yet" or "I don\'t have your '
-    'monthly expenses on file" — never "that isn\'t in my CUSTOMER_RECORD" or "PROFILE lacks that '
-    'field". The customer is asking about their money, not about how we store it.'
+    "follow-ups use it only when it adds warmth."
 )
 
 # Backward-compatible alias: the shared chat-profile system prompt (identity, money,

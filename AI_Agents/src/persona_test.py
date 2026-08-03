@@ -18,6 +18,20 @@ def test_chat_prompt_has_identity_money_and_question_opening():
     assert "never invent numbers" in low
 
 
+def test_chat_profile_carries_the_no_internal_plumbing_rules():
+    """Every chat surface inherits these — they used to be copied per-prompt."""
+    s = build_system_prompt("BODY", format_profile="chat")
+    assert "Never name an internal section" in s
+    assert "in my data" in s
+    assert "name the MISSING THING in the customer's own terms" in s
+
+
+def test_non_chat_profiles_do_not_carry_them():
+    for profile in ("plain", "document"):
+        s = build_system_prompt("BODY", format_profile=profile, question_aware=False)
+        assert "Never name an internal section" not in s
+
+
 def test_plain_profile_forbids_block_markdown_and_can_drop_question():
     s = build_system_prompt("BODY", format_profile="plain", question_aware=False)
     assert "You are PI" in s

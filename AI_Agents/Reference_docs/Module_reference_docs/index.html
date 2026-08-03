@@ -280,7 +280,7 @@ Ten modules, plus the shared foundation they lean on. Solid arrows are real Pyth
 flowchart TB
     subgraph Shared["📦 Shared foundation — src/"]
         FP["financial_primitives/<br/>TVM, annuity, inflation, FY dates"]
-        Common["common.py · persona.py<br/>reasoned_reply.py"]
+        Common["common.py · persona.py<br/>reasoned_reply.py · token_stream.py"]
     end
 
     subgraph Intent["🎯 Intent layer"]
@@ -324,9 +324,10 @@ flowchart TB
     Common --> AA
 
     RP -.->|"effective_risk_score<br/>(wired by caller)"| AA
-    MC -.->|"score block<br/>(wired by caller)"| AA
+    MC -.->|"score block — NOT wired;<br/>engine defaults used"| AA
     MC -->|"writes market_commentary_latest.md"| RefDocs[(Reference_docs/)]
-    RefDocs -->|"read by"| PQ
+    RefDocs -.->|"read only when the classifier's<br/>tools_needed asks for it"| PQ
+    IC -.->|"tools_needed<br/>(wired by caller)"| PQ
 
     AA -->|"steps 1-3, 5, helpers"| PA
     PA -->|"run_practical_allocation"| RB
@@ -356,6 +357,8 @@ The single most useful mental model is: is this a **deterministic engine** (pure
 | [mutual_fund_query](mutual_fund_query.html) | **LLM-driven** | every number pre-built into the facts | two Haiku passes (extract + narrate) |
 
 Why it matters: a deterministic engine that gives a "wrong" answer is a bug in the math — reproducible, fix with a regression test. An LLM-driven agent that gives a "wrong" answer is usually the prompt or the input context — fix by adding to the eval set. The LLM-driven agents are mostly **thin**; the deterministic engines are where the surface area is.
+
+**Two things now true of every LLM call in the package.** First, `temperature=0` is pinned at every `ChatAnthropic(...)` site — unset applies the API default of 1.0, which was producing different rupee figures for the same customer on consecutive calls; a repo-wide test fails the build on any call site that omits it. Second, the customer-facing answer surfaces can **stream**: `portfolio_query` and `mutual_fund_query` publish their `answer` field incrementally through the shared `token_stream.py` when a turn has an open stream, and fall back to the identical blocking path when it doesn't.
 
 ---
 
@@ -393,7 +396,7 @@ Why it matters: a deterministic engine that gives a "wrong" answer is a bug in t
 
 ---
 
-*Index · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this page gets fixed.*
+*Index · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this page gets fixed.*
 
 </script>
 

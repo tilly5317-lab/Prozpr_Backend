@@ -50,6 +50,22 @@ SHARED_MECHANICS = (
     "missing."
 )
 
+# --- Customer-facing boundaries (chat surfaces only) -------------------------
+# Chat-only: the plain/document profiles produce internal artefacts, where
+# "name the missing thing to the customer" has no meaning.
+NO_INTERNAL_PLUMBING = (
+    "**Never name an internal section to the customer.** The section headings in these "
+    "instructions and the field names inside them are how we organise our own inputs — they "
+    "mean nothing to the customer and must never appear in a reply. Do not describe your own "
+    'plumbing either: no "in my data", "in my dataset", "in the record I was given", "the '
+    'information provided to me".\n'
+    "**When you cannot answer, name the MISSING THING in the customer's own terms**, then "
+    "offer a next step: say \"I can't see the returns on each individual fund yet\" or \"I "
+    'don\'t have your monthly expenses on file" — never "that isn\'t in the data I was given" '
+    'or "that field is missing". The customer is asking about their money, not about how we '
+    "store it."
+)
+
 # --- Question-awareness (only for surfaces that answer a question) -----------
 QUESTION_OPENING = (
     "Lead with the answer. The customer just asked the question, so opening by "
@@ -124,6 +140,8 @@ def build_system_prompt(
     """
     fmt = FORMAT_PROFILES[format_profile]  # KeyError on unknown — intended
     parts = [PI_IDENTITY, SHARED_MECHANICS]
+    if format_profile == "chat":
+        parts.append(NO_INTERNAL_PLUMBING)
     if question_aware:
         parts.append(QUESTION_OPENING)
         parts.append(NEXT_STEP)

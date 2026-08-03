@@ -451,7 +451,12 @@
       "Bash(.venv-mac/bin/python -m pytest \"app/domains/portfolio/tests/test_portfolio_query_context.py::CanonicalClassificationTests::test_holding_asset_class_uses_canonical_classifier_not_raw_category\" -q)",
       "Bash(.venv-mac/bin/python -m pytest AI_Agents/tests/test_portfolio_query_streaming.py app/domains/ai_engine/tests/test_streaming.py app/domains/chat/tests/test_chat_stream_route.py -q)",
       "Bash(.venv-mac/bin/python -m pytest app/domains/ai_engine app/domains/general_chat app/domains/chat AI_Agents/tests -q --ignore=AI_Agents/tests/test_eval_harness.py)",
-      "Bash(pkill -f \"uvicorn main:app\")"
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(grep -c '^```' ARCHITECTURE.md)",
+      "Bash(awk '/^```mermaid/,/^```$/' ARCHITECTURE.md)",
+      "Bash(python3 -m scripts.build_reference_docs)",
+      "Bash(.venv-mac/bin/python -m pytest app/domains/ai_engine/tests/test_no_internal_jargon.py app/domains/ai_engine/answer_formatter/tests/ AI_Agents/src/persona_test.py AI_Agents/src/test_persona_surfaces.py -q)",
+      "Bash(.venv-mac/bin/python -m pytest app/domains/ai_engine app/domains/general_chat app/domains/portfolio app/domains/asset_allocation app/domains/rebalancing app/domains/mutual_funds AI_Agents/src/persona_test.py AI_Agents/src/test_persona_surfaces.py -q)"
     ]
   },
   "skillOverrides": {

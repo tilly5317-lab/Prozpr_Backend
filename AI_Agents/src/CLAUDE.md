@@ -7,6 +7,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - `common.py` — cross-agent utilities; stdlib-only, imports no peer agent. The `app/` layer re-imports its helpers — edit here, app follows (`app/domains/ai_engine/common.py`, `app/domains/profile/models/risk_profile.py`).
 - `persona.py` — single source of truth for Ask PI's customer-facing voice, re-exported via `app/domains/ai_engine/persona.py` (edit here, app follows); build a surface's prompt with `build_system_prompt(...)`.
 - `reasoned_reply.py` — shared reasoned-reply helper for free-text surfaces: the thinking field is declared FIRST (load-bearing), discarded, never returned to the customer.
+- `token_stream.py` — answer-token stream for one chat turn (`open_token_stream`, `astream_tool_answer`, the fine-grained-tool-streaming beta). Lives here because `portfolio_query`/`mutual_fund_query` are agents and can't import `app/`; re-exported by `app/domains/ai_engine/streaming.py`. Nothing streams unless a stream is open.
 
 ## Child modules
 
@@ -14,9 +15,10 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **cashflow_statement/** — goal-planning engine (8-stage pure-Python pipeline) + LangChain agent for NL goal extraction and lever proposal, validated against an Excel-parity baseline. Entry: `engine/pipeline.py`, `agent/graph.py`. See `cashflow_statement/CLAUDE.md`.
 - **financial_primitives/** — shared numerical kernel (TVM, annuity, inflation, Indian FY dates, retirement, XIRR). Pure functions, no LLM, no I/O. Library not agent; not an LLM tool. See `financial_primitives/CLAUDE.md`.
 - **Rebalancing/** — pure-Python rebalancing engine; takes an ideal allocation + current holdings, emits per-fund target/buy/sell under per-fund caps with tax-aware sell prioritisation. Entry: `pipeline.py`. See `Rebalancing/CLAUDE.md`.
-- **intent_classifier/** — classifies a customer question into one of eight intents using Claude Haiku + structured output. Entry: `classifier.py`.
+- **intent_classifier/** — classifies a customer question into one of nine intents using Claude Haiku + structured output; also emits `tools_needed`, an independent list of data the answer stage needs. Entry: `classifier.py`.
 - **market_commentary/** — web-search-extracts Indian macro indicators into a structured `MacroSnapshot`, writes the markdown commentary doc to `Reference_docs/`, and answers commentary Q&A (`chat_qa.py`). Entry: `main.py`.
-- **portfolio_query/** — answers client questions about their own portfolio from market commentary + client profile + holdings, with in/out-of-scope guardrails. Entry: `orchestrator.py`.
+- **portfolio_query/** — answers client questions about their **own** portfolio from client profile + holdings (plus market commentary only when `tools_needed` asks for it), with in/out-of-scope guardrails. Entry: `orchestrator.py`. See `portfolio_query/CLAUDE.md`.
+- **mutual_fund_query/** — answers questions about **funds themselves**, held or not: returns, peer comparison, why we recommend one, plus a "best in category" screen. Two forced-tool Haiku passes (extract → narrate); DB-agnostic — the app layer builds the facts. Entry: `orchestrator.py`. See `mutual_fund_query/CLAUDE.md`.
 - **practical_asset_allocation/** — holdings-aware allocation. Wraps `asset_allocation_pydantic` with four extra corpus inputs; reimplements long-term with ELSS freeze, non-MF-equity NFA-banded cap, and v2 equity-subgroup slider. Entry: `pipeline.py`. See `practical_asset_allocation/CLAUDE.md`.
 - **additional_investment/** — pure-Python engine that deploys fresh money into specific funds (BUY-only): lumpsum-with-holdings fills deficits vs the post-investment practical ideal, SIP follows the ideal mix into the latest rebalancing run's BUY funds; emits a per-fund BUY list. Entry: `pipeline.py`. See `additional_investment/CLAUDE.md`.
 - **risk_profiling/** — deterministic scoring of a client's risk profile (inputs → scores/flags) + an LLM-generated summary paragraph. Entry: `main.py`.
@@ -37,6 +39,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Conventions
 
 - Per-module file roles: `models.py` (pydantic I/O schemas), `prompts.py` (prompt strings / `ChatPromptTemplate`), `main.py` (LCEL chain), `orchestrator.py` (class-based orchestrator's top-level class).
+- **Every `ChatAnthropic(...)` pins `temperature=0` as a literal.** Unset applies the API default of 1.0 — that returned different rupee figures run to run and flipped 4 of 101 classifier labels. `test_temperature_is_pinned.py` scans the call text repo-wide.
 - `references/` — markdown/CSV domain references consumed by prompts. Not product docs. `Testing/` — pytest suites + sample runners. `dev_run.py` — developer smoke-test (`python -m <module>.dev_run`).
 - Prompt-adjacent `.md` files are runtime skill/prompt sources, not docs.
 - LLM calls go through LangChain — see root `CLAUDE.md`.

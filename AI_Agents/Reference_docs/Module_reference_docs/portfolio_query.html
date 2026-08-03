@@ -299,7 +299,11 @@ The defining design decision, shared with `mutual_fund_query` but stricter here 
 
 ```mermaid
 flowchart LR
-    Q([Question + client + portfolio<br/>+ history]) --> S1["<b>Step 1</b><br/>load market_commentary_latest.md<br/>(file contract, no import)"]
+    Q([Question + client + portfolio<br/>+ history<br/>+ want_market_commentary]) --> S1{"<b>Step 1</b><br/>market view needed?"}
+    S1 -->|"yes"| S1a["load market_commentary_latest.md<br/>(file contract, no import)"]
+    S1 -->|"no"| S1b["inject the not-requested placeholder"]
+    S1a --> S2
+    S1b --> S2
     S1 --> S2["<b>Step 2</b><br/>enrich *_inr → *_indian<br/>+ compact-JSON the context"]
     S2 --> S3["<b>Step 3 · one Haiku call</b><br/>skill + guardrails + persona<br/>forced tool-use"]
     S3 --> S4["<b>Step 4</b><br/>validate → PortfolioQueryResponse"]
@@ -358,7 +362,9 @@ PortfolioContext
 │     ├── name, instrument_type, asset_class, sub_category, quantity
 │     ├── current_value_inr, allocation_percentage
 │     ├── return_1y_pct / return_3y_pct       # trailing-window; OFTEN null
-│     └── invested_amount_inr / gain_inr / gain_pct   # cost-basis; populated when avg_cost known
+│     ├── invested_amount_inr / gain_inr / gain_pct   # cost-basis; populated when avg_cost known
+│     └── xirr_pct                       # THIS fund's annualised return (UserMfLatestSnapshot);
+│                                        # None for non-MF holdings / too little history
 ├── allocations: list[AllocationRow]              # Equity/Debt/Others + Cash
 ├── sub_category_allocations: list[SubCategoryAllocationRow]
 └── total_holdings_count / holdings_count_by_type / omitted_holdings_count / omitted_holdings_value_inr
@@ -388,10 +394,39 @@ The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.p
 
 | Step | Where | What happens |
 |---|---|---|
-| 1 · load commentary | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_market_commentary` | reads `market_commentary_latest.md` BOM-aware; **missing ⇒ `FileNotFoundError`**, empty ⇒ `ValueError`; truncates to `_MAX_COMMENTARY_CHARS` (7 000) |
+| 1 · load commentary **(conditional)** | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_market_commentary` | **only when `want_market_commentary`**. Reads `market_commentary_latest.md` BOM-aware; **missing ⇒ `FileNotFoundError`**, empty ⇒ `ValueError`; truncates to `_MAX_COMMENTARY_CHARS` (7 000). Otherwise a `_COMMENTARY_NOT_REQUESTED` placeholder is substituted and no file is read |
 | 2 · enrich + serialise | `_enrich_inr_fields` / `_dump_enriched_json` | walks the DTO dicts, adds an `*_indian` sibling for every `*_inr`, then compact-JSONs (`exclude_none`, no indent, literal `₹`) |
-| 3 · one Haiku call | `SkillExecutor.render` + `build_system_prompt` + `LLMClient.call_structured` | renders the skill, prepends the PI persona, forces the `return_portfolio_query_response` tool |
+| 3 · one Haiku call | `SkillExecutor.render` + `build_system_prompt` + `LLMClient.call_structured` | renders the skill, prepends the PI persona, forces the `return_portfolio_query_response` tool. `temperature=0`. Streams the `answer` field when the turn has an open token stream (§5.3) |
 | 4 · validate | `PortfolioQueryResponse.model_validate` | typed model + the guardrail backstop (§4) |
+
+### 5.1 The commentary gate — the classifier's `tools_needed` in action
+
+Step 1 used to be unconditional. That put fund-house valuation views into the context of **every** "review my portfolio", and the model reached for them: in one live answer it compared a customer's **26.11% small-cap allocation** against a **"35.5x expensive valuation"** — a percentage against a P/E, two quantities that cannot be compared.
+
+The fix moves the decision upstream. The intent classifier emits `tools_needed` (see the `intent_classifier` guide); the gateway passes `want_market_commentary = "market_commentary" in ctx.tools_needed`, and the orchestrator loads the file only then.
+
+When it is **not** wanted, the commentary block is not empty — it carries `_COMMENTARY_NOT_REQUESTED`, an instruction telling the model to answer from holdings and profile, **not** to speculate about market conditions or valuations, and — importantly — **not to mention that commentary is missing**, since the customer never asked for it. If the question genuinely does need a market view, it offers to pull one up.
+
+Two consequences worth holding on to:
+
+- `want_market_commentary` **defaults to `True`**, so every non-chat caller behaves exactly as before. Only the chat bridge passes the classifier's verdict.
+- The commentary-missing error path (§ edge cases) now fires far less often, because most portfolio turns never touch the file.
+
+### 5.2 Two different XIRRs reach the prompt
+
+`current_portfolio.xirr_pct` is the whole portfolio's annualised return. `holdings[].xirr_pct` is **one fund's** — new, and a different number.
+
+Per-fund values are read from `UserMfLatestSnapshot`, keyed by `scheme_code`, which *is* the holding's `ticker_symbol` (the same key the `fund_metadata` relationship joins on). The lookup returns `{}` on any failure by design: a missing XIRR should degrade one line of an answer, never fail the turn.
+
+The skill was updated to match, because the model was previously refusing whole questions on a partially-null column. It is now told: per-fund XIRR **is** populated for mutual funds with enough transaction history, so ranking and comparing by it is fair game; say it is unavailable only for the specific holdings where it actually is null — non-MF holdings, or funds bought too recently to solve — and **name** them rather than refusing the question.
+
+A related prompt rule landed alongside: **a ranked answer must actually be in rank order.** When the question says rank/sort/top/best/worst, rows are emitted sorted by that metric (descending for top/best, ascending for worst), not in the order `holdings[]` happens to arrive, with null-metric holdings grouped last and named. This is one of the "prompts can't do mechanical work over many rows" cases — it is guidance, not a guarantee.
+
+### 5.3 Streaming
+
+The narrating call streams when — and only when — the turn has an open token stream (`current_token_stream() is not None`) **and** the caller named a field. With no open stream this is the exact `ainvoke` path it has always been, so the non-streaming endpoint is unaffected.
+
+`stream_field="answer"` is passed from the orchestrator. The `FINE_GRAINED_TOOL_STREAMING` beta is attached only while streaming: without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. See §4.1 of the ARCHITECTURE walkthrough for the measurements and the trade-off.
 
 ### Prompt plumbing
 
@@ -485,7 +520,7 @@ The LLM client is [`llm_client.py`](../../src/portfolio_query/llm_client.py) —
 | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — the 4-step `run`, commentary load, INR enrichment, the `_PORTFOLIO_QUERY_TOOL` schema |
 | [`models.py`](../../src/portfolio_query/models.py) | pydantic I/O: `ConversationTurn`, `ClientContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`, `PortfolioContext`, `PortfolioQueryResponse` (+ guardrail validator) |
 | [`skill_executor.py`](../../src/portfolio_query/skill_executor.py) | `SkillExecutor` — front-matter split + `## `-section carve + `{{var}}` render |
-| [`llm_client.py`](../../src/portfolio_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting |
+| [`llm_client.py`](../../src/portfolio_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting; optional `stream_field` streaming path (§5.3) |
 | [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | skill prompt (System + User sections) + config front-matter; **runtime source, not docs** |
 | [`guardrails.md`](../../src/portfolio_query/guardrails.md) | scope rules embedded via `{{guardrail_rules}}`; **runtime source** |
 | [`dev_run.py`](../../src/portfolio_query/dev_run.py) | developer smoke test (`python -m portfolio_query.dev_run`) — in-scope + guardrail scenarios |
@@ -501,6 +536,10 @@ App-layer companion (not part of the engine, but where the DTOs come from):
 
 ## 8. Invariants & landmines
 
+- **The commentary load is CONDITIONAL now.** `want_market_commentary` gates it (§5.1). It defaults to `True`, so if you add a caller and forget to pass the classifier's verdict, you silently get the old always-load behaviour back — and with it the valuation-vs-allocation confusion the gate exists to prevent.
+- **`stream_field` must be passed explicitly, and only for `answer`.** The parameter has no default on purpose: an internal field must never be streamed to a customer by accident. `redirect_message` in particular is substituted wholesale by the guardrail backstop, so streaming it would paint text the validator may then null.
+- **Streamed turns report usage on `usage_metadata`, not `response_metadata["usage"]`.** `llm_client` carries an explicit fallback; without it, token and cost accounting records **zeros for every streamed turn** and per-module cost attribution quietly goes wrong.
+- **Per-fund XIRR failure is swallowed on purpose.** `_xirr_by_scheme` returns `{}` on any exception. That is correct — one missing number must not fail a turn — but it means a broken lookup shows up as "the model stopped citing per-fund XIRR", not as an error. Check the warning log.
 - **The market commentary is a file contract, not an import.** `orchestrator._load_market_commentary` reads `Reference_docs/market_commentary_latest.md` and **raises `FileNotFoundError` if it's absent** (empty ⇒ `ValueError`). The gateway catches that and tells the customer to refresh commentary. Don't "fix" it by importing the `market_commentary` module — the file boundary is why this agent stays a peer.
 - **Every `*_inr` needs its `*_indian` sibling.** `_enrich_inr_fields` builds them; the prompt says copy verbatim. Hand Haiku a bare rupee number and you re-open the lakh/crore bug (§6). Any new rupee DTO field gets the sibling automatically — but only if it *ends in* `_inr`.
 - **The guardrail contract has a deterministic backstop.** `PortfolioQueryResponse`'s validator nulls `answer` and guarantees a redirect whenever `guardrail_triggered` is true. Never rely on the model alone to null the out-of-scope answer, and don't remove the validator.
@@ -541,7 +580,7 @@ App-layer companion (not part of the engine, but where the DTOs come from):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 
