@@ -157,6 +157,7 @@ async def compute_goal_planning_snapshot(
         user,
         retirement_age=gp_input.retirement.retirement_age,
         retirement_modelled=gp_input.model_retirement,
+        portfolio_value=portfolio_value,
     )
     fallback_text = _build_fallback_text(output)
 
@@ -316,6 +317,7 @@ def _build_facts_pack(
     *,
     retirement_age: int | None = None,
     retirement_modelled: bool = False,
+    portfolio_value: float | None = None,
 ) -> dict[str, Any]:
     """Build the facts_pack dict consumed by the answer-formatter LLM."""
 
@@ -403,23 +405,51 @@ def _build_facts_pack(
     # the year-by-year statement; the frontend charts it). The EMI splits and
     # corpus_opening are persisted in CashflowAnnualRow but aren't useful to the
     # formatter, so they're omitted here to keep the prompt small.
+    #
+    # `corpus_closing` is the only amount here the model has to COMPARE ("when do
+    # I cross ₹1 crore?"), so it alone ships a raw value — comparing "₹98.5 lakh"
+    # against "₹1.02 crore" as strings is what broke that answer. The rest are
+    # only ever quoted, so they ship formatted-only: raw values for all nine cost
+    # ~1,400 tokens per goal-planning turn and bought nothing.
+    _QUOTED_ONLY_FIELDS = (
+        "income",
+        "income_tax",
+        "household_expense",
+        "savings_pre_emi",
+        "savings_post_emi",
+        "monthly_investment",
+        "investment_returns",
+        "goal_payout",
+    )
+    # corpus_today merges three sources (input_builder.py:228). Without the split
+    # the formatter can only call the total "your portfolio", which overstates the
+    # linked portfolio by whatever the customer holds in direct equity and cash.
+    pfp = getattr(user, "personal_finance_profile", None)
+
+    def _pfp_amount(field: str) -> float:
+        value = getattr(pfp, field, None) if pfp is not None else None
+        return float(value) if value else 0.0
+
+    linked_portfolio = float(portfolio_value) if portfolio_value else 0.0
+    direct_equity = _pfp_amount("equity_shares")
+    cash_and_debt = _pfp_amount("financial_assets")
+    facts["corpus_composition"] = {
+        "linked_portfolio_value": linked_portfolio,
+        "linked_portfolio_value_indian": format_inr_indian(linked_portfolio),
+        "direct_equity_shares": direct_equity,
+        "direct_equity_shares_indian": format_inr_indian(direct_equity),
+        "cash_and_debt": cash_and_debt,
+        "cash_and_debt_indian": format_inr_indian(cash_and_debt),
+    }
+
     facts["annual_cashflow"] = []
     for row in output.annual_cashflow:
-        facts["annual_cashflow"].append(
-            {
-                "fy_label": row.fy_label,
-                "income": format_inr_indian(row.income),
-                "income_tax": format_inr_indian(row.income_tax),
-                "household_expense": format_inr_indian(row.household_expense),
-                "savings_pre_emi": format_inr_indian(row.savings_pre_emi),
-                "savings_post_emi": format_inr_indian(row.savings_post_emi),
-                "monthly_investment": format_inr_indian(row.monthly_investment),
-                "investment_returns": format_inr_indian(row.investment_returns),
-                "goal_payout": format_inr_indian(row.goal_payout),
-                "corpus_closing": format_inr_indian(row.corpus_closing),
-                "is_funded": row.is_funded,
-            }
-        )
+        entry: dict[str, Any] = {"fy_label": row.fy_label, "is_funded": row.is_funded}
+        for field in _QUOTED_ONLY_FIELDS:
+            entry[f"{field}_indian"] = format_inr_indian(getattr(row, field))
+        entry["corpus_closing"] = row.corpus_closing
+        entry["corpus_closing_indian"] = format_inr_indian(row.corpus_closing)
+        facts["annual_cashflow"].append(entry)
 
 
     return facts

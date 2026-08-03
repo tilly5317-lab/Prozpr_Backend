@@ -31,7 +31,7 @@ _QA_TOOL = reasoned_reply_tool(
 def _get_qa_llm():
     """Build (and cache) the QA LLM on first call (lazy so ``ChatAnthropic``
     reads ``ANTHROPIC_API_KEY`` at call time, not at import)."""
-    llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS)
+    llm = ChatAnthropic(model=_QA_MODEL, max_tokens=_QA_MAX_TOKENS, temperature=0)
     return llm.bind_tools(
         [_QA_TOOL], tool_choice={"type": "tool", "name": "return_qa_answer"}
     )

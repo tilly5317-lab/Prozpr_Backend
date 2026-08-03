@@ -138,16 +138,16 @@ def _build_held_map(user) -> dict[str, str]:
 
 
 _SCREEN_BODY_PROMPT = (
-    "The customer asked for the best / top performing mutual funds. FACTS_PACK.screen "
+    "The customer asked for the best / top performing mutual funds. CUSTOMER_RECORD.screen "
     "holds a ranked shortlist we computed from our fund universe — the top funds by "
     "trailing CAGR over `horizon_years` (Regular plan, Growth option), best first.\n"
     "\n"
     "Write the reply:\n"
-    "- Present the funds in FACTS_PACK order (best first), each with its return, and state "
+    "- Present the funds in CUSTOMER_RECORD order (best first), each with its return, and state "
     "the horizon in words (e.g. 'over the last 3 years') and that they're ranked by past return.\n"
     "- If `category` is set, frame them as the best in that category; if null, best overall.\n"
     "- Add one short, honest caveat that past performance doesn't guarantee future returns.\n"
-    "- Cite ONLY funds and figures present in FACTS_PACK — never invent a fund or a number.\n"
+    "- Cite ONLY funds and figures present in CUSTOMER_RECORD — never invent a fund or a number.\n"
     "- Keep it tight and scannable: a one-line intro, then the ranked funds."
 )
 

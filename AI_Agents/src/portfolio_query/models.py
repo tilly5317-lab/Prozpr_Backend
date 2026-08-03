@@ -87,6 +87,9 @@ class Holding(BaseModel):
     invested_amount_inr: float | None = None
     gain_inr: float | None = None
     gain_pct: float | None = None
+    # Annualised, from this fund's own cashflows. None for non-MF holdings and
+    # for funds with too little history to solve.
+    xirr_pct: float | None = None
 
 
 class AllocationRow(BaseModel):

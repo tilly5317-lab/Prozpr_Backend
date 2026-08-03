@@ -16,6 +16,15 @@ class Intent(str, Enum):
     OUT_OF_SCOPE = "out_of_scope"
 
 
+class Tool(str, Enum):
+    """Data the classifier declares and the caller fetches.
+
+    New members also need ``_ToolLiteral`` in classifier.py — a drift test enforces it.
+    """
+
+    MARKET_COMMENTARY = "market_commentary"
+
+
 class OutOfScopeSubreason(str, Enum):
     GIBBERISH = "gibberish"
     IDENTITY_OR_META = "identity_or_meta"
@@ -43,3 +52,4 @@ class ClassificationResult(BaseModel):
     reasoning: str
     out_of_scope_message: Optional[str] = None
     out_of_scope_subreason: Optional[OutOfScopeSubreason] = None
+    tools_needed: list[Tool] = Field(default_factory=list)  # nothing consumes this yet

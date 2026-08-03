@@ -243,11 +243,11 @@ class FormatWithTelemetryTests(unittest.TestCase):
                 facts_pack={},
                 body_prompt="b",
                 module_name="rebalancing",
-                action_mode="recompute",
+                action_mode="compute",
                 profile={},
                 build_fallback=lambda: "",
             ))
         self.assertTrue(captured.get("formatter_invoked"))
         self.assertTrue(captured.get("formatter_succeeded"))
         self.assertEqual(captured.get("module"), "rebalancing")
-        self.assertEqual(captured.get("action_mode"), "recompute")
+        self.assertEqual(captured.get("action_mode"), "compute")

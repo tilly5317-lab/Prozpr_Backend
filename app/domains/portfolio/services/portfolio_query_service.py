@@ -289,7 +289,11 @@ def _holding_sub_category(holding: Any) -> str | None:
     return str(sub) if sub else None
 
 
-def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
+def _build_holdings(
+    orm_holdings: Iterable[Any],
+    xirr_by_scheme: dict[str, float] | None = None,
+) -> list[Holding]:
+    xirr_by_scheme = xirr_by_scheme or {}
     out: list[Holding] = []
     for h in orm_holdings:
         name = (
@@ -312,9 +316,38 @@ def _build_holdings(orm_holdings: Iterable[Any]) -> list[Holding]:
                 invested_amount_inr=invested,
                 gain_inr=gain,
                 gain_pct=gain_pct,
+                # ticker_symbol IS the scheme_code — same key the fund_metadata
+                # relationship joins on (portfolio.py:136).
+                xirr_pct=xirr_by_scheme.get(str(getattr(h, "ticker_symbol", "") or "")),
             )
         )
     return out
+
+
+async def _xirr_by_scheme(db: Any, user_id: Any) -> dict[str, float]:
+    """Per-fund XIRR from the latest-snapshot table, keyed by scheme_code.
+
+    Returns {} on any failure — a missing XIRR degrades one line of an answer,
+    it must never fail the turn.
+    """
+    if db is None or user_id is None:
+        return {}
+    try:
+        from sqlalchemy import select
+
+        from app.domains.mutual_funds.models import UserMfLatestSnapshot
+
+        rows = (
+            await db.execute(
+                select(
+                    UserMfLatestSnapshot.scheme_code, UserMfLatestSnapshot.xirr_pct
+                ).where(UserMfLatestSnapshot.user_id == user_id)
+            )
+        ).all()
+        return {str(code): float(x) for code, x in rows if x is not None}
+    except Exception:
+        logger.warning("per-fund XIRR lookup failed; answering without it", exc_info=True)
+        return {}
 
 
 def _build_allocation_rows(orm_allocations: Iterable[Any]) -> list[AllocationRow]:
@@ -392,7 +425,9 @@ def _count_by_type(all_holdings: list[Holding]) -> dict[str, int]:
     return dict(counts)
 
 
-def _build_portfolio_context(user: Any) -> PortfolioContext | None:
+def _build_portfolio_context(
+    user: Any, xirr_by_scheme: dict[str, float] | None = None
+) -> PortfolioContext | None:
     portfolios = list(getattr(user, "portfolios", []) or [])
     if not portfolios:
         return None
@@ -406,7 +441,7 @@ def _build_portfolio_context(user: Any) -> PortfolioContext | None:
     total_value = float(getattr(primary, "total_value", 0) or 0)
     xirr_pct = _compute_portfolio_xirr(user, total_value)
 
-    all_holdings = _build_holdings(orm_holdings)
+    all_holdings = _build_holdings(orm_holdings, xirr_by_scheme)
     itemized, omitted_count, omitted_value = _itemize_holdings(all_holdings)
 
     return PortfolioContext(
@@ -490,10 +525,13 @@ async def generate_portfolio_query_response(
     user: Any,
     user_question: str,
     conversation_history: list[dict[str, Any]] | None = None,
+    db: Any = None,
+    user_id: Any = None,
+    want_market_commentary: bool = True,
 ) -> PortfolioQueryOutcome:
     """Answer the user's portfolio question via the AI_Agents.portfolio_query agent."""
 
-    portfolio = _build_portfolio_context(user)
+    portfolio = _build_portfolio_context(user, await _xirr_by_scheme(db, user_id))
     if portfolio is None:
         first_name = getattr(user, "first_name", None) or "there"
         return PortfolioQueryOutcome(
@@ -516,6 +554,7 @@ async def generate_portfolio_query_response(
             client=client_ctx,
             portfolio=portfolio,
             conversation_history=history,
+            want_market_commentary=want_market_commentary,
         )
     except FileNotFoundError as exc:
         logger.warning("portfolio_query: market commentary file missing — %s", exc)
@@ -550,6 +589,10 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         user=ctx.user_ctx,
         user_question=question,
         conversation_history=ctx.conversation_history,
+        db=getattr(ctx, "db", None),
+        user_id=ctx.effective_user_id,
+        want_market_commentary="market_commentary"
+        in (getattr(ctx, "tools_needed", ()) or ()),
     )
     await _record_path(ctx, outcome)
     await _record_intent_disagreement(question, ctx, outcome)

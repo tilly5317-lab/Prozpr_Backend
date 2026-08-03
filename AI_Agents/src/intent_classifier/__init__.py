@@ -4,12 +4,14 @@ from .models import (
     ClassificationResult,
     ConversationMessage,
     Intent,
+    Tool,
 )
 
 __all__ = [
     "IntentClassifier",
     "ClassificationInput",
     "ClassificationResult",
+    "Tool",
     "ConversationMessage",
     "Intent",
 ]

@@ -229,6 +229,12 @@ class ChatBrain:
                 or f"Understood — treating this as a {intent.name.replace('_', ' ')} question.",
             )
             flow.append(f"identified intent: {intent.name}")
+            tools_needed = tuple(
+                t.value for t in getattr(intent.raw, "tools_needed", ()) or ()
+            )
+            if tools_needed:
+                ctx = dataclasses.replace(ctx, tools_needed=tools_needed)
+                flow.append(f"tools needed: {','.join(tools_needed)}")
             # Name the PostHog trace now that we know the intent — otherwise it is
             # labelled "RunnableSequence" and the trace list is unreadable.
             set_turn_trace_name(intent.name)

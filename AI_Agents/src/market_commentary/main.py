@@ -79,6 +79,7 @@ def _get_extraction_llm(api_key: str | None = None):
         model=_EXTRACTION_MODEL,
         max_tokens=_EXTRACTION_MAX_TOKENS,
         api_key=api_key,
+        temperature=0,
     ).bind_tools(
         [
             {

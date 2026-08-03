@@ -36,6 +36,7 @@ async def classify_action(
         model=model,
         api_key=api_key,
         max_tokens=max_tokens,
+        temperature=0,  # a classifier must not sample; unset means the API default of 1.0
     ).with_structured_output(action_model)
 
     messages = [

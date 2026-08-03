@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -33,6 +35,7 @@ from app.domains.chat.schemas.chat import (
     ChatSessionUpdate,
 )
 from app.domains.ai_engine import ChatBrain, ChatTurnInput
+from app.domains.ai_engine.streaming import open_token_stream
 from app.domains.ai_engine.thinking import clear_thinking, get_thinking
 from app.domains.chat.services.chat_context import load_conversation_history
 from app.domains.chat.services.chat_title_service import generate_chat_title
@@ -304,6 +307,107 @@ async def send_message(
         assistant_message=assistant_response,
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+    )
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def send_message_streaming(
+    session_id: uuid.UUID,
+    payload: ChatMessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+    user_ctx: User = Depends(get_ai_user_context),
+):
+    """Same turn as ``send_message``, delivered as Server-Sent Events.
+
+    Events: ``thinking`` (pipeline stage lines), ``delta`` (incremental answer
+    text once the answer LLM starts generating), then exactly one terminal
+    ``done`` or ``error``.
+
+    ``done`` IS AUTHORITATIVE. Deltas are provisional — the formatter discards a
+    truncated response in favour of a deterministic brief, and general_chat
+    renders its answer field into a different final shape — so a client that has
+    painted deltas must replace them with ``done.assistant_message.content``.
+
+    Requires ``proxy_buffering off`` at nginx, and a single uvicorn worker: the
+    token sink is in process memory (see ``ai_engine.streaming``).
+    """
+    session = await _get_user_session(session_id, db, current_user.id)
+    if session.status == ChatSessionStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This chat session is closed.",
+        )
+    conversation_history = await load_conversation_history(session_id, db)
+
+    async def events():
+        def sse(event: str, data: dict) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+        user_msg = ChatMessage(
+            session_id=session_id, role=ChatMessageRole.user, content=payload.content
+        )
+        db.add(user_msg)
+
+        try:
+            async with open_token_stream() as stream:
+                turn = asyncio.create_task(
+                    ChatBrain().run_turn(
+                        ChatTurnInput(
+                            user_ctx=user_ctx,
+                            user_question=payload.content,
+                            conversation_history=conversation_history,
+                            client_context=payload.client_context,
+                            session_id=session_id,
+                            db=db,
+                            user_id=current_user.id,
+                        )
+                    )
+                )
+                turn.add_done_callback(lambda _: stream.close())
+                async for delta in stream:
+                    yield sse("delta", {"text": delta})
+                brain_result = await turn
+        except Exception as exc:
+            logger.exception("streaming chat turn failed (session=%s)", session_id)
+            yield sse("error", {"detail": type(exc).__name__})
+            return
+        finally:
+            clear_thinking(current_user.id, session_id)
+
+        insp = sa_inspect(user_msg)
+        if insp.detached or insp.transient:
+            db.add(user_msg)
+        assistant_msg = ChatMessage(
+            session_id=session_id,
+            role=ChatMessageRole.assistant,
+            content=brain_result.content,
+            intent=brain_result.intent,
+        )
+        db.add(assistant_msg)
+        await db.commit()
+        await db.refresh(user_msg)
+        await db.refresh(assistant_msg)
+
+        assistant_response = ChatMessageResponse.model_validate(assistant_msg)
+        assistant_response.intent = brain_result.intent
+        assistant_response.intent_confidence = brain_result.intent_confidence
+        assistant_response.intent_reasoning = brain_result.intent_reasoning
+        assistant_response.chart_payloads = brain_result.chart_payloads
+        yield sse(
+            "done",
+            ChatSendMessageResponse(
+                user_message=ChatMessageResponse.model_validate(user_msg),
+                assistant_message=assistant_response,
+                asset_allocation_run_id=brain_result.asset_allocation_run_id,
+                ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+            ).model_dump(),
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

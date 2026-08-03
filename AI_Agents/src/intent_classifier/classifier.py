@@ -13,6 +13,7 @@ from .models import (
     ConversationMessage,
     Intent,
     OutOfScopeSubreason,
+    Tool,
 )
 from .prompts import OUT_OF_SCOPE_MESSAGE, STOCK_ADVICE_MESSAGE, SYSTEM_PROMPT
 
@@ -46,6 +47,9 @@ _OutOfScopeSubreasonLiteral = Literal[
     "off_topic",
     "other",
 ]
+
+# Keep in sync with ``Tool`` in models.py — same reason as ``_IntentLiteral``.
+_ToolLiteral = Literal["market_commentary"]
 
 
 # Strips stray XML/tool-call closing tokens that Anthropic structured-output
@@ -88,6 +92,18 @@ class _LLMOutput(BaseModel):
         description=(
             "Required when intent='out_of_scope': one of gibberish, identity_or_meta, "
             "security_or_credentials, chat_summary, off_topic, other. Null otherwise."
+        ),
+    )
+    # Guidance belongs in this description, not prompts.py — the same text in the
+    # system prompt primes the market intent and misroutes benchmark questions.
+    tools_needed: list[_ToolLiteral] = Field(
+        default_factory=list,
+        description=(
+            "Extra data the ANSWER stage needs; it does not affect the intent. Include "
+            "'market_commentary' only when answering requires a view on market conditions "
+            "or valuations. Leave empty when the question is answerable from the customer's "
+            "own portfolio, goals, or holdings — including questions that name an index "
+            "purely as a benchmark for their own returns."
         ),
     )
 
@@ -163,6 +179,9 @@ class IntentClassifier:
         llm = ChatAnthropic(
             model=model,
             api_key=resolved_key,
+            # Must stay explicit: omitting it applies the API default of 1.0, so
+            # the same question can return different intents on different calls.
+            temperature=0,
             # `reasoning` is capped to a ≤12-word phrase (schema + prompt), so
             # normal output is well under 100 tokens. 1024 stays as pure headroom:
             # hitting max_tokens truncates the tool call, which raises a
@@ -213,6 +232,7 @@ class IntentClassifier:
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
             out_of_scope_subreason=subreason,
+            tools_needed=[Tool(t) for t in raw.tools_needed],
         )
 
     def classify(self, input: ClassificationInput) -> ClassificationResult:

@@ -38,7 +38,7 @@ _MODULE_DOCS: dict[str, tuple[str, ...]] = {
 }
 
 # Action modes whose questions are about mechanism/meaning — the only modes
-# that carry the docs. Compute/recompute replies stay lean and facts-driven.
+# that carry the docs. Compute replies stay lean and facts-driven.
 LOGIC_DOC_MODES = frozenset({"educate", "narrate"})
 
 

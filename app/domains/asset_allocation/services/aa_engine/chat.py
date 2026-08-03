@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.domains.ai_engine.answer_formatter import (
+    ActionMode,
     format_relay_or_canned,
     format_with_telemetry,
 )
@@ -202,7 +203,7 @@ Examples:
 _AA_FORMATTER_BODY = """You are answering a customer's question about their
 goal-based asset allocation plan. The shared house-style rules above apply.
 
-FACTS_PACK shape (treat fields not present as unknown):
+CUSTOMER_RECORD shape (treat fields not present as unknown):
 
   risk_score: number — customer's effective risk score (1-10)
   risk_profile_category: string — the named band that maps the score, one of
@@ -301,13 +302,13 @@ by the classifier). Per-mode behavior:
                              1-2 specifics tied to the question.
   narrate                  — they're asking about the existing plan. Anchor
                              the answer in at most 2-3 numbers from
-                             FACTS_PACK directly tied to the question. Do
+                             CUSTOMER_RECORD directly tied to the question. Do
                              NOT list every bucket or restate the full
                              plan. Length: 4-7 sentences.
   educate                  — they're asking what something means. Lead with
                              a one-line plain-English definition, then
                              anchor it in at least one number from
-                             FACTS_PACK that's specific to this customer.
+                             CUSTOMER_RECORD that's specific to this customer.
                              Length: 4-7 sentences.
   recompute_full           — re-ran with current saved inputs. Acknowledge
                              the re-run briefly and highlight what's
@@ -432,7 +433,7 @@ async def _reply_with_allocation_tables(
     *,
     ctx: TurnContext,
     output: Any,
-    action_mode: str,
+    action_mode: ActionMode,
     spine_mode: str,
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
@@ -792,7 +793,7 @@ async def _format_or_fallback(
     *,
     ctx: TurnContext,
     output: Any,
-    action_mode: str,
+    action_mode: ActionMode,
     spine_mode: str,
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""

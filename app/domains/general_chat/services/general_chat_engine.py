@@ -94,7 +94,7 @@ _REDIRECT_FORMATTER_BODY = (
     "You are declining a request that falls outside what PI helps with, then "
     "redirecting the customer to what PI can do.\n"
     "\n"
-    "FACTS_PACK has a single field, `boundary_message`: PI's authoritative "
+    "CUSTOMER_RECORD has a single field, `boundary_message`: PI's authoritative "
     "statement of what it does and doesn't help with. Treat it as the source of "
     "truth for scope.\n"
     "\n"
@@ -375,6 +375,7 @@ async def generate_general_chat_response(
         max_tokens=600,
         api_key=api_key,
         timeout=90.0,
+        temperature=0,
     ).bind_tools(
         [
             {
@@ -413,22 +414,39 @@ async def generate_general_chat_response(
         f"Research digest (already gathered; do not call any tools other than "
         f"`return_reply`):\n{research_digest}"
     )
+    from app.domains.ai_engine.streaming import (
+        FINE_GRAINED_TOOL_STREAMING,
+        astream_tool_answer,
+        current_token_stream,
+    )
+
+    # See ai_engine.streaming: without the beta the API withholds the tool's
+    # input JSON until the end and there is nothing to stream. temperature stays
+    # a literal here — test_temperature_is_pinned scans the call text for it.
+    streaming = current_token_stream() is not None
     compose_llm = ChatAnthropic(
         model="claude-haiku-4-5-20251001",
         max_tokens=400,
         api_key=api_key,
         timeout=60.0,
+        temperature=0,
+        **({"betas": [FINE_GRAINED_TOOL_STREAMING]} if streaming else {}),
     ).bind_tools(
         [_RETURN_REPLY_TOOL],
         tool_choice={"type": "tool", "name": "return_reply"},
     )
+    # Deltas carry the raw `answer` field, but the returned reply is
+    # _render_reply(answer, bullets) — so a client showing deltas must replace
+    # them with the final text rather than keep them.
+    compose_messages = [
+        SystemMessage(content=_SYSTEM_PROMPT),
+        HumanMessage(content=compose_user_prompt),
+    ]
     try:
-        compose_resp = await compose_llm.ainvoke(
-            [
-                SystemMessage(content=_SYSTEM_PROMPT),
-                HumanMessage(content=compose_user_prompt),
-            ]
-        )
+        if streaming:
+            compose_resp = await astream_tool_answer(compose_llm, compose_messages)
+        else:
+            compose_resp = await compose_llm.ainvoke(compose_messages)
     except anthropic.AuthenticationError:
         return unauthorised_reply
 

@@ -221,7 +221,7 @@ async def extract_deploy_request(
 
 # ---------------------------------------------------------------------------
 # Formatter body prompt (mirrors _REBAL_FORMATTER_BODY: documents the
-# FACTS_PACK shape + per-ActionMode lead/length budget; no narrative prose)
+# CUSTOMER_RECORD shape + per-ActionMode lead/length budget; no narrative prose)
 # ---------------------------------------------------------------------------
 
 _AINV_FORMATTER_BODY = """You are answering a customer's question about a fresh
@@ -229,7 +229,7 @@ additional-investment recommendation — NEW money being deployed as a monthly
 SIP into specific funds. This is BUY-only: nothing is ever sold. The shared
 house-style rules above apply.
 
-The FACTS_PACK has this shape (treat fields not present as unknown):
+The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   deploy_amount_inr / deploy_amount_indian — the PER-MONTH fresh money being
            deployed.
@@ -264,7 +264,7 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
       monthly_amount_inr / monthly_amount_indian — the per-month amount to put
                     into this fund. Cite this pair.
 
-When FACTS_PACK contains `category_ask`, the customer asked for a specific fund
+When CUSTOMER_RECORD contains `category_ask`, the customer asked for a specific fund
 category — address it EXPLICITLY (never ignore it):
   asked_text / category — their words / our canonical category (null = we don't
            rank funds there: say so plainly, do NOT invent any).
@@ -299,8 +299,11 @@ by the system on a fresh first-turn recommendation (it is not produced by a
 classifier). Per-mode behavior:
 
   compute    — first-time additional-investment recommendation; introduce it
-               shaped by the customer's question. Lead with the headline
-               (deploy_amount_indian, per-month), then NAME the 1-3 biggest
+               shaped by the customer's question. Lead with WHERE THE MONEY
+               GOES, not with the amount they just gave you: "Your ₹50,000 a
+               month goes into four funds — …", never "You're investing
+               ₹50,000 a month." State deploy_amount_indian and the per-month
+               cadence inside that first sentence, then NAME the 1-3 biggest
                buys with their monthly_amount_indian, and give one
                plain-English line on why the split leans the way it does
                (derived from target_bucket). Name at least the largest fund(s)
@@ -323,7 +326,7 @@ fresh money into the gaps — the parts furthest below their ideal. Explain it i
 this plain spirit: "we looked at where your portfolio is versus where it should
 be, and this money fills those gaps."
 
-The FACTS_PACK has this shape (treat fields not present as unknown):
+The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   deploy_amount_inr / deploy_amount_indian — total fresh money being deployed
            (one-time; cadence is always a one-time deployment on this surface).
@@ -351,7 +354,7 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
       sub_category  — SEBI category for context (e.g. "Large Cap Fund").
       amount_inr / amount_indian — the one-time amount for this fund.
 
-When FACTS_PACK contains `category_ask`, the customer asked for a specific fund
+When CUSTOMER_RECORD contains `category_ask`, the customer asked for a specific fund
 category — address it EXPLICITLY (never ignore it):
   asked_text / category — their words / our canonical category (null = we don't
            rank funds there: say so plainly, do NOT invent any).
@@ -381,9 +384,12 @@ category — address it EXPLICITLY (never ignore it):
   category via SIP — the platform does neither. The plan is the
   recommendation; category picks are information.
 
-ACTION_MODE is `compute` — a fresh recommendation. Lead with the headline
-(deploy_amount_indian, one-time), then NAME the 1-3 biggest buys with their
-amounts, and give one plain-English line on why the money went where it did —
+ACTION_MODE is `compute` — a fresh recommendation. Lead with WHERE THE MONEY
+GOES, not with the amount the customer just gave you: "Your ₹10 lakh goes into
+three funds — …", never "You're deploying ₹10 lakh." State deploy_amount_indian
+and the one-time/SIP cadence inside that first sentence, then NAME the 1-3
+biggest buys with their amounts, and give one plain-English line on why the
+money went where it did —
 the gap-fill story, not a horizon label. Any percentage you cite from the split
 is a share of this deployment, never the plan's overall target mix. When part of the deployment lands in
 emergency/liquid funds, say so plainly ("part of this builds your emergency
@@ -398,7 +404,7 @@ CATEGORY but has not yet said how much they want to invest. Answer the literal
 question honestly, then ask for the amount. The shared house-style rules above
 apply.
 
-FACTS_PACK has a single field, `category_ask`:
+CUSTOMER_RECORD has a single field, `category_ask`:
   asked_text  — the category in the customer's words (e.g. "smallcap").
   category    — our canonical name for it, or null when we don't rank funds
                 in that category.
@@ -412,9 +418,10 @@ Reply shape:
 2. ALWAYS the caveat, in PI's voice: putting everything into one category isn't
    what we'd recommend — our plan spreads fresh money across the gaps in their
    goal-based portfolio.
-3. Ask how much they want to invest and whether one-time lumpsum or monthly
-   SIP — once known, we'll show exactly where the money goes (including their
-   category, when it fits).
+3. Ask how much they want to invest — once known, we'll show exactly where the
+   money goes (including their category, when it fits). Ask for the AMOUNT ONLY:
+   never ask whether it is a lumpsum or a SIP, since a one-time deployment is
+   assumed unless the customer says otherwise.
 Length: 3-5 sentences, warm. Do NOT fabricate amounts, returns, or rankings.
 Do NOT offer to execute a category-only deployment or ask how they'd split
 money among the category funds — once the amount is known, the goal-based plan
@@ -570,11 +577,7 @@ def _build_fallback_category_probe(category_ask: dict[str, Any]) -> str:
             f"We don't have ranked funds in {asked} right now — our "
             "recommendations follow your goal-based plan instead."
         )
-    return (
-        lead
-        + " How much would you like to invest, and should it be a one-time "
-        "lumpsum or a monthly SIP?"
-    )
+    return lead + " How much would you like to invest?"
 
 
 def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput, category_ask: dict[str, Any] | None = None) -> str:
@@ -727,7 +730,7 @@ async def _format_category_probe(
 
 _MSG_ASK_AMOUNT = (
     "Happy to help you put fresh money to work — how much would you like to "
-    "invest, and should it be a one-time lumpsum or a monthly SIP?"
+    "invest?"
 )
 
 
@@ -738,7 +741,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     BUY-only / write-once: there is no follow-up classifier, so every turn on
     this intent recomputes the deployment and re-formats it in `compute` mode.
     First the deploy amount + cadence are parsed from the question; a missing
-    amount short-circuits to a clarify reply (amount + lumpsum/SIP). When the
+    amount short-circuits to a clarify reply that asks for the AMOUNT ONLY —
+    cadence is never asked, it defaults to lumpsum unless the customer's own
+    wording reads recurring/monthly. When the
     orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
     profile) the handler relays that gate text via ``format_relay_or_canned``
     rather than formatting a BUY list. On the success path the persisted run id
@@ -763,6 +768,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx,
             module_name="additional_investment",
             message=_MSG_ASK_AMOUNT,
+            action_mode="gather",
         )
         return ChatHandlerResult(text=text)
 
@@ -783,6 +789,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx,
             module_name="additional_investment",
             message=outcome.blocking_message,
+            action_mode="gather",
         )
         return ChatHandlerResult(text=text)
 

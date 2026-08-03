@@ -27,6 +27,7 @@ from app.domains.ai_engine.turn_context import (
     TurnContext,
 )
 from app.domains.ai_engine.answer_formatter import (
+    ActionMode,
     format_relay_or_canned,
     format_with_telemetry,
 )
@@ -51,7 +52,7 @@ class RebalanceAction(BaseModel):
         "narrate",
         "educate",
         "counterfactual_explore",
-        "recompute",
+        "compute",
         "clarify",
         "redirect",
         "consolidate",
@@ -125,7 +126,7 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
     additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
   Multiple keys are allowed in one action ("what if my tax rate were 20%
   AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
-- "recompute" — they explicitly ask to re-run with current portfolio state
+- "compute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they signal a direction without an actionable value.
   Compose a concise clarification question in `clarification_question`.
@@ -192,9 +193,9 @@ consolidate (fewer buys, or buys restricted to categories):
 - (we just asked "how many funds?") "5"     → consolidate, target_fund_count=5
                                               (history-fill — do not re-ask)
 
-recompute:
-- "rebalance my portfolio"                  → recompute
-- "redo with my latest holdings"            → recompute
+compute:
+- "rebalance my portfolio"                  → compute
+- "redo with my latest holdings"            → compute
 
 redirect (out of scope, or override outside the allow-list):
 - "what if I delayed by 3 months?"          → redirect, "delay rebalance by N months"
@@ -208,7 +209,7 @@ clarify (direction without an actionable value):
 _REBAL_FORMATTER_BODY = """You are answering a customer's question about a
 mutual-fund rebalancing recommendation. The shared house-style rules above apply.
 
-The FACTS_PACK has this shape (treat fields not present as unknown):
+The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   total_portfolio_inr / total_portfolio_indian — total invested corpus across all holdings
   buys_total_inr / buys_total_indian — sum of recommended buy amounts
@@ -287,11 +288,9 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
   touches. If goal_buckets is absent, answer purely from the trade/asset-class
   facts as before.
 
-ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
-which is set by the system on a fresh first-turn recommendation (it is not
-produced by the classifier). Per-mode behavior:
+ACTION_MODE tells you the situation. Per-mode behavior:
 
-  compute    — first-time rebalancing recommendation; introduce it shaped by
+  compute    — a rebalancing recommendation we just produced; introduce it shaped by
                the customer's question. Cover: the headline (trade_count, total
                trade volume from buys_total_indian / sells_total_indian, and
                tax_impact_indian if non-zero), the 1-2 biggest moves at
@@ -303,23 +302,24 @@ produced by the classifier). Per-mode behavior:
                "your portfolio is already aligned with your target mix") and
                briefly mention current asset_class_mix_indian. Length: 8-12
                sentences (3-5 for trade_count=0).
+               When CUSTOMER_RECORD carries `is_rerun: true` the customer asked
+               us to run it again and has seen a plan before: open by
+               acknowledging the re-run and lead with what changed since the
+               last run instead of introducing the plan. Length: 6-10 sentences.
   narrate    — they're asking about the existing recommendation. Anchor in
                2-3 specific sub_categories / amounts directly tied to the
                question; do NOT list every bucket. Length: 4-7 sentences.
   educate    — they're asking what a term or mechanism MEANS (e.g. exit
                load, STCG/LTCG, partial exit). Lead with a one-line plain-
                English definition, then anchor it in at least one specific
-               from FACTS_PACK (a sub_category, a trade, a tax/exit-load
+               from CUSTOMER_RECORD (a sub_category, a trade, a tax/exit-load
                amount). Length: 4-7 sentences.
-  recompute  — re-ran with current state. Acknowledge the re-run briefly
-               and lead with what changed since the last run. Length: 6-10
-               sentences.
   counterfactual_explore — hypothetical-only result. Make clear this is a
                hypothetical for comparison, not the saved recommendation;
                reference the saved recommendation as the baseline but
                don't reprint it in full. Length: 6-10 sentences.
   consolidate — the customer asked for fewer new-buy funds and/or buys
-               restricted to categories; FACTS_PACK reflects the reshaped
+               restricted to categories; CUSTOMER_RECORD reflects the reshaped
                buys and carries constraint_impact. FIRST confirm you did
                exactly what they asked (name the funds now being bought and
                the count). THEN add ONE grounded caution, picking the lens
@@ -366,15 +366,19 @@ async def _format_or_fallback_rebal(
     ctx: TurnContext,
     response: Any,
     fallback_brief: str,
-    action_mode: str,
+    action_mode: ActionMode,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    is_rerun: bool = False,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_rebal_facts_pack(
-            response, goal_buckets=goal_buckets, constraint_impact=constraint_impact,
+            response,
+            goal_buckets=goal_buckets,
+            constraint_impact=constraint_impact,
+            is_rerun=is_rerun,
         ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
@@ -389,7 +393,10 @@ async def _blocking_text(ctx: TurnContext, blocking_message: str) -> str:
     keep transient/data-quality error blockers verbatim."""
     if blocking_message in TAILORABLE_BLOCKERS:
         return await format_relay_or_canned(
-            ctx=ctx, module_name="rebalancing", message=blocking_message,
+            ctx=ctx,
+            module_name="rebalancing",
+            message=blocking_message,
+            action_mode="gather",
         )
     return blocking_message
 
@@ -497,8 +504,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "consolidate":
         return await _consolidate(ctx, action)
 
-    # narrate / educate / recompute — all go through formatter; recompute also re-runs.
-    if action.mode == "recompute":
+    # narrate / educate / compute — all go through formatter; compute also re-runs.
+    if action.mode == "compute":
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
@@ -517,8 +524,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx,
             response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
-            action_mode="recompute",
+            action_mode="compute",
             goal_buckets=outcome.goal_buckets,
+            is_rerun=True,
         )
         return ChatHandlerResult(
             text=text,

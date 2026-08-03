@@ -200,5 +200,8 @@ class MutualFundQueryOrchestrator:
             user=user,
             tool=_NARRATE_TOOL,
             max_tokens=self._meta.get("narrate_max_tokens", 1024),
+            # Only `answer` is customer-facing prose; clarifying_question is a
+            # short fallback the bridge picks when answer is empty.
+            stream_field="answer",
         )
         return MutualFundQueryResponse.model_validate(data)

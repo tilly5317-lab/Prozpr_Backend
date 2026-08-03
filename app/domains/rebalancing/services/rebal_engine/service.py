@@ -211,6 +211,7 @@ def build_rebal_facts_pack(
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    is_rerun: bool = False,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -280,6 +281,10 @@ def build_rebal_facts_pack(
         # tie trades back to goals + horizon + planned equity/debt/others split.
         # See ``build_goal_buckets_block`` for shape.
         "goal_buckets": [...],
+
+        # Present only on an explicit re-run ("rebalance again"). The formatter
+        # leads with what changed instead of introducing the plan.
+        "is_rerun": True,
       }
 
     Money convention: every numeric ``*_inr`` field is paired with a sibling
@@ -496,6 +501,8 @@ def build_rebal_facts_pack(
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
         pack["constraint_impact"] = constraint_impact
+    if is_rerun:
+        pack["is_rerun"] = True
     return pack
 
 

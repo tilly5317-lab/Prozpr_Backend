@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
 from datetime import date, timedelta
@@ -32,6 +33,12 @@ _INFLOW_TYPES = {
     MfTransactionType.SWITCH_OUT,
 }
 _MAX_NAV_LOOKBACK_DAYS = 14
+
+logger = logging.getLogger(__name__)
+
+# Below this, a position is closed. Real holdings are never a millionth of a unit;
+# anything smaller is floating-point residue from a fund that was fully sold.
+_CLOSED_POSITION_UNITS = 1e-6
 
 
 def _f(value: object) -> float:
@@ -185,7 +192,12 @@ async def rebuild_user_latest_snapshot(
                 invested -= t_amt
                 cashflows.append((txn.transaction_date, t_amt))
 
-        if units <= 0:
+        # A fully-exited fund cancels to ~0 in float, not 0: DSP Midcap with
+        # 2,591.249 units bought and sold left 4.5e-13. That is > 0, so a `<= 0`
+        # test lets it through, and `invested / units` then divides a profit by
+        # a crumb — -87,350 / 4.5e-13 = -1.9e17, which overflows avg_nav's
+        # NUMERIC(12,4) and killed the nightly rebuild for every user.
+        if units <= _CLOSED_POSITION_UNITS:
             continue
 
         meta = (
@@ -298,32 +310,47 @@ async def rebuild_user_latest_snapshot(
     return len(rows)
 
 
-_USER_BATCH_SIZE = 50
-
-
 async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]:
     """Rebuild latest snapshot rows for every user who has MF transactions.
 
-    Processes users in batches and expunges ORM objects between users to
-    keep peak memory proportional to one user's data instead of all users.
+    Commits and expunges per user, so peak memory stays proportional to one
+    user's data and a user whose rebuild raises is skipped rather than taking
+    the run down with it.
 
     Returns:
-        tuple[int, int]: (users_processed, total_snapshot_rows_written)
+        tuple[int, int]: (users_processed, total_snapshot_rows_written) — users
+        that failed are excluded from the count and logged.
     """
     user_ids = list(
         (await db.execute(select(MfTransaction.user_id).distinct())).scalars().all()
     )
     users_processed = 0
     total_rows = 0
+    failed = 0
     for user_id in user_ids:
-        total_rows += await rebuild_user_latest_snapshot(db, user_id, _commit=False)
-        users_processed += 1
+        # One user must not be able to empty the table for everyone. Before this
+        # guard a single NumericValueOutOfRange aborted the whole job, and the
+        # snapshot went unwritten from 2026-05-07 to 2026-08-02 with no alert.
+        # Rolling back discards the uncommitted batch, so commit per user and
+        # accept the extra round-trips — correctness over throughput here.
+        try:
+            total_rows += await rebuild_user_latest_snapshot(
+                db, user_id, _commit=False
+            )
+            await db.commit()
+            users_processed += 1
+        except Exception:
+            await db.rollback()
+            failed += 1
+            logger.exception("latest-snapshot rebuild failed for user %s", user_id)
         db.expunge_all()
 
-        if users_processed % _USER_BATCH_SIZE == 0:
-            await db.commit()
-    if users_processed % _USER_BATCH_SIZE != 0:
-        await db.commit()
+    if failed:
+        logger.error(
+            "latest-snapshot rebuild: %d of %d users failed and were skipped",
+            failed,
+            len(user_ids),
+        )
     return users_processed, total_rows
 
 

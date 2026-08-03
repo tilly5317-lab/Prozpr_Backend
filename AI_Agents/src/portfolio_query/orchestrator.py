@@ -60,6 +60,16 @@ _MARKET_COMMENTARY_PATH = (
 _MAX_COMMENTARY_CHARS = 7000
 
 
+_COMMENTARY_NOT_REQUESTED = (
+    "(Not loaded — this question was routed as being about the customer's own "
+    "portfolio, so no market view was fetched. Answer from their holdings and "
+    "profile. Do NOT speculate about market conditions, valuations or outlook, "
+    "and do not mention that commentary is missing — the customer did not ask "
+    "for it. If the question genuinely does need a market view, say you can "
+    "pull one up if they'd like.)"
+)
+
+
 def _load_market_commentary() -> str:
     if not _MARKET_COMMENTARY_PATH.exists():
         raise FileNotFoundError(
@@ -200,12 +210,23 @@ class PortfolioQueryOrchestrator:
         client: ClientContext,
         portfolio: PortfolioContext,
         conversation_history: list[ConversationTurn] | None = None,
+        want_market_commentary: bool = True,
     ) -> PortfolioQueryResponse:
         history = conversation_history or []
 
-        market_commentary = _load_market_commentary()
+        # Loading this unconditionally put fund-house valuation views into every
+        # "review my portfolio", and the model reached for them: it compared a
+        # 26.11% small-cap allocation against a "35.5x expensive valuation" —
+        # a percentage against a P/E. The caller passes the classifier's
+        # tools_needed verdict; default True keeps non-chat callers unchanged.
+        market_commentary = (
+            _load_market_commentary()
+            if want_market_commentary
+            else _COMMENTARY_NOT_REQUESTED
+        )
         logger.debug(
-            "portfolio_query: market commentary loaded (%d words)",
+            "portfolio_query: market commentary %s (%d words)",
+            "loaded" if want_market_commentary else "skipped",
             len(market_commentary.split()),
         )
 
@@ -232,6 +253,10 @@ class PortfolioQueryOrchestrator:
             user=user,
             tool=_PORTFOLIO_QUERY_TOOL,
             max_tokens=meta.get("max_tokens", 1024),
+            # Only `answer` is customer-facing; redirect_message is substituted
+            # wholesale by the guardrail backstop, so streaming it would show
+            # text the validator may then null.
+            stream_field="answer",
         )
         logger.debug(
             "portfolio_query: skill ok (in=%s out=%s)",

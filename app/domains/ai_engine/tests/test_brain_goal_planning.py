@@ -38,6 +38,7 @@ class BrainGoalPlanningSequenceTests(unittest.IsolatedAsyncioTestCase):
         classification.confidence = 0.93
         classification.reasoning = "Customer asking feasibility question."
         classification.out_of_scope_message = None
+        classification.tools_needed = []
 
         fake_turn_context = MagicMock()
         fake_turn_context.last_agent_runs = {}
@@ -52,9 +53,12 @@ class BrainGoalPlanningSequenceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=fake_turn_context),
             ),
             patch(
-                # The intent_classifier service re-exports the classifier from its
-                # legacy home; patch the legacy symbol so both call sites observe it.
-                "app.domains.intent_classifier.services.intent_classifier_engine.classify_user_message",
+                # Patch the name the SERVICE is bound to. It imports the engine
+                # function as `_classify_user_message` at module load, so patching
+                # the engine's own symbol does nothing here — the test then made a
+                # live Anthropic call and passed only because the real classifier
+                # happens to agree.
+                "app.domains.intent_classifier.services.intent_classifier_service._classify_user_message",
                 new=AsyncMock(return_value=classification),
             ),
             patch(

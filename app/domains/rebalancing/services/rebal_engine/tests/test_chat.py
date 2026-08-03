@@ -191,16 +191,16 @@ class DetectRebalActionTests(unittest.TestCase):
             )
         self.assertEqual(action.mode, "educate")
 
-    def test_recompute_mode_for_explicit_rerun(self):
+    def test_compute_mode_for_explicit_rerun(self):
         with patch.object(
             mod,
             "classify_action",
-            new=AsyncMock(return_value=mod.RebalanceAction(mode="recompute")),
+            new=AsyncMock(return_value=mod.RebalanceAction(mode="compute")),
         ):
             action = asyncio.run(
                 mod._detect_rebal_action(_agent_run(), _ctx("redo the trades"))
             )
-        self.assertEqual(action.mode, "recompute")
+        self.assertEqual(action.mode, "compute")
 
     def test_clarify_mode_carries_question(self):
         ret = mod.RebalanceAction(mode="clarify", clarification_question="Which fund?")
@@ -502,8 +502,8 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertIn("Profile", kwargs["message"])
         self.assertIn("lock fund Y", kwargs["message"])
 
-    def test_followup_recompute_re_runs_engine(self):
-        action = mod.RebalanceAction(mode="recompute")
+    def test_followup_compute_re_runs_engine(self):
+        action = mod.RebalanceAction(mode="compute")
         outcome = MagicMock(
             response=MagicMock(),
             blocking_message=None,
@@ -524,7 +524,7 @@ class HandleRoutingTests(unittest.TestCase):
             patch(
                 "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
                 return_value={},
-            ),
+            ) as facts_pack,
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
                 new=AsyncMock(return_value=None),
@@ -532,6 +532,37 @@ class HandleRoutingTests(unittest.TestCase):
         ):
             result = asyncio.run(mod.handle(_ctx("redo", last_run=_agent_run())))
         self.assertEqual(result.text, "redone")
+        # compute now covers both the first run and a re-run; is_rerun is what
+        # tells the formatter to lead with what changed.
+        self.assertTrue(facts_pack.call_args.kwargs["is_rerun"])
+
+    def test_first_turn_compute_is_not_flagged_as_a_rerun(self):
+        outcome = MagicMock(
+            response=MagicMock(),
+            blocking_message=None,
+            allocation_snapshot_id=uuid.uuid4(),
+            recommendation_id=uuid.uuid4(),
+        )
+        with (
+            patch.object(
+                mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ),
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+                new=AsyncMock(return_value="fresh"),
+            ),
+            patch(
+                "app.domains.rebalancing.services.rebal_engine.chat.build_rebal_facts_pack",
+                return_value={},
+            ) as facts_pack,
+            patch(
+                "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = asyncio.run(mod.handle(_ctx("rebalance my portfolio")))
+        self.assertEqual(result.text, "fresh")
+        self.assertFalse(facts_pack.call_args.kwargs["is_rerun"])
 
 
 class NarrateFallbackTests(unittest.TestCase):

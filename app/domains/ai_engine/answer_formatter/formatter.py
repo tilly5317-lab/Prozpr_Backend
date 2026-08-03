@@ -35,13 +35,15 @@ FactsPack = dict[str, Any]
 
 # Modes that pass through the formatter. clarify bypasses it.
 ActionMode = Literal[
-    "compute",
+    "compute",  # a freshly produced result — first run or an explicit re-run
     "narrate",
     "educate",
-    "recompute",  # rebalancing
-    "recompute_full",  # asset_allocation
-    "counterfactual_explore",  # both
-    "redirect",  # out_of_scope / stock_advice
+    "counterfactual_explore",
+    "consolidate",  # rebalancing
+    "screen",  # mutual_fund_query
+    "category_probe",  # additional_investment
+    "gather",  # we can do this; one input is missing
+    "redirect",  # we don't do this
 ]
 
 
@@ -57,21 +59,29 @@ class FormatterFailure(Exception):
 # ---------------------------------------------------------------------------
 
 _FORMATTER_FACTS_NOTES = (
-    "Working from the FACTS_PACK:\n"
-    "- Cite only values present in the FACTS_PACK (including rates/exemptions such as "
+    "Working from CUSTOMER_RECORD:\n"
+    "- Cite only values present in CUSTOMER_RECORD (including rates/exemptions such as "
     "`tax_rules.ltcg_rate_equity_pct`, `tax_rules.ltcg_annual_exemption_indian`). If asked HOW a "
-    "computed figure was derived and the FACTS_PACK lacks the underlying rate or threshold, "
+    "computed figure was derived and CUSTOMER_RECORD lacks the underlying rate or threshold, "
     'describe the result without inventing the method (e.g. "the system estimates ₹X in tax").\n'
     "- A LOGIC_REFERENCE section may follow the flow instructions: Prozpr's published methodology "
     "(philosophy only). Ground 'how/why does the approach work' answers in it and nothing else; "
-    "keep every figure sourced from the FACTS_PACK. If asked for a threshold, cap or weight that "
+    "keep every figure sourced from CUSTOMER_RECORD. If asked for a threshold, cap or weight that "
     "appears in neither, say it's a policy parameter we don't publish — never estimate one.\n"
-    "- The whole-number asset-class rule applies to every mix field in the FACTS_PACK: "
+    "- The whole-number asset-class rule applies to every mix field in CUSTOMER_RECORD: "
     "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
     "`your_actual_holdings_today_pct` (show a separate **Cash** label when a `cash` key is present).\n"
     "- On a fresh-plan (compute-mode) reply you may greet with the customer's first_name; in "
     "follow-ups use it only when it adds warmth.\n"
-    "- When the question can't be answered from the FACTS_PACK, say so plainly and offer a next step."
+    "- **Never name an internal section to the customer.** CUSTOMER_RECORD, PROFILE, "
+    "LOGIC_REFERENCE, ACTION_MODE, MODULE and the field names inside them are how we organise our "
+    "own inputs — they mean nothing to the customer and must never appear in a reply. Do not "
+    "describe your own plumbing either: no \"in my data\", \"in my dataset\", \"in the record I was "
+    "given\", \"the information provided to me\".\n"
+    "- When you cannot answer, name the MISSING THING in the customer's own terms, then offer a "
+    'next step: say "I can\'t see the returns on each individual fund yet" or "I don\'t have your '
+    'monthly expenses on file" — never "that isn\'t in my CUSTOMER_RECORD" or "PROFILE lacks that '
+    'field". The customer is asking about their money, not about how we store it.'
 )
 
 # Backward-compatible alias: the shared chat-profile system prompt (identity, money,
@@ -118,7 +128,7 @@ def assemble_prompt(
     user = (
         f"MODULE: {module_name}\n"
         f"ACTION_MODE: {action_mode}\n\n"
-        f"FACTS_PACK:\n{json.dumps(facts_pack, default=str)}\n\n"
+        f"CUSTOMER_RECORD:\n{json.dumps(facts_pack, default=str)}\n\n"
         f"PROFILE:\n{json.dumps(profile, default=str)}\n\n"
         f"RECENT_HISTORY:\n" + "\n".join(history_lines) + "\n\n"
         f"CUSTOMER_QUESTION: {question}"
@@ -186,6 +196,11 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from app.core.config import get_settings
+    from app.domains.ai_engine.streaming import (
+        FINE_GRAINED_TOOL_STREAMING,
+        astream_tool_answer,
+        current_token_stream,
+    )
 
     # Attributed to the module whose reply this is, so per-module cost tracking
     # covers formatter spend too. Falls back to the shared formatter key, then
@@ -216,10 +231,20 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
         "api_key": api_key,
         "max_tokens": 6000,  # room for long allocation / rebalancing answers
     }
-    # Eval mode sets this to 0 for reproducible output; prod leaves it unset (default temp).
-    _temp = os.environ.get("AILAX_FORMATTER_TEMPERATURE")
-    if _temp is not None:
-        _llm_kwargs["temperature"] = float(_temp)
+    # Pinned. Left unset, the API default of 1.0 applied and the same question
+    # returned different figures run to run — measured: "when do I reach ₹10
+    # crore?" answered FY2034/₹10.44cr and FY2035/₹11.85cr on consecutive calls.
+    # The env var stays as an escape hatch, but 0 is the default now.
+    _llm_kwargs["temperature"] = float(
+        os.environ.get("AILAX_FORMATTER_TEMPERATURE", "0")
+    )
+    # Without this beta the API withholds the tool's input JSON until the end,
+    # so streaming would show nothing for most of the call. Set only while
+    # streaming — it relaxes server-side JSON validation, which buys nothing on
+    # the blocking path.
+    streaming = current_token_stream() is not None
+    if streaming:
+        _llm_kwargs["betas"] = [FINE_GRAINED_TOOL_STREAMING]
     llm = ChatAnthropic(**_llm_kwargs).bind_tools(
         [tool], tool_choice={"type": "tool", "name": "return_formatted_answer"}
     )
@@ -237,7 +262,12 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
     ]
     # Native async (not to_thread): lets the flow timeout actually cancel the
     # HTTP call — a cancelled thread would keep running to completion.
-    raw = await llm.ainvoke(messages)
+    # Streams only when a turn has an open token stream; otherwise this is the
+    # exact ainvoke path it has always been.
+    if streaming:
+        raw = await astream_tool_answer(llm, messages)
+    else:
+        raw = await llm.ainvoke(messages)
     stop_reason = getattr(raw, "response_metadata", {}).get("stop_reason")
     if stop_reason == "max_tokens":
         # Mid-response truncation looks worse than the deterministic fallback brief.
@@ -270,7 +300,7 @@ async def format_with_telemetry(
     facts_pack: FactsPack,
     body_prompt: str,
     module_name: str,
-    action_mode: str,
+    action_mode: ActionMode,
     profile: dict[str, Any],
     build_fallback: Callable[[], str],
 ) -> str:
@@ -342,12 +372,11 @@ async def format_with_telemetry(
 
 
 _RELAY_BODY = (
-    "You are relaying a short boundary or next-step message to the customer — "
-    "either a limit on what you can do from chat, or something they need to "
-    "provide before you can proceed.\n"
+    "You are relaying a LIMIT to the customer: something Prozpr does not do, or "
+    "cannot do from chat.\n"
     "\n"
-    "FACTS_PACK has a single field, `boundary_message`: the exact limit or "
-    "instruction to convey.\n"
+    "CUSTOMER_RECORD has a single field, `boundary_message`: the exact limit to "
+    "convey.\n"
     "\n"
     "Convey `boundary_message` faithfully in PI's voice, leading with it as the "
     "house rules describe — acknowledge what was asked only when the limit would "
@@ -356,21 +385,43 @@ _RELAY_BODY = (
     "`boundary_message`. Keep it to 2-4 sentences, warm."
 )
 
+_GATHER_BODY = (
+    "You are asking the customer for ONE missing input so you can do what they "
+    "asked. This is not a refusal and not a limit — we can do this, we just need "
+    "the input.\n"
+    "\n"
+    "CUSTOMER_RECORD has a single field, `boundary_message`: what is missing.\n"
+    "\n"
+    "- Lead with the question. Do not open by restating their request, and never "
+    "frame it as something you cannot do — no \"but\", no \"before I can\", no "
+    "apology. \"How much would you like to invest?\" is a complete reply.\n"
+    "- Ask ONLY for what `boundary_message` names. Do not add requirements it "
+    "does not mention.\n"
+    "- If RECENT_HISTORY shows you already asked this and the customer repeated "
+    "themselves, do not repeat the same wording — they did not understand it or "
+    "did not think it applied. Ask more concretely, with an example value.\n"
+    "- One or two sentences. Warm, direct, no preamble."
+)
+
 
 async def format_relay_or_canned(
     *,
     ctx: TurnContext,
     module_name: str,
     message: str,
-    action_mode: str = "redirect",
+    action_mode: ActionMode = "redirect",
 ) -> str:
-    """Tailor a short canned boundary/redirect/gate ``message`` via the formatter;
-    fall back to it verbatim on failure. Shared by the in-scope module redirects
-    and data-gap gates (mirrors the out_of_scope/stock_advice redirect handler)."""
+    """Tailor a short canned ``message`` via the formatter; fall back to it
+    verbatim on failure.
+
+    Pass ``action_mode="gather"`` when the message asks the customer for an input
+    we need — it selects a body prompt that leads with the question instead of a
+    limit. The default relays a genuine boundary.
+    """
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack={"boundary_message": message},
-        body_prompt=_RELAY_BODY,
+        body_prompt=_GATHER_BODY if action_mode == "gather" else _RELAY_BODY,
         module_name=module_name,
         action_mode=action_mode,
         profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
