@@ -422,9 +422,22 @@ async def download_cas_document(
     if not stage_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Statement storage is not configured on this server.",
+            detail=(
+                "Statement storage is not configured on this server "
+                "(missing S3 settings)."
+            ),
         )
-    url = await presign_cas_download(row.s3_key, row.source_filename)
+    try:
+        url = await presign_cas_download(row.s3_key, row.source_filename)
+    except Exception as exc:  # noqa: BLE001 — misconfig (creds/region) or S3 outage
+        logger.exception("presigning CAS download failed for %s", doc_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Statement storage is temporarily unavailable on this server. "
+                "Please try again shortly."
+            ),
+        ) from exc
     return CasDocumentDownloadResponse(url=url, expires_in_seconds=300)
 
 
