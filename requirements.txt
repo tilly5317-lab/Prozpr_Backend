@@ -17,6 +17,9 @@ PyJWT>=2.8.0
 # HTTP client (MSG91 OTP, mfapi.in ingest)
 httpx>=0.27.0
 
+# S3 staging of large CAS PDFs for casparser pdf_url mode (CAMS_STAGE_S3_BUCKET)
+boto3>=1.34.0
+
 # Background scheduling (daily mfapi.in MF master + NAV refresh)
 apscheduler>=3.10.0
 

@@ -201,7 +201,9 @@ class Settings:
     # Which deployment this process is. Feeds PostHog super_properties and the OTel
     # resource, so prod and staging events are distinguishable. New Relic used to
     # provide this separation via app_name; nothing else does once it is gone.
-    DEPLOY_ENV: str = (_getenv("DEPLOY_ENV", "development") or "development").strip() or "development"
+    DEPLOY_ENV: str = (
+        _getenv("DEPLOY_ENV", "development") or "development"
+    ).strip() or "development"
 
     @staticmethod
     def get_database_url() -> str:
@@ -331,7 +333,9 @@ class Settings:
     @staticmethod
     def get_anthropic_additional_investment_key() -> str | None:
         """Additional-investment chat extractor (deploy amount + cadence)."""
-        return Settings._anthropic_key("ADDITIONAL_INVESTMENT_API_KEY", "ANTHROPIC_API_KEY")
+        return Settings._anthropic_key(
+            "ADDITIONAL_INVESTMENT_API_KEY", "ANTHROPIC_API_KEY"
+        )
 
     @staticmethod
     def get_anthropic_answer_formatter_key() -> str | None:
@@ -583,6 +587,38 @@ class Settings:
     def casparser_enabled() -> bool:
         """CAS statement import is inert (503s) unless the API key is set."""
         return bool(Settings.get_casparser_api_key())
+
+    @staticmethod
+    def get_casparser_multipart_max_bytes() -> int:
+        """Largest CAS PDF sent to casparser as a multipart upload. Their edge
+        caps request bodies plan-dependently — support (2026-08-04): "2MB
+        (about 1.8 in reality)" — so bigger files go via ``pdf_url`` instead
+        (see ``get_public_api_base_url``)."""
+        raw = (_getenv("CASPARSER_MULTIPART_MAX_BYTES") or "").strip()
+        try:
+            return int(raw) if raw else 1_700_000
+        except ValueError:
+            return 1_700_000
+
+    @staticmethod
+    def get_cams_stage_s3_bucket() -> str | None:
+        """Private S3 bucket for staging CAS PDFs over the multipart cap:
+        uploaded under an unguessable key, casparser fetches a ~10-min
+        presigned GET URL (their ``pdf_url`` mode has no size limit), object
+        deleted right after the parse. Credentials/region come from boto3's
+        default chain (env vars or the EC2 instance role). Unset → large
+        files fall back to multipart and surface the too-large error."""
+        v = (_getenv("CAMS_STAGE_S3_BUCKET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_cams_stage_kms_key_id() -> str | None:
+        """KMS key for SSE-KMS on staged CAS PDFs (buckets that enforce KMS
+        encryption reject plain SSE-S3 puts). NB: presigned GETs of SSE-KMS
+        objects need the signing identity to hold ``kms:Decrypt`` on this key,
+        not just encrypt/write. Unset → SSE-S3 (AES256)."""
+        v = (_getenv("CAMS_STAGE_KMS_KEY_ID") or "").strip()
+        return v or None
 
     @staticmethod
     def get_openai_api_key() -> str | None:

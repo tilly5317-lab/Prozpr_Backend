@@ -29,11 +29,13 @@ from app.domains.mutual_funds.models.mf_allocation_snapshot import (
     PortfolioAllocationSnapshot,
 )
 from app.domains.mutual_funds.models.user_mf_latest_snapshot import UserMfLatestSnapshot
+from app.domains.mutual_funds.models.user_cas_document import UserCasDocument
 from app.domains.mutual_funds.models.user_investment_list import UserInvestmentList
 
 __all__ = [
     "MfAaImport",
     "MfAaImportStatus",
+    "UserCasDocument",
     "MfAaSummary",
     "MfAaTransaction",
     "MfFundMetadata",

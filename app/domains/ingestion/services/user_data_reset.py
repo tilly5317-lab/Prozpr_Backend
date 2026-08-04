@@ -119,7 +119,9 @@ _RESET_STATEMENTS: tuple[str, ...] = (
 )
 
 
-async def reset_user_financial_data(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
+async def reset_user_financial_data(
+    db: AsyncSession, user_id: uuid.UUID
+) -> dict[str, int]:
     """Wipe all of ``user_id``'s financial/computed data (see module docstring).
 
     Keeps profile/onboarding, goals, chats, notifications, account links/family, and
