@@ -8,6 +8,15 @@
 # nginx `if` is limited; this pattern is the common CORS preflight workaround.
 
 location /api/ {
+    # 413 Request Entity Too Large fix. nginx's default client_max_body_size is
+    # 1 MB, but CAS PDF uploads (POST /api/mf-ingest/cams-pdf) routinely run to
+    # several MB — without this, nginx rejects the upload at the edge before it
+    # reaches FastAPI. Keep this ABOVE the backend's own cap
+    # (_MAX_CAS_PDF_BYTES = 20 MB in app/domains/ingestion/routers/mf_ingest_router.py)
+    # so the app's friendly 413 message is what the client sees, never nginx's
+    # HTML error page.
+    client_max_body_size 25m;
+
     if ($request_method = OPTIONS) {
         add_header Access-Control-Allow-Origin $http_origin always;
         add_header Access-Control-Allow-Credentials true always;
