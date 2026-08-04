@@ -54,15 +54,13 @@ def test_chat_facing_surfaces_lead_with_the_answer():
     time. The rule now leads with the answer and keeps the restatement for
     questions where naming the reading earns its place.
     """
-    from app.domains.general_chat.services.general_chat_engine import (
-        _SYSTEM_PROMPT as GC,
-    )
+    from app.domains.general_chat.services.general_chat_engine import _GENERAL_CHAT_BODY
     from app.domains.ai_engine.answer_formatter import FORMATTER_HOUSE_STYLE as FMT
 
-    # The AA composer was removed; AA chat now renders through the answer_formatter (FMT).
-    for s in (GC, FMT):
-        low = s.lower()
-        assert "You are PI" in s
-        assert "lead with the answer" in low
-        assert "restat" in low  # the conditional case is still described
-    assert "no acknowledgment" not in GC.lower()  # ban removed
+    # The AA and general_chat composers were both removed; every chat surface now
+    # renders through the answer_formatter, so FMT is the one prompt to check.
+    low = FMT.lower()
+    assert "You are PI" in FMT
+    assert "lead with the answer" in low
+    assert "restat" in low  # the conditional case is still described
+    assert "no acknowledgment" not in _GENERAL_CHAT_BODY.lower()  # ban removed

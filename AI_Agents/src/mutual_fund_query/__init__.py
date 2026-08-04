@@ -10,7 +10,6 @@ from .models import (
     ExtractResult,
     FundFacts,
     MutualFundQueryFacts,
-    MutualFundQueryResponse,
     FundReturns,
     PeerFund,
 )
@@ -22,5 +21,4 @@ __all__ = [
     "FundFacts",
     "PeerFund",
     "MutualFundQueryFacts",
-    "MutualFundQueryResponse",
 ]

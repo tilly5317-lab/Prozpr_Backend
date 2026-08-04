@@ -5,7 +5,7 @@ FastAPI application package, organised **domain-first**: every business capabili
 ## Child modules
 
 - **core/** — cross-cutting infra (`config`, `database`, `dependencies`, `security`, `lifespan`, `exceptions`, `observability`). No domain logic. See `core/CLAUDE.md`.
-- **domains/** — one folder per business domain (21), each carrying only the sub-folders it actually needs from `models/` + `schemas/` + `routers/` + `services/` (seven are sparser; some also add `tests/` or engine sub-packages):
+- **domains/** — one folder per business domain (22), each carrying only the sub-folders it needs from `models/` + `schemas/` + `routers/` + `services/`:
   - **identity/** — user, auth, OTP, family members, linked accounts, onboarding
   - **profile/** — risk, tax, investment, constraints, personal finance, properties
   - **goals/** — financial goals, contributions, holdings
@@ -15,6 +15,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **equities/** — company metadata, prices, transactions
   - **asset_allocation/** — allocation runs, buckets, aggregates, targets
   - **rebalancing/** — rebalancing runs, trades, warnings, fund rows, subgroup summaries
+  - **execution/** — Fintech Primitives (Cybrilla) sandbox order execution: account setup, KYC readiness, lumpsum + SIP order placement
   - **additional_investment/** — additional-investment chat/engine (deploy amount + cadence extractor)
   - **cashflow/** — cashflow plan engine: assumptions, one-off events, plan runs, headlines
   - **ingestion/** — CAMS-CAS PDF, SimBanks, Finvu (legacy) ingest adapters

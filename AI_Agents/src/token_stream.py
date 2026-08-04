@@ -5,10 +5,11 @@ call, so the reply arrives as partial JSON inside a tool argument rather than as
 plain text. This module owns the machinery to turn that into incremental deltas
 and hand them to whoever is streaming the turn.
 
-Lives here, not under ``app/``, because one of those surfaces is an agent in
-``AI_Agents/src`` (``portfolio_query/llm_client.py``) and agents must not import
-the app layer. Same arrangement as ``persona.py`` / ``reasoned_reply.py``:
-canonical definition here, re-exported by ``app/domains/ai_engine/streaming.py``.
+Lives here, not under ``app/``, so that agents in ``AI_Agents/src`` can reach it
+without importing the app layer. (Every streaming call site is now the shared
+answer formatter, but the placement stays: same arrangement as ``persona.py`` /
+``reasoned_reply.py`` —
+canonical definition here, re-exported by ``app/domains/ai_engine/streaming.py``.)
 Imports no peer agent, and langchain only lazily.
 
 Identity is carried in a ContextVar rather than threaded through arguments —

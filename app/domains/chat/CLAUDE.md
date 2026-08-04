@@ -19,4 +19,4 @@ Persistence + the HTTP send endpoint only. Orchestration of the chat *turn* live
 
 ## Don't read
 
-- `__pycache__/`, `services/tests/`.
+- `__pycache__/`, `tests/`, `services/tests/`.

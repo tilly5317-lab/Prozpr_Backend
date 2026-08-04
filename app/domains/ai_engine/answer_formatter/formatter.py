@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from functools import partial
 from typing import Any, Callable, Literal, TypedDict
 
 # Shared persona builder (AI_Agents/src/persona.py, stdlib-only). Imported via an
@@ -40,7 +41,8 @@ ActionMode = Literal[
     "educate",
     "counterfactual_explore",
     "consolidate",  # rebalancing
-    "screen",  # mutual_fund_query
+    "screen",  # mutual_fund_query — rank our universe
+    "fund_detail",  # mutual_fund_query — one named fund (or a head-to-head)
     "category_probe",  # additional_investment
     "gather",  # we can do this; one input is missing
     "redirect",  # we don't do this
@@ -69,7 +71,8 @@ _FORMATTER_FACTS_NOTES = (
     "keep every figure sourced from CUSTOMER_RECORD. If asked for a threshold, cap or weight that "
     "appears in neither, say it's a policy parameter we don't publish — never estimate one.\n"
     "- The whole-number asset-class rule applies to every mix field in CUSTOMER_RECORD: "
-    "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
+    "`plan_target_pct`, `planned_split_pct`, `asset_class_mix_pct`, "
+    "`current_asset_class_mix_pct`, `target_asset_class_mix_pct`, `by_horizon[*].mix_pct`, and "
     "`your_actual_holdings_today_pct` (show a separate **Cash** label when a `cash` key is present).\n"
     "- On a fresh-plan (compute-mode) reply you may greet with the customer's first_name; in "
     "follow-ups use it only when it adds warmth."
@@ -116,11 +119,16 @@ def assemble_prompt(
     history_lines = [
         f"{m.get('role', 'user')}: {m.get('content', '')}" for m in (history or [])[-6:]
     ]
+    # Compact + literal ₹: pretty separators and \uXXXX escapes inflated a
+    # 20-holding portfolio pack by 11% at zero information gain, and the money
+    # rule tells the model to copy `_indian` strings verbatim — easier from a
+    # literal ₹ than from an escape.
+    _dump = partial(json.dumps, separators=(",", ":"), ensure_ascii=False, default=str)
     user = (
         f"MODULE: {module_name}\n"
         f"ACTION_MODE: {action_mode}\n\n"
-        f"CUSTOMER_RECORD:\n{json.dumps(facts_pack, default=str)}\n\n"
-        f"PROFILE:\n{json.dumps(profile, default=str)}\n\n"
+        f"CUSTOMER_RECORD:\n{_dump(facts_pack)}\n\n"
+        f"PROFILE:\n{_dump(profile)}\n\n"
         f"RECENT_HISTORY:\n" + "\n".join(history_lines) + "\n\n"
         f"CUSTOMER_QUESTION: {question}"
     )
@@ -142,10 +150,18 @@ async def format_answer(
     history: list[dict[str, Any]],
     profile: dict[str, Any],
     logic_reference: str | None = None,
+    extra_tool_fields: dict[str, Any] | None = None,
+    extras_out: dict[str, Any] | None = None,
+    allow_empty_answer: bool = False,
 ) -> str:
     """Async Haiku call. Raises FormatterFailure on any failure mode.
 
     Caller is expected to wrap in try/except and fall back to a templated brief.
+
+    ``extra_tool_fields`` adds non-prose properties (booleans, enums, short control
+    strings) to the forced tool; their values land in ``extras_out``. Set
+    ``allow_empty_answer`` when a null ``answer`` is a meaningful outcome for the
+    caller rather than a failure — it then returns ``""``.
     """
     prompt = assemble_prompt(
         question=question,
@@ -158,7 +174,14 @@ async def format_answer(
         logic_reference=logic_reference,
     )
     try:
-        text = await _invoke_llm(prompt["system"], prompt["user"], module_name)
+        text = await _invoke_llm(
+            prompt["system"],
+            prompt["user"],
+            module_name,
+            extra_tool_fields=extra_tool_fields,
+            extras_out=extras_out,
+            allow_empty_answer=allow_empty_answer,
+        )
     except FormatterFailure:
         raise
     except Exception as exc:
@@ -167,11 +190,28 @@ async def format_answer(
         ) from exc
 
     if not text or not text.strip():
+        if allow_empty_answer:
+            return ""
         raise FormatterFailure("formatter_llm_returned_empty")
     return text
 
 
-async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str:
+def _read_extras(response, wanted: dict[str, Any]) -> dict[str, Any]:
+    """Pull the non-answer tool fields out of a forced-tool response."""
+    for call in getattr(response, "tool_calls", None) or []:
+        args = (call.get("args") if isinstance(call, dict) else None) or {}
+        return {k: args.get(k) for k in wanted}
+    return {}
+
+
+async def _invoke_llm(
+    system_text: str,
+    user_text: str,
+    module_name: str,
+    extra_tool_fields: dict[str, Any] | None = None,
+    extras_out: dict[str, Any] | None = None,
+    allow_empty_answer: bool = False,
+) -> str:
     """Single Haiku 4.5 call via a forced answer-only tool.
 
     A discarded reasoning-first scratchpad was tried here, but on long
@@ -207,12 +247,19 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
             "type": "object",
             "properties": {
                 "answer": {
-                    "type": "string",
+                    # Nullable only for callers that route an out-of-scope turn through a
+                    # separate field — a null answer is then the signal, not a failure.
+                    "type": ["string", "null"] if allow_empty_answer else "string",
                     "description": (
                         "The clean, customer-facing answer in PI's voice and the required "
                         "markdown format. No preamble, no internal field names or raw N/10 scores."
                     ),
                 },
+                # Non-prose metadata only. A second PROSE field competes with `answer`
+                # for the same content — that is what broke the old reasoning-first
+                # scratchpad (see the note above). Booleans, enums and short control
+                # strings do not.
+                **(extra_tool_fields or {}),
             },
             "required": ["answer"],
         },
@@ -263,8 +310,12 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
     if stop_reason == "max_tokens":
         # Mid-response truncation looks worse than the deterministic fallback brief.
         raise FormatterFailure("formatter_truncated_at_max_tokens")
+    if extras_out is not None and extra_tool_fields:
+        extras_out.update(_read_extras(raw, extra_tool_fields))
     answer = extract_reasoned_reply(raw)
     if not answer:
+        if allow_empty_answer:
+            return ""
         raise FormatterFailure("formatter_no_tool_call")
     return answer
 
@@ -277,7 +328,7 @@ async def _invoke_llm(system_text: str, user_text: str, module_name: str) -> str
 # itself decoupled. Neither chat_core.turn_context nor ai_module_telemetry
 # imports from answer_formatter, so there is no circular dependency.
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run  # noqa: E402
-from app.domains.ai_engine.logic_docs import LOGIC_DOC_MODES, get_logic_reference  # noqa: E402
+from app.domains.ai_engine.logic_docs import logic_reference_for  # noqa: E402
 from app.domains.ai_engine.turn_context import TurnContext  # noqa: E402
 from app.domains.ai_engine.usage_tracking import (  # noqa: E402
     jsonable_llm_usage,
@@ -294,6 +345,10 @@ async def format_with_telemetry(
     action_mode: ActionMode,
     profile: dict[str, Any],
     build_fallback: Callable[[], str],
+    extra_tool_fields: dict[str, Any] | None = None,
+    extras_out: dict[str, Any] | None = None,
+    allow_empty_answer: bool = False,
+    history_override: list[dict[str, Any]] | None = None,
 ) -> str:
     """Run the formatter with timing + telemetry; fall back on failure.
 
@@ -310,12 +365,11 @@ async def format_with_telemetry(
     started = time.monotonic()
     formatter_succeeded = False
     formatter_error_class: str | None = None
-    # Methodology-shaped modes (educate/narrate) carry the module's client-safe
-    # Logics thesis doc so "how/why does the approach work" answers ground in
-    # published methodology instead of the LLM's general knowledge.
-    logic_reference = (
-        get_logic_reference(module_name) if action_mode in LOGIC_DOC_MODES else None
-    )
+    # Each module's explain-the-why mode(s) carry its client-safe Logics thesis
+    # doc so "how/why does the approach work" answers ground in published
+    # methodology instead of the LLM's general knowledge. Which modes those are
+    # is per module (see logic_docs._MODULE_DOC_MODES).
+    logic_reference = logic_reference_for(module_name, action_mode)
     # Formatter-scoped usage tracker; nests inside the brain's turn-level
     # tracker (both handlers see the call — the turn row still gets the total).
     with track_formatter_llm_usage() as usage_cb:
@@ -326,9 +380,18 @@ async def format_with_telemetry(
                 module_name=module_name,
                 facts_pack=facts_pack,
                 body_prompt=body_prompt,
-                history=ctx.conversation_history or [],
+                # A module may pre-process history (e.g. portfolio annotates time
+                # gaps so a fortnight-old thread isn't read as live context).
+                history=(
+                    history_override
+                    if history_override is not None
+                    else (ctx.conversation_history or [])
+                ),
                 profile=profile,
                 logic_reference=logic_reference,
+                extra_tool_fields=extra_tool_fields,
+                extras_out=extras_out,
+                allow_empty_answer=allow_empty_answer,
             )
             formatter_succeeded = True
         except FormatterFailure as exc:

@@ -72,6 +72,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
             market_commentary=market_doc,
             conversation_history=turn.conversation_history,
             client_context=client_ctx,
+            ctx=ctx,
         )
     except Exception:
         # Retry once without the macro doc — the agent occasionally objects
@@ -82,6 +83,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
             classification=classification,
             conversation_history=turn.conversation_history,
             client_context=client_ctx,
+            ctx=ctx,
         )
 
     return ModuleOutput(text=reply)

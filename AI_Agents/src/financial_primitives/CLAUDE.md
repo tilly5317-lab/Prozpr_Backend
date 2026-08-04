@@ -11,6 +11,7 @@ Shared, deterministic financial-math kernel: pure functions, no LLM calls and no
 - `retirement.py` — closed-form retirement corpus (`retirement_corpus_pv`).
 - `xirr.py` — extended IRR for irregular dated cashflows (`xirr`).
 - `twr.py` — time-weighted-return wealth index (`twr_wealth_index`).
+- `returns.py` — trailing point-to-point return (`cagr`): annualises start→end NAV growth to a CAGR %, used for fund track-records.
 
 ## Gotchas & invariants
 - **No single day-count basis.** `xirr` annualises on `_DAYS_PER_YEAR = 365.0` (`xirr.py`) while `dates.year_fraction` uses calendar-days / 365.25 (`dates.py`). Deliberately different — don't "unify" them without checking each caller.

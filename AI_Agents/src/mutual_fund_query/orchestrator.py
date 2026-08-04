@@ -1,18 +1,16 @@
-"""MutualFundQueryOrchestrator — the two-pass single-shot engine.
+"""MutualFundQueryOrchestrator — pass 1 of the two-pass engine.
 
-Pass 1 (extract): name the fund(s) + classify the ask. Pass 2 (narrate): render a
-grounded ``MutualFundQueryFacts`` (built by the app-layer) into the customer reply
-under the guardrail rules. Both passes are single forced-tool calls — no agentic
-loop. The engine is DB-agnostic; it only ever sees the DTOs.
+``extract`` names the fund(s) and classifies the ask in a single forced-tool
+call; it must never answer the question. Pass 2 is the shared answer formatter
+in ``app/domains/ai_engine/answer_formatter``, which narrates the app-built
+``MutualFundQueryFacts`` using ``narrate_body`` as its body prompt.
 
-All prompt content lives in the single ``mutual_fund_query.md`` file, split into
-four sections (Extract System / Extract User / Narrate System / Narrate User);
-the guardrail rules are embedded in the Narrate System section.
+All prompt content lives in the single ``mutual_fund_query.md`` file; the
+guardrail rules are embedded in the Narrate System section.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -21,12 +19,7 @@ import yaml
 
 from common import read_text_bom_aware
 
-from .models import (
-    ConversationTurn,
-    ExtractResult,
-    MutualFundQueryFacts,
-    MutualFundQueryResponse,
-)
+from .models import ConversationTurn, ExtractResult
 
 logger = logging.getLogger(__name__)
 
@@ -87,31 +80,6 @@ _EXTRACT_TOOL = {
     },
 }
 
-_NARRATE_TOOL = {
-    "name": "return_mutual_fund_query_response",
-    "description": (
-        "Return the final reply for the fund question. Call exactly once at the end "
-        "of your turn — do NOT emit any free-text response outside this tool call."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "answer": {
-                "type": "string",
-                "description": "The reply, grounded ONLY in the provided facts.",
-            },
-            "clarifying_question": {
-                "type": ["string", "null"],
-                "description": (
-                    "If the fund is unclear/ambiguous, ask this instead of answering; "
-                    "otherwise null."
-                ),
-            },
-        },
-        "required": ["answer"],
-    },
-}
-
 
 def _section(body: str, heading: str) -> str:
     """Extract a ``## <heading>`` section up to the next ``##`` or end of file."""
@@ -148,8 +116,16 @@ class MutualFundQueryOrchestrator:
         self._extract_system = _section(body, "Extract System")
         self._extract_user = _section(body, "Extract User")
         self._narrate_system = _section(body, "Narrate System")
-        self._narrate_user = _section(body, "Narrate User")
         self.llm = llm_client
+
+    @property
+    def narrate_body(self) -> str:
+        """The Narrate System section, for callers that own the LLM call themselves.
+
+        The app bridge passes this to the shared answer formatter instead of
+        calling ``narrate`` — editing the skill still changes behaviour.
+        """
+        return self._narrate_system
 
     async def extract(
         self, question: str, conversation_history: list[ConversationTurn] | None = None
@@ -169,39 +145,3 @@ class MutualFundQueryOrchestrator:
             max_tokens=self._meta.get("extract_max_tokens", 512),
         )
         return ExtractResult.model_validate(data)
-
-    async def narrate(
-        self,
-        facts: MutualFundQueryFacts,
-        question: str,
-        conversation_history: list[ConversationTurn] | None = None,
-    ) -> MutualFundQueryResponse:
-        user = _fill(
-            self._narrate_user,
-            {
-                "facts_json": json.dumps(
-                    facts.model_dump(exclude_none=True),
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                    default=str,
-                ),
-                "conversation_history": _format_history(conversation_history or []),
-                "question": question,
-            },
-        )
-        from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
-
-        system = build_system_prompt(
-            self._narrate_system, format_profile="chat", question_aware=True
-        )
-        data, usage = await self.llm.call_structured(
-            model=self._meta.get("model", "haiku"),
-            system=system,
-            user=user,
-            tool=_NARRATE_TOOL,
-            max_tokens=self._meta.get("narrate_max_tokens", 1024),
-            # Only `answer` is customer-facing prose; clarifying_question is a
-            # short fallback the bridge picks when answer is empty.
-            stream_field="answer",
-        )
-        return MutualFundQueryResponse.model_validate(data)

@@ -14,10 +14,11 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - `tables.py` — per-subgroup cap lookup (`cap_pct_for`, default `OTHERS_FUND_CAP_PCT`); also read cross-domain by the additional-investment input builder — do not rename blind.
 - `utils.py` — Decimal rounding (`round_to_step`, `floor_to_step`), gross STCG/LTCG, and `estimate_tax`; no state, no I/O.
 - `rationales.py` — customer-facing reason-code strings.
+- `consolidation.py` — F3-B buy-side reshape over a `RebalancingComputeResponse`: redistributes only the buy budget across allowed funds (total buy + every sell preserved); pure/stateless, consumed app-side by `rebal_engine`.
 - `Reference_docs/` — design docs + source workbook (planning, not code).
 
 ## Gotchas & invariants
-- **Rank-1 targets are lifted in the pipeline, not supplied.** `_assign_targets_to_rank1` overwrites each rank-1 MF row's `target_amount_pre_cap` with the practical engine's aggregated subgroup total, less (floored at 0) the ST value of that subgroup's NEUTRAL (`rank = 0`) rows — locked ST is already exposure, so skipping the offset double-allocates. Whatever the input builder set on rank-1 is discarded; frozen subgroups are exempt. Keep the rule here only, or the two builders drift (`pipeline.py`).
+- **Subgroup targets are lifted in the pipeline, not supplied.** `_assign_subgroup_targets` splits each MF subgroup's practical-engine total across its ranked rows, less (floored at 0) the ST value of that subgroup's NEUTRAL (`rank = 0`) rows — locked ST is already exposure, so skipping the offset double-allocates. Whatever the input builder set is discarded; frozen subgroups are exempt. Keep the rule here only, or the two builders drift (`pipeline.py`).
 - **ELSS is scalar, not row.** ELSS exposure lives on `practical_allocation_input.elss_corpus`; ELSS rows are filtered out upstream. `step6` emits a frozen `SubgroupSummary` for `tax_efficient_equities` so the view shows the allocation, but never a BUY/SELL/EXIT trade for it (SEBI 3-year lock-in).
 - **Non-MF equity is scalar, not row.** Direct-stock / PMS holdings live on `practical_allocation_input.non_mf_equity_corpus`. When the practical NFA-banded cap forces a trim, `step6` emits a single `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — no per-stock trades.
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in app-side `fund_rank.py` (the CSV loader) and must stay in sync; the sentinel marks rows the input builder wants force-exited (`config.py`).

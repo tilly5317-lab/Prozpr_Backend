@@ -262,6 +262,17 @@ counterfactual_explore — the customer proposes a CHANGE and wants to know its
   Convert Indian units yourself: 1 lakh = 100000, 1 crore = 10000000. For a
   RELATIVE change ("50k more"), add it to the current value given below.
 
+  A feasibility question ("will I…", "can I…", "am I able to…") IS proposing a
+  change when it names an override value that DIFFERS from the current plan
+  inputs above — the named value is the change, so route to counterfactual_explore,
+  not narrate. Compare against the plan's retirement age given above:
+    "will my SIP get me there by 55?"   (plan retires at 60) -> retirement_age: 55
+    "can I retire at 55?"               (plan retires at 60) -> retirement_age: 55
+    "can I hit FI five years early?"    (plan retires at 60) -> retirement_age: 55
+  Only route to narrate when the feasibility question names NO new value, or the
+  named value equals the plan's — then nothing is being changed ("will I meet my
+  goals?" -> narrate).
+
 clarify — the customer clearly wants a counterfactual but a required number is
   missing or ambiguous ("what if I retire earlier?" — earlier than what?). Ask
   exactly one short question. Do NOT use clarify to avoid a hard question; if

@@ -1,6 +1,6 @@
 # AI_Agents/Reference_docs — Reference-doc index
 
-Runtime reference data read by agents under `AI_Agents/src/` (market-commentary cache, fund ranking), plus two subfolders of human-facing docs.
+Runtime reference data read by agents under `AI_Agents/src/` (market-commentary cache, fund ranking), plus subfolders of human-facing docs.
 
 ## Files
 
@@ -10,6 +10,8 @@ Runtime reference data read by agents under `AI_Agents/src/` (market-commentary 
 - `prozpr_fund_ranking_may_2026.csv` — the previous month's table, kept only because `Rebalancing/Testing/test_5_profile_smoke.py` still pins it. No production code reads it — don't confuse the two when updating rankings.
 - **Tech_reference_docs/** — engineer-facing docs, not runtime data. `ARCHITECTURE.md` — hand-authored walkthrough of `AI_Agents/`: per-agent contracts, deterministic-vs-LLM split, cross-agent data-flow, landmines. `CHAT_FLOW.md` — non-technical guide to how a customer question travels through the chat. Each has a generated `.html` viewer beside it (see Gotchas — edit the `.md`, never the `.html`).
 - **Logics_reference_docs/** — directional, client-safe thesis docs — philosophy and approach only; they deliberately omit proprietary weights, bands, thresholds (for engine-true numbers, read the code): `Asset_Allocation.md`, `Practical_Asset_Allocation.md`, `Risk_Profiling.md`, `Rebalancing.md`, `Cashflow_Statement.md`, `Additional_Investment.md`, `Mutual_Fund_Query.md` (each v1.x; the version footer in each doc is authoritative). Which docs reach a reply is wired in `app/domains/ai_engine/logic_docs.py` — `_MODULE_DOCS`, attached only on `educate`/`narrate` action modes.
+- **Module_reference_docs/** — per-agent engineer guides, one `.html` each plus `index.html`; engineer-facing, not runtime data.
+- **Business_reference_docs/** — business-facing HTML explainer(s) (`rebalancing_logic_flowchart.html`); not runtime data.
 
 ## Gotchas & invariants
 

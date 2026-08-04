@@ -156,3 +156,4 @@ docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
 /app/domains/rebalancing/services/rebal_engine/tests
 /app/domains/ai_engine/tests
 /app/domains/chat/tests
+/app/domains/rebalancing/services/rebal_engine/tests

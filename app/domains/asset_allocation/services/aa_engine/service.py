@@ -308,6 +308,7 @@ def compute_current_asset_class_mix(user: Any) -> dict[str, Any] | None:
 def build_aa_facts_pack(
     output: GoalAllocationOutput,
     current_mix: dict[str, Any] | None = None,
+    annual_income: float | None = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM is allowed to cite.
 
@@ -389,6 +390,12 @@ def build_aa_facts_pack(
         "monthly_household_expense_indian": format_inr_indian(
             cs.monthly_household_expense
         ),
+        # Income is fed to the allocation engine but dropped from client_summary;
+        # the caller passes it back in so the narrator can reason about it (e.g.
+        # an income-change question) instead of saying it's not on file. Null
+        # when the profile has no income.
+        "annual_income_inr": annual_income,
+        "annual_income_indian": format_inr_indian(annual_income),
         "plan_target_pct": {
             "equity": round(recommended.equity_total_pct),
             "debt": round(recommended.debt_total_pct),

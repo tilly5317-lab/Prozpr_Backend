@@ -20,7 +20,6 @@ class LLMClient:
         *,
         tool: dict,
         max_tokens: int = 1024,
-        stream_field: str | None = None,
     ) -> tuple[dict, dict]:
         """Call the model with a forced tool-use call; return the tool's input dict.
 
@@ -30,23 +29,16 @@ class LLMClient:
         block whose ``input`` is a dict matching ``input_schema`` — no JSON
         parsing or markdown-fence stripping needed on this side.
         """
-        from token_stream import (
-            FINE_GRAINED_TOOL_STREAMING,
-            astream_tool_answer,
-            current_token_stream,
-        )
-
         model_id = self.MODEL_MAP.get(model, model)
-        streaming = stream_field is not None and current_token_stream() is not None
-        # The beta is required or the API withholds the tool's input JSON until
-        # the end and there is nothing to stream (see token_stream). temperature
-        # stays a literal here — test_temperature_is_pinned scans the call text.
+        # No streaming path: this client serves `extract` only, which returns
+        # routing metadata, not customer prose. The reply is streamed by the
+        # shared answer formatter. temperature stays a literal here —
+        # test_temperature_is_pinned scans the call text.
         llm = ChatAnthropic(
             model=model_id,
             max_tokens=max_tokens,
             api_key=self._api_key,
             temperature=0,
-            **({"betas": [FINE_GRAINED_TOOL_STREAMING]} if streaming else {}),
         ).bind_tools(
             [tool],
             tool_choice={"type": "tool", "name": tool["name"]},
@@ -63,12 +55,7 @@ class LLMClient:
             ),
             HumanMessage(content=user),
         ]
-        if streaming:
-            response = await astream_tool_answer(
-                llm, messages, answer_field=stream_field
-            )
-        else:
-            response = await llm.ainvoke(messages)
+        response = await llm.ainvoke(messages)
 
         tool_input: dict | None = None
         for tool_call in response.tool_calls:
@@ -79,19 +66,7 @@ class LLMClient:
             raise RuntimeError(
                 f"Forced tool-call returned no tool_use block named {tool['name']!r}"
             )
-        usage_raw = (response.response_metadata or {}).get("usage")
-        if not usage_raw:
-            # The streaming path reports usage on `usage_metadata` and leaves
-            # `response_metadata["usage"]` empty; without this fallback token and
-            # cost accounting silently records zeros for every streamed turn.
-            meta = getattr(response, "usage_metadata", None) or {}
-            details = meta.get("input_token_details") or {}
-            usage_raw = {
-                "input_tokens": meta.get("input_tokens", 0),
-                "output_tokens": meta.get("output_tokens", 0),
-                "cache_creation_input_tokens": details.get("cache_creation", 0),
-                "cache_read_input_tokens": details.get("cache_read", 0),
-            }
+        usage_raw = (response.response_metadata or {}).get("usage") or {}
         usage = self._record_usage(usage_raw)
         return tool_input, usage
 

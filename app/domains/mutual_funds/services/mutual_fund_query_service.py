@@ -36,7 +36,6 @@ from mutual_fund_query import (  # noqa: E402
     ConversationTurn,
     FundFacts,
     MutualFundQueryFacts,
-    MutualFundQueryResponse,
     FundReturns,
     PeerFund,
 )
@@ -183,6 +182,34 @@ def _screen_fallback(funds: list[ScreenedFund], horizon_years: int) -> str:
     return "\n".join(lines)
 
 
+def _fund_detail_fallback(facts: MutualFundQueryFacts) -> str:
+    """Deterministic brief used when the formatter LLM call fails."""
+    lines: list[str] = []
+    for f in facts.funds:
+        r = f.returns
+        horizons = [
+            (label, value)
+            for label, value in (
+                ("1y", getattr(r, "return_1y_cagr_pct", None)),
+                ("3y", getattr(r, "return_3y_cagr_pct", None)),
+                ("5y", getattr(r, "return_5y_cagr_pct", None)),
+            )
+            if value is not None
+        ]
+        returns = (
+            ", ".join(f"{label} {value:.1f}%" for label, value in horizons)
+            if horizons
+            else "no track record stored yet"
+        )
+        lines.append(f"**{f.fund_name}** — {returns}.")
+        if f.house_reason:
+            lines.append(f.house_reason)
+    if not lines:
+        return _GENERIC_FAILURE_REPLY
+    lines.append("Past performance doesn't guarantee future returns.")
+    return "\n".join(lines)
+
+
 async def _answer_screen(question: str, ctx, extracted) -> str:
     """No fund named → rank our universe and reply with a tailored top-N shortlist."""
     if getattr(ctx, "db", None) is None:
@@ -255,12 +282,12 @@ async def answer_mutual_fund_query(question: str, ctx) -> str:
         return "I couldn't find that fund in our data — could you double-check the name?"
 
     facts = await build_mutual_fund_query_facts(ctx.db, resolved, extracted.asked_for)
-    try:
-        resp: MutualFundQueryResponse = await orch.narrate(facts, question, history)
-    except AnthropicAuthenticationError:
-        logger.exception("mutual_fund_query: narrate auth error")
-        return _GENERIC_FAILURE_REPLY
-    except Exception:
-        logger.exception("mutual_fund_query: narrate failed")
-        return _GENERIC_FAILURE_REPLY
-    return resp.answer or resp.clarifying_question or _GENERIC_FAILURE_REPLY
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=facts.model_dump(exclude_none=True),
+        body_prompt=orch.narrate_body,
+        module_name="mutual_fund_query",
+        action_mode="fund_detail",
+        profile={"first_name": getattr(getattr(ctx, "user_ctx", None), "first_name", None)},
+        build_fallback=lambda: _fund_detail_fallback(facts),
+    )
