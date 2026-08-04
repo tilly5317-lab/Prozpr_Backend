@@ -63,16 +63,26 @@ async def _put_pdf(bucket: str, key: str, data: bytes) -> None:
     await asyncio.to_thread(lambda: s3.put_object(**put_kwargs))
 
 
-def stage_enabled() -> bool:
-    """URL-mode staging is available: bucket configured AND boto3 importable."""
+def stage_unavailable_reason() -> Optional[str]:
+    """``None`` when S3 staging is usable; otherwise a short, ops-facing reason
+    (surfaced in API error details so a misconfigured server names its own
+    problem instead of a generic 503)."""
     if not Settings.get_cams_stage_s3_bucket():
-        return False
+        return (
+            "CAMS_STAGE_S3_BUCKET is not set in this server process's "
+            "environment (restart after editing .env)"
+        )
     try:
         _get_s3()
-    except Exception:  # noqa: BLE001 — missing boto3 / broken creds chain
-        logger.warning("CAMS_STAGE_S3_BUCKET is set but the S3 client is unavailable")
-        return False
-    return True
+    except Exception:  # noqa: BLE001 — boto3 missing or broken install
+        logger.exception("CAMS_STAGE_S3_BUCKET is set but the S3 client is unavailable")
+        return "the S3 client failed to initialise (is boto3 installed?)"
+    return None
+
+
+def stage_enabled() -> bool:
+    """URL-mode staging is available: bucket configured AND boto3 importable."""
+    return stage_unavailable_reason() is None
 
 
 async def stage_pdf(data: bytes) -> tuple[str, str]:

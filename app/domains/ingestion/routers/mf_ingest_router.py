@@ -42,6 +42,7 @@ from app.domains.ingestion.services.cams_pdf_stage import (
     delete_cas_object,
     presign_cas_download,
     stage_enabled,
+    stage_unavailable_reason,
 )
 from app.domains.mutual_funds.models import UserCasDocument
 from app.domains.ingestion.services.casparser_client import (
@@ -419,13 +420,11 @@ async def download_cas_document(
     """Short-lived (5 min) presigned URL for one of the user's own statements.
     The PDF is still protected by the user's statement password."""
     row = await _get_owned_cas_document(db, doc_id, current_user.id)
-    if not stage_enabled():
+    unavailable = stage_unavailable_reason()
+    if unavailable is not None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Statement storage is not configured on this server "
-                "(missing S3 settings)."
-            ),
+            detail=f"Statement storage is not available on this server: {unavailable}.",
         )
     try:
         url = await presign_cas_download(row.s3_key, row.source_filename)
