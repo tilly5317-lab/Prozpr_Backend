@@ -34,7 +34,13 @@ logger = logging.getLogger(__name__)
 # Module-supplied dict — flat-ish, JSON-serializable, ≤ ~1500 tokens.
 FactsPack = dict[str, Any]
 
-# Modes that pass through the formatter. clarify bypasses it.
+# Modes that pass through the formatter. A module's own "clarify" is NOT a mode
+# here — a module that asks the customer for an input routes that through the
+# formatter as `gather` (rebalancing does; cashflow still returns its clarify
+# text raw). Prefer `gather`: returning the detector's text directly skips PI's
+# voice AND writes no telemetry row, and it was that missing row that let
+# rebalancing ask the same question four turns running with nothing able to
+# notice (`rebalancing/services/rebal_engine/chat.py`, `_last_action_mode`).
 ActionMode = Literal[
     "compute",  # a freshly produced result — first run or an explicit re-run
     "narrate",
