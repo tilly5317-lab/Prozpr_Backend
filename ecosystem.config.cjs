@@ -9,6 +9,21 @@
  *   sudo swapon /swapfile
  *   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
  */
+// Short SHA of the checkout, or "unknown". Wrapped because this file is
+// EVALUATED by pm2: an uncaught throw here (git missing from PATH, dir not a
+// repo) would stop the app from starting. A missing version label must never
+// cost you the process.
+function gitCommit() {
+  try {
+    return require("child_process")
+      .execSync("git rev-parse HEAD", { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "unknown";
+  }
+}
+
 module.exports = {
   apps: [
     {
@@ -39,6 +54,20 @@ module.exports = {
       // truncates the PostHog and OTLP batch flushes in lifespan _shutdown().
       // Sized above uvicorn's 5s graceful wait + the 5s OTLP export timeout ceiling.
       kill_timeout: 8000,
+      // Telemetry identity. Set HERE, not in .env on the host: config.py calls
+      // load_dotenv() without override, so the process environment wins, and this
+      // file is the one place that is by definition production. Without these,
+      // every prod event was stamped environment="development" (the config.py
+      // default) and service_version="unknown", making prod indistinguishable
+      // from a laptop in PostHog. Applied on `pm2 reload --update-env`.
+      env: {
+        DEPLOY_ENV: "production",
+        // Deploys are the most common explanation for a change in any metric, so
+        // every event and span carries the build that produced it. Read at config
+        // load, which survives a manual `pm2 restart` and a reboot resurrect —
+        // exporting it in deploy.yml would be frozen stale by `pm2 save`.
+        GIT_COMMIT: gitCommit(),
+      },
     },
   ],
 };

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 _PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
@@ -105,3 +106,32 @@ class CamsPdfImportResponse(BaseModel):
     # investor block (e.g. ["first_name", "last_name", "email", "address", "pan"]).
     profile_fields_filled: list[str] = Field(default_factory=list)
     message: str
+
+
+class CasDocumentItem(BaseModel):
+    """One archived CAS statement in the profile's "My CAS statements" list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    uploaded_at: datetime
+    source_filename: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    cas_type: Optional[str] = None
+    file_type: Optional[str] = None
+    statement_from: Optional[str] = None
+    statement_to: Optional[str] = None
+    folios: Optional[int] = None
+    schemes: Optional[int] = None
+    transactions: Optional[int] = None
+
+
+class CasDocumentListResponse(BaseModel):
+    documents: list[CasDocumentItem]
+
+
+class CasDocumentDownloadResponse(BaseModel):
+    # Short-lived presigned S3 URL; the PDF itself is still protected by the
+    # user's own statement password.
+    url: str
+    expires_in_seconds: int

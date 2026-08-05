@@ -45,6 +45,7 @@ from app.domains.mutual_funds.models import (
     MfAaImportStatus,
     MfAaSummary,
     MfAaTransaction,
+    UserCasDocument,
 )
 from app.domains.mutual_funds.services.scheme_classification import (
     classify_holding,
@@ -63,6 +64,12 @@ from app.domains.identity.models.user import User
 from app.domains.ingestion.services.casparser_adapter import (
     CasResponseShapeError,
     to_legacy_parsed,
+)
+from app.domains.ingestion.services.cams_pdf_stage import (
+    archive_cas_pdf,
+    discard_staged_pdf,
+    stage_enabled,
+    stage_pdf,
 )
 from app.domains.ingestion.services.casparser_client import (
     CasParserApiError,
@@ -395,10 +402,25 @@ async def _parse_cas_via_api(
             "(CASPARSER_API_KEY is not configured)."
         )
     client = get_casparser_client()
+    # casparser's edge caps multipart bodies (~1.8 MB plan-dependent), but the
+    # pdf_url mode has no size cap: stage big files in the private S3 bucket
+    # and hand casparser a short-lived presigned URL. Falls back to multipart
+    # when no bucket is configured (e.g. local dev).
+    use_url_mode = (
+        len(file_bytes) > Settings.get_casparser_multipart_max_bytes()
+        and stage_enabled()
+    )
     try:
-        payload = await client.smart_parse(
-            file_bytes, source_filename or "cams_cas.pdf", password
-        )
+        if use_url_mode:
+            pdf_url, staged_key = await stage_pdf(file_bytes)
+            try:
+                payload = await client.smart_parse_url(pdf_url, password)
+            finally:
+                await discard_staged_pdf(staged_key)
+        else:
+            payload = await client.smart_parse(
+                file_bytes, source_filename or "cams_cas.pdf", password
+            )
     except CasParserApiError as exc:
         reason = exc.short_reason
         if exc.status_code in (401, 402):
@@ -416,6 +438,19 @@ async def _parse_cas_via_api(
                 ) from exc
             raise CamsPdfParseError(
                 f"Couldn't read this file as a CAMS / KFintech statement: {reason}"
+            ) from exc
+        if exc.status_code == 413:
+            # casparser.in's edge rejects request bodies over ~2 MB (verified
+            # empirically 2026-08-04) — far below our own 20 MB gate. Retrying
+            # the same file can never succeed, so say what's actually wrong.
+            logger.warning(
+                "CAS Parser API rejected a %d KB PDF as too large",
+                len(file_bytes) // 1024,
+            )
+            raise CamsPdfParseError(
+                "This statement PDF is larger than our parsing service currently "
+                "accepts (about 2 MB). Please request a CAS covering a shorter "
+                "period and upload that instead."
             ) from exc
         raise CamsPdfParseError(
             "The statement-parsing service could not be reached. "
@@ -822,6 +857,46 @@ def _total_market_value(parsed: dict[str, Any]) -> float:
     return total
 
 
+async def _archive_statement_pdf(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    file_bytes: bytes,
+    source_filename: Optional[str],
+    parsed: dict[str, Any],
+    schemes: int,
+    transactions: int,
+) -> None:
+    """Best-effort: S3-archive the parsed statement + add its profile record.
+
+    The row rides the caller's final commit; an S3 failure only logs (the
+    import itself must never fail because archival did)."""
+    if not stage_enabled():
+        return
+    try:
+        doc_id = uuid.uuid4()
+        s3_key = await archive_cas_pdf(user_id, doc_id, file_bytes)
+        period = parsed.get("statement_period") or {}
+        db.add(
+            UserCasDocument(
+                id=doc_id,
+                user_id=user_id,
+                s3_key=s3_key,
+                source_filename=_clean(source_filename, limit=255),
+                file_size_bytes=len(file_bytes),
+                cas_type=_clean(parsed.get("cas_type"), limit=20),
+                file_type=_clean(parsed.get("file_type"), limit=30),
+                statement_from=_clean(period.get("from"), limit=20),
+                statement_to=_clean(period.get("to"), limit=20),
+                folios=len(parsed.get("folios") or []),
+                schemes=schemes,
+                transactions=transactions,
+            )
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("could not archive the CAS PDF (upload continues)")
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -904,6 +979,20 @@ async def ingest_cams_pdf(
     portfolio = await get_or_create_primary_portfolio(db, user_id)
     await _sync_mf_portfolio_holdings_from_cas(db, portfolio.id, parsed, total_value)
     profile_fields_filled = await _backfill_user_profile(db, user_id, parsed)
+
+    # Keep the statement itself: archive the PDF to S3 and record it for the
+    # profile's "My CAS statements" list. Best-effort — never fails the upload.
+    # The row lives in `user_cas_documents`, which (deliberately) survives the
+    # per-upload reset, unlike the `mf_aa_imports` audit trail.
+    await _archive_statement_pdf(
+        db,
+        user_id,
+        file_bytes=file_bytes,
+        source_filename=source_filename,
+        parsed=parsed,
+        schemes=scheme_count,
+        transactions=txn_count,
+    )
 
     return CamsIngestResult(
         import_id=import_id,

@@ -45,10 +45,9 @@ _DB_ERROR_PATTERNS: tuple[tuple[tuple[str, ...], str], ...] = (
         ("connection was closed",),
         "Database connection was closed. Retry the request.",
     ),
-    # Windows WSAEACCES (10013): the OS sporadically forbids the outbound socket
-    # (firewall/AV interception or an excluded local port range). database.py
-    # already retries these; if a burst outlasts the retries, answer 503 so the
-    # client knows to retry instead of a raw 500.
+    # Windows WSAEACCES (10013): the OS sporadically forbids the outbound socket.
+    # database.py retries these; a burst that outlasts the retries gets a 503 so
+    # the client knows to retry rather than seeing a raw 500.
     (
         ("connect call failed", "forbidden by its access permissions", "10013"),
         "Database temporarily unreachable. Retry the request.",
@@ -61,10 +60,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ValidationError)
     async def _on_validation_error(_: Request, exc: ValidationError) -> JSONResponse:
-        # Log field NAMES only. ``str(exc)`` embeds the submitted values, which for
-        # this app means holdings, amounts and personal details — and logs are
-        # exported off-platform. The response body still carries full detail to the
-        # caller, who already owns that data.
+        # Field NAMES only: str(exc) embeds submitted values — holdings, amounts,
+        # personal details — and logs leave the platform. The response body still
+        # carries full detail to the caller, who already owns that data.
         fields = ", ".join(
             ".".join(str(p) for p in err.get("loc", ())) for err in exc.errors()
         )
@@ -76,20 +74,17 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ClientDisconnect)
     async def _on_client_disconnect(_: Request, __: ClientDisconnect) -> JSONResponse:
-        # The caller hung up mid-upload — their network, not our bug. Without this it
-        # falls through to the catch-all and becomes a $exception plus a phantom 5xx
-        # in the 12-month event stream, which would page on-call for flaky mobile
-        # connections. 499 is nginx's non-standard "client closed request".
+        # Their network, not our bug. Without this it hits the catch-all and becomes
+        # a $exception plus a phantom 5xx, paging on-call for flaky mobile signal.
+        # 499 is nginx's non-standard "client closed request".
         logger.info("Client disconnected before the request completed.")
         return JSONResponse(status_code=499, content={"detail": "Client disconnected"})
 
     @app.exception_handler(Exception)
     async def _on_unhandled(request: Request, exc: Exception) -> JSONResponse:
-        # Report to PostHog before we swallow the exception into JSON — automatic
-        # capture can't see an exception that a handler catches.
-        # request.state (NOT a ContextVar): BaseHTTPMiddleware runs the downstream
-        # app in its own task, so a ContextVar set in a handler is invisible here.
-        # scope["state"] crosses that boundary. Do not "simplify" this.
+        # request.state, NOT a ContextVar: BaseHTTPMiddleware runs the downstream
+        # app in its own task, so a ContextVar set in a dependency is invisible
+        # here. scope["state"] crosses that boundary. Do not "simplify" this.
         distinct_id = getattr(request.state, "distinct_id", None)
         route = request.scope.get("route")
         path = getattr(route, "path", None) or request.url.path
@@ -99,7 +94,9 @@ def register_exception_handlers(app: FastAPI) -> None:
             properties={
                 "path": path,
                 "error_type": type(exc).__name__,
-                "service": _service_from_path(path),
+                # "domain", not "service": the super property of that name
+                # merges last and would overwrite it (observability.py).
+                "domain": _service_from_path(path),
                 # No user known -> don't mint a throwaway person profile per error.
                 **({} if distinct_id else {"$process_person_profile": False}),
             },

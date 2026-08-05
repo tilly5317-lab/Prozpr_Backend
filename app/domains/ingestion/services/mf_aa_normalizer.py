@@ -5,6 +5,7 @@ Encapsulates business logic consumed by FastAPI routers. Uses database sessions,
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -30,6 +31,19 @@ from app.domains.mutual_funds.models import (
 from app.domains.mutual_funds.services.scheme_resolver import (
     build_isin_to_amfi_map,
     canonical_scheme_code,
+)
+
+logger = logging.getLogger(__name__)
+
+# asyncpg caps a single statement at 32767 bind parameters; each candidate row
+# binds 18, so one multi-row VALUES insert breaks past ~1820 transactions (a
+# long-running CAS easily has more). 1500 rows/chunk keeps a wide safety margin
+# even if columns are added.
+_INSERT_CHUNK_ROWS = 1500
+
+_NORMALIZE_FAILED_MESSAGE = (
+    "Something went wrong on our side while saving your transactions. "
+    "Please try uploading the statement again."
 )
 
 
@@ -333,15 +347,17 @@ async def normalize_single_import(
                 if (db.bind is not None and db.bind.dialect.name == "postgresql")
                 else sqlite_insert
             )
-            stmt = (
-                insert_fn(MfTransaction)
-                .values(candidates)
-                .on_conflict_do_nothing(
-                    index_elements=["source_system", "source_txn_fingerprint"]
+            for start in range(0, len(candidates), _INSERT_CHUNK_ROWS):
+                chunk = candidates[start : start + _INSERT_CHUNK_ROWS]
+                stmt = (
+                    insert_fn(MfTransaction)
+                    .values(chunk)
+                    .on_conflict_do_nothing(
+                        index_elements=["source_system", "source_txn_fingerprint"]
+                    )
+                    .returning(MfTransaction.id)
                 )
-                .returning(MfTransaction.id)
-            )
-            inserted = len((await db.execute(stmt)).fetchall())
+                inserted += len((await db.execute(stmt)).fetchall())
         # Whatever wasn't inserted collided with a row already in the DB.
         skipped += len(candidates) - inserted
 
@@ -357,6 +373,10 @@ async def normalize_single_import(
         )
     except Exception as exc:
         await db.rollback()
+        # The raw exception is for ops (log + audit row) — the `error` field
+        # travels all the way to the UI, so it must stay human-readable and
+        # never leak SQL/driver internals.
+        logger.exception("normalizing mf_aa_import %s failed", aa_import.id)
         aa_import.status = MfAaImportStatus.FAILED
         aa_import.failure_reason = str(exc)[:255]
         await db.commit()
@@ -365,7 +385,7 @@ async def normalize_single_import(
             inserted=0,
             skipped_duplicate=0,
             status=MfAaImportStatus.FAILED,
-            error=str(exc),
+            error=_NORMALIZE_FAILED_MESSAGE,
         )
 
 

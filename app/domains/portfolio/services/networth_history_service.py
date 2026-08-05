@@ -33,6 +33,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import _get_session_factory
+from app.core.job_tracing import record_job_counts, traced_job
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
 from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.nav_history_service import (
@@ -753,6 +754,7 @@ async def _refresh_held_fund_navs(db: AsyncSession) -> None:
             pass
 
 
+@traced_job("networth.daily_job")
 async def run_daily_networth_job() -> None:
     """Refresh held-fund NAV, then bring every user's net-worth series through today.
 
@@ -801,6 +803,14 @@ async def run_daily_networth_job() -> None:
                     "networth daily job: refreshed net-worth series for %d/%d users",
                     done,
                     len(user_ids),
+                )
+                # The per-user handler above swallows failures so one user can't
+                # block the rest, which means the run reports success even when
+                # most users failed. These counts are what expose that.
+                record_job_counts(
+                    users_total=len(user_ids),
+                    users_refreshed=done,
+                    users_failed=len(user_ids) - done,
                 )
             finally:
                 try:

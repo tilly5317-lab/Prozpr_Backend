@@ -149,6 +149,7 @@ docs/superpowers/notes/2026-07-26-track3b-architecture-findings.md
 docs/superpowers/plans/2026-07-26-context-layer-reconciliation.md
 docs/superpowers/specs/2026-07-26-context-layer-reconciliation-design.md
 docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
+<<<<<<< HEAD
 /app/domains/ai_engine/tests
 /app/domains/ai_engine/tests
 /app/domains/mutual_funds/services/tests
@@ -156,3 +157,6 @@ docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
 /app/domains/rebalancing/services/rebal_engine/tests
 /app/domains/ai_engine/tests
 /app/domains/chat/tests
+=======
+AI_Agents/customer_questions_and_answers.txt
+>>>>>>> 5292583aeada71f8fd8a46bef6743bf2b9952b30
