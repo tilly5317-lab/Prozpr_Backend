@@ -28,6 +28,12 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.job_tracing import (
+    job_span,
+    report_job_failure,
+    suppress_instrumentation,
+    traced_job,
+)
 from app.domains.mutual_funds.services.latest_snapshot_service import (
     rebuild_all_users_latest_snapshot,
 )
@@ -81,6 +87,7 @@ async def _rebuild_latest_snapshots(db) -> tuple[int, int]:
     return users, rows
 
 
+@traced_job("mfapi.daily_job")
 async def run_daily_mfapi_job() -> None:
     """Incremental daily NAV for all metadata schemes, phased; then snapshot rebuild."""
     from app.core.database import _get_session_factory
@@ -130,12 +137,25 @@ async def run_daily_mfapi_job() -> None:
                             phases,
                             len(chunk),
                         )
-                        result = await ingest_mfapi(
-                            db,
-                            mode=IngestMode.INCREMENTAL,
-                            scheme_codes=chunk,
-                            concurrency=MFAPI_DAILY_CONCURRENCY,
-                        )
+                        # One span per PHASE, never per scheme: SQLAlchemy and
+                        # httpx are instrumented globally (app/main.py), so
+                        # without the suppression a ~8k-scheme sweep would emit
+                        # ~25k spans into one trace nothing can render.
+                        with (
+                            job_span(
+                                "mfapi.daily_job.phase",
+                                phase=phase_idx + 1,
+                                phases=phases,
+                                schemes=len(chunk),
+                            ),
+                            suppress_instrumentation(),
+                        ):
+                            result = await ingest_mfapi(
+                                db,
+                                mode=IngestMode.INCREMENTAL,
+                                scheme_codes=chunk,
+                                concurrency=MFAPI_DAILY_CONCURRENCY,
+                            )
                         total_nav_inserted += result.nav_rows_inserted
                         total_failed += len(result.failed_codes)
                         logger.info(
@@ -169,16 +189,22 @@ async def run_daily_mfapi_job() -> None:
                     total_nav_inserted,
                     total_failed,
                 )
+            # These handlers SWALLOW the exception, so the run span created by
+            # @traced_job never sees it — report explicitly or the job stays
+            # green in the trace and absent from Error Tracking. Reporting is
+            # deduped, so a failure already filed by the phase span files once.
             except MfapiIngestError as exc:
                 logger.error(
                     "mfapi daily job failed after %.1fs: %s",
                     time.monotonic() - t0,
                     exc,
                 )
-            except Exception:
+                report_job_failure(exc, job="mfapi.daily_job")
+            except Exception as exc:
                 logger.exception(
                     "mfapi daily job crashed after %.1fs", time.monotonic() - t0
                 )
+                report_job_failure(exc, job="mfapi.daily_job")
             finally:
                 try:
                     await db.execute(

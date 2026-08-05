@@ -201,7 +201,9 @@ class Settings:
     # Which deployment this process is. Feeds PostHog super_properties and the OTel
     # resource, so prod and staging events are distinguishable. New Relic used to
     # provide this separation via app_name; nothing else does once it is gone.
-    DEPLOY_ENV: str = (_getenv("DEPLOY_ENV", "development") or "development").strip() or "development"
+    DEPLOY_ENV: str = (
+        _getenv("DEPLOY_ENV", "development") or "development"
+    ).strip() or "development"
 
     @staticmethod
     def get_database_url() -> str:
@@ -331,7 +333,9 @@ class Settings:
     @staticmethod
     def get_anthropic_additional_investment_key() -> str | None:
         """Additional-investment chat extractor (deploy amount + cadence)."""
-        return Settings._anthropic_key("ADDITIONAL_INVESTMENT_API_KEY", "ANTHROPIC_API_KEY")
+        return Settings._anthropic_key(
+            "ADDITIONAL_INVESTMENT_API_KEY", "ANTHROPIC_API_KEY"
+        )
 
     @staticmethod
     def get_anthropic_answer_formatter_key() -> str | None:
@@ -469,6 +473,161 @@ class Settings:
         """Shared secret the signup-sheet Apps Script checks so strangers
         cannot post junk rows if the webhook URL ever leaks."""
         v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
+        return v or None
+
+    # ── Fintech Primitives (execution domain): sandbox order execution ──────
+    @staticmethod
+    def get_fp_base_url() -> str:
+        return (_getenv("FP_BASE_URL") or "https://s.finprim.com").strip().rstrip("/")
+
+    @staticmethod
+    def get_fp_tenant() -> str | None:
+        v = (_getenv("FP_TENANT") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_key() -> str | None:
+        v = (_getenv("FP_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_api_secret() -> str | None:
+        v = (_getenv("FP_API_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_enabled() -> bool:
+        """FP order execution is inert unless the tenant credentials are set."""
+        return bool(
+            Settings.get_fp_tenant()
+            and Settings.get_fp_api_key()
+            and Settings.get_fp_api_secret()
+        )
+
+    @staticmethod
+    def get_fp_sandbox_schemes() -> list[str]:
+        """ISINs known to be transactable on the FP sandbox tenant. The sandbox
+        only enables a handful of ICICI schemes — any other ISIN 400s with
+        "scheme is not available for transaction". Override via
+        ``FP_SANDBOX_SCHEMES`` (comma-separated ISINs) as FP enables more."""
+        raw = (_getenv("FP_SANDBOX_SCHEMES") or "").strip()
+        if raw:
+            return [s.strip().upper() for s in raw.split(",") if s.strip()]
+        return [
+            "INF109K01423",
+            "INF109KC1TY0",
+            "INF109KC1TV6",
+            "INF109KC1TU8",
+            "INF109K01605",
+            "INF109KC11U2",
+            "INF109KC19T7",
+        ]
+
+    @staticmethod
+    def get_fp_scheme_gateway() -> str:
+        """Gateway segment for FP scheme-plan lookups
+        (``/v2/mf_scheme_plans/{gateway}/{isin}``). Override via
+        ``FP_SCHEME_GATEWAY``."""
+        return (_getenv("FP_SCHEME_GATEWAY") or "cybrillapoa").strip()
+
+    @staticmethod
+    def fp_test_reports_enabled() -> bool:
+        """Whether the SIMULATED FP folios/holdings/returns reports are served.
+        The sandbox can't produce real folios (nothing settles), so these are
+        demo-only test data. Default: on for the sandbox host, off elsewhere;
+        force with ``FP_TEST_REPORTS_ENABLED=true|false``. Must stay OFF in
+        production — it fabricates holdings."""
+        raw = (_getenv("FP_TEST_REPORTS_ENABLED") or "").strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
+        return "s.finprim.com" in Settings.get_fp_base_url()
+
+    @staticmethod
+    def get_fp_preverify_tenant() -> str:
+        return (_getenv("FP_PREVERIFY_TENANT") or "cybrillarta").strip()
+
+    @staticmethod
+    def get_fp_preverify_client_id() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_ID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_fp_preverify_client_secret() -> str | None:
+        v = (_getenv("FP_PREVERIFY_CLIENT_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def fp_preverify_enabled() -> bool:
+        """The Pre-Verification (KYC) service has its own tenant + creds."""
+        return bool(
+            Settings.get_fp_preverify_client_id()
+            and Settings.get_fp_preverify_client_secret()
+        )
+
+    # ── CAS Parser API (casparser.in): remote CAS PDF parsing + CAS-to-email ──
+    @staticmethod
+    def get_casparser_base_url() -> str:
+        return (
+            (_getenv("CASPARSER_BASE_URL") or "https://api.casparser.in")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_casparser_api_key() -> str | None:
+        """API key for api.casparser.in (`x-api-key` header). The docs' sandbox
+        key ``sandbox-with-json-responses`` works for wiring tests without
+        consuming credits."""
+        v = (_getenv("CASPARSER_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def casparser_enabled() -> bool:
+        """CAS statement import is inert (503s) unless the API key is set."""
+        return bool(Settings.get_casparser_api_key())
+
+    @staticmethod
+    def get_casparser_multipart_max_bytes() -> int:
+        """Largest CAS PDF sent to casparser as a multipart upload. Their edge
+        caps request bodies plan-dependently — support (2026-08-04): "2MB
+        (about 1.8 in reality)" — so bigger files go via ``pdf_url`` instead
+        (see ``get_public_api_base_url``)."""
+        raw = (_getenv("CASPARSER_MULTIPART_MAX_BYTES") or "").strip()
+        try:
+            return int(raw) if raw else 1_700_000
+        except ValueError:
+            return 1_700_000
+
+    @staticmethod
+    def get_cams_stage_s3_bucket() -> str | None:
+        """Private S3 bucket for staging CAS PDFs over the multipart cap:
+        uploaded under an unguessable key, casparser fetches a ~10-min
+        presigned GET URL (their ``pdf_url`` mode has no size limit), object
+        deleted right after the parse. Credentials/region come from boto3's
+        default chain (env vars or the EC2 instance role). Unset → large
+        files fall back to multipart and surface the too-large error."""
+        v = (_getenv("CAMS_STAGE_S3_BUCKET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_cams_stage_kms_key_id() -> str | None:
+        """KMS key for SSE-KMS on staged CAS PDFs (buckets that enforce KMS
+        encryption reject plain SSE-S3 puts). NB: presigned GETs of SSE-KMS
+        objects need the signing identity to hold ``kms:Decrypt`` on this key,
+        not just encrypt/write. Unset → SSE-S3 (AES256)."""
+        v = (_getenv("CAMS_STAGE_KMS_KEY_ID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_openai_api_key() -> str | None:
+        """OpenAI key for intent fallback, general chat, and market-commentary fallback (trimmed)."""
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
+        if v:
+            return v
+        load_dotenv(_backend_dir / ".env", override=False, encoding="utf-8-sig")
+        v = (_getenv("OPENAI_API_KEY") or "").strip()
         return v or None
 
     # -- PostHog LLM observability -----------------------------------------
