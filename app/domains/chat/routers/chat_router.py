@@ -320,9 +320,10 @@ async def send_message_streaming(
 ):
     """Same turn as ``send_message``, delivered as Server-Sent Events.
 
-    Events: ``thinking`` (pipeline stage lines), ``delta`` (incremental answer
-    text once the answer LLM starts generating), then exactly one terminal
-    ``done`` or ``error``.
+    Events: ``delta`` (incremental answer text once the answer LLM starts
+    generating), then exactly one terminal ``done`` or ``error``. Pipeline stage
+    lines do NOT ride this stream — they are polled from
+    ``GET /chat/sessions/{id}/thinking``.
 
     ``done`` IS AUTHORITATIVE. Deltas are provisional — the formatter discards a
     truncated response in favour of a deterministic brief, and general_chat
