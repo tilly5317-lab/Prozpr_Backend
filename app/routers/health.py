@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 
 from fastapi import APIRouter, Depends, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +53,37 @@ async def deploy_info():
         "project": settings.PROJECT_NAME,
         "tool_streaming": tool_streaming,
     }
+
+
+@router.get("/stream-check")
+async def stream_check():
+    """Emit 20 SSE ticks, 250ms apart, so a caller can prove whether anything
+    between uvicorn and the client is buffering.
+
+    Unauthenticated on purpose: chat streams need a login, which makes the one
+    question that matters — do frames arrive spread out, or all at once at the
+    end? — untestable from outside the host. Each tick carries the server's own
+    elapsed milliseconds, so comparing them against arrival times separates a
+    slow server from a buffering proxy. Carries no data of any kind. DIAGNOSTIC
+    ONLY — delete once production streaming is confirmed.
+    """
+
+    async def ticks():
+        # Same prelude the chat stream uses, for the same reason: overflow a
+        # default proxy buffer so the first flush cannot be held back.
+        yield ":" + (" " * 8192) + "\n\n"
+        start = time.monotonic()
+        for i in range(20):
+            ms = int((time.monotonic() - start) * 1000)
+            yield f"event: tick\ndata: {{\"i\": {i}, \"server_ms\": {ms}}}\n\n"
+            await asyncio.sleep(0.25)
+        yield 'event: done\ndata: {"ok": true}\n\n'
+
+    return StreamingResponse(
+        ticks(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/health")
