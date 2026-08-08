@@ -353,6 +353,7 @@ async def me(current_user: CurrentUser = Depends(get_current_user)):
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         is_onboarding_complete=current_user.is_onboarding_complete,
+        cams_skipped=current_user.cams_skipped_at is not None,
     )
 
 
@@ -402,4 +403,5 @@ async def update_me(
         first_name=user.first_name,
         last_name=user.last_name,
         is_onboarding_complete=user.is_onboarding_complete,
+        cams_skipped=user.cams_skipped_at is not None,
     )

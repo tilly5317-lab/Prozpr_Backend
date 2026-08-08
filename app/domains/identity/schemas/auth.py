@@ -144,6 +144,10 @@ class CurrentUserResponse(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     is_onboarding_complete: bool = False
+    # True when the user chose "I'll do this later" on the onboarding CAMS step.
+    # The app still offers the upload everywhere, but onboarding no longer
+    # resumes onto that step. Reset automatically once a statement is imported.
+    cams_skipped: bool = False
 
 
 class UserUpdateRequest(BaseModel):

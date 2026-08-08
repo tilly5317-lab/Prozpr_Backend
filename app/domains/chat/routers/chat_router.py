@@ -307,6 +307,7 @@ async def send_message(
         assistant_message=assistant_response,
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+        portfolio_data_missing=brain_result.portfolio_data_missing,
     )
 
 
@@ -402,6 +403,7 @@ async def send_message_streaming(
                 assistant_message=assistant_response,
                 asset_allocation_run_id=brain_result.asset_allocation_run_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+                portfolio_data_missing=brain_result.portfolio_data_missing,
             ).model_dump(),
         )
 
