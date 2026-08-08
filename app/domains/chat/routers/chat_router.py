@@ -345,6 +345,20 @@ async def send_message_streaming(
         def sse(event: str, data: dict) -> str:
             return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
+        # Prelude: an SSE COMMENT (a line opening with ':'), which every SSE
+        # parser — including our own hand-rolled one in the web client — is
+        # required to ignore. It is here to defeat response buffering in any hop
+        # between uvicorn and the browser. A buffering proxy holds the response
+        # until its buffer fills, which for a chat turn means the customer waits
+        # out the whole answer and then gets it in one lump: streaming that
+        # silently isn't. `X-Accel-Buffering: no` asks nginx not to do that, but
+        # only nginx honours it, and only when it is the sole hop. Overflowing a
+        # default proxy buffer (nginx `proxy_buffer_size` is 4k or 8k) forces the
+        # first flush no matter who is in the middle, and costs one 8 KB write
+        # per turn. Localhost dev has no proxy at all, which is exactly why this
+        # class of bug never reproduces there.
+        yield ":" + (" " * 8192) + "\n\n"
+
         user_msg = ChatMessage(
             session_id=session_id, role=ChatMessageRole.user, content=payload.content
         )
