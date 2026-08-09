@@ -73,6 +73,43 @@ def _subgroup_mix(subgroup_summaries: Iterable[Any], attr: str) -> dict[str, flo
     return mix
 
 
+def _fund_rows_mix(fund_rows: Iterable[Any], amount_attr: str) -> dict[str, float]:
+    """Roll per-fund audit rows up to Equity/Debt/Others via the central look-through.
+
+    Keyed on each row's ``sub_category`` so a blended SEBI category (Flexi Cap,
+    hybrids, multi-asset) contributes its real Equity/Debt/Others split — the same
+    ``add_to_asset_class_mix`` methodology the dashboard donut and chat current-mix
+    use, so all surfaces agree. ``fund_rows`` is the complete per-run population
+    (one row per held or recommended fund, same valuation basis), so summing one
+    amount column preserves the bar's total.
+    """
+    from app.domains.mutual_funds.services.scheme_classification import (
+        add_to_asset_class_mix,
+    )
+
+    mix: dict[str, float] = {}
+    for row in fund_rows:
+        add_to_asset_class_mix(
+            mix,
+            amount=float(getattr(row, amount_attr, 0.0) or 0.0),
+            sub_category=getattr(row, "sub_category", None),
+            fallback_asset_class=asset_class_for_subgroup(
+                getattr(row, "asset_subgroup", None)
+            ),
+        )
+    return mix
+
+
+def fund_rows_current_mix(fund_rows: Iterable[Any]) -> dict[str, float]:
+    """CURRENT bar from per-fund ``present_allocation_inr`` with asset-class look-through."""
+    return _fund_rows_mix(fund_rows, "present_allocation_inr")
+
+
+def fund_rows_target_mix(fund_rows: Iterable[Any]) -> dict[str, float]:
+    """TARGET bar from per-fund ``final_holding_amount`` with asset-class look-through."""
+    return _fund_rows_mix(fund_rows, "final_holding_amount")
+
+
 def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
     """Rebalancing TARGET (``suggested_final_holding_inr``) as Equity/Debt/Others."""
     return _subgroup_mix(subgroup_summaries, "suggested_final_holding_inr")

@@ -312,6 +312,15 @@ classifier). Per-mode behavior:
                relay the under_deploy_note plainly and do NOT fabricate funds.
                When under_deploy_note is present, close with it. Length: 6-10
                sentences (fewer when there is a single buy).
+
+Do NOT group the buys under an invented asset-class or bucket heading (e.g.
+"Pure Equity", "Hybrid", "Debt"): those labels are not in the data and
+misclassify funds — a Flexi Cap Fund is a blended multi-asset holding, not
+"pure equity". If you tabulate or list the buys, label each entry by its own
+`sub_category` and show only that fund's own monthly amount. Never place a
+per-subgroup `target_inr`/`per_subgroup_target` figure as a heading above a
+single fund — a subgroup total and a fund's amount are different numbers, and
+pairing them reads as a contradiction.
 """
 
 
@@ -395,7 +404,18 @@ is a share of this deployment, never the plan's overall target mix. When part of
 emergency/liquid funds, say so plainly ("part of this builds your emergency
 cushion — the foundation; the rest goes to your growth gaps") rather than
 leaving a liquid-fund buy unexplained. When under_deploy_note is present, close
-with it. Length: 6-10 sentences (fewer when there is a single buy).
+with it.
+
+Do NOT group the buys under an invented asset-class or bucket heading (e.g.
+"Pure Equity", "Hybrid", "Debt"): those labels are not in the data and
+misclassify funds — a Flexi Cap Fund is a blended multi-asset holding, not
+"pure equity". If you tabulate or list the buys, label each entry by its own
+`sub_category` and show only that fund's own amount. Never place a per-subgroup
+`target_inr`/`per_subgroup_target` figure as a heading above a single fund — a
+subgroup total and a fund's amount are different numbers, and pairing them (a
+"₹7.31 lakh" heading over a "₹10 lakh" fund) reads as a contradiction.
+
+Length: 6-10 sentences (fewer when there is a single buy).
 """
 
 
