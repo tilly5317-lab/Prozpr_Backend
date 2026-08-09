@@ -27,12 +27,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 # Intents whose answer is derived from the customer's own holdings. Without a
-# statement there is simply nothing to compute against.
+# statement there is simply nothing to compute against. NOTE: additional_investment
+# is deliberately NOT here — deploying fresh money (SIP / lump sum) follows the
+# ideal mix and needs no existing holdings, so the no-CAMS cohort can use it.
 PORTFOLIO_REQUIRED_INTENTS: frozenset[str] = frozenset(
     {
         "portfolio_query",
         "rebalancing",
-        "additional_investment",
     }
 )
 
@@ -47,18 +48,17 @@ _ASK: dict[str, str] = {
         "Rebalancing plans trades against what you actually own, and I don't "
         "have your holdings yet."
     ),
-    "additional_investment": (
-        "To tell you where fresh money should go, I need to see what you "
-        "already own — and I don't have your holdings yet."
-    ),
 }
 
 _HOW = (
-    "Add your CAMS/KFintech Consolidated Account Statement and I'll read every "
-    "folio, holding and transaction in it. That takes about a minute, and from "
-    "then on I can answer questions like this properly.\n\n"
-    "If you don't have a statement handy, I can have CAMS email you a fresh "
-    "one — pick that option on the upload screen."
+    "The quickest way is to add your CAMS/KFintech Consolidated Account "
+    "Statement — I'll read every folio, holding and transaction in it, and from "
+    "then on I can answer questions like this on your real numbers. If you don't "
+    "have one handy, I can have CAMS email you a fresh copy from the upload "
+    "screen.\n\n"
+    "And if you're just getting started with us, you don't need a statement to "
+    "begin — set up a SIP or invest a lump sum and I'll build your plan around "
+    "that."
 )
 
 
