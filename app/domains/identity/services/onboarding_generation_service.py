@@ -44,6 +44,30 @@ GENERATION_STEPS: tuple[tuple[str, str], ...] = (
     ("networth", "Building your day-by-day net worth history"),
 )
 
+
+async def has_mf_transactions(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    """True when the user has imported at least one mutual-fund transaction."""
+    from app.domains.mutual_funds.models import MfTransaction
+
+    return (
+        await db.execute(
+            select(MfTransaction.id).where(MfTransaction.user_id == user_id).limit(1)
+        )
+    ).first() is not None
+
+
+def generation_steps(has_holdings: bool) -> tuple[tuple[str, str], ...]:
+    """The checklist this user's job will actually run.
+
+    CAMS is optional, so a user can finish onboarding with no transactions at
+    all. There is then no net-worth series to build — and showing "Building your
+    day-by-day net worth history" while nothing happens is a claim we can't
+    back. Drop the step instead of narrating imaginary work.
+    """
+    if has_holdings:
+        return GENERATION_STEPS
+    return tuple(step for step in GENERATION_STEPS if step[0] != "networth")
+
 # Progress bands per phase (start %, end %). The net-worth build dominates
 # because it is the genuinely slow part (per-fund NAV fetches + daily replay).
 _RISK_BAND = (2.0, 10.0)
@@ -124,6 +148,12 @@ async def run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> No
     factory = _get_session_factory()
     async with factory() as db:
         try:
+            # No imported transactions (CAMS skipped) → there is no net-worth
+            # series to build, so that phase is skipped entirely rather than
+            # spun through for show. The status endpoint hides it too, from the
+            # same predicate.
+            has_holdings = await has_mf_transactions(db, user_id)
+
             await _update(
                 db,
                 job_id,
@@ -134,16 +164,19 @@ async def run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> No
                 message="Analysing your risk profile…",
             )
             await _step_risk(db, user_id)
-            await _update(db, job_id, progress_pct=_RISK_BAND[1])
-
             await _update(
-                db,
-                job_id,
-                phase="networth",
-                progress_pct=_NETWORTH_BAND[0],
-                message="Building your day-by-day net worth history…",
+                db, job_id, progress_pct=_RISK_BAND[1] if has_holdings else 90.0
             )
-            await _step_networth(db, user_id, job_id)
+
+            if has_holdings:
+                await _update(
+                    db,
+                    job_id,
+                    phase="networth",
+                    progress_pct=_NETWORTH_BAND[0],
+                    message="Building your day-by-day net worth history…",
+                )
+                await _step_networth(db, user_id, job_id)
 
             await _update(
                 db,

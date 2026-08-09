@@ -15,9 +15,10 @@ from app.domains.identity.models.onboarding_generation_job import (
 )
 from app.domains.identity.models.user import User
 from app.domains.identity.services.onboarding_generation_service import (
-    GENERATION_STEPS,
     create_job as create_generation_job,
+    generation_steps,
     get_latest_job as get_latest_generation_job,
+    has_mf_transactions,
     has_running_job as has_running_generation_job,
     run_onboarding_generation,
 )
@@ -30,6 +31,8 @@ from app.domains.profile.services._effective_risk import (
     maybe_recalculate_effective_risk,
 )
 from app.domains.identity.schemas.onboarding import (
+    CamsSkipRequest,
+    CamsSkipResponse,
     GenerationStepInfo,
     OnboardingCompleteRequest,
     OnboardingGenerationStatusResponse,
@@ -284,6 +287,36 @@ async def complete_onboarding(
     await db.commit()
 
 
+@router.post("/cams-skip", response_model=CamsSkipResponse)
+async def set_cams_skipped(
+    payload: CamsSkipRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Record (or clear) the "I'll do this later" choice on the CAMS step.
+
+    CAMS is no longer compulsory to finish onboarding: skipping stamps
+    ``users.cams_skipped_at`` so the backend-driven resume resolver stops
+    landing the user back on ``/cams-upload``. Every CAMS entry point in the app
+    stays available, and a successful statement import clears the stamp (see
+    ``mf_ingest_router.ingest_cams_statement_pdf``).
+    """
+    user = (
+        await db.execute(select(User).where(User.id == current_user.id))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    user.cams_skipped_at = datetime.now(timezone.utc) if payload.skipped else None
+    await db.commit()
+    return CamsSkipResponse(
+        cams_skipped=user.cams_skipped_at is not None,
+        skipped_at=user.cams_skipped_at,
+    )
+
+
 # ─────────────── "Generate my portfolio" personalisation job ───────────────
 
 
@@ -295,18 +328,22 @@ _GENERATION_STALL_S = 180
 
 def _generation_status(
     job: OnboardingGenerationJob | None,
+    steps_spec: tuple[tuple[str, str], ...],
 ) -> OnboardingGenerationStatusResponse:
     """Map a job row (or its absence) to the polled status shape.
 
-    The checklist derives from ``GENERATION_STEPS``: everything before the
-    current phase is done, the current phase is active while the job runs, and
-    a successful job marks every step done.
+    The checklist derives from ``steps_spec`` — the steps this user's job will
+    actually run (see ``generation_steps``; a user with no imported holdings has
+    no net-worth history to build, so that row is absent rather than shown
+    ticking over nothing). Everything before the current phase is done, the
+    current phase is active while the job runs, and a successful job marks every
+    step done.
     """
-    keys = [k for k, _ in GENERATION_STEPS]
+    keys = [k for k, _ in steps_spec]
     if job is None:
         steps = [
             GenerationStepInfo(key=k, label=label, state="pending")
-            for k, label in GENERATION_STEPS
+            for k, label in steps_spec
         ]
         return OnboardingGenerationStatusResponse(status="none", steps=steps)
 
@@ -327,7 +364,7 @@ def _generation_status(
         active_idx = 0
 
     steps = []
-    for i, (k, label) in enumerate(GENERATION_STEPS):
+    for i, (k, label) in enumerate(steps_spec):
         if i < active_idx:
             state = "done"
         elif i == active_idx and job_status == "running":
@@ -360,9 +397,10 @@ async def start_generation(
     instead of starting a duplicate, so the button and the loading page can
     both call this safely.
     """
+    steps_spec = generation_steps(await has_mf_transactions(db, current_user.id))
     running = await has_running_generation_job(db, current_user.id)
     if running is not None:
-        current = _generation_status(running)
+        current = _generation_status(running, steps_spec)
         if current.status != "failed":
             return current
         # The "running" row is stalled (see _GENERATION_STALL_S) — mark it
@@ -372,7 +410,7 @@ async def start_generation(
         await db.commit()
     job = await create_generation_job(db, current_user.id)
     background.add_task(run_onboarding_generation, current_user.id, job.id)
-    return _generation_status(job)
+    return _generation_status(job, steps_spec)
 
 
 @router.get("/generate/status", response_model=OnboardingGenerationStatusResponse)
@@ -381,4 +419,7 @@ async def generation_status(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Latest personalisation-job status — the loading page polls this."""
-    return _generation_status(await get_latest_generation_job(db, current_user.id))
+    steps_spec = generation_steps(await has_mf_transactions(db, current_user.id))
+    return _generation_status(
+        await get_latest_generation_job(db, current_user.id), steps_spec
+    )

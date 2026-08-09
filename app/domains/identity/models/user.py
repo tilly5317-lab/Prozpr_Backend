@@ -100,6 +100,13 @@ class User(Base):
     is_onboarding_complete: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    # Set when the user chose "I'll do this later" on the onboarding CAMS step.
+    # Durable (not a session flag) so the resume resolver doesn't drop them back
+    # on /cams-upload after a reload or on another device. Cleared automatically
+    # the moment a statement is successfully ingested.
+    cams_skipped_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
