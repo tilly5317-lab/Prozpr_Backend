@@ -451,6 +451,16 @@ _MSG_ENGINE_ERROR = (
     "we'll take a look."
 )
 
+# No investable corpus on record (no CAMS statement and nothing self-reported), so
+# there is nothing to size an allocation against. Generic on purpose — covers both
+# the "haven't uploaded my statement yet" and the "investing elsewhere / just
+# starting" customer, and points at the paths that work without holdings.
+_MSG_NO_CORPUS = (
+    "I don't have an investable amount for you yet, so there's nothing to build an "
+    "allocation around. Upload your CAMS statement and I'll shape it around what "
+    "you already hold — or start a monthly SIP and I'll design the mix around that."
+)
+
 
 # ---------------------------------------------------------------------------
 # Core pipeline orchestration
@@ -467,12 +477,19 @@ async def compute_allocation_result(
     chat_session_id: uuid.UUID | None = None,
     spine_mode: str | None = None,
     chat_ctx: TurnContext | None = None,
+    gate_on_zero_corpus: bool = False,
 ) -> AllocationRunOutcome:
     """Build inputs, run the 7-step pipeline, optionally persist, and return.
 
     Tolerant of partial profiles — missing DOB / risk profile / tax profile /
     investment profile / goals all degrade to documented defaults in the
     input_builder. The engine still runs and produces an answer.
+
+    ``gate_on_zero_corpus`` (opt-in) short-circuits a corpus-0 user with a
+    redirect instead of an all-zero allocation. Only the STANDALONE user-facing
+    callers set it — the rebalancing flow reuses this same computation and must
+    NOT be gated (its corpus comes from holdings and a zero there is a data edge,
+    not a "you have nothing to invest" signal), so the default is off.
     """
     trace_line("module: asset_allocation — building inputs")
 
@@ -510,6 +527,16 @@ async def compute_allocation_result(
         f"allocation input: age={alloc_input.age}, corpus={alloc_input.total_corpus}, "
         f"goals={len(alloc_input.goals)}"
     )
+
+    # No investable corpus (no CAMS, nothing self-reported): the engine scales
+    # every amount and percentage by the corpus, so at 0 it renders an all-zero
+    # allocation that reads as broken. Return a redirect instead of running the
+    # pipeline — the no-CAMS cohort is pointed at CAMS upload or a SIP. Opt-in so
+    # only the standalone allocation callers gate; rebalancing (which chains this
+    # computation) is never short-circuited here.
+    if gate_on_zero_corpus and alloc_input.total_corpus <= 0:
+        trace_line("asset_allocation: zero corpus — returning no-corpus gate")
+        return AllocationRunOutcome(result=None, blocking_message=_MSG_NO_CORPUS)
 
     api_key = get_settings().get_anthropic_asset_allocation_key()
     if not api_key:
@@ -664,6 +691,7 @@ async def generate_asset_allocation_response(
         persist_recommendation=persist_recommendation,
         acting_user_id=acting_user_id,
         spine_mode="api_asset_allocation",
+        gate_on_zero_corpus=True,
     )
     if outcome.blocking_message:
         return outcome.blocking_message
