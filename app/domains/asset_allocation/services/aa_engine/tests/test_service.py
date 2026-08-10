@@ -19,6 +19,136 @@ from app.domains.asset_allocation.services.aa_engine.service import (
 )
 
 
+@pytest.mark.asyncio
+async def test_zero_corpus_is_gated_with_a_redirect():
+    """A corpus-0 user (no CAMS, nothing self-reported) gets a short redirect
+    instead of the all-zero allocation the engine would otherwise render — the
+    guard fires before the pipeline, so no API key is needed."""
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from app.domains.asset_allocation.services.aa_engine import service as svc
+
+    zero_input = AllocationInput(
+        effective_risk_score=7.0,
+        age=35,
+        annual_income=1_000_000,
+        osi=0.0,
+        savings_rate_adjustment="none",
+        gap_exceeds_3=False,
+        total_corpus=0,
+        monthly_household_expense=50_000,
+        tax_regime="new",
+        effective_tax_rate=25.0,
+        goals=[],
+    )
+    no_key = MagicMock()
+    no_key.get_anthropic_asset_allocation_key.return_value = None
+
+    with patch.object(
+        svc,
+        "build_goal_allocation_input_for_user",
+        new=MagicMock(return_value=(zero_input, {})),
+    ), patch.object(svc, "get_settings", new=MagicMock(return_value=no_key)):
+        outcome = await svc.compute_allocation_result(
+            SimpleNamespace(id=uuid.uuid4()),
+            "how should I invest my money",
+            chat_ctx=SimpleNamespace(),
+            gate_on_zero_corpus=True,
+        )
+
+    assert outcome.result is None
+    assert outcome.blocking_message == svc._MSG_NO_CORPUS
+
+
+@pytest.mark.asyncio
+async def test_zero_corpus_not_gated_when_flag_off():
+    """The guard is opt-in: a chained/internal caller (e.g. the rebalancing flow,
+    which reuses this computation) must NOT be short-circuited at corpus 0. With
+    the flag off it proceeds past the guard to the downstream API-key check."""
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from app.domains.asset_allocation.services.aa_engine import service as svc
+
+    zero_input = AllocationInput(
+        effective_risk_score=7.0,
+        age=35,
+        annual_income=1_000_000,
+        osi=0.0,
+        savings_rate_adjustment="none",
+        gap_exceeds_3=False,
+        total_corpus=0,
+        monthly_household_expense=50_000,
+        tax_regime="new",
+        effective_tax_rate=25.0,
+        goals=[],
+    )
+    no_key = MagicMock()
+    no_key.get_anthropic_asset_allocation_key.return_value = None
+
+    with patch.object(
+        svc,
+        "build_goal_allocation_input_for_user",
+        new=MagicMock(return_value=(zero_input, {})),
+    ), patch.object(svc, "get_settings", new=MagicMock(return_value=no_key)):
+        outcome = await svc.compute_allocation_result(
+            SimpleNamespace(id=uuid.uuid4()),
+            "rebalance my portfolio",
+            spine_mode="rebalance_chained",
+            chat_ctx=SimpleNamespace(),
+            # gate_on_zero_corpus omitted → default False (the rebalancing path)
+        )
+
+    assert outcome.blocking_message != svc._MSG_NO_CORPUS
+    assert outcome.blocking_message == svc._MSG_NO_API_KEY
+
+
+@pytest.mark.asyncio
+async def test_positive_corpus_skips_the_no_corpus_guard():
+    """A CAMS/funded user (corpus > 0) must NOT hit the zero-corpus guard — proven
+    by reaching the downstream API-key check instead of the no-corpus redirect."""
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from app.domains.asset_allocation.services.aa_engine import service as svc
+
+    funded_input = AllocationInput(
+        effective_risk_score=5.5,
+        age=40,
+        annual_income=2_000_000,
+        osi=0.0,
+        savings_rate_adjustment="none",
+        gap_exceeds_3=False,
+        total_corpus=8_000_000,
+        monthly_household_expense=80_000,
+        tax_regime="new",
+        effective_tax_rate=30.0,
+        goals=[],
+    )
+    no_key = MagicMock()
+    no_key.get_anthropic_asset_allocation_key.return_value = None
+
+    with patch.object(
+        svc,
+        "build_goal_allocation_input_for_user",
+        new=MagicMock(return_value=(funded_input, {})),
+    ), patch.object(svc, "get_settings", new=MagicMock(return_value=no_key)):
+        outcome = await svc.compute_allocation_result(
+            SimpleNamespace(id=uuid.uuid4()),
+            "how should I invest my money",
+            chat_ctx=SimpleNamespace(),
+            gate_on_zero_corpus=True,
+        )
+
+    # Reached the API-key gate → it passed the corpus guard untouched.
+    assert outcome.blocking_message == svc._MSG_NO_API_KEY
+    assert outcome.blocking_message != svc._MSG_NO_CORPUS
+
+
 @pytest.fixture
 def sample_output():
     inp = AllocationInput(

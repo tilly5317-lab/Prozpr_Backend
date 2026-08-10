@@ -573,6 +573,7 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
         spine_mode="full",
+        gate_on_zero_corpus=True,
     )
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -618,6 +619,7 @@ async def _counterfactual_explore(
         chat_session_id=ctx.session_id,
         spine_mode="counterfactual",
         chat_ctx=chat_ctx,
+        gate_on_zero_corpus=True,
     )
 
     if outcome.blocking_message:
