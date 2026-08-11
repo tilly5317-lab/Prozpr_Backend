@@ -228,6 +228,27 @@ async def apply_postgres_schema_patches() -> None:
                 "TIMESTAMP WITH TIME ZONE"
             )
         )
+        # ORM/column drift: User.pin_reset_* — forgot-PIN reset codes emailed
+        # via Resend. The code is stored hashed with an expiry and a wrong-guess
+        # counter; all three are cleared once a reset succeeds.
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_reset_code_hash "
+                "VARCHAR(255)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_reset_expires_at "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_reset_attempts "
+                "SMALLINT NOT NULL DEFAULT 0"
+            )
+        )
         # ORM/column drift: ChatSession.rating — user's 1–5 rating of Pi, one per
         # conversation. Added after the table first shipped.
         await conn.execute(

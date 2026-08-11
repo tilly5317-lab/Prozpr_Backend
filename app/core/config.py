@@ -435,6 +435,27 @@ class Settings:
         """Inbox that receives issue-report notifications."""
         return (_getenv("SUPPORT_EMAIL_TO") or "support@prozpr.com").strip()
 
+    # ── Forgot-PIN reset codes (identity domain): Resend ───────────────────
+    # Deliberately NOT the Zoho SMTP mailbox above: that one is a shared
+    # support inbox wired to issue reports, and reset codes are per-user mail
+    # that needs its own sender reputation and rate profile. Resend is used for
+    # this one purpose and nothing else.
+    @staticmethod
+    def get_resend_api_key() -> str | None:
+        """Resend API key. When unset, a reset code is never emailed and
+        `/auth/pin-reset/request` reports the channel as unavailable rather
+        than silently pretending a mail went out."""
+        v = (_getenv("RESEND_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_resend_from_email() -> str:
+        """Sender for reset codes. Resend only delivers to arbitrary recipients
+        from a VERIFIED domain; the `onboarding@resend.dev` default reaches the
+        Resend account owner's own address only, which is fine for testing but
+        must be swapped for a prozpr.in sender before real users rely on it."""
+        return (_getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev").strip()
+
     @staticmethod
     def get_issue_sheet_webhook_url() -> str | None:
         """Google Apps Script web-app URL that appends a row to the shared
