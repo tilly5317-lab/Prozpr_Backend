@@ -450,11 +450,19 @@ class Settings:
 
     @staticmethod
     def get_resend_from_email() -> str:
-        """Sender for reset codes. Resend only delivers to arbitrary recipients
-        from a VERIFIED domain; the `onboarding@resend.dev` default reaches the
-        Resend account owner's own address only, which is fine for testing but
-        must be swapped for a prozpr.in sender before real users rely on it."""
-        return (_getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev").strip()
+        """Sender for reset codes.
+
+        REQUIRES the prozpr.com domain to be verified in Resend — until then
+        Resend rejects the send outright (it only delivers from a verified
+        domain, or to the account owner's own address via onboarding@resend.dev).
+        That is why the forgot-PIN entry point ships disabled in the UI.
+        """
+        return (_getenv("RESEND_FROM_EMAIL") or "support@prozpr.com").strip()
+
+    @staticmethod
+    def get_resend_from_name() -> str:
+        """Display name on the From header, e.g. `Prozpr <support@prozpr.com>`."""
+        return (_getenv("RESEND_FROM_NAME") or "Prozpr").strip()
 
     @staticmethod
     def get_issue_sheet_webhook_url() -> str | None:
