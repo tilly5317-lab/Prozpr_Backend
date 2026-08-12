@@ -171,6 +171,14 @@ async def check_mobile(
     return MobileStatusResponse(
         exists=True,
         is_onboarding_complete=user.is_onboarding_complete,
+        # Masked, so the reset screen can say WHICH inbox to open before it
+        # sends anything. This endpoint already answers `exists` for any number
+        # a caller cares to try, so the fact of registration is disclosed here
+        # with or without the hint; the hint adds a partial address on top. The
+        # same masked value already comes back from /pin-reset/request, so this
+        # discloses nothing new — it removes the need to spend a real email to
+        # obtain it. Never return the address unmasked.
+        email_hint=_mask_email(user.email) if user.email else None,
     )
 
 

@@ -296,6 +296,11 @@ class MobileLookupRequest(BaseModel):
 class MobileStatusResponse(BaseModel):
     exists: bool
     is_onboarding_complete: bool = False
+    # Masked (`j••••••n@gmail.com`), never the address itself, so the reset
+    # screen can name the inbox a code will go to before spending a mail. Only
+    # ever set when `exists` is already True, which is what actually discloses
+    # that the number is registered — see the router for the full reasoning.
+    email_hint: str | None = None
 
 
 # Backward-compatible alias
