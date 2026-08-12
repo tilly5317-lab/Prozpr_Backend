@@ -452,10 +452,11 @@ class Settings:
     def get_resend_from_email() -> str:
         """Sender for reset codes.
 
-        REQUIRES the prozpr.com domain to be verified in Resend — until then
-        Resend rejects the send outright (it only delivers from a verified
-        domain, or to the account owner's own address via onboarding@resend.dev).
-        That is why the forgot-PIN entry point ships disabled in the UI.
+        REQUIRES this address's domain to be verified in Resend (DNS records) —
+        without it Resend rejects the send outright, since it delivers only from
+        a verified domain, or to the account owner's own address via
+        onboarding@resend.dev. Point this at whichever domain is actually
+        verified; a mismatch fails every send with a 403.
         """
         return (_getenv("RESEND_FROM_EMAIL") or "support@prozpr.com").strip()
 
