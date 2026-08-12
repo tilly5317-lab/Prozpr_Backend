@@ -458,7 +458,9 @@ class Settings:
         onboarding@resend.dev. Point this at whichever domain is actually
         verified; a mismatch fails every send with a 403.
         """
-        return (_getenv("RESEND_FROM_EMAIL") or "support@prozpr.com").strip()
+        return (
+            _getenv("RESEND_FROM_EMAIL") or "no-reply@notifications.prozpr.com"
+        ).strip()
 
     @staticmethod
     def get_resend_from_name() -> str:

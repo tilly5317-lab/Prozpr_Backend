@@ -457,10 +457,35 @@ async def update_my_pin(
 # quickly and is capped at a few wrong guesses.
 _PIN_RESET_TTL_MINUTES = 10
 _PIN_RESET_MAX_ATTEMPTS = 5
+# One mail a minute per account. The endpoint is unauthenticated by necessity,
+# so without this anyone who knows a registered number can drive it in a loop
+# and bury that inbox — and spend the mail quota doing it.
+_PIN_RESET_RESEND_COOLDOWN_S = 60
 _PIN_RESET_SENT_MESSAGE = (
     "If that number has an account with an email address, a reset code is on "
     "its way."
 )
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Postgres hands back tz-aware datetimes; SQLite (tests) hands back naive
+    ones. Comparing a naive value against `now(timezone.utc)` raises, so pin
+    both ends to UTC before any arithmetic."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _within_resend_cooldown(expires_at: datetime | None, now: datetime) -> bool:
+    """Was a code mailed to this account within the cooldown?
+
+    Derived from the expiry rather than a separate "last sent" column: the
+    expiry is written at send time and is always issue time plus a fixed TTL,
+    so the send instant is recoverable from it. Kept a pure function so the
+    window can be tested without a database.
+    """
+    if expires_at is None:
+        return False
+    issued_at = _as_utc(expires_at) - timedelta(minutes=_PIN_RESET_TTL_MINUTES)
+    return (now - issued_at).total_seconds() < _PIN_RESET_RESEND_COOLDOWN_S
 
 
 def _mask_email(email: str) -> str:
@@ -495,11 +520,25 @@ async def request_pin_reset(
             expires_in_minutes=_PIN_RESET_TTL_MINUTES,
         )
 
+    now = datetime.now(timezone.utc)
+
+    # Throttle before spending a mail.
+    if _within_resend_cooldown(user.pin_reset_expires_at, now):
+        # Answered exactly like a real send, NOT a 429. A 429 can only happen
+        # for a number that HAS an account, which would hand back the very fact
+        # the generic answer above exists to hide. Nothing is lost by staying
+        # quiet: the code already in their inbox is still live, so "a code is
+        # on its way" remains true.
+        logger.info("PIN reset throttled (cooldown) for user_id=%s", user.id)
+        return PinResetRequestResponse(
+            message=_PIN_RESET_SENT_MESSAGE,
+            email_hint=_mask_email(user.email),
+            expires_in_minutes=_PIN_RESET_TTL_MINUTES,
+        )
+
     code = f"{secrets.randbelow(10**PIN_RESET_CODE_DIGITS):0{PIN_RESET_CODE_DIGITS}d}"
     user.pin_reset_code_hash = hash_password(code)
-    user.pin_reset_expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=_PIN_RESET_TTL_MINUTES
-    )
+    user.pin_reset_expires_at = now + timedelta(minutes=_PIN_RESET_TTL_MINUTES)
     # A fresh request resets the counter — the previous code is now dead, so
     # its failed guesses shouldn't be held against the new one.
     user.pin_reset_attempts = 0
@@ -543,11 +582,7 @@ async def confirm_pin_reset(
     if not user or not user.pin_reset_code_hash or not user.pin_reset_expires_at:
         raise invalid
 
-    expires_at = user.pin_reset_expires_at
-    if expires_at.tzinfo is None:
-        # Postgres returns tz-aware values, but SQLite (tests) does not.
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < datetime.now(timezone.utc):
+    if _as_utc(user.pin_reset_expires_at) < datetime.now(timezone.utc):
         raise invalid
 
     if user.pin_reset_attempts >= _PIN_RESET_MAX_ATTEMPTS:
