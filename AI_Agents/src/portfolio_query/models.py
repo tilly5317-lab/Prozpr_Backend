@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
-
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -10,45 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 # ---------------------------------------------------------------------------
 
 
-class ConversationTurn(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-
-
 _DEFAULT_REDIRECT = (
     "That's outside what I can help with here — I can answer questions about "
     "your own portfolio and the current market outlook."
 )
-
-
-class PortfolioQueryResponse(BaseModel):
-    answer: Optional[str] = None
-    guardrail_triggered: bool
-    redirect_message: Optional[str] = None
-    # The agent's opinion that this question belongs to a different specialist.
-    # REPORTED, NEVER ACTED ON — the reply is unaffected. The app layer records
-    # it so we can measure how often the router and the agents disagree before
-    # deciding whether a routing handoff is worth building.
-    suggested_intent: Optional[str] = None
-    # Which of the skill's three paths the agent took: X (out of scope), M
-    # (market question) or P (portfolio question). Reported for telemetry only —
-    # the choice already shaped the reply; nothing downstream branches on it.
-    path: Optional[str] = None
-
-    @model_validator(mode="after")
-    def _enforce_guardrail_contract(self) -> "PortfolioQueryResponse":
-        """Deterministic backstop for the guardrail contract.
-
-        The bridge renders ``answer or redirect_message``, so a populated
-        ``answer`` always wins. If the guardrail fires we must guarantee no
-        out-of-scope ``answer`` reaches the customer — even when the LLM forgets
-        to null it. Clear ``answer`` and ensure a redirect is present.
-        """
-        if self.guardrail_triggered:
-            self.answer = None
-            if not (self.redirect_message and self.redirect_message.strip()):
-                self.redirect_message = _DEFAULT_REDIRECT
-        return self
 
 
 # ---------------------------------------------------------------------------

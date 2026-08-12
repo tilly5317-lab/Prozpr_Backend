@@ -20,12 +20,13 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
+from app.domains.identity.models.user import User
 from app.domains.ingestion.schemas import (
     CamsCapabilitiesResponse,
     CamsPdfImportResponse,
@@ -312,6 +313,15 @@ async def ingest_cams_statement_pdf(
         ) from exc
 
     await maybe_recalculate_effective_risk(db, current_user.id, "cams_pdf_ingest")
+    # The user now HAS a statement, so any earlier "I'll do this later" choice on
+    # the onboarding CAMS step is moot — clear it so the flag never outlives the
+    # condition it describes.
+    if result.status != "FAILED":
+        await db.execute(
+            update(User)
+            .where(User.id == current_user.id, User.cams_skipped_at.is_not(None))
+            .values(cams_skipped_at=None)
+        )
     await db.commit()
 
     # Auto-build the real net-worth history (NAV fetch + daily series) so the

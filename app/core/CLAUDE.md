@@ -8,12 +8,13 @@ No business logic — only the infra every domain depends on.
 - `database.py` — `Base` (`DeclarativeBase`), async engine + session factory, `get_db()` dependency, `create_all_tables`, `dispose_engine`, `apply_postgres_schema_patches`.
 - `dependencies.py` — `get_current_user` JWT auth; `get_effective_user` family-member resolver (reads `X-Family-Member-Id` header); `get_ai_user_context` User-with-relations loader for AI handlers.
 - `security.py` — password hashing (`bcrypt`) + JWT encode/decode.
-- `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops background schedulers, each gated by its own env flag (`MFAPI_SCHEDULER_ENABLED`, `BENCHMARK_SCHEDULER_ENABLED` — legacy alias `INDEX_TRI_SCHEDULER_ENABLED` still honoured, `config.py:359`).
+- `lifespan.py` — FastAPI startup/shutdown; `_start_schedulers()` starts/stops background schedulers, each gated by its own env flag (`MFAPI_SCHEDULER_ENABLED`, `BENCHMARK_SCHEDULER_ENABLED` — legacy alias `INDEX_TRI_SCHEDULER_ENABLED` still honoured, `config.py:387`).
 - `exceptions.py` — `register_exception_handlers(app)` (called once from `app/main.py`) maps known errors to stable JSON: `ValidationError` → 422 (logs field NAMES only — `str(exc)` embeds submitted values); `ClientDisconnect` → 499; DB auth / host-unreachable / connection-closed → 503; else → 500 reported to PostHog via `capture_exception()`.
 - `observability.py` — PostHog client lifecycle, `capture_exception()` for 5xx, and `capture_http_request()` + the two OTel hooks that emit the durable per-request event.
 - `otel.py` — OTel bootstrap: tracer + logger providers exporting over OTLP to PostHog (`/i/v1/traces`, `/i/v1/logs`), authenticated with the same `phc_` project token. `attach_otel_logging()` ships stdlib logs at WARNING+; `_ServedPathSampler` (wrapped in `ParentBased`) keeps unserved paths out of the span pipeline; `shutdown_otel()` flushes both.
 - `job_tracing.py` — spans + Error Tracking for background jobs: `traced_job` (decorator, no re-indent), `job_span` (run/phase), `report_job_failure` (for already-caught exceptions), and a re-export of `suppress_instrumentation`.
 - `log_scrubber.py` — `LogRecordProcessor` redacting phone/PAN/email from log bodies before export. Defence-in-depth; call sites still must not log PII.
+- `progress.py` — in-process progress store: long synchronous computes (rebalancing plan, SIP fund split) write stage/% here for a companion polling GET. Single-instance; entries expire after `_TTL_S` so a crashed compute never reads as stuck.
 
 ## Gotchas & invariants
 

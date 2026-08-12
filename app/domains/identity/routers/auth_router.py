@@ -6,8 +6,9 @@ Declares HTTP routes, dependencies (auth, DB session, user context), and maps re
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -16,6 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
+from app.domains.identity.services.pin_reset_email_service import (
+    ResendNotConfigured,
+    ResendSendFailed,
+    send_pin_reset_code,
+)
 from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import PersonalFinanceProfile
 from app.domains.identity.models.user import User
@@ -25,6 +31,11 @@ from app.domains.identity.schemas.auth import (
     LoginResponse,
     MobileLookupRequest,
     MobileStatusResponse,
+    PIN_RESET_CODE_DIGITS,
+    PinResetConfirmRequest,
+    PinResetRequestRequest,
+    PinResetRequestResponse,
+    PinUpdateRequest,
     SignUpRequest,
     SignUpResponse,
     UserUpdateRequest,
@@ -160,6 +171,14 @@ async def check_mobile(
     return MobileStatusResponse(
         exists=True,
         is_onboarding_complete=user.is_onboarding_complete,
+        # Masked, so the reset screen can say WHICH inbox to open before it
+        # sends anything. This endpoint already answers `exists` for any number
+        # a caller cares to try, so the fact of registration is disclosed here
+        # with or without the hint; the hint adds a partial address on top. The
+        # same masked value already comes back from /pin-reset/request, so this
+        # discloses nothing new — it removes the need to spend a real email to
+        # obtain it. Never return the address unmasked.
+        email_hint=_mask_email(user.email) if user.email else None,
     )
 
 
@@ -353,6 +372,7 @@ async def me(current_user: CurrentUser = Depends(get_current_user)):
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         is_onboarding_complete=current_user.is_onboarding_complete,
+        cams_skipped=current_user.cams_skipped_at is not None,
     )
 
 
@@ -402,4 +422,197 @@ async def update_me(
         first_name=user.first_name,
         last_name=user.last_name,
         is_onboarding_complete=user.is_onboarding_complete,
+        cams_skipped=user.cams_skipped_at is not None,
     )
+
+
+@router.put("/me/pin", status_code=status.HTTP_204_NO_CONTENT)
+async def update_my_pin(
+    payload: PinUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    """Change the signed-in user's sign-in PIN.
+
+    Deliberately separate from ``PUT /me``: that endpoint sets whatever fields
+    it is given, and a credential must not be changeable by the same call that
+    edits a display name. ``/signup`` refuses to overwrite an existing
+    ``password_hash``, so before this endpoint a forgotten PIN had no in-app
+    recovery path at all.
+    """
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if user.password_hash and not (
+        payload.current_pin and verify_password(payload.current_pin, user.password_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current PIN is incorrect",
+        )
+
+    user.password_hash = hash_password(payload.new_pin)
+    await db.commit()
+
+
+# ── Forgot PIN ─────────────────────────────────────────────────────────────
+# Unauthenticated by necessity: the whole point is that the user cannot sign
+# in. The code is emailed (Resend), stored only as a bcrypt hash, expires
+# quickly and is capped at a few wrong guesses.
+_PIN_RESET_TTL_MINUTES = 10
+_PIN_RESET_MAX_ATTEMPTS = 5
+# One mail a minute per account. The endpoint is unauthenticated by necessity,
+# so without this anyone who knows a registered number can drive it in a loop
+# and bury that inbox — and spend the mail quota doing it.
+_PIN_RESET_RESEND_COOLDOWN_S = 60
+_PIN_RESET_SENT_MESSAGE = (
+    "If that number has an account with an email address, a reset code is on "
+    "its way."
+)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Postgres hands back tz-aware datetimes; SQLite (tests) hands back naive
+    ones. Comparing a naive value against `now(timezone.utc)` raises, so pin
+    both ends to UTC before any arithmetic."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _within_resend_cooldown(expires_at: datetime | None, now: datetime) -> bool:
+    """Was a code mailed to this account within the cooldown?
+
+    Derived from the expiry rather than a separate "last sent" column: the
+    expiry is written at send time and is always issue time plus a fixed TTL,
+    so the send instant is recoverable from it. Kept a pure function so the
+    window can be tested without a database.
+    """
+    if expires_at is None:
+        return False
+    issued_at = _as_utc(expires_at) - timedelta(minutes=_PIN_RESET_TTL_MINUTES)
+    return (now - issued_at).total_seconds() < _PIN_RESET_RESEND_COOLDOWN_S
+
+
+def _mask_email(email: str) -> str:
+    """`jonathan@gmail.com` -> `j••••••n@gmail.com`; enough for the user to
+    recognise which inbox to open, not enough to disclose the address."""
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "•••"
+    if len(local) <= 2:
+        masked = local[0] + "•" if local else "•"
+    else:
+        masked = f"{local[0]}{'•' * (len(local) - 2)}{local[-1]}"
+    return f"{masked}@{domain}"
+
+
+@router.post("/pin-reset/request", response_model=PinResetRequestResponse)
+async def request_pin_reset(
+    payload: PinResetRequestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    phone = full_phone(payload.country_code, payload.mobile)
+    result = await db.execute(select(User).where(User.phone == phone))
+    user = result.scalar_one_or_none()
+
+    # Unknown number, or an account with no email on file: answer exactly as if
+    # a mail had been sent. Anything else turns this endpoint into a way to
+    # enumerate which phone numbers are registered.
+    if not user or not user.email:
+        return PinResetRequestResponse(
+            message=_PIN_RESET_SENT_MESSAGE,
+            email_hint=None,
+            expires_in_minutes=_PIN_RESET_TTL_MINUTES,
+        )
+
+    now = datetime.now(timezone.utc)
+
+    # Throttle before spending a mail.
+    if _within_resend_cooldown(user.pin_reset_expires_at, now):
+        # Answered exactly like a real send, NOT a 429. A 429 can only happen
+        # for a number that HAS an account, which would hand back the very fact
+        # the generic answer above exists to hide. Nothing is lost by staying
+        # quiet: the code already in their inbox is still live, so "a code is
+        # on its way" remains true.
+        logger.info("PIN reset throttled (cooldown) for user_id=%s", user.id)
+        return PinResetRequestResponse(
+            message=_PIN_RESET_SENT_MESSAGE,
+            email_hint=_mask_email(user.email),
+            expires_in_minutes=_PIN_RESET_TTL_MINUTES,
+        )
+
+    code = f"{secrets.randbelow(10**PIN_RESET_CODE_DIGITS):0{PIN_RESET_CODE_DIGITS}d}"
+    user.pin_reset_code_hash = hash_password(code)
+    user.pin_reset_expires_at = now + timedelta(minutes=_PIN_RESET_TTL_MINUTES)
+    # A fresh request resets the counter — the previous code is now dead, so
+    # its failed guesses shouldn't be held against the new one.
+    user.pin_reset_attempts = 0
+    await db.commit()
+
+    try:
+        await send_pin_reset_code(user.email, code, _PIN_RESET_TTL_MINUTES)
+    except ResendNotConfigured:
+        logger.warning("PIN reset requested but RESEND_API_KEY is not set")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PIN reset by email isn't available right now.",
+        ) from None
+    except ResendSendFailed as exc:
+        logger.warning("PIN reset mail failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't send the reset email. Please try again.",
+        ) from None
+
+    return PinResetRequestResponse(
+        message=_PIN_RESET_SENT_MESSAGE,
+        email_hint=_mask_email(user.email),
+        expires_in_minutes=_PIN_RESET_TTL_MINUTES,
+    )
+
+
+@router.post("/pin-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_pin_reset(
+    payload: PinResetConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    phone = full_phone(payload.country_code, payload.mobile)
+    result = await db.execute(select(User).where(User.phone == phone))
+    user = result.scalar_one_or_none()
+
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="That code is invalid or has expired. Request a new one.",
+    )
+    if not user or not user.pin_reset_code_hash or not user.pin_reset_expires_at:
+        raise invalid
+
+    if _as_utc(user.pin_reset_expires_at) < datetime.now(timezone.utc):
+        raise invalid
+
+    if user.pin_reset_attempts >= _PIN_RESET_MAX_ATTEMPTS:
+        # Burn the code rather than leaving a throttled-but-live target.
+        _clear_pin_reset(user)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many incorrect codes. Request a new one.",
+        )
+
+    if not verify_password(payload.code, user.pin_reset_code_hash):
+        user.pin_reset_attempts += 1
+        await db.commit()
+        raise invalid
+
+    user.password_hash = hash_password(payload.new_pin)
+    _clear_pin_reset(user)
+    await db.commit()
+
+
+def _clear_pin_reset(user: User) -> None:
+    user.pin_reset_code_hash = None
+    user.pin_reset_expires_at = None
+    user.pin_reset_attempts = 0

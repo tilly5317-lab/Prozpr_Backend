@@ -35,6 +35,7 @@ from app.domains.ai_engine.answer_formatter import (
     format_with_telemetry,
 )
 from app.domains.ai_engine.classifier_llm import classify_action
+from app.domains.profile.services import profile_finance as pf
 from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
@@ -572,6 +573,7 @@ async def _first_turn_run_engine(ctx: TurnContext) -> ChatHandlerResult:
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
         spine_mode="full",
+        gate_on_zero_corpus=True,
     )
     if outcome.blocking_message:
         return ChatHandlerResult(text=outcome.blocking_message)
@@ -617,6 +619,7 @@ async def _counterfactual_explore(
         chat_session_id=ctx.session_id,
         spine_mode="counterfactual",
         chat_ctx=chat_ctx,
+        gate_on_zero_corpus=True,
     )
 
     if outcome.blocking_message:
@@ -798,9 +801,16 @@ async def _format_or_fallback(
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""
     current_mix = compute_current_asset_class_mix(ctx.user_ctx)
+    # Income feeds the allocation engine but isn't in its client_summary, so
+    # pass it into the facts pack directly — same source input_builder reads.
+    annual_income = pf.annual_income_pfp(
+        getattr(ctx.user_ctx, "personal_finance_profile", None)
+    )
     return await format_with_telemetry(
         ctx=ctx,
-        facts_pack=build_aa_facts_pack(output, current_mix=current_mix),
+        facts_pack=build_aa_facts_pack(
+            output, current_mix=current_mix, annual_income=annual_income
+        ),
         body_prompt=_AA_FORMATTER_BODY,
         module_name="asset_allocation",
         action_mode=action_mode,

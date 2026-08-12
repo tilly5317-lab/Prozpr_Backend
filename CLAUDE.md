@@ -5,7 +5,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, practical_asset_allocation, cashflow_statement, Rebalancing, additional_investment, intent_classifier, market_commentary, portfolio_query, mutual_fund_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library and the shared `common.py` / `persona.py` / `reasoned_reply.py` / `token_stream.py`; via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
+- **AI_Agents/src/** — Agent pipelines (one self-contained agent per subfolder) plus the `financial_primitives/` numeric-kernel library and shared helpers (`common.py`, `persona.py`, `reasoned_reply.py`, `token_stream.py`), loaded via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
 - **alembic/** — Database migrations.
 - **migrations/** — Hand-written raw SQL migration scripts (under `sql/`) for asset-allocation schema changes; applied manually, distinct from the Alembic-managed `alembic/` migrations.
 - **notebooks/** — DEV-ONLY exploration Jupyter notebooks (e.g. a portfolio-vs-Nifty-50 benchmark prototype). Not imported by runtime.
@@ -50,7 +50,7 @@ Cross-cutting flows live with their home folders:
 ## Don't read
 
 - `__pycache__/`, `.pytest_cache/`, `.venv/`, `.obsidian/` — build/editor caches.
-- `*.db`, `*.db.bak-*`, `*.db.partial-*`, `*.db.probe-artifact-*` — local SQLite dev state.
+- `*.db`, `*.db.*` — local SQLite dev state (live DB plus backup/restore/probe sidecars).
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
 - `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding: `specs/`, `plans/`, `notes/`). Not product code.
 

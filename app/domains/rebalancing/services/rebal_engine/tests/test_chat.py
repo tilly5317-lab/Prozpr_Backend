@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime
 import importlib
 import unittest
@@ -249,7 +250,10 @@ class HandleRoutingTests(unittest.TestCase):
             result = asyncio.run(mod.handle(_ctx("rebalance my portfolio")))
         self.assertEqual(result.text, "tailored")
 
-    def test_followup_clarify_bypasses_formatter(self):
+    def test_followup_clarify_goes_through_the_formatter_as_gather(self):
+        # The detector's question is a classifier artifact. Returning it raw
+        # skipped PI's voice and wrote no telemetry row, which left the
+        # repeat-guard below with nothing to read.
         action = mod.RebalanceAction(
             mode="clarify", clarification_question="Which fund?"
         )
@@ -257,16 +261,55 @@ class HandleRoutingTests(unittest.TestCase):
             patch.object(
                 mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
             ),
-            patch(
-                "app.domains.ai_engine.answer_formatter.formatter.format_answer",
-                new=AsyncMock(),
-            ) as fmt,
+            patch.object(mod, "_last_action_mode", new=AsyncMock(return_value=None)),
+            patch.object(
+                mod, "format_relay_or_canned", new=AsyncMock(return_value="asked nicely")
+            ) as relay,
         ):
             result = asyncio.run(
                 mod.handle(_ctx("change something", last_run=_agent_run()))
             )
-        self.assertEqual(result.text, "Which fund?")
-        fmt.assert_not_called()
+        self.assertEqual(result.text, "asked nicely")
+        relay.assert_awaited_once()
+        self.assertEqual(relay.await_args.kwargs["action_mode"], "gather")
+        self.assertEqual(relay.await_args.kwargs["message"], "Which fund?")
+
+    def test_clarify_twice_in_a_row_narrates_instead_of_re_asking(self):
+        # The bug: a customer disputing a number reads as "a direction without a
+        # value", so the detector emitted clarify four turns running and asked the
+        # same question twice AFTER they had answered it. One ask, then answer.
+        action = mod.RebalanceAction(
+            mode="clarify", clarification_question="Which row shows that?"
+        )
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(
+                mod, "_last_action_mode", new=AsyncMock(return_value="gather")
+            ),
+            patch.object(mod, "format_relay_or_canned", new=AsyncMock()) as relay,
+            patch.object(mod, "compute_rebalancing_result", new=AsyncMock()) as engine,
+            patch.object(mod, "_rehydrate_response", return_value=MagicMock()),
+            patch.object(
+                mod, "build_fallback_rebal_brief", return_value="fallback"
+            ),
+            patch.object(
+                mod,
+                "_format_or_fallback_rebal",
+                new=AsyncMock(return_value="here are your numbers"),
+            ) as fmt,
+        ):
+            result = asyncio.run(
+                mod.handle(
+                    _ctx("I am trying to understand why there is a discrepancy",
+                         last_run=_agent_run())
+                )
+            )
+        self.assertEqual(result.text, "here are your numbers")
+        relay.assert_not_awaited()  # did NOT ask again
+        engine.assert_not_awaited()  # and did not re-run the engine to do it
+        self.assertEqual(fmt.await_args.kwargs["action_mode"], "narrate")
 
     def test_followup_narrate_does_not_re_run_engine(self):
         action = mod.RebalanceAction(mode="narrate")
@@ -596,6 +639,21 @@ class NarrateFallbackTests(unittest.TestCase):
                 )
             )
         self.assertIn("redo the trades", result.text)
+
+
+class LastActionModeTests(unittest.TestCase):
+    """The clarify guard reads this on every clarify — it must never break a turn."""
+
+    def test_returns_none_without_a_session(self):
+        ctx = _ctx("anything")
+        ctx = dataclasses.replace(ctx, db=None)
+        self.assertIsNone(asyncio.run(mod._last_action_mode(ctx)))
+
+    def test_a_broken_query_degrades_to_none_instead_of_raising(self):
+        # _ctx hands us a MagicMock db, so begin_nested() is not an async context
+        # manager and blows up — the same shape as a schema/driver failure. The
+        # turn must continue (asking once more is the safe direction).
+        self.assertIsNone(asyncio.run(mod._last_action_mode(_ctx("anything"))))
 
 
 if __name__ == "__main__":

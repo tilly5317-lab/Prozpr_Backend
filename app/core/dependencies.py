@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -34,6 +35,11 @@ class CurrentUser:
     last_name: Optional[str] = None
     is_active: bool = True
     is_onboarding_complete: bool = False
+    # None unless the user chose "I'll do this later" on the CAMS onboarding
+    # step. Carried here (rather than re-queried) because the User row is
+    # already loaded — every surface that needs "did they skip CAMS?" reads it
+    # off /auth/me for free.
+    cams_skipped_at: Optional[datetime] = None
 
 
 async def get_current_user(
@@ -78,6 +84,7 @@ async def get_current_user(
         last_name=user.last_name,
         is_active=user.is_active,
         is_onboarding_complete=user.is_onboarding_complete,
+        cams_skipped_at=user.cams_skipped_at,
     )
 
 
@@ -137,6 +144,7 @@ async def get_effective_user(
         last_name=member_user.last_name,
         is_active=member_user.is_active,
         is_onboarding_complete=member_user.is_onboarding_complete,
+        cams_skipped_at=member_user.cams_skipped_at,
     )
 
 

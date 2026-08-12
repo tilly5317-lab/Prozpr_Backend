@@ -8,7 +8,7 @@
 - `service.py` — orchestrator: input building, API-key resolution, async thread offload, step tracing, optional persistence, markdown formatting.
 - `input_builder.py` — builds `AllocationInput` from a `User` ORM row, reading persisted DB rows only (no live `risk_profiling` call); absent risk row → score 7.0.
 - `overrides.py` — per-turn chat override allow-list (`effective_param`, `with_chat_overrides`); unknown key raises `ValueError`.
-- `chat.py` — the asset_allocation-intent chat handler; classifies the turn (clarify / recompute / counterfactual / redirect) then dispatches.
+- `chat.py` — the asset_allocation-intent chat handler; classifies the turn (narrate / educate / clarify / counterfactual_explore / recompute_full / redirect) then dispatches.
 - `allocation_tables_md.py` — deterministic markdown tables over `GoalAllocationOutput` (DB-parity view).
 - `persistence/` — SQL writes to the `asset_allocation_*` tables.
 - `tests/` — pytest suite.

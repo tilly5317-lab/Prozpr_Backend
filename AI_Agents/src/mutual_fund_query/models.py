@@ -72,9 +72,3 @@ class MutualFundQueryFacts(BaseModel):
     funds: list[FundFacts] = Field(default_factory=list)
     peers: list[PeerFund] = Field(default_factory=list)
 
-
-class MutualFundQueryResponse(BaseModel):
-    """The engine's output — a narrated answer, or a clarifying question."""
-
-    answer: str
-    clarifying_question: Optional[str] = None

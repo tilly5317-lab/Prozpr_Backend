@@ -46,7 +46,7 @@ The facts are already computed and trustworthy. Your job is to narrate them clea
 - `shortlist_rank` — our house rank within our recommended shortlist for its category.
 - `peers[]` — like-for-like funds of the same `sub_category` we recommend, each with a 3-year CAGR and shortlist rank, for comparison. Empty when the customer named more than one fund (then compare the named `funds[]` head-to-head).
 
-If the facts carry a clarifying situation (no fund identified, ambiguous fund), ask the customer to clarify via `clarifying_question` and leave `answer` brief.
+If the facts carry a clarifying situation (no fund identified, ambiguous fund), keep the reply brief and ask the customer to clarify which fund they mean.
 
 ---
 
@@ -79,17 +79,4 @@ These rules are absolute. Stating a fund number we cannot back up is worse than 
 - For returns, present the CAGR figures that exist; for any `null` horizon, say we don't have that track record yet — never estimate.
 - For "why do we recommend it", use `house_reason` verbatim in spirit.
 - For a comparison, contrast the fund against `peers[]` (or the other named funds), using only their provided numbers.
-- Keep it conversational and concise. Call `return_mutual_fund_query_response` exactly once; no free text outside the tool.
-
-## Narrate User
-
-Grounded facts (the ONLY numbers you may state):
-{{facts_json}}
-
-Recent conversation:
-{{conversation_history}}
-
-Customer's current question:
-{{question}}
-
-Answer using only the facts above, then call `return_mutual_fund_query_response`.
+- Keep it conversational and concise.

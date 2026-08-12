@@ -71,6 +71,9 @@ class ChatSendMessageResponse(BaseModel):
     assistant_message: ChatMessageResponse
     asset_allocation_run_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
+    # The question needed the user's holdings and none are imported yet — the
+    # reply asks for a CAS statement, and the client shows an upload CTA.
+    portfolio_data_missing: bool = False
 
 
 class ChatAiModuleRunResponse(BaseModel):

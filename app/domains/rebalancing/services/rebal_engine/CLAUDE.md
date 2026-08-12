@@ -3,7 +3,7 @@
 Cache-first orchestration → engine inputs → trade list → chat markdown. Reached through the domain's `rebalancing_module_service` on the chat path, directly by `POST /api/v1/ai-modules/rebalancing/compute` (`ai_engine/routers/rebalancing_router.py`), and `fund_rank` alone is also imported by `additional_investment`'s `ainv_engine`.
 
 ## Files
-- `service.py` — orchestrator entry: cache-first allocation lookup, runs the engine, persists **only when `persist=True`** (the default). `chat.py`'s `counterfactual_explore` path passes `persist=False`, so a hypothetical writes neither a `RebalancingRun` row nor a `record_ai_module_run` telemetry row and comes back with `recommendation_id=None` — otherwise the what-if would land at the top of the user's newest-first run list and become the `last_agent_runs["rebalancing"]` that follow-up narrate/educate turns describe (`service.py:552,682`; `chat.py:521`).
+- `service.py` — orchestrator entry: cache-first allocation lookup, runs the engine, persists **only when `persist=True`** (the default). `chat.py`'s `counterfactual_explore` path passes `persist=False`, so a hypothetical writes no `RebalancingRun` row and no `record_ai_module_run` telemetry, returning `recommendation_id=None` — otherwise the what-if would top the newest-first run list and become the `last_agent_runs["rebalancing"]` that follow-up turns describe (`service.py:679,831`; `chat.py:723`).
 - `input_builder.py` — materialises the engine request from `TurnContext` + allocation + DB.
 - `formatter.py` — sectioned chat markdown.
 - `fund_rank.py` — static fund-rank CSV loader (`get_fund_ranking`, `get_rejection_reasons`).
@@ -14,7 +14,7 @@ Cache-first orchestration → engine inputs → trade list → chat markdown. Re
 - `tax_aging.py` — per-lot ST/LT aging.
 - `chat.py` — the REBALANCING-intent chat handler.
 - `_disk_cache.py` — CSV-backed NAV/metadata disk cache (`_NAV_CSV`/`_META_CSV`); the engine's only price/metadata source.
-- `tests/` — pytest suite (per-module + e2e).
+- `constraint_impact.py` — comply-vs-caution deviation numbers for constraint-aware consolidation; the formatter picks whichever lens (asset-class mix vs buy-mix-by-category) actually moved.
 
 ## Gotchas & invariants
 - **There is no `recompute` action mode any more.** A re-run is `action_mode="compute"` carrying `is_rerun: true` in the facts pack; the formatter body then opens by acknowledging the re-run and leads with what changed instead of introducing the plan. Detector prompts that still map "rebalance my portfolio" / "redo with my latest holdings" to a separate recompute mode are stale — the union is `ActionMode` in `ai_engine/answer_formatter/formatter.py` (`chat.py`).

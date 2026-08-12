@@ -307,6 +307,7 @@ async def send_message(
         assistant_message=assistant_response,
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+        portfolio_data_missing=brain_result.portfolio_data_missing,
     )
 
 
@@ -320,9 +321,10 @@ async def send_message_streaming(
 ):
     """Same turn as ``send_message``, delivered as Server-Sent Events.
 
-    Events: ``thinking`` (pipeline stage lines), ``delta`` (incremental answer
-    text once the answer LLM starts generating), then exactly one terminal
-    ``done`` or ``error``.
+    Events: ``delta`` (incremental answer text once the answer LLM starts
+    generating), then exactly one terminal ``done`` or ``error``. Pipeline stage
+    lines do NOT ride this stream — they are polled from
+    ``GET /chat/sessions/{id}/thinking``.
 
     ``done`` IS AUTHORITATIVE. Deltas are provisional — the formatter discards a
     truncated response in favour of a deterministic brief, and general_chat
@@ -401,6 +403,7 @@ async def send_message_streaming(
                 assistant_message=assistant_response,
                 asset_allocation_run_id=brain_result.asset_allocation_run_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
+                portfolio_data_missing=brain_result.portfolio_data_missing,
             ).model_dump(),
         )
 

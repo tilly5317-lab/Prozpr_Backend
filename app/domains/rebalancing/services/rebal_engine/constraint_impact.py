@@ -16,27 +16,34 @@ from typing import Any
 
 def _planned_mix_pct(response) -> dict[str, float]:
     """Asset-class mix of the PLANNED final holdings, reusing the same rollup
-    build_rebal_facts_pack produces (asset_class_mix_pct)."""
+    build_rebal_facts_pack produces (target_asset_class_mix_pct).
+
+    Reads the TARGET block. It used to read ``asset_class_mix_pct``, which was
+    the current-holdings mix despite this function's name — so the constrained
+    vs unconstrained comparison was computed on holdings that neither variant
+    would end up with, and both lenses moved only as far as the sells did.
+    """
     from app.domains.rebalancing.services.rebal_engine.service import (
         build_rebal_facts_pack,
     )
 
-    return build_rebal_facts_pack(response).get("asset_class_mix_pct", {})
+    return build_rebal_facts_pack(response).get("target_asset_class_mix_pct", {})
 
 
 def _target_mix_pct(response) -> dict[str, float]:
-    """Ideal asset-class mix from the practical allocation's planned breakdown."""
-    planned = getattr(
-        getattr(response.practical_allocation, "asset_class_breakdown", None),
-        "planned", None,
+    """Ideal asset-class mix from the practical allocation's planned breakdown.
+
+    Same source the facts pack ships as ``ideal_asset_class_mix_pct``; kept at one
+    decimal here because the deviation deltas below are computed from it.
+    """
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        ideal_asset_class_mix_pct,
     )
-    if planned is None:
+
+    mix = ideal_asset_class_mix_pct(response)
+    if mix is None:
         return {}
-    return {
-        "equity": round(float(getattr(planned, "equity_total_pct", 0.0) or 0.0), 1),
-        "debt": round(float(getattr(planned, "debt_total_pct", 0.0) or 0.0), 1),
-        "others": round(float(getattr(planned, "others_total_pct", 0.0) or 0.0), 1),
-    }
+    return {cls: round(value, 1) for cls, value in mix.items()}
 
 
 def _buy_mix_by_category(response) -> dict[str, float]:

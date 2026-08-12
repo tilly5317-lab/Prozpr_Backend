@@ -43,6 +43,10 @@ from app.domains.ai_engine.chat_types import (
     ChatBrainResult,
     ChatTurnInput,
 )
+from app.domains.ai_engine.portfolio_gate import (
+    missing_portfolio_reply,
+    portfolio_data_missing as is_portfolio_data_missing,
+)
 from app.domains.ai_engine.posthog_tracing import (
     set_turn_trace_name,
     track_turn_posthog,
@@ -279,6 +283,27 @@ class ChatBrain:
                         usage_cb=usage_cb,
                     )
 
+            # ---- 3b. No portfolio yet? Ask for the statement instead --------
+            # CAMS is skippable at onboarding, so a customer can reach chat with
+            # nothing imported. Running a holdings-driven engine over an empty
+            # portfolio yields either a technical blocking message or example
+            # numbers the customer reads as their own — so answer honestly and
+            # flag the turn for the add-CAMS CTA. Fails open (see the gate).
+            if await is_portfolio_data_missing(db, uid, intent.name):
+                flow.append("portfolio data missing — asked for a CAMS statement")
+                trace_line(f"portfolio gate: no holdings for intent={intent.name}")
+                return await self._finalize(
+                    text=missing_portfolio_reply(intent.name),
+                    intent=intent,
+                    flow=flow,
+                    t0=t_all,
+                    db=db,
+                    uid=uid,
+                    sid=sid,
+                    usage_cb=usage_cb,
+                    portfolio_data_missing=True,
+                )
+
             # ---- 4. Pick the flow -------------------------------------------
             selected = self._flow_for(intent, ctx)
             flow.append(f"flow: {selected.__name__}")
@@ -406,6 +431,7 @@ class ChatBrain:
         usage_cb=None,
         outcome: str = "ok",
         failure_reason: str | None = None,
+        portfolio_data_missing: bool = False,
     ) -> ChatBrainResult:
         """Shape the assistant reply + write end-of-turn telemetry."""
         ms = int((time.perf_counter() - t0) * 1000)
@@ -463,4 +489,5 @@ class ChatBrain:
             else None,
             ideal_allocation_snapshot_id=final.snapshot_id if final else None,
             chart_payloads=final.chart_payloads if final else None,
+            portfolio_data_missing=portfolio_data_missing,
         )

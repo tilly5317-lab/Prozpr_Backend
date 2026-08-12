@@ -21,9 +21,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable, Sequence
 
-from anthropic import AuthenticationError as AnthropicAuthenticationError
-
 from app.core.config import get_settings
+from app.domains.ai_engine.answer_formatter import format_with_telemetry
 from app.domains.ai_engine.common import ensure_ai_agents_path, with_gap_notes
 from app.domains.ai_engine.types import AIModule
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
@@ -33,13 +32,12 @@ ensure_ai_agents_path()
 from portfolio_query import (
     AllocationRow,
     ClientContext,
-    ConversationTurn,
     Holding,
-    LLMClient,
     PortfolioContext,
     PortfolioQueryOrchestrator,
     SubCategoryAllocationRow,
 )
+from portfolio_query.models import _DEFAULT_REDIRECT  # noqa: E402  shared canned redirect
 
 
 logger = logging.getLogger(__name__)
@@ -53,10 +51,6 @@ _NO_PORTFOLIO_TEMPLATE = (
 _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
     "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
-)
-_INVALID_ANTHROPIC_KEY_REPLY = (
-    "The Anthropic API key was rejected (invalid or expired). "
-    "Set a valid `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in your server `.env`."
 )
 _MISSING_COMMENTARY_REPLY = (
     "I'll have a sharper answer once the latest market commentary is loaded "
@@ -76,10 +70,10 @@ _GENERIC_FAILURE_REPLY = (
 _orchestrator: PortfolioQueryOrchestrator | None = None
 
 
-def _get_orchestrator(api_key: str) -> PortfolioQueryOrchestrator:
+def _get_orchestrator() -> PortfolioQueryOrchestrator:
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = PortfolioQueryOrchestrator(LLMClient(api_key))
+        _orchestrator = PortfolioQueryOrchestrator()
     return _orchestrator
 
 
@@ -477,17 +471,17 @@ _MAX_HISTORY_REPLY_CHARS = 600
 _HISTORY_EXCERPT_MARKER = " …"
 
 
-def _build_history(history: list[dict[str, Any]] | None) -> list[ConversationTurn]:
-    """Map chat history to the agent's turn model, oldest first.
+def _build_history(history: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """Shape chat history for the formatter's RECENT_HISTORY block, oldest first.
 
-    ConversationTurn has no timestamp field, so the age of a resumed thread rides
-    inside the content — this agent misread a fortnight-old goal question as live
-    context on 2026-07-25. Annotate BEFORE slicing so a gap that falls on the
-    window edge still shows.
+    The turn carries no timestamp, so the age of a resumed thread rides inside the
+    content — this agent misread a fortnight-old goal question as live context on
+    2026-07-25. Annotate BEFORE slicing so a gap that falls on the window edge
+    still shows.
     """
     if not history:
         return []
-    turns: list[ConversationTurn] = []
+    turns: list[dict[str, str]] = []
     for msg in with_gap_notes(history)[-6:]:
         role = msg.get("role")
         content = msg.get("content") or ""
@@ -495,7 +489,7 @@ def _build_history(history: list[dict[str, Any]] | None) -> list[ConversationTur
             continue
         if role == "assistant" and len(content) > _MAX_HISTORY_REPLY_CHARS:
             content = content[:_MAX_HISTORY_REPLY_CHARS] + _HISTORY_EXCERPT_MARKER
-        turns.append(ConversationTurn(role=role, content=content))
+        turns.append({"role": role, "content": content})
     return turns
 
 
@@ -521,6 +515,58 @@ class PortfolioQueryOutcome:
     path: str | None = None
 
 
+# Non-prose control fields the portfolio skill sets alongside `answer`. Booleans,
+# an enum and short strings — none of them compete with `answer` for prose.
+_PORTFOLIO_TOOL_FIELDS: dict[str, Any] = {
+    "guardrail_triggered": {
+        "type": "boolean",
+        "description": (
+            "True if the question is out-of-scope per the guardrail rules. When true, "
+            "set `answer` to null and provide `redirect_message`."
+        ),
+    },
+    "redirect_message": {
+        "type": ["string", "null"],
+        "description": (
+            "Polite, one-sentence redirect when `guardrail_triggered` is true. Null when "
+            "the answer is in-scope."
+        ),
+    },
+    "path": {
+        "type": ["string", "null"],
+        "enum": ["X", "M", "P", None],
+        "description": (
+            "Which path you took in Step 1: 'X' out of scope, 'M' general market, "
+            "'P' portfolio-specific. Recorded for review; it does not change your reply. "
+            "Always set it."
+        ),
+    },
+    "suggested_intent": {
+        "type": ["string", "null"],
+        "description": (
+            "Usually null. Set it only per the checklist's Step 4. Valid values: "
+            "goal_planning, asset_allocation, rebalancing, additional_investment, "
+            "general_market_query. Recorded for review; it does not change your reply."
+        ),
+    },
+}
+
+
+def _apply_guardrail_backstop(text: str, extras: dict[str, Any]) -> str:
+    """Deterministic backstop: an out-of-scope `answer` must never reach the customer.
+
+    Mirrors ``PortfolioQueryResponse._enforce_guardrail_contract``. When the guardrail
+    fires we discard ``answer`` outright — the model may have written the out-of-scope
+    reply before deciding — and send the redirect instead.
+    """
+    if not extras.get("guardrail_triggered"):
+        return text or _GENERIC_FAILURE_REPLY
+    redirect = extras.get("redirect_message")
+    if isinstance(redirect, str) and redirect.strip():
+        return redirect.strip()
+    return _DEFAULT_REDIRECT
+
+
 async def generate_portfolio_query_response(
     user: Any,
     user_question: str,
@@ -528,8 +574,13 @@ async def generate_portfolio_query_response(
     db: Any = None,
     user_id: Any = None,
     want_market_commentary: bool = True,
+    ctx: Any = None,
 ) -> PortfolioQueryOutcome:
-    """Answer the user's portfolio question via the AI_Agents.portfolio_query agent."""
+    """Answer the user's portfolio question via the AI_Agents.portfolio_query agent.
+
+    The agent supplies the facts pack and the skill body; the shared answer
+    formatter makes the LLM call and writes the reply.
+    """
 
     portfolio = _build_portfolio_context(user, await _xirr_by_scheme(db, user_id))
     if portfolio is None:
@@ -546,30 +597,42 @@ async def generate_portfolio_query_response(
         return PortfolioQueryOutcome(_MISSING_KEY_REPLY)
 
     client_ctx = _build_client_context(user)
-    history = _build_history(conversation_history)
 
     try:
-        result = await _get_orchestrator(api_key).run(
-            question=user_question,
+        orch = _get_orchestrator()
+        facts_pack = orch.build_facts(
             client=client_ctx,
             portfolio=portfolio,
-            conversation_history=history,
             want_market_commentary=want_market_commentary,
         )
     except FileNotFoundError as exc:
         logger.warning("portfolio_query: market commentary file missing — %s", exc)
         return PortfolioQueryOutcome(_MISSING_COMMENTARY_REPLY)
-    except AnthropicAuthenticationError as exc:
-        logger.warning("portfolio_query: Anthropic authentication failed — %s", exc)
-        return PortfolioQueryOutcome(_INVALID_ANTHROPIC_KEY_REPLY)
     except Exception:
-        logger.exception("portfolio_query: orchestrator failed")
+        logger.exception("portfolio_query: facts build failed")
         return PortfolioQueryOutcome(_GENERIC_FAILURE_REPLY)
 
+    extras: dict[str, Any] = {}
+    text = await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=facts_pack,
+        body_prompt=orch.query_body,
+        module_name="portfolio_query",
+        action_mode="narrate",
+        profile={"first_name": getattr(user, "first_name", None)},
+        build_fallback=lambda: _GENERIC_FAILURE_REPLY,
+        history_override=_build_history(conversation_history),
+        extra_tool_fields=_PORTFOLIO_TOOL_FIELDS,
+        extras_out=extras,
+        # Path X nulls `answer` and answers via `redirect_message` — an empty
+        # answer is the guardrail firing, not a formatter failure.
+        allow_empty_answer=True,
+    )
+
     return PortfolioQueryOutcome(
-        text=result.answer or result.redirect_message or _GENERIC_FAILURE_REPLY,
-        suggested_intent=result.suggested_intent,
-        path=result.path,
+        text=_apply_guardrail_backstop(text, extras),
+        suggested_intent=extras.get("suggested_intent"),
+        path=extras.get("path"),
     )
 
 
@@ -593,6 +656,7 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         user_id=ctx.effective_user_id,
         want_market_commentary="market_commentary"
         in (getattr(ctx, "tools_needed", ()) or ()),
+        ctx=ctx,
     )
     await _record_path(ctx, outcome)
     await _record_intent_disagreement(question, ctx, outcome)

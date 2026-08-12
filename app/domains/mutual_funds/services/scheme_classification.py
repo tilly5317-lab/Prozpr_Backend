@@ -571,15 +571,13 @@ ASSET_CLASS_LOOKTHROUGH_WEIGHTS: dict[str, dict[str, float]] = {
         ASSET_CLASS_EQUITY: 0.175,
         ASSET_CLASS_DEBT: 0.825,
     },
-    # Flexi Cap is a pure-equity SEBI category (single-class in SUBCAT_TO_MAPPING
-    # → medium_beta_equities); modeled here with a debt+others sleeve so the
-    # asset-class look-through reflects its real-world cash/debt holdings. The
-    # subgroup-level rebalancing still treats it as 100% equity.
-    "Flexi Cap Fund": {
-        ASSET_CLASS_EQUITY: 0.725,
-        ASSET_CLASS_DEBT: 0.175,
-        ASSET_CLASS_OTHERS: 0.10,
-    },
+    # NOTE: only GENUINELY blended SEBI categories belong in this table. A
+    # pure-equity category must not appear here, even if its schemes hold some
+    # incidental cash/debt: "Flexi Cap Fund" used to carry a 0.725/0.175/0.10
+    # band on that reasoning, which manufactured debt the customer does not own
+    # (it put ~3% debt on an all-equity portfolio) and made the rebalancing
+    # Invest page and chat disagree about the same holdings. Flexi Cap is
+    # single-class in SUBCAT_TO_MAPPING and rolls up as 100% Equity.
 }
 
 
