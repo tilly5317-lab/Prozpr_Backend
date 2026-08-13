@@ -207,7 +207,7 @@
     <div class="header-strip">
       <div class="pill">Rebalancing · engine v1.3.0</div>
       <div class="meta">
-        Internal document · not for external circulation<br />Traced against the live code on 2026-07-19
+        Internal document · not for external circulation<br />Traced against the live code on 2026-07-19 · re-audited 2026-08-13 (still engine v1.3.0)
       </div>
     </div>
     <article id="content"></article>
@@ -317,7 +317,7 @@ flowchart TB
   J --> K["Residual goes to the best-ranked fund.<br/>Every other fund gets just its reserve"]
 ```
 
-**The band is 5 and it is exclusive.** Gap of 4 protects; gap of 5 sells. The gap is measured from the best-ranked fund *actually present* in that subgroup, not from a hardcoded rank 1.
+**The band is 5 and it is exclusive.** Gap of 4 protects; gap of 5 sells. The gap is measured from the **top of the recommended ladder** for that subgroup — the best rank the plan carries, which is effectively rank 1, because the ladder always includes our top pick whether or not the customer holds it. It is *not* measured from the best fund the customer happens to own: someone holding only rank 6 and rank 9 has both measured against rank 1 — gaps of 5 and 8, so **both are sold**, not protected as their own "best two" holdings.
 
 | Situation | Outcome |
 |---|---|
@@ -558,9 +558,11 @@ flowchart TB
 
 **Cheapest-first ordering.** Each candidate is scored on its average tax cost per rupee sold — its long-term and short-term gain ratios weighted by how much of the holding sits in each bucket, at the respective rates. A fund sitting on a loss scores negative and is sold *first*: it raises cash and a useful loss at once.
 
-**The short-term-gains budget** is an optional per-run ceiling on the short-term gain the plan may realise. If a forced sale would breach it we sell only the fraction that fits and record the rest, with a warning. Realised *losses* increase the remaining budget, because they absorb gains.
+**The short-term-gains budget** is an optional per-run ceiling on the short-term gain the plan may realise. **A standard plan sets no ceiling** — forced exits realise short-term gains in full, which is exactly what "sold regardless of tax" means for a bad fund. The ceiling is used only in a what-if exploration ("show me the plan if I keep short-term gains under ₹50,000"); when it binds, we sell only the fraction that fits and record the rest, with a warning. Realised *losses* increase the remaining budget, because they absorb gains.
 
 **Direct-stock proceeds.** If the allocation engine trimmed the customer's direct stocks, that cash is treated as spendable in the same plan — it both funds buys and reduces how much fund selling is needed. Without it the plan would tell the customer to liquidate stock, allocate nothing against the proceeds, and sell funds to raise cash they already have.
+
+**Optional trims are cash-driven, not target-driven.** A recommended fund above its target is trimmed only up to the cash the buys still need — the smaller of its excess, its holding, and the remaining shortfall. If forced exits and direct-stock proceeds already cover every buy, an over-weight recommended fund is left untouched this round; its excess is diluted later by new money or corrected on a future run, never by a taxed sale for its own sake.
 
 ### See it run
 
@@ -683,20 +685,6 @@ Each instruction also carries research's own written reason for that fund — th
 
 The Aditya Birla line is the off-list rule from Step 1 completing its journey: held ₹3,90,856, of which ₹2,34,514 long-term and ₹1,56,342 short-term. Its target was set to the short-term value, so exactly the long-term portion became available — we migrated ₹2,34,514 into recommended large-cap and left the short-term units alone.
 
-### What the July 2026 change was worth
-
-Same customer, same holdings, previous engine version:
-
-| | Before (v1.2.0) | After (v1.3.0) | Change |
-|---|---|---|---|
-| Total sold | ₹14,48,063 | ₹5,91,981 | **−59%** |
-| Total bought | ₹19,44,000 | ₹10,87,900 | −44% |
-| Long-term gains realised | ₹2,17,210 | ₹88,797 | −59% |
-| **Tax estimate** | **₹11,526** | **₹0** | **−₹11,526** |
-| Instructions | 14 | 10 | −4 |
-
-Across all five simulated profiles the pattern holds: substantially less churn, and tax falling to zero in four of five cases — with the customer owning materially the same portfolio.
-
 ---
 
 ## Every number in the logic
@@ -722,7 +710,7 @@ Across all five simulated profiles the pattern holds: substantially less churn, 
 | 17 | Debt sleeve treated as one | short_debt, arbitrage, arbitrage_plus_income | Step 4 | Code |
 | 18 | Holdings-aware targets | **On** | Step 1 | Yes |
 
-Every value used is stamped onto the saved plan, so any run can be explained from its own record even after a default changes.
+Most of these values are stamped onto the saved plan (the knob snapshot), so a run can be reconstructed from its own record even after a default changes. Two exceptions worth knowing: the 30% short-debt and arbitrage caps are recorded by subgroup *name* rather than as a percentage, and the force-exit marker is fixed in code — read those from the code of the day.
 
 ---
 
@@ -743,7 +731,7 @@ Every value used is stamped onto the saved plan, so any run can be explained fro
 | 11 | Sell and buy both land inside the debt sleeve | Cancel them against each other |
 | 12 | Selling units | Long-term first, always |
 | 13 | Sale is an optional trim | Long-term only; never realise short-term gains |
-| 14 | Sale is a forced exit | May realise short-term gains, up to the budget |
+| 14 | Sale is a forced exit | Realises short-term gains in full — a standard plan sets no budget (a what-if run may cap it) |
 | 15 | Short-term budget exhausted mid-sale | Sell only the fraction that fits; report the rest |
 | 16 | Short-term losses available | Net them off, then reopen blocked forced sales |
 | 17 | Long-term losses available | Recorded, not used against short-term gains — statutory |
@@ -762,7 +750,7 @@ Every value used is stamped onto the saved plan, so any run can be explained fro
 
 ---
 
-*Business logic trace · rebalancing engine v1.3.0 · traced against the live code on 19 July 2026. Worked panels from the five-profile simulation of the same date. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
+*Business logic trace · rebalancing engine v1.3.0 · traced against the live code on 19 July 2026, re-audited 13 August 2026 (still v1.3.0). Worked panels from the five-profile simulation. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
 </script>
 
 <script>

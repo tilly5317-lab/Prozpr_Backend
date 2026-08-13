@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Additional Investment — Business Logic Flowchart</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e6e3dc;
+    --accent: #b14a18;
+    --link: #1d6fb8;
+    --code-bg: #f3efe7;
+    --sidebar-bg: #f6f3ec;
+    --sidebar-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: flex; min-height: 100vh; }
+  nav.toc {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--rule);
+    padding: 28px 22px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  nav.toc .kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  nav.toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 18px 0 14px 0;
+    font-weight: 600;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc li.lvl-3 { margin-left: 14px; font-size: 13px; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1.35;
+  }
+  nav.toc a:hover { background: rgba(177, 74, 24, 0.08); color: var(--accent); }
+  nav.toc a.active { background: rgba(177, 74, 24, 0.12); color: var(--accent); font-weight: 500; }
+
+  main {
+    flex: 1;
+    padding: 56px 64px 120px;
+    max-width: calc(1020px + 128px);
+    margin: 0 auto;
+  }
+  article { max-width: 880px; margin: 0 auto; }
+  article h1 { font-size: 32px; line-height: 1.25; margin: 0 0 8px 0; letter-spacing: -0.01em; }
+  article h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    scroll-margin-top: 24px;
+  }
+  article h3 { font-size: 17px; margin: 28px 0 10px 0; scroll-margin-top: 24px; }
+  article p { margin: 14px 0; }
+  article a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(29, 111, 184, 0.25); }
+  article a:hover { border-bottom-color: var(--link); }
+  article ul, article ol { padding-left: 22px; }
+  article li { margin: 6px 0; }
+  article blockquote {
+    margin: 18px 0;
+    padding: 12px 18px;
+    border-left: 3px solid var(--accent);
+    background: #faf5ee;
+    color: #3a3a3a;
+    border-radius: 0 6px 6px 0;
+  }
+  article blockquote p { margin: 6px 0; }
+  article code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  article pre {
+    background: #1f1d1a;
+    color: #f5f1e8;
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  article pre code { background: transparent; padding: 0; color: inherit; }
+  article table { border-collapse: collapse; margin: 18px 0; width: 100%; font-size: 14px; }
+  article th, article td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+  article th { background: var(--sidebar-bg); font-weight: 600; }
+  article td code, article th code { overflow-wrap: anywhere; }
+  article tr:nth-child(even) td { background: #fafaf6; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 36px 0; }
+
+  .mermaid {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 22px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  .header-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-strip .pill {
+    font-size: 12px; font-weight: 600; color: #7a4a12;
+    background: #f2e6d6; border: 1px solid #e3d2ba;
+    border-radius: 999px; padding: 4px 12px;
+  }
+  .header-strip .meta { font-size: 13px; color: var(--muted); text-align: right; }
+
+  .at-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 24px 0;
+  }
+  .at-glance .cell { background: var(--panel); padding: 12px 16px; }
+  .at-glance .k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 5px;
+  }
+  .at-glance .v { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+
+  .callout {
+    border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 20px 0;
+    border-left: 4px solid var(--accent); background: #faf5ee;
+  }
+  .callout.rule { border-left-color: #1d6fb8; background: #eff5fb; }
+  .callout .title {
+    font-weight: 700; font-size: 12px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #a5341f;
+  }
+  .callout.rule .title { color: #1a5c9a; }
+  .callout p { margin: 4px 0; font-size: 14.5px; }
+
+  .step-panel { border: 1px solid var(--rule); border-radius: 8px; margin: 14px 0; overflow: hidden; }
+  .step-panel .label {
+    background: var(--sidebar-bg); padding: 7px 14px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+  }
+  .step-panel pre { margin: 0; border-radius: 0; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    article h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc">
+    <div class="kicker">Prozpr · Business Logic Trace</div>
+    <h3>Contents</h3>
+    <ul id="toc-list"></ul>
+  </nav>
+  <main>
+    <div class="header-strip">
+      <div class="pill">Additional Investment · SIP &amp; lump sum</div>
+      <div class="meta">
+        Internal document · not for external circulation<br />Traced against the live code on 2026-08-13
+      </div>
+    </div>
+    <article id="content"></article>
+  </main>
+</div>
+
+<script type="text/markdown" id="source-md">
+# Additional Investment — deploying fresh money, end to end
+
+> **What this covers.** When a customer adds money to an existing plan — a monthly **SIP** or a one-time **lump sum** — this is the engine that decides *which funds to buy, and how much into each*. It only ever **buys**. It never sells, never trims, never touches what is already invested. (Selling and trimming is the rebalancing engine's job — see the companion trace, `rebalancing_logic_flowchart_081326.html`.)
+>
+> **Every section ends with the same customer** you met in the rebalancing document — Harpreet Singh — so you can watch one portfolio receive new money under each rule.
+>
+> **Internal document.** It contains our proprietary caps, floors and ordering rules.
+
+<div class="at-glance">
+  <div class="cell"><div class="k">What it decides</div><div class="v">Which funds to buy with new money — and how much into each</div></div>
+  <div class="cell"><div class="k">How it decides</div><div class="v">Fixed arithmetic. No AI, no judgement calls</div></div>
+  <div class="cell"><div class="k">What it never does</div><div class="v">Sell, trim, or switch existing holdings</div></div>
+  <div class="cell"><div class="k">Two modes</div><div class="v">Lump sum fills the gaps · SIP follows the ideal mix</div></div>
+</div>
+
+---
+
+## The two jobs, one engine
+
+Money arrives in two ways, and the engine treats them differently:
+
+- **A lump sum** — a one-time amount. When we already know what the customer holds (the normal case), it goes where the portfolio sits **furthest below its ideal** — it *fills the gaps*.
+- **A SIP** — a fixed monthly amount. It follows the **ideal mix** for the nearest goal the customer has not yet funded — it *builds steadily* toward plan, the same split every month.
+
+Everything after that — how funds are picked, the caps, the rounding — is shared.
+
+> **This is a pure calculator.** Give it the same inputs and it returns the same buys, every time. It does no research and no allocation maths of its own — those arrive already computed.
+
+---
+
+## The inputs
+
+Four things arrive, all computed upstream:
+
+| Input | What it is |
+|---|---|
+| **The deposit** | The amount to deploy, and its cadence — one-time **lump sum** or monthly **SIP**. |
+| **The ideal plan** | A rupee figure per subgroup, split across time-horizon buckets (emergency / short / medium / long), from the practical asset-allocation engine. |
+| **Current holdings** | What the customer already holds in each subgroup — supplied for a lump sum, so gaps can be measured. |
+| **The ranked ladder** | Research's ordered list of recommended funds per subgroup — rank 1 is the top pick. Buys come only from here. |
+
+Plus the policy knobs: the per-fund **caps**, the **rupee floors**, and the **excluded sleeves**.
+
+### Vocabulary
+
+| Term | Meaning |
+|---|---|
+| **Subgroup / sleeve** | A slice of the portfolio (`arbitrage_plus_income`, `multi_asset`, `gold_commodities`, and so on). Money is split across sleeves first, then across funds within each. |
+| **Horizon bucket** | Emergency, short-, medium-, long-term. The ideal plan carries a rupee figure per sleeve *per bucket*. |
+| **Rank** | Research's ordering of funds within a sleeve. Rank 1 is the top pick. |
+| **Deploy amount** | The money being invested this run. For a SIP it is the **monthly** figure. |
+
+### Two sleeves never receive fresh money
+
+- **ELSS (`tax_efficient_equities`)** — a 3-year lock-in; we do not push new money into a locked instrument.
+- **Direct stocks / PMS (`non_mf_equities`)** — there is no mutual fund to buy.
+
+Their share is set aside and the remaining sleeves are re-weighted to fill the gap.
+
+### The customer we will follow
+
+Harpreet Singh — the same portfolio from the rebalancing trace. Genuine engine output from the five-profile simulation. The customer is synthetic; the arithmetic is not.
+
+<div class="at-glance">
+  <div class="cell"><div class="k">Name</div><div class="v">Harpreet Singh · age 49</div></div>
+  <div class="cell"><div class="k">Corpus before deposit</div><div class="v">₹68,00,000</div></div>
+  <div class="cell"><div class="k">Short-term goals</div><div class="v">Funded</div></div>
+  <div class="cell"><div class="k">Medium-term goals</div><div class="v">Funded</div></div>
+  <div class="cell"><div class="k">Long-term goals</div><div class="v">₹3.9 cr still to build</div></div>
+  <div class="cell"><div class="k">Excluded sleeves</div><div class="v">ELSS ₹1,50,000 · direct stocks (no fund)</div></div>
+</div>
+
+Because his short- and medium-term goals are already funded, a **SIP** will build **long-term**; a **lump sum** will top up whichever sleeves sit furthest below his recomputed ideal.
+
+---
+
+## The flow on one page
+
+```mermaid
+flowchart TB
+  A["New money + the ideal plan<br/>+ (for a lump sum) current holdings"] --> B{"Lump sum,<br/>with holdings on file?"}
+  B -->|"Yes"| C["FILL THE GAPS<br/>split by how far each sleeve<br/>sits below its ideal"]
+  B -->|"No — a SIP,<br/>or no holdings"| D["FOLLOW THE IDEAL MIX<br/>aim at the nearest unfunded goal,<br/>split by that horizon's plan"]
+  C --> E["Per sleeve: pick funds<br/>rank 1 first, spill down<br/>under the per-fund cap"]
+  D --> E
+  E --> F["Round each buy to ₹100"]
+  F --> G["Lump sum: sweep up any dust<br/>SIP: leave as is"]
+  G --> H["BUY list + anything undeployed"]
+```
+
+The engine picks its mode once, at the top, and never switches. Both modes then converge on the same fund-selection machinery.
+
+---
+
+## Which mode runs — the fork
+
+One decision at the top of the run:
+
+<div class="step-panel">
+<div class="label">the mode switch</div>
+<pre><code>LUMP SUM   and current holdings are on file   →  FILL THE GAPS        (deficit-fill)
+SIP                                            →  FOLLOW THE IDEAL MIX (bucket-targeting)
+LUMP SUM   with no holdings on file            →  FOLLOW THE IDEAL MIX (same as a SIP)</code></pre>
+</div>
+
+The everyday reading: **a lump sum fills the gaps; a SIP follows the ideal mix.** The third line is a safety fallback — a lump sum with nothing on file has no gaps to measure, so it follows the ideal mix instead.
+
+---
+
+## Step A — Lump sum: fill the gaps
+
+Fresh money should first repair wherever the portfolio has drifted **furthest below** where it should be.
+
+```mermaid
+flowchart TB
+  A["Recompute the ideal at<br/>corpus + deposit"] --> B["For each sleeve:<br/>gap = max(0, new ideal − held)"]
+  B --> C{"Any sleeve<br/>behind its ideal?"}
+  C -->|"Yes"| D["Split the deposit by gap share:<br/>deposit × (its gap ÷ total gap)"]
+  C -->|"No — all at/above ideal"| E["Fall back to splitting<br/>by the ideal ratios"]
+```
+
+1. **Recompute the ideal at the new, larger corpus.** Adding money changes the ideal rupee figure for every sleeve, so the ideal is re-run at *corpus + deposit* — the plan the customer *should* hold *after* investing.
+2. **Measure each gap:** `gap = max(0, new ideal − what you already hold)`. A sleeve already at or above its ideal has a gap of zero and gets nothing.
+3. **Split the money by gap share:** each sleeve receives `deposit × (its gap ÷ total gap)`.
+4. **If nothing is behind,** fall back to the ideal ratios — keep building toward plan rather than deploy nothing.
+
+<div class="callout rule">
+  <div class="title">Fill, not rebalance</div>
+  <p>Only sleeves with a <strong>positive</strong> gap get money. A sleeve you hold that has since dropped out of your ideal gets <strong>no buy</strong> — and, because this engine never sells, <strong>no sell either</strong>. That correction, if it is needed, is the rebalancing engine's job.</p>
+  <p>The plan still reports a "target horizon" for a lump sum, but in gap-fill mode that is just a <em>label</em> — the dominant horizon of where the money landed. It did not drive the split.</p>
+</div>
+
+### See it run — Harpreet, ₹10,00,000 lump sum
+
+<div class="step-panel">
+<div class="label">the gaps — ideal recomputed at ₹68,00,000 + ₹10,00,000 = ₹78,00,000</div>
+<pre><code>Sleeve                    New ideal        Held           Gap
+arbitrage_plus_income     ₹35,99,600     ₹31,51,100     ₹4,48,500
+multi_asset               ₹24,71,600     ₹22,65,400     ₹2,06,200
+low_beta_equities          ₹2,90,080      ₹2,07,180       ₹82,900
+us_equities                ₹1,79,000      ₹1,27,900       ₹51,100
+gold_commodities           ₹3,33,800      ₹2,54,500       ₹79,300
+                                          TOTAL GAP      ₹8,68,000
+
+(the emergency sleeve sits at its fixed cushion — gap ≈ 0 — so it draws nothing)</code></pre>
+</div>
+
+<div class="step-panel">
+<div class="label">the split — each sleeve's gap ÷ ₹8,68,000, applied to ₹10,00,000</div>
+<pre><code>arbitrage_plus_income   51.7%   →  ₹5,16,705
+multi_asset             23.8%   →  ₹2,37,558
+low_beta_equities        9.6%   →    ₹95,507
+us_equities              5.9%   →    ₹58,871
+gold_commodities         9.1%   →    ₹91,359</code></pre>
+</div>
+
+More than half the money goes to arbitrage-plus-income — not because it is "best", but because it drifted furthest below its enlarged ideal.
+
+---
+
+## Step B — SIP: follow the ideal mix
+
+A SIP does not chase gaps; it drips toward the plan, the same split every month.
+
+```mermaid
+flowchart TB
+  A["Are short-term<br/>goals funded?"] -->|"No"| S["Aim SHORT-TERM"]
+  A -->|"Yes"| B["Are medium-term<br/>goals funded?"]
+  B -->|"No"| M["Aim MEDIUM-TERM"]
+  B -->|"Yes"| L["Aim LONG-TERM<br/>(the fallback — keep building wealth)"]
+```
+
+1. **Pick the target horizon** — the nearest goal not yet funded: short-term if that is still short; else medium-term; else long-term. **Emergency is never a SIP target** — it is a one-time cushion, not a monthly build.
+2. **Split across sleeves by that horizon's plan** — weight each sleeve by the rupees the ideal plan assigns it *in the chosen bucket's column*.
+
+### See it run — Harpreet, ₹25,000/mo SIP
+
+His short- and medium-term goals are both funded, so the SIP builds **long-term**. Each sleeve is weighted by its long-term figure in the plan:
+
+<div class="step-panel">
+<div class="label">the split — weighted by each sleeve's long-term plan</div>
+<pre><code>Long-term plan by sleeve             Weight     × ₹25,000
+arbitrage_plus_income   ₹14,01,100    55.9%      ₹13,977
+multi_asset              ₹5,15,400    20.6%       ₹5,141
+gold_commodities         ₹2,54,500    10.2%       ₹2,539
+low_beta_equities        ₹2,07,180     8.3%       ₹2,067
+us_equities              ₹1,27,900     5.1%       ₹1,276
+                        ₹25,06,080     100%      ₹25,000</code></pre>
+</div>
+
+Same customer, same sleeves as the lump sum — but the split is his *long-term ideal mix*, not his gaps. Every month deploys this identical split.
+
+---
+
+## Step C — Choosing the funds
+
+Once each sleeve has a rupee target, the engine fills it from the ranked ladder — **rank 1 first, then spill down** — under a per-fund cap. This step is the same in both modes.
+
+```mermaid
+flowchart TB
+  A["Sleeve target"] --> B["Start at rank 1"]
+  B --> C["Per-fund cap = larger of<br/>(cap% × the deposit) and the rupee floor"]
+  C --> D{"Target above<br/>the cap?"}
+  D -->|"No"| E["Buy the whole target here.<br/>Round to nearest ₹100"]
+  D -->|"Yes"| F["Buy up to the cap here.<br/>Spill the rest to the next rank"]
+  F --> C
+  E --> G["Sleeve done"]
+```
+
+**The per-fund cap keeps any one fund from swallowing the whole deposit.** It is the larger of two numbers:
+
+- **cap% × the deposit** — 30% for the short-debt and arbitrage sleeves, 20% for multi-asset, 10% everywhere else; and
+- **a flat rupee floor** — **₹10,000** for a SIP, **₹40,000** for a lump sum.
+
+<div class="callout rule">
+  <div class="title">On a small deposit the rupee floor wins</div>
+  <p>The cap is a percent of the <strong>money being deployed</strong>, not of the whole portfolio — so on any normal SIP the percentage barely bites. A ₹25,000 SIP into arbitrage: 30% × ₹25,000 = ₹7,500, but the ₹10,000 floor lifts the cap to ₹10,000. Without the floor a deposit would shatter into tiny slivers down the ladder; the floor keeps the money in a few funds.</p>
+</div>
+
+**A SIP has one extra first move.** Before walking the ladder, a SIP tries to **mirror the customer's latest rebalancing plan** — if that plan bought certain funds, the SIP tops up the same ones first, so the monthly investment reinforces the last rebalance instead of drifting to different funds. Only then does it walk the ranking for anything left. *(In this simulation no prior rebalancing plan was supplied, so every SIP buy below comes from the rank-walk.)*
+
+### See it run — the cap binding on Harpreet's ₹10,00,000 lump sum
+
+<div class="step-panel">
+<div class="label">arbitrage_plus_income — target ₹5,16,705, cap forces a spill</div>
+<pre><code>Per-fund cap = larger of ( 30% × ₹10,00,000 = ₹3,00,000 )
+                     and ( the ₹40,000 lump-sum floor )
+             = ₹3,00,000
+
+Rank 1  HDFC Income Plus Arbitrage FOF    → ₹3,00,000   (capped)
+        spill ₹2,16,705 down to rank 2
+Rank 2  ICICI Income plus Arbitrage FOF   → ₹2,16,700   (fits under the cap)</code></pre>
+</div>
+
+<div class="step-panel">
+<div class="label">multi_asset — target ₹2,37,558, same pattern</div>
+<pre><code>Per-fund cap = larger of ( 20% × ₹10,00,000 = ₹2,00,000 ) and ₹40,000
+             = ₹2,00,000
+
+Rank 1  ICICI Equity & Debt      → ₹2,00,000   (capped)
+Rank 2  Parag Parikh Flexi Cap   →   ₹37,600   (the spill, rounded)</code></pre>
+</div>
+
+The cap is why a single sleeve can end up spread across two funds: the top pick fills to its ceiling, and the remainder flows to the next rank down.
+
+---
+
+## Step D — Rounding, dust and under-deployment
+
+- **Every buy rounds to the nearest ₹100.** Rounding can leave the total a little off the deposit in either direction.
+- **A lump sum sweeps up the dust.** If the rounded buys land just short of the deposit, the small remainder is added to the largest buy, so a lump sum deploys the full amount (give or take a ₹100 rounding step). A SIP skips this — a few rupees over or under is fine on a recurring instruction.
+- **Anything the plan cannot place is reported, never hidden.** If the caps bind, or a sleeve has no ranked fund, the leftover surfaces as **undeployed** — a visible number, not a silent drop.
+
+For Harpreet neither deposit leaves anything undeployed: the ₹25,000 SIP places ₹25,000 in full, and the ₹10,00,000 lump sum places ₹10,00,100 (a single ₹100 of rounding overshoot), nothing undeployed.
+
+---
+
+## SIP vs lump sum — what actually differs
+
+| | Lump sum (with holdings) | SIP |
+|---|---|---|
+| **How the split is decided** | Fills gaps below the recomputed ideal | Follows the ideal mix of the nearest unfunded goal |
+| **Uses current holdings?** | Yes — to measure gaps | No |
+| **Fund-selection first move** | Straight to the ranked ladder | Mirror the latest rebalancing plan, then the ladder |
+| **Rupee floor on the per-fund cap** | ₹40,000 | ₹10,000 |
+| **Rounding remainder** | Swept into the largest buy | Left as is |
+| **Frequency** | One-time | The same split, every month |
+
+The subgroup ratios themselves do not depend on cadence: a SIP and a lump-sum-*without*-holdings compute the *same* split — only the framing (monthly vs one-time) and the fund-selection niceties differ. A lump sum *with* holdings is the one that genuinely computes a different split, because it fills gaps.
+
+---
+
+## What the customer receives
+
+### Harpreet's ₹10,00,000 lump sum
+
+| Buy | Amount | Sleeve | Reason given |
+|---|---|---|---|
+| HDFC Income Plus Arbitrage FOF | ₹3,00,000 | arbitrage_plus_income | Recommended fund for this category |
+| ICICI Income plus Arbitrage FOF | ₹2,16,700 | arbitrage_plus_income | Recommended fund for this category |
+| ICICI Equity &amp; Debt | ₹2,00,000 | multi_asset | Recommended fund for this category |
+| Parag Parikh Flexi Cap | ₹37,600 | multi_asset | Recommended fund for this category |
+| ICICI Large Cap | ₹95,500 | low_beta_equities | Recommended fund for this category |
+| Kotak US Passive FOF | ₹58,900 | us_equities | Recommended fund for this category |
+| Nippon India ETF Gold BeES | ₹91,400 | gold_commodities | Recommended fund for this category |
+
+**Seven buys across five sleeves. ₹10,00,100 deployed, nothing undeployed. Not a single sell.**
+
+### Harpreet's ₹25,000/mo SIP
+
+| Buy | Monthly amount | Sleeve | Reason given |
+|---|---|---|---|
+| HDFC Income Plus Arbitrage FOF | ₹10,000 | arbitrage_plus_income | Top-ranked fund for this category |
+| ICICI Income plus Arbitrage FOF | ₹4,000 | arbitrage_plus_income | Top-ranked fund for this category |
+| ICICI Equity &amp; Debt | ₹5,100 | multi_asset | Top-ranked fund for this category |
+| ICICI Large Cap | ₹2,100 | low_beta_equities | Top-ranked fund for this category |
+| Kotak US Passive FOF | ₹1,300 | us_equities | Top-ranked fund for this category |
+| Nippon India ETF Gold BeES | ₹2,500 | gold_commodities | Top-ranked fund for this category |
+
+Same six recommended funds every month, ₹25,000 in total — the long-term ideal mix, dripped.
+
+---
+
+## Every number in the logic
+
+| # | Setting | Value | Acts at | Tunable without code change? |
+|---|---|---|---|---|
+| 1 | Default per-fund cap | **10%** of the deposit | Step C | Yes |
+| 2 | Multi-asset per-fund cap | **20%** | Step C | Yes |
+| 3 | Short-debt per-fund cap | **30%** | Step C | Yes |
+| 4 | Arbitrage per-fund cap | **30%** | Step C | Yes |
+| 5 | Rupee floor, SIP | **₹10,000** | Step C | Yes |
+| 6 | Rupee floor, lump sum | **₹40,000** | Step C | Yes |
+| 7 | Trade rounding | **₹100**, nearest | Steps C, D | Per run |
+| 8 | Excluded sleeves | ELSS, direct stocks / PMS | The inputs | Caller policy |
+
+The caps are the *same percentages* the rebalancing engine uses — but here they apply to the **deposit**, whereas rebalancing applies them to the **corpus**.
+
+---
+
+## Every rule, in the order it applies
+
+| Order | If this is true | Then |
+|---|---|---|
+| 1 | Sleeve is ELSS or direct stocks | Excluded — no fresh money; re-weight the rest |
+| 2 | Lump sum, and current holdings are on file | Fill gaps: split by how far each sleeve is below its recomputed ideal |
+| 3 | Every sleeve is at or above its ideal | Fall back to splitting by the ideal ratios |
+| 4 | A SIP, or a lump sum without holdings | Follow the ideal mix of the nearest unfunded goal (short → medium → long) |
+| 5 | The emergency horizon | Never a SIP target |
+| 6 | Filling a sleeve | Rank 1 first, spill down the ladder |
+| 7 | A fund would exceed its cap | Buy up to the cap; spill the rest to the next rank |
+| 8 | The deposit is small | The rupee floor, not the percentage, sets the cap |
+| 9 | A SIP, with a recent rebalancing plan | Mirror those funds first, then walk the ladder |
+| 10 | Rounded buys fall just short of a lump sum | Sweep the remainder into the largest buy |
+| 11 | Caps bind, or a sleeve has no fund | Report the leftover as undeployed |
+
+---
+
+## The decisions we would most want you to confirm
+
+1. **The per-fund cap is a percent of the deposit, not the portfolio — and the rupee floor usually decides.** On any normal SIP, and on smaller lump sums, the ₹10,000 / ₹40,000 floors set the split, not the percentages. Confirm those floor levels are where you want them.
+2. **A lump sum fills gaps; it does not rebalance.** It never sells, so it cannot correct an over-weight sleeve — only starve it of new money. A sleeve that has dropped out of the ideal entirely gets no buy *and* no sell.
+3. **The engine is blind to which specific funds you already own within a sleeve.** Every pick comes off the top of the ladder; it will not deliberately avoid re-buying a fund you hold, nor prefer one you do not. (A SIP's mirror step is the one nod to your existing plan.)
+4. **A SIP always builds the nearest unfunded horizon.** Once short and medium are funded, every SIP rupee builds long-term — even years ahead of a long-term goal. Confirm that is intended, rather than, say, splitting a SIP across horizons.
+5. **Emergency is never fed by a SIP,** and naturally draws nothing from a lump sum. Confirm the emergency cushion is expected to be funded some other way.
+
+---
+
+*Business logic trace · additional-investment engine · traced against the live code on 13 August 2026. Worked panels from the five-profile simulation. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
+</script>
+
+<script>
+(function () {
+  const mdSource = document.getElementById('source-md').textContent;
+
+  marked.use({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  const rawHtml = marked.parse(mdSource);
+  const content = document.getElementById('content');
+  content.innerHTML = rawHtml;
+
+  content.querySelectorAll('pre code.language-mermaid').forEach((codeEl) => {
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = codeEl.textContent;
+    codeEl.parentElement.replaceWith(div);
+  });
+
+  function slugify(text) {
+    return text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  }
+  content.querySelectorAll('h2, h3').forEach((h) => { if (!h.id) h.id = slugify(h.textContent); });
+
+  const tocList = document.getElementById('toc-list');
+  content.querySelectorAll('h2, h3').forEach((h) => {
+    const li = document.createElement('li');
+    li.className = 'lvl-' + h.tagName.charAt(1);
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+  mermaid.run({ querySelector: '.mermaid' });
+
+  const headings = Array.from(content.querySelectorAll('h2, h3'));
+  const tocLinks = Array.from(tocList.querySelectorAll('a'));
+  const linkById = new Map(tocLinks.map(a => [a.getAttribute('href').slice(1), a]));
+  function onScroll() {
+    const fromTop = window.scrollY + 80;
+    let active = headings[0];
+    for (const h of headings) { if (h.offsetTop <= fromTop) active = h; else break; }
+    tocLinks.forEach(a => a.classList.remove('active'));
+    if (active) { const link = linkById.get(active.id); if (link) link.classList.add('active'); }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@ Runtime reference data read by agents under `AI_Agents/src/` (market-commentary 
 - **Tech_reference_docs/** — engineer-facing docs, not runtime data. `ARCHITECTURE.md` — hand-authored walkthrough of `AI_Agents/`: per-agent contracts, deterministic-vs-LLM split, cross-agent data-flow, landmines. `CHAT_FLOW.md` — non-technical guide to how a customer question travels through the chat. Each has a generated `.html` viewer beside it (see Gotchas — edit the `.md`, never the `.html`).
 - **Logics_reference_docs/** — directional, client-safe thesis docs — philosophy and approach only; they deliberately omit proprietary weights, bands, thresholds (for engine-true numbers, read the code): `Asset_Allocation.md`, `Practical_Asset_Allocation.md`, `Risk_Profiling.md`, `Rebalancing.md`, `Cashflow_Statement.md`, `Additional_Investment.md`, `Mutual_Fund_Query.md` (each v1.x; the version footer in each doc is authoritative). Which docs reach a reply is wired in `app/domains/ai_engine/logic_docs.py` — `_MODULE_DOCS`, attached only on `educate`/`narrate` action modes.
 - **Module_reference_docs/** — per-agent engineer guides, one `.html` each plus `index.html`; engineer-facing, not runtime data.
-- **Business_reference_docs/** — business-facing HTML explainer(s) (`rebalancing_logic_flowchart.html`); not runtime data.
+- **Business_reference_docs/** — business-facing HTML flowchart explainers of engine logic, one dated snapshot per logic change in `<name>_MMDDYY.html` form (`rebalancing_logic_flowchart_081326.html`, `additional_investment_logic_flowchart_081326.html`); hand-maintained (marked + mermaid in a `<script type="text/markdown">` block — edit the markdown directly, unlike the generated Tech docs), not runtime data.
 
 ## Gotchas & invariants
 
