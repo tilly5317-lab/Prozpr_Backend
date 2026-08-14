@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 # anything smaller is floating-point residue from a fund that was fully sold.
 _CLOSED_POSITION_UNITS = 1e-6
 
+# ``avg_nav`` and ``current_nav`` are NUMERIC(12,4): |value| must stay under 10^8
+# or the INSERT aborts, taking the user's whole rebuild with it. Real NAVs are two
+# to five digits, so anything at this scale is corrupt input rather than a
+# holding — drop the one field and keep the rest of the snapshot.
+_MAX_NAV = 1e8
+
 
 def _f(value: object) -> float:
     if value is None:
@@ -47,6 +53,20 @@ def _f(value: object) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value)
+
+
+def _nav_or_none(value: Optional[float], scheme_code: str) -> Optional[float]:
+    """Round a NAV for a NUMERIC(12,4) column, or None if it cannot fit."""
+    if value is None:
+        return None
+    if not math.isfinite(value) or abs(value) >= _MAX_NAV:
+        logger.warning(
+            "scheme %s: NAV value %r does not fit NUMERIC(12,4) — storing NULL",
+            scheme_code,
+            value,
+        )
+        return None
+    return round(value, 4)
 
 
 def _xnpv(rate: float, cashflows: list[tuple[date, float]]) -> float:
@@ -175,7 +195,8 @@ async def rebuild_user_latest_snapshot(
 
     for scheme_code, items in by_scheme.items():
         units = 0.0
-        invested = 0.0
+        buy_units = 0.0  # units acquired — the weighted purchase-NAV denominator
+        buy_cost = 0.0  # Σ(purchase amount) — the numerator
         cashflows: list[tuple[date, float]] = []
         for txn in items:
             # CAS stores redemption units as a *negative* number — use the magnitude so
@@ -185,20 +206,32 @@ async def rebuild_user_latest_snapshot(
             t_amt = abs(_f(txn.amount))
             if txn.transaction_type in _OUTFLOW_TYPES:
                 units += t_units
-                invested += t_amt
+                buy_units += t_units
+                buy_cost += t_amt
                 cashflows.append((txn.transaction_date, -t_amt))
             elif txn.transaction_type in _INFLOW_TYPES:
+                # A sell removes units but NOT purchase history. Deducting the
+                # redemption *proceeds* from the invested amount (what this did
+                # until 2026-08-14) charges a profitable exit against the units
+                # still held: HDFC Small Cap came out at invested = -658,135.88,
+                # avg_nav = -157.9975, and an unrealised P&L larger than the
+                # position. Cost basis is now derived after the loop instead.
                 units -= t_units
-                invested -= t_amt
                 cashflows.append((txn.transaction_date, t_amt))
 
         # A fully-exited fund cancels to ~0 in float, not 0: DSP Midcap with
         # 2,591.249 units bought and sold left 4.5e-13. That is > 0, so a `<= 0`
-        # test lets it through, and `invested / units` then divides a profit by
-        # a crumb — -87,350 / 4.5e-13 = -1.9e17, which overflows avg_nav's
-        # NUMERIC(12,4) and killed the nightly rebuild for every user.
+        # test lets the crumb through and reports a closed fund as a live holding.
         if units <= _CLOSED_POSITION_UNITS:
             continue
+
+        # Cost basis of the units still held, at the lifetime weighted purchase
+        # NAV — the same definition ``holding_detail_service`` reads out, so the
+        # holdings list and the fund detail page can no longer disagree. Scaling
+        # with ``units`` is also what keeps avg_nav inside NUMERIC(12,4): it is a
+        # purchase NAV, never a profit divided by a residual unit crumb.
+        avg_cost = (buy_cost / buy_units) if buy_units > 0 else None
+        invested = avg_cost * units if avg_cost is not None else 0.0
 
         meta = (
             await db.execute(
@@ -277,8 +310,8 @@ async def rebuild_user_latest_snapshot(
             sub_group=live_subgroup or (items[-1].sub_group if items else None),
             invested_amount=round(invested, 2),
             current_units=round(units, 4),
-            avg_nav=round(invested / units, 4) if units > 0 else None,
-            current_nav=round(curr_nav, 4) if curr_nav is not None else None,
+            avg_nav=_nav_or_none(avg_cost, scheme_code),
+            current_nav=_nav_or_none(curr_nav, scheme_code),
             current_value=round(curr_value, 2),
             unrealized_pnl=round(pnl, 2),
             absolute_return_pct=round(abs_pct, 4) if abs_pct is not None else None,
