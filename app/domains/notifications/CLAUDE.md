@@ -10,7 +10,7 @@
 ## Gotchas & invariants
 
 - **Delivery is pull-based, not push.** `create_notification` only does `db.add` + `flush` synchronously — there is no email / websocket / push channel; the client surfaces a notification by polling the `/notifications` list endpoint (`services/notification_service.py`).
-- **Nothing triggers a notification yet:** `create_notification` has zero callers in `app/`. The write path exists but is unwired — adding a producer is a TODO, not a regression (`services/notification_service.py`).
+- **One producer today:** the advisory team-call booking fires a best-effort confirmation notification (`advisory/routers/team_call_router.py`) — a notification hiccup never fails the booking. No other write path is wired.
 
 ## Don't read
 

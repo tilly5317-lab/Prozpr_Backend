@@ -482,10 +482,14 @@ So the engine's own `clarifying_question` is really the *last* rung — the gate
 
 | Pass | Model | Determinism |
 |---|---|---|
-| extract | `claude-haiku-4-5` | probabilistic routing — which fund, which ask-type |
-| narrate | `claude-haiku-4-5` | probabilistic *wording* over deterministic *numbers* |
+| extract | `claude-haiku-4-5`, `temperature=0` | probabilistic routing — which fund, which ask-type. Does **not** stream (no customer-facing prose) |
+| narrate | `claude-haiku-4-5`, `temperature=0` | probabilistic *wording* over deterministic *numbers*. Streams `answer` when a token stream is open |
 
-The LLM client is [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type": "tool", "name": ...}`, marks the system prompt with `cache_control: ephemeral` (Anthropic prompt caching), and returns `(tool_input, usage)`. `MODEL_MAP` resolves the `"haiku"` alias to the pinned model id.
+The LLM client is [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type": "tool", "name": ...}`, marks the system prompt with `cache_control: ephemeral` (Anthropic prompt caching), pins `temperature=0`, and returns `(tool_input, usage)`. `MODEL_MAP` resolves the `"haiku"` alias to the pinned model id.
+
+**Streaming.** `call_structured` takes an optional `stream_field`. When it is set *and* the turn has an open token stream, the call switches from `ainvoke` to `astream_tool_answer` and publishes the growth of that one field as deltas; the `FINE_GRAINED_TOOL_STREAMING` beta is attached only in that case, because without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. With no open stream this is byte-for-byte the old blocking path.
+
+Only `narrate` passes one — `stream_field="answer"`. The parameter deliberately has no default: a caller must name the customer-facing field, so an internal one is never streamed by accident. `clarifying_question` is a short fallback the bridge picks when `answer` is empty, and `extract`'s output is pure routing metadata.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
@@ -525,6 +529,9 @@ App-layer companions (not part of the engine, but where the facts come from):
 - **Peers only for a single named fund.** 2+ named funds ⇒ `peers` empty and the named funds are the comparison set. Don't repopulate `peers` in that branch.
 - **Held funds resolve to the customer's own plan**, not the default Direct-Growth, so a "return" matches what they actually hold.
 - **Prompt file is BOM-aware and split on `---`.** It contains `₹`/em-dashes and inline JSON tool schemas. `read_text_bom_aware` + the single-brace-safe `_fill` exist for this reason — don't switch to a naive `str.format` (it would choke on the JSON braces).
+- **`stream_field` has no default, on purpose.** Naming the field is the caller's job. Adding a default would mean a future tool schema silently streams an internal field to a customer.
+- **The streaming path reports usage on `usage_metadata`,** leaving `response_metadata["usage"]` empty. `llm_client` carries an explicit fallback that reads `input_tokens` / `output_tokens` / cache details off it — remove that and token and cost accounting records **zeros for every streamed turn**, silently.
+- **`temperature=0` must stay a literal in the `ChatAnthropic(...)` call.** A repo-wide test (`test_temperature_is_pinned.py`) scans the call text for it; moving it into a kwargs dict makes the scan miss, and omitting it applies the API default of 1.0.
 - **Failure is soft.** The gateway catches errors (incl. `AnthropicAuthenticationError`) and returns a generic "try again in a moment" reply — a fund lookup problem never surfaces a stack trace to the customer.
 
 ---
@@ -557,7 +564,7 @@ App-layer companions (not part of the engine, but where the facts come from):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 </script>
 
 <script>

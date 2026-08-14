@@ -29,6 +29,7 @@ import uuid
 
 import httpx
 
+from app.core.observability import capture_flow_completed
 from app.domains.ai_engine.common import trace_line, trace_response_preview
 from app.domains.ai_engine.services.flow import (
     FLOWS,
@@ -41,6 +42,10 @@ from app.domains.ai_engine.turn_context import (
 from app.domains.ai_engine.chat_types import (
     ChatBrainResult,
     ChatTurnInput,
+)
+from app.domains.ai_engine.portfolio_gate import (
+    missing_portfolio_reply,
+    portfolio_data_missing as is_portfolio_data_missing,
 )
 from app.domains.ai_engine.posthog_tracing import (
     set_turn_trace_name,
@@ -229,6 +234,12 @@ class ChatBrain:
                 or f"Understood — treating this as a {intent.name.replace('_', ' ')} question.",
             )
             flow.append(f"identified intent: {intent.name}")
+            tools_needed = tuple(
+                t.value for t in getattr(intent.raw, "tools_needed", ()) or ()
+            )
+            if tools_needed:
+                ctx = dataclasses.replace(ctx, tools_needed=tools_needed)
+                flow.append(f"tools needed: {','.join(tools_needed)}")
             # Name the PostHog trace now that we know the intent — otherwise it is
             # labelled "RunnableSequence" and the trace list is unreadable.
             set_turn_trace_name(intent.name)
@@ -272,6 +283,27 @@ class ChatBrain:
                         usage_cb=usage_cb,
                     )
 
+            # ---- 3b. No portfolio yet? Ask for the statement instead --------
+            # CAMS is skippable at onboarding, so a customer can reach chat with
+            # nothing imported. Running a holdings-driven engine over an empty
+            # portfolio yields either a technical blocking message or example
+            # numbers the customer reads as their own — so answer honestly and
+            # flag the turn for the add-CAMS CTA. Fails open (see the gate).
+            if await is_portfolio_data_missing(db, uid, intent.name):
+                flow.append("portfolio data missing — asked for a CAMS statement")
+                trace_line(f"portfolio gate: no holdings for intent={intent.name}")
+                return await self._finalize(
+                    text=missing_portfolio_reply(intent.name),
+                    intent=intent,
+                    flow=flow,
+                    t0=t_all,
+                    db=db,
+                    uid=uid,
+                    sid=sid,
+                    usage_cb=usage_cb,
+                    portfolio_data_missing=True,
+                )
+
             # ---- 4. Pick the flow -------------------------------------------
             selected = self._flow_for(intent, ctx)
             flow.append(f"flow: {selected.__name__}")
@@ -313,6 +345,8 @@ class ChatBrain:
                     uid=uid,
                     sid=sid,
                     usage_cb=usage_cb,
+                    outcome="failed",
+                    failure_reason="timeout",
                 )
 
             # ---- 6. The flow's result owns the reply ------------------------
@@ -359,6 +393,12 @@ class ChatBrain:
                 uid=uid,
                 sid=sid,
                 usage_cb=usage_cb,
+                outcome="failed",
+                failure_reason=(
+                    "llm_auth_failure"
+                    if _is_llm_auth_failure(exc)
+                    else type(exc).__name__
+                ),
             )
         finally:
             # Any speculation that was never consumed (intent changed, canned
@@ -389,6 +429,9 @@ class ChatBrain:
         sid,
         final: ModuleOutput | None = None,
         usage_cb=None,
+        outcome: str = "ok",
+        failure_reason: str | None = None,
+        portfolio_data_missing: bool = False,
     ) -> ChatBrainResult:
         """Shape the assistant reply + write end-of-turn telemetry."""
         ms = int((time.perf_counter() - t0) * 1000)
@@ -426,6 +469,15 @@ class ChatBrain:
                 "Chat turn telemetry failed (session=%s); returning reply anyway",
                 sid,
             )
+        # The turn's durable outcome. Here rather than at each exit because all
+        # four of them already funnel through _finalize.
+        capture_flow_completed(
+            intent=intent.name if intent else None,
+            outcome=outcome,
+            failure_reason=failure_reason,
+            duration_ms=ms,
+            distinct_id=uid,
+        )
         return ChatBrainResult(
             content=text,
             intent=intent.name if intent else None,
@@ -437,4 +489,5 @@ class ChatBrain:
             else None,
             ideal_allocation_snapshot_id=final.snapshot_id if final else None,
             chart_payloads=final.chart_payloads if final else None,
+            portfolio_data_missing=portfolio_data_missing,
         )

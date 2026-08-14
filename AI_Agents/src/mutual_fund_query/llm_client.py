@@ -30,28 +30,32 @@ class LLMClient:
         parsing or markdown-fence stripping needed on this side.
         """
         model_id = self.MODEL_MAP.get(model, model)
+        # No streaming path: this client serves `extract` only, which returns
+        # routing metadata, not customer prose. The reply is streamed by the
+        # shared answer formatter. temperature stays a literal here —
+        # test_temperature_is_pinned scans the call text.
         llm = ChatAnthropic(
             model=model_id,
             max_tokens=max_tokens,
             api_key=self._api_key,
+            temperature=0,
         ).bind_tools(
             [tool],
             tool_choice={"type": "tool", "name": tool["name"]},
         )
-        response = await llm.ainvoke(
-            [
-                SystemMessage(
-                    content=[
-                        {
-                            "type": "text",
-                            "text": system,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ]
-                ),
-                HumanMessage(content=user),
-            ]
-        )
+        messages = [
+            SystemMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            ),
+            HumanMessage(content=user),
+        ]
+        response = await llm.ainvoke(messages)
 
         tool_input: dict | None = None
         for tool_call in response.tool_calls:
@@ -62,7 +66,8 @@ class LLMClient:
             raise RuntimeError(
                 f"Forced tool-call returned no tool_use block named {tool['name']!r}"
             )
-        usage = self._record_usage(response.response_metadata.get("usage") or {})
+        usage_raw = (response.response_metadata or {}).get("usage") or {}
+        usage = self._record_usage(usage_raw)
         return tool_input, usage
 
     def _record_usage(self, usage_dict: dict) -> dict:

@@ -529,6 +529,8 @@ App-layer companions (where the engine actually gets called from):
 - **The agent graph is dark on the production path** (§2). Wiring it in is a real change, not a refactor — do it deliberately, and update the Logics thesis + this doc when you do.
 - **Bump `ENGINE_VERSION` on any projection-math change** ([`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)). Stored plan runs auto-recompute when their version differs; skip the bump and customers see stale corpus figures.
 - **The LLM must never state a number that isn't pre-formatted in the facts.** `summarizer._build_facts` hands Haiku `_indian` strings; the prompt forbids arithmetic. Widen the facts only with values you can source from the engine.
+- **One deliberate exception: `corpus_closing` also ships RAW.** Formatting *everything* turned out to be lossy for reasoning — asked "when do I cross ₹1 crore?", the model was comparing the strings `"₹98.5 lakh"` and `"₹1.02 crore"` and getting it wrong. `corpus_closing` is the one figure that has to be **compared across years**, so the chat facts pack carries both the raw number and a `corpus_closing_indian` sibling for display. The other nine annual-cashflow amounts are only ever *quoted*, so they ship formatted-only (`*_indian`); shipping raw values for all of them cost ~1,400 tokens per goal-planning turn and bought nothing. The generalisable lesson: **format at the last moment for display, keep raw whatever the model must reason over.**
+- **`corpus_today` is NOT "their portfolio".** It merges three sources — the linked mutual-fund portfolio, directly-held equity, and cash/debt — so it is usually **larger** than the portfolio value the customer sees on screen. The chat facts pack now carries a `corpus_composition` split (`linked_portfolio_value`, `direct_equity_shares`, `cash_and_debt`) precisely so the answer can say "everything you hold" versus "your portfolio" correctly. Quoting the merged corpus as their portfolio overstates it. Note also that the projection models only the **combined** corpus — there is no year-by-year forecast for any single component, so never project one forward.
 - **`next_steps` is deterministic, from levers — not the LLM.** On the production path no levers are computed, so `next_steps` is empty; don't "fix" this by having the model invent action items.
 - **Time convention is day-precise `EOMONTH(date)/365`.** Inflation FV and PV-discount both use it, symmetrically, across every stage (`retirement.py`, `properties.py`, `goals_table.py`). Don't swap in whole-year or 360-day math — it breaks Excel parity.
 - **`_round_thousand` applies only to FV cashflow anchors** (`corpus_required_fv`, `target_fv`); PV/display fields stay unrounded (`engine/dates.py`). Rounding a PV field silently shifts totals.
@@ -567,7 +569,7 @@ Run with the mac venv:
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

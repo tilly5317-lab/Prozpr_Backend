@@ -33,7 +33,7 @@ Every Ask PI plan moves through eight deliberate, auditable stages. We can walk 
 
 ### Stage 1 — Profile
 
-We lift your household snapshot into the projection: starting corpus, income, effective tax rate, monthly expenses and current contributions. We anchor today's date and the planning horizon, and record the assumptions in use — every assumption is reviewable and overridable, with no hidden magic numbers in the inner stages.
+We lift your household snapshot into the projection: starting corpus, income, effective tax rate, monthly expenses and current contributions. **The starting corpus is everything you hold** — your linked mutual-fund portfolio *plus* directly-held equity *plus* cash and debt holdings — so it is normally larger than the portfolio figure on your dashboard, and we're careful to call it your total investments rather than your portfolio. The projection then models that combined pool as one; there is no separate year-by-year forecast for the portfolio, the shares or the cash on their own, so we won't tell you what any single component will be worth in a given year. We anchor today's date and the planning horizon, and record the assumptions in use — every assumption is reviewable and overridable, with no hidden magic numbers in the inner stages.
 
 ### Stage 2 — Retirement
 
@@ -87,4 +87,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Cashflow & Goal-Planning Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Cashflow & Goal-Planning Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-08-04*

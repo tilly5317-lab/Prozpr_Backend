@@ -17,6 +17,9 @@ PyJWT>=2.8.0
 # HTTP client (MSG91 OTP, mfapi.in ingest)
 httpx>=0.27.0
 
+# S3 staging of large CAS PDFs for casparser pdf_url mode (CAMS_STAGE_S3_BUCKET)
+boto3>=1.34.0
+
 # Background scheduling (daily mfapi.in MF master + NAV refresh)
 apscheduler>=3.10.0
 
@@ -31,7 +34,17 @@ python-multipart>=0.0.22
 
 # AI
 anthropic>=0.40.0
-langchain-anthropic>=0.3.0
+# >=1.4.8 is load-bearing for chat token streaming, not a routine floor. The
+# answer arrives as a FORCED TOOL CALL, so incremental delivery needs the
+# `fine-grained-tool-streaming-2025-05-14` beta, which the formatter passes as
+# ChatAnthropic(betas=[...]) — a real field only from 1.4.x. On an older release
+# the kwarg falls through to model_kwargs, the beta header never reaches the API,
+# and Anthropic buffers the tool-call JSON to the end of the response: measured
+# on an 8s answer, the first delta arrived at 7.44s vs 2.64s with the beta, which
+# reads to a customer as "streaming is broken" while raising no error anywhere.
+# The floor must stay ABOVE whatever prod last installed: deploy.yml reuses a
+# long-lived venv and pip will not upgrade an already-satisfied requirement.
+langchain-anthropic>=1.4.8,<2
 ddgs>=7.0.0
 # Used by AI_Agents/src/market_commentary/scraper.py (imported at app startup via ai_bridge)
 tavily>=1.0.0
@@ -58,3 +71,12 @@ opentelemetry-sdk==1.44.0
 opentelemetry-exporter-otlp-proto-http==1.44.0
 # Pulls opentelemetry-instrumentation-asgi and -util-http transitively.
 opentelemetry-instrumentation-fastapi==0.65b0
+# DB query + outbound-call spans. Without these the only thing OTel sees is
+# "a request arrived and left" — every query and every third-party call inside
+# it is invisible, which is how an 800s job could die on a NUMERIC overflow
+# with no span to show for it. Wired in app/main.py.
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-instrumentation-httpx==0.65b0
+# CPU / memory / disk gauges, exported to PostHog's OTLP metrics endpoint.
+# Pulls psutil transitively. Wired in app/core/otel.py:init_metrics.
+opentelemetry-instrumentation-system-metrics==0.65b0

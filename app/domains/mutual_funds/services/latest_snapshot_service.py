@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
 from datetime import date, timedelta
@@ -33,6 +34,18 @@ _INFLOW_TYPES = {
 }
 _MAX_NAV_LOOKBACK_DAYS = 14
 
+logger = logging.getLogger(__name__)
+
+# Below this, a position is closed. Real holdings are never a millionth of a unit;
+# anything smaller is floating-point residue from a fund that was fully sold.
+_CLOSED_POSITION_UNITS = 1e-6
+
+# ``avg_nav`` and ``current_nav`` are NUMERIC(12,4): |value| must stay under 10^8
+# or the INSERT aborts, taking the user's whole rebuild with it. Real NAVs are two
+# to five digits, so anything at this scale is corrupt input rather than a
+# holding — drop the one field and keep the rest of the snapshot.
+_MAX_NAV = 1e8
+
 
 def _f(value: object) -> float:
     if value is None:
@@ -40,6 +53,20 @@ def _f(value: object) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value)
+
+
+def _nav_or_none(value: Optional[float], scheme_code: str) -> Optional[float]:
+    """Round a NAV for a NUMERIC(12,4) column, or None if it cannot fit."""
+    if value is None:
+        return None
+    if not math.isfinite(value) or abs(value) >= _MAX_NAV:
+        logger.warning(
+            "scheme %s: NAV value %r does not fit NUMERIC(12,4) — storing NULL",
+            scheme_code,
+            value,
+        )
+        return None
+    return round(value, 4)
 
 
 def _xnpv(rate: float, cashflows: list[tuple[date, float]]) -> float:
@@ -168,7 +195,8 @@ async def rebuild_user_latest_snapshot(
 
     for scheme_code, items in by_scheme.items():
         units = 0.0
-        invested = 0.0
+        buy_units = 0.0  # units acquired — the weighted purchase-NAV denominator
+        buy_cost = 0.0  # Σ(purchase amount) — the numerator
         cashflows: list[tuple[date, float]] = []
         for txn in items:
             # CAS stores redemption units as a *negative* number — use the magnitude so
@@ -178,15 +206,32 @@ async def rebuild_user_latest_snapshot(
             t_amt = abs(_f(txn.amount))
             if txn.transaction_type in _OUTFLOW_TYPES:
                 units += t_units
-                invested += t_amt
+                buy_units += t_units
+                buy_cost += t_amt
                 cashflows.append((txn.transaction_date, -t_amt))
             elif txn.transaction_type in _INFLOW_TYPES:
+                # A sell removes units but NOT purchase history. Deducting the
+                # redemption *proceeds* from the invested amount (what this did
+                # until 2026-08-14) charges a profitable exit against the units
+                # still held: HDFC Small Cap came out at invested = -658,135.88,
+                # avg_nav = -157.9975, and an unrealised P&L larger than the
+                # position. Cost basis is now derived after the loop instead.
                 units -= t_units
-                invested -= t_amt
                 cashflows.append((txn.transaction_date, t_amt))
 
-        if units <= 0:
+        # A fully-exited fund cancels to ~0 in float, not 0: DSP Midcap with
+        # 2,591.249 units bought and sold left 4.5e-13. That is > 0, so a `<= 0`
+        # test lets the crumb through and reports a closed fund as a live holding.
+        if units <= _CLOSED_POSITION_UNITS:
             continue
+
+        # Cost basis of the units still held, at the lifetime weighted purchase
+        # NAV — the same definition ``holding_detail_service`` reads out, so the
+        # holdings list and the fund detail page can no longer disagree. Scaling
+        # with ``units`` is also what keeps avg_nav inside NUMERIC(12,4): it is a
+        # purchase NAV, never a profit divided by a residual unit crumb.
+        avg_cost = (buy_cost / buy_units) if buy_units > 0 else None
+        invested = avg_cost * units if avg_cost is not None else 0.0
 
         meta = (
             await db.execute(
@@ -265,8 +310,8 @@ async def rebuild_user_latest_snapshot(
             sub_group=live_subgroup or (items[-1].sub_group if items else None),
             invested_amount=round(invested, 2),
             current_units=round(units, 4),
-            avg_nav=round(invested / units, 4) if units > 0 else None,
-            current_nav=round(curr_nav, 4) if curr_nav is not None else None,
+            avg_nav=_nav_or_none(avg_cost, scheme_code),
+            current_nav=_nav_or_none(curr_nav, scheme_code),
             current_value=round(curr_value, 2),
             unrealized_pnl=round(pnl, 2),
             absolute_return_pct=round(abs_pct, 4) if abs_pct is not None else None,
@@ -298,32 +343,47 @@ async def rebuild_user_latest_snapshot(
     return len(rows)
 
 
-_USER_BATCH_SIZE = 50
-
-
 async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]:
     """Rebuild latest snapshot rows for every user who has MF transactions.
 
-    Processes users in batches and expunges ORM objects between users to
-    keep peak memory proportional to one user's data instead of all users.
+    Commits and expunges per user, so peak memory stays proportional to one
+    user's data and a user whose rebuild raises is skipped rather than taking
+    the run down with it.
 
     Returns:
-        tuple[int, int]: (users_processed, total_snapshot_rows_written)
+        tuple[int, int]: (users_processed, total_snapshot_rows_written) — users
+        that failed are excluded from the count and logged.
     """
     user_ids = list(
         (await db.execute(select(MfTransaction.user_id).distinct())).scalars().all()
     )
     users_processed = 0
     total_rows = 0
+    failed = 0
     for user_id in user_ids:
-        total_rows += await rebuild_user_latest_snapshot(db, user_id, _commit=False)
-        users_processed += 1
+        # One user must not be able to empty the table for everyone. Before this
+        # guard a single NumericValueOutOfRange aborted the whole job, and the
+        # snapshot went unwritten from 2026-05-07 to 2026-08-02 with no alert.
+        # Rolling back discards the uncommitted batch, so commit per user and
+        # accept the extra round-trips — correctness over throughput here.
+        try:
+            total_rows += await rebuild_user_latest_snapshot(
+                db, user_id, _commit=False
+            )
+            await db.commit()
+            users_processed += 1
+        except Exception:
+            await db.rollback()
+            failed += 1
+            logger.exception("latest-snapshot rebuild failed for user %s", user_id)
         db.expunge_all()
 
-        if users_processed % _USER_BATCH_SIZE == 0:
-            await db.commit()
-    if users_processed % _USER_BATCH_SIZE != 0:
-        await db.commit()
+    if failed:
+        logger.error(
+            "latest-snapshot rebuild: %d of %d users failed and were skipped",
+            failed,
+            len(user_ids),
+        )
     return users_processed, total_rows
 
 

@@ -27,6 +27,7 @@ from app.domains.ai_engine.turn_context import (
     TurnContext,
 )
 from app.domains.ai_engine.answer_formatter import (
+    ActionMode,
     format_relay_or_canned,
     format_with_telemetry,
 )
@@ -51,7 +52,7 @@ class RebalanceAction(BaseModel):
         "narrate",
         "educate",
         "counterfactual_explore",
-        "recompute",
+        "compute",
         "clarify",
         "redirect",
         "consolidate",
@@ -125,10 +126,19 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
     additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
   Multiple keys are allowed in one action ("what if my tax rate were 20%
   AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
-- "recompute" — they explicitly ask to re-run with current portfolio state
+- "compute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
-- "clarify" — they signal a direction without an actionable value.
-  Compose a concise clarification question in `clarification_question`.
+- "clarify" — they want us to DO something to the plan but have not given the
+  value we need to do it. Compose a concise question in `clarification_question`.
+  This mode is ONLY for a missing input to an action. It is NOT for questions
+  about the plan or its numbers: "why is there a discrepancy?", "that doesn't
+  match what my plan shows", "no, I meant the target", "I'm trying to understand
+  this" are ALL narrate — the snapshot has the numbers, so answer from it.
+  NEVER ask the customer to read their own screen back to us (which row, what
+  label, which heading) — if their figure disagrees with ours, narrate ours and
+  explain the difference. NEVER re-ask something the recent conversation shows
+  we already asked; if they answered, use it, and if they didn't, answer anyway
+  with what we have.
 - "consolidate" — they want FEWER new-buy funds, or the new money restricted
   to specific fund categories. This reshapes only the BUY side of the plan
   (sells and tax are untouched). Two optional fields:
@@ -192,33 +202,72 @@ consolidate (fewer buys, or buys restricted to categories):
 - (we just asked "how many funds?") "5"     → consolidate, target_fund_count=5
                                               (history-fill — do not re-ask)
 
-recompute:
-- "rebalance my portfolio"                  → recompute
-- "redo with my latest holdings"            → recompute
+compute:
+- "rebalance my portfolio"                  → compute
+- "redo with my latest holdings"            → compute
 
 redirect (out of scope, or override outside the allow-list):
 - "what if I delayed by 3 months?"          → redirect, "delay rebalance by N months"
 - "don't sell my HDFC Top 100"              → redirect, "lock specific holdings"
 
-clarify (direction without an actionable value):
+clarify (an action we can take, missing only its value):
 - "I want to reduce tax"                    → clarify, "Your effective tax rate
                                               is X% — would 20% feel right?"
+
+NOT clarify — these are questions about the plan, so narrate:
+- "why is there a discrepancy?"             → narrate
+- "my plan shows 83% equity, not 95%"       → narrate
+- "no no, not today's picture — the target" → narrate
+- "I'm trying to understand this"           → narrate
 """
 
 _REBAL_FORMATTER_BODY = """You are answering a customer's question about a
 mutual-fund rebalancing recommendation. The shared house-style rules above apply.
 
-The FACTS_PACK has this shape (treat fields not present as unknown):
+The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   total_portfolio_inr / total_portfolio_indian — total invested corpus across all holdings
   buys_total_inr / buys_total_indian — sum of recommended buy amounts
   sells_total_inr / sells_total_indian — sum of recommended sell amounts
   tax_impact_inr / tax_impact_indian — estimated tax payable on the sells
+  tax_treatment — how that tax bill splits by holding period:
+      ltcg_realised_inr / _indian         — long-term gains realised (lower LTCG rate)
+      stcg_realised_inr / _indian         — short-term gains realised
+      stcg_offset_by_losses_inr / _indian — STCG cancelled out by short-term losses
+    Use this for any "is this / make this tax-efficient" question. A low or zero
+    stcg_realised is the proof the plan is ALREADY tax-optimised: it sells
+    long-term units first and leaves short-term units untouched (short-term is
+    sold only on a forced exit). State that with the figures. Do NOT invent a
+    different reason (e.g. "we picked funds with lower embedded gains" or
+    "shorter manager tenures") — ground the "why" in LOGIC_REFERENCE when present.
   trade_count: int — number of distinct buy/sell trades in the recommendation
 
-  asset_class_mix_pct: {equity, debt, others} as percentages of total
-  asset_class_mix_inr: {equity, debt, others} as ₹ amounts
-  asset_class_mix_indian: {equity, debt, others} pre-formatted strings
+  current_asset_class_mix_pct / _inr / _indian — {equity, debt, others}: what the
+    customer holds TODAY, before any of these trades.
+  target_asset_class_mix_pct / _inr / _indian — {equity, debt, others}: what they
+    will hold AFTER this plan's trades execute. This is the plan's target mix and
+    it is the SAME number the Invest page shows on its Current-vs-Target bars.
+
+  ideal_asset_class_mix_pct — {equity, debt, others}: the split their goals and
+    risk profile alone call for, ignoring what they currently hold. Optional.
+
+  These three are different questions and must never be swapped:
+    "what do I hold now?"              → current_*
+    "what's the target / what is the
+     plan moving me toward?"           → target_*
+    "what SHOULD my mix be?"           → ideal_*
+
+  The ideal and the target legitimately differ: the ideal is the destination on
+  paper, the target is what THIS plan can reach given what they already hold and
+  what it is willing to trade. If the customer asks why the two differ, say that
+  plainly and quote both numbers. Ground any further explanation in ``warnings``
+  or ``goal_buckets`` — do NOT invent lock-ins, untradeable holdings or staged
+  journeys that nothing in CUSTOMER_RECORD supports.
+
+  When the customer says a number from their plan disagrees with yours, they are
+  almost certainly reading their own screen correctly. Quote target_* and
+  reconcile against it. If a block you need is absent, say you don't have that
+  figure — never substitute one of the other two.
 
   buckets: list of one entry per (sub_category) the customer holds or trades.
     Fields per bucket:
@@ -264,6 +313,11 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
         This ALWAYS moves when the constraint bites; use it when the
         asset-class deltas are flat.
       risk_profile: the customer's risk profile label (may be null).
+      defaulted_fund_count: int — present ONLY when WE picked the fund count
+        because the customer never gave one. Open by saying so plainly and
+        invite the correction: "you didn't say a number, so I've spread the new
+        money across 5 funds — say the word and I'll make it 3." Never present
+        this number as something they chose.
 
   goal_buckets: optional list — present when the rebalancing was driven by the
     customer's goals. One entry per bucket the customer has goals in:
@@ -287,39 +341,40 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
   touches. If goal_buckets is absent, answer purely from the trade/asset-class
   facts as before.
 
-ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
-which is set by the system on a fresh first-turn recommendation (it is not
-produced by the classifier). Per-mode behavior:
+ACTION_MODE tells you the situation. Per-mode behavior:
 
-  compute    — first-time rebalancing recommendation; introduce it shaped by
+  compute    — a rebalancing recommendation we just produced; introduce it shaped by
                the customer's question. Cover: the headline (trade_count, total
                trade volume from buys_total_indian / sells_total_indian, and
                tax_impact_indian if non-zero), the 1-2 biggest moves at
-               sub_category level, the resulting asset_class_mix_indian, and
+               sub_category level, the resulting target_asset_class_mix_indian
+               (state it as where the plan lands them, and contrast with
+               current_asset_class_mix_indian when the shift is the point), and
                any warning that meaningfully shapes the picture. Lead with the
                headline unless the customer's question is specifically about
                tax or a specific fund — then lead with that. If trade_count is
                0, skip the trade details — lead with the alignment fact (e.g.,
                "your portfolio is already aligned with your target mix") and
-               briefly mention current asset_class_mix_indian. Length: 8-12
+               briefly mention current_asset_class_mix_indian. Length: 8-12
                sentences (3-5 for trade_count=0).
+               When CUSTOMER_RECORD carries `is_rerun: true` the customer asked
+               us to run it again and has seen a plan before: open by
+               acknowledging the re-run and lead with what changed since the
+               last run instead of introducing the plan. Length: 6-10 sentences.
   narrate    — they're asking about the existing recommendation. Anchor in
                2-3 specific sub_categories / amounts directly tied to the
                question; do NOT list every bucket. Length: 4-7 sentences.
   educate    — they're asking what a term or mechanism MEANS (e.g. exit
                load, STCG/LTCG, partial exit). Lead with a one-line plain-
                English definition, then anchor it in at least one specific
-               from FACTS_PACK (a sub_category, a trade, a tax/exit-load
+               from CUSTOMER_RECORD (a sub_category, a trade, a tax/exit-load
                amount). Length: 4-7 sentences.
-  recompute  — re-ran with current state. Acknowledge the re-run briefly
-               and lead with what changed since the last run. Length: 6-10
-               sentences.
   counterfactual_explore — hypothetical-only result. Make clear this is a
                hypothetical for comparison, not the saved recommendation;
                reference the saved recommendation as the baseline but
                don't reprint it in full. Length: 6-10 sentences.
   consolidate — the customer asked for fewer new-buy funds and/or buys
-               restricted to categories; FACTS_PACK reflects the reshaped
+               restricted to categories; CUSTOMER_RECORD reflects the reshaped
                buys and carries constraint_impact. FIRST confirm you did
                exactly what they asked (name the funds now being bought and
                the count). THEN add ONE grounded caution, picking the lens
@@ -331,7 +386,9 @@ produced by the classifier). Per-mode behavior:
                Never refuse; never invent a percentage not in the block.
                Remind them the sells and tax are unchanged from the plan if
                relevant. This is a chat-only view — their saved plan is
-               unchanged. Length: 6-10 sentences.
+               unchanged. If constraint_impact carries defaulted_fund_count,
+               LEAD by owning that we picked the number and how to change it.
+               Length: 6-10 sentences.
 """
 
 _REDIRECT_TEMPLATE = (
@@ -355,6 +412,11 @@ _CONSOLIDATE_CLARIFY = (
     "spread across — for example, up to 3 or up to 5?"
 )
 
+# Used when the customer asked to consolidate, we asked how many funds, and their
+# reply still carried no number ("as few as possible", "you decide"). Doing the
+# work with a stated default beats asking the same question twice.
+_DEFAULT_CONSOLIDATE_FUND_COUNT = 5
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -366,15 +428,19 @@ async def _format_or_fallback_rebal(
     ctx: TurnContext,
     response: Any,
     fallback_brief: str,
-    action_mode: str,
+    action_mode: ActionMode,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    is_rerun: bool = False,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_rebal_facts_pack(
-            response, goal_buckets=goal_buckets, constraint_impact=constraint_impact,
+            response,
+            goal_buckets=goal_buckets,
+            constraint_impact=constraint_impact,
+            is_rerun=is_rerun,
         ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
@@ -389,7 +455,10 @@ async def _blocking_text(ctx: TurnContext, blocking_message: str) -> str:
     keep transient/data-quality error blockers verbatim."""
     if blocking_message in TAILORABLE_BLOCKERS:
         return await format_relay_or_canned(
-            ctx=ctx, module_name="rebalancing", message=blocking_message,
+            ctx=ctx,
+            module_name="rebalancing",
+            message=blocking_message,
+            action_mode="gather",
         )
     return blocking_message
 
@@ -416,6 +485,39 @@ def _rehydrate_response(payload: dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------
 # Public handler
 # ---------------------------------------------------------------------------
+
+
+async def _last_action_mode(ctx: TurnContext) -> Optional[str]:
+    """The most recent persisted ``action_mode`` for rebalancing in this session.
+
+    Used to stop clarify from repeating. Deliberately NOT read off
+    ``ctx.last_agent_runs`` — that loader keeps only rows carrying an
+    output_payload (the engine runs), so formatter-only turns like a clarify are
+    invisible there.
+
+    Runs in a savepoint: a failure here must never poison the outer session, and
+    degrades to None (ask once more) rather than breaking the turn.
+    """
+    if ctx.db is None or ctx.session_id is None:
+        return None
+    from sqlalchemy import select
+
+    from app.domains.chat.models.chat_ai_module_run import ChatAiModuleRun
+
+    try:
+        async with ctx.db.begin_nested():
+            stmt = (
+                select(ChatAiModuleRun.action_mode)
+                .where(ChatAiModuleRun.session_id == ctx.session_id)
+                .where(ChatAiModuleRun.module == "rebalancing")
+                .where(ChatAiModuleRun.action_mode.isnot(None))
+                .order_by(ChatAiModuleRun.created_at.desc())
+                .limit(1)
+            )
+            return (await ctx.db.execute(stmt)).scalar_one_or_none()
+    except Exception:
+        logger.warning("last_action_mode lookup failed", exc_info=True)
+        return None
 
 
 @register_speculative_detector("rebalancing")
@@ -473,10 +575,28 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         action = RebalanceAction(mode="narrate")
 
     if action.mode == "clarify":
-        text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
-        return ChatHandlerResult(
-            text=text, snapshot_id=None, rebalancing_recommendation_id=None
-        )
+        # Ask at most ONCE in a row. A customer disputing a number ("that's not
+        # what my plan says") reads as "a direction without a value" to the
+        # detector, so it kept emitting clarify and asked the same question four
+        # turns running — twice after the customer had already answered it. If we
+        # asked last turn, answer with what we have instead.
+        if await _last_action_mode(ctx) == "gather":
+            logger.info("rebal_clarify_suppressed_after_gather; narrating instead")
+            action = RebalanceAction(mode="narrate")
+        else:
+            # Through the formatter, not raw: the detector's text is a classifier
+            # artifact, so returning it directly skipped PI's voice AND wrote no
+            # telemetry row — which is what made the loop invisible in the data
+            # and left the guard above nothing to read.
+            text = await format_relay_or_canned(
+                ctx=ctx,
+                module_name="rebalancing",
+                message=action.clarification_question or _DEFAULT_CLARIFY_FALLBACK,
+                action_mode="gather",
+            )
+            return ChatHandlerResult(
+                text=text, snapshot_id=None, rebalancing_recommendation_id=None
+            )
 
     if action.mode == "redirect":
         reason = action.redirect_reason or "change your trades"
@@ -497,8 +617,8 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     if action.mode == "consolidate":
         return await _consolidate(ctx, action)
 
-    # narrate / educate / recompute — all go through formatter; recompute also re-runs.
-    if action.mode == "recompute":
+    # narrate / educate / compute — all go through formatter; compute also re-runs.
+    if action.mode == "compute":
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
@@ -517,8 +637,9 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             ctx=ctx,
             response=outcome.response,
             fallback_brief=outcome.formatted_text or "",
-            action_mode="recompute",
+            action_mode="compute",
             goal_buckets=outcome.goal_buckets,
+            is_rerun=True,
         )
         return ChatHandlerResult(
             text=text,
@@ -671,13 +792,35 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
         allowed_categories=allowed,
     )
 
-    # Incomplete ask ("fewer funds", no count/category) → ask ONCE, stateless.
+    # Incomplete ask ("fewer funds", no count/category) → ask ONCE. If we already
+    # asked last turn and still have no number, do the work with a sensible
+    # default rather than asking again: the customer answered in words we
+    # couldn't parse ("as few as possible", "you decide"), and repeating the
+    # identical sentence leaves them stuck. They can correct it in one word.
+    defaulted_fund_count = False
     if not constraints_active(constraints):
-        return ChatHandlerResult(
-            text=_CONSOLIDATE_CLARIFY,
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
+        if await _last_action_mode(ctx) == "gather":
+            logger.info(
+                "consolidate_clarify_suppressed_after_gather; defaulting to %d funds",
+                _DEFAULT_CONSOLIDATE_FUND_COUNT,
+            )
+            constraints = ConsolidationConstraints(
+                target_fund_count=_DEFAULT_CONSOLIDATE_FUND_COUNT,
+                allowed_categories=allowed,
+            )
+            defaulted_fund_count = True
+        else:
+            text = await format_relay_or_canned(
+                ctx=ctx,
+                module_name="rebalancing",
+                message=_CONSOLIDATE_CLARIFY,
+                action_mode="gather",
+            )
+            return ChatHandlerResult(
+                text=text,
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
 
     # Run the engine ONCE, compute-only (no RebalancingRun written).
     outcome = await compute_rebalancing_result(
@@ -719,6 +862,10 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
         reshaped,
         risk_profile=getattr(ctx.user_ctx, "risk_profile", None),
     )
+    # We chose the number, not the customer — the reply must say so, or they'll
+    # read "5 funds" as something they asked for and never correct it.
+    if defaulted_fund_count:
+        impact["defaulted_fund_count"] = _DEFAULT_CONSOLIDATE_FUND_COUNT
     # Fallback brief must reflect the RESHAPED plan, not the original — else a
     # formatter failure would show the un-consolidated trades (grounding bug).
     try:

@@ -66,6 +66,7 @@ Ask "should I put this in small-caps?" and we answer honestly against your plan:
 | **Why did most of it go to one area instead of spreading evenly?** | Because that's where your portfolio is furthest below target. An even spread would look tidy but would leave your biggest gap standing. If your holdings were already balanced, the split would naturally come out broader. |
 | **I asked to put it all in small-caps — why did you spread it instead?** | We'll tell you honestly how small-caps fit your plan, and name our picks if there's room. But deploying everything into one category concentrates risk in a single pocket, so we don't execute that — we show you the plan-shaped alternative and let you decide with full information. |
 | **What's the difference between a lumpsum and a monthly SIP here?** | A lumpsum fills today's gaps in your actual holdings. A SIP is pointed at the goal horizon that needs funding soonest and builds toward it monthly. One fixes the present shape; the other funds the future timeline. |
+| **You didn't ask whether I meant a lumpsum or a SIP — why?** | Because in chat we assume a one-time deployment unless your own words say otherwise ("every month", "monthly SIP"). Asking two questions before showing you anything made the opening feel like a form. If we read it wrong, say so and we'll re-run it as the other kind. |
 | **Why didn't any money go into my ELSS or my direct stocks?** | ELSS carries a statutory lock-in — fresh money shouldn't surrender flexibility it doesn't have to. Direct stocks and PMS sit outside our fund-level mandate. Both still count toward your plan's totals; they just aren't buy targets. |
 | **You said some of the amount couldn't be deployed — where did it go?** | Nowhere — it stays with you, and we tell you exactly how much and why (usually a cap or eligibility rule). We'd rather report a remainder than force money into a position we don't believe in. |
 | **Will you sell anything to make room for the new money?** | No. This step is buy-only by design. If your existing portfolio needs re-shaping, that's a rebalance — a separate, tax-aware exercise you'd see proposed explicitly. |
@@ -77,4 +78,4 @@ This document is a directional reference for the *why* of fresh-money deployment
 
 ---
 
-*Ask PI · Additional Investment Thesis v1.1 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Additional Investment Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-08-04*

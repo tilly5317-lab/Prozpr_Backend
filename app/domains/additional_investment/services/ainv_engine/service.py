@@ -82,6 +82,14 @@ _MSG_INCOMPLETE_PROFILE = (
     "fresh money. Complete the missing details on your profile and ask me again."
 )
 
+# Notional corpus used ONLY to recover corpus-independent allocation ratios for a
+# SIP when the customer has no investable corpus of their own yet (the no-CAMS
+# cohort, where corpus ≈ 0 so the whole allocation collapses into the emergency
+# bucket and a horizon-targeted SIP deploys nothing). Sized comfortably above the
+# emergency and near-goal buckets so the target bucket is populated; the resulting
+# subgroup ratios are scale-invariant, so the exact figure doesn't matter.
+_SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
+
 # Stamped onto every persisted AdditionalInvestmentRun.engine_version. Bump when
 # the additional-investment engine's output contract changes.
 # 2.0.0: lumpsum deployments switched from single-bucket targeting to
@@ -274,6 +282,46 @@ async def compute_additional_investment_result(
         return AdditionalInvestmentRunOutcome(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
+
+    # No-CAMS cohort: a SIP whose target bucket comes back empty (corpus ≈ 0, so
+    # the whole allocation sits in emergency and the horizon-targeted split deploys
+    # nothing) is re-derived from an allocation sized to a notional corpus. The
+    # target-bucket subgroup ratios are scale-invariant, so this yields the ideal
+    # split for the SIP amount instead of an empty plan. Only fires on the empty
+    # case, so funded/CAMS SIPs are untouched. Best-effort: any failure keeps the
+    # original (empty) plan rather than raising.
+    if cadence is Cadence.SIP_MONTHLY and not response.buys:
+        try:
+            sized = await compute_practical_allocation_result(
+                user,
+                user_question,
+                chat_ctx=chat_ctx,
+                corpus_pin=CorpusPin(
+                    total_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
+                    mf_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
+                    non_mf_equity_corpus=0.0,
+                    elss_corpus=0.0,
+                ),
+            )
+            if sized.result is not None:
+                inp, debug = await build_additional_investment_input_for_user(
+                    chat_ctx,
+                    sized.result,
+                    deploy_amount_inr=deploy_amount_inr,
+                    cadence=cadence,
+                    current_value_by_subgroup=None,
+                    rebal_buy_isins_by_subgroup=rebal_buys,
+                )
+                response = await asyncio.to_thread(run_additional_investment, inp)
+                trace_line(
+                    "additional_investment SIP re-derived from sized allocation; "
+                    f"buys={len(response.buys)}"
+                )
+        except Exception:  # noqa: BLE001 — degrade to the original plan, never raise
+            logger.exception(
+                "additional_investment: sized SIP fallback failed — keeping the "
+                "original recommendation"
+            )
 
     # Deficit-fill facts for the chat formatter (lumpsum only): ideal vs current
     # vs deployed per subgroup, so the reply can narrate WHERE the gaps were.

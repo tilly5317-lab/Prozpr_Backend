@@ -47,7 +47,7 @@ several goals or years side by side; two or three of them read better as
 sentences. Never stack multiple summary tables in one reply — a headline table
 plus a goals table plus a fund-flow table is the plan document in disguise.
 
-When ACTION_MODE is `counterfactual_explore`, the FACTS_PACK you are given is the
+When ACTION_MODE is `counterfactual_explore`, the CUSTOMER_RECORD you are given is the
 plan RE-RUN with the customer's proposed change already applied — not their
 current plan. Answer as "here is what that would look like", lead with whether it
 still works, and name the change you modelled so they can see it was understood
@@ -60,11 +60,31 @@ beside your reply. If the customer asks to see it, say where it lives, and answe
 what they were actually after in a sentence or two — the trajectory, a turning
 point, a specific year from `annual_cashflow`. Never render the table.
 
-The FACTS_PACK has this shape (treat fields not present as unknown):
+The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   headline — the plan-level verdict.
     is_feasible: bool — do all goals get funded on the current trajectory
-    corpus_today / corpus_closing — corpus now, and at the end of the horizon
+    corpus_today / corpus_closing — corpus now, and at the end of the horizon.
+      `corpus_today` is TOTAL INVESTABLE ASSETS: the linked mutual-fund portfolio
+      PLUS directly-held equity PLUS cash and debt holdings. It is usually LARGER
+      than the portfolio value the customer sees on screen, so never call it "their
+      portfolio" — say "everything you hold" or "your total investments".
+      `corpus_closing` is a year-end balance in the accounting sense; never describe
+      a corpus as having "closed"
+
+  corpus_composition — what `corpus_today` is made of: linked_portfolio_value (the
+    mutual-fund portfolio they see in the app), direct_equity_shares, cash_and_debt.
+    When the customer asks about "my portfolio" specifically, answer with
+    linked_portfolio_value and name the rest separately — quoting the merged corpus
+    as their portfolio overstates it. When they ask about their overall position,
+    corpus_today is the right number.
+
+    These are TODAY's figures only. The projection — annual_cashflow, every
+    corpus_closing, corpus_today itself — models the COMBINED corpus and nothing
+    else. There is no year-by-year forecast for the portfolio, the equity, or the
+    cash on their own, so never project a component forward or name a future year
+    for one. If asked when a component reaches a value, say the forecast covers
+    their combined investments and answer on that basis.
     total_corpus_required_today — what all goals need, in today's rupees
     surplus_or_shortfall_today — negative means a present-value gap, which is
       NORMAL and not a failure when is_feasible is true: future contributions and
@@ -99,10 +119,21 @@ The FACTS_PACK has this shape (treat fields not present as unknown):
     total_investments, total_roi, total_one_off_in, total_one_off_out,
     total_goals_paid, corpus_closing
 
-  annual_cashflow[] — one row per financial year: fy_label, income, income_tax,
-    household_expense, savings_pre_emi, savings_post_emi, monthly_investment,
-    investment_returns, goal_payout, corpus_closing, is_funded. Reference
-    material for year-specific questions; not something to render wholesale.
+  annual_cashflow[] — one row per financial year: fy_label, is_funded, and
+    pre-formatted amounts income_indian, income_tax_indian,
+    household_expense_indian, savings_pre_emi_indian, savings_post_emi_indian,
+    monthly_investment_indian, investment_returns_indian, goal_payout_indian —
+    quote these verbatim. `corpus_closing` additionally ships as a RAW number
+    (with corpus_closing_indian for display) because it is the one figure you
+    compare across years. Reference material for year-specific questions; not
+    something to render wholesale.
+
+    For "when will I reach ₹X?", compare the RAW `corpus_closing` numbers against
+    X and name the fy_label of the FIRST year that reaches it — never the last row
+    of the table, and never a later year's corpus. Quote the `_indian` sibling in
+    the reply. If `headline.corpus_today` is already at or above X, the answer is
+    that they are ALREADY there: lead with that and give today's figure. Do not
+    name a future year, and never open with a year you then contradict.
 
   validation_issues — engine warnings worth raising if they bear on the question.
 
@@ -110,7 +141,7 @@ The verdict and the wording are yours to write from these numbers — nothing in
 the pack is pre-written prose to lift.
 
 Every rupee amount has a pre-formatted `_indian` sibling — use it verbatim; never
-re-derive or convert lakh/crore yourself. Quote only what is in the FACTS_PACK.
+re-derive or convert lakh/crore yourself. Quote only what is in the CUSTOMER_RECORD.
 """
 
 
@@ -231,6 +262,17 @@ counterfactual_explore — the customer proposes a CHANGE and wants to know its
   Convert Indian units yourself: 1 lakh = 100000, 1 crore = 10000000. For a
   RELATIVE change ("50k more"), add it to the current value given below.
 
+  A feasibility question ("will I…", "can I…", "am I able to…") IS proposing a
+  change when it names an override value that DIFFERS from the current plan
+  inputs above — the named value is the change, so route to counterfactual_explore,
+  not narrate. Compare against the plan's retirement age given above:
+    "will my SIP get me there by 55?"   (plan retires at 60) -> retirement_age: 55
+    "can I retire at 55?"               (plan retires at 60) -> retirement_age: 55
+    "can I hit FI five years early?"    (plan retires at 60) -> retirement_age: 55
+  Only route to narrate when the feasibility question names NO new value, or the
+  named value equals the plan's — then nothing is being changed ("will I meet my
+  goals?" -> narrate).
+
 clarify — the customer clearly wants a counterfactual but a required number is
   missing or ambiguous ("what if I retire earlier?" — earlier than what?). Ask
   exactly one short question. Do NOT use clarify to avoid a hard question; if
@@ -241,6 +283,12 @@ assumption, a new goal, changing inflation), choose narrate — the plan as it
 stands is still the honest answer, and inventing an unsupported override would
 produce a confident, wrong projection.
 """
+
+
+_DEFAULT_CLARIFY_FALLBACK = (
+    "Could you share a bit more — e.g., the age you'd like to retire at, a "
+    "monthly investment amount, or the goal you have in mind?"
+)
 
 
 async def _detect_goal_action(ctx: TurnContext) -> GoalChatAction:
@@ -291,9 +339,12 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
         logger.warning("goal detect failed; falling back to narrate", exc_info=True)
         action = GoalChatAction(mode="narrate")
 
-    if action.mode == "clarify" and action.clarification_question:
+    if action.mode == "clarify":
         # Bypasses the formatter, exactly as asset_allocation and rebalancing do.
-        return ChatHandlerResult(text=action.clarification_question)
+        # The fallback matters: without it an empty question fell through and we
+        # computed a full projection for a turn the detector said to ask about.
+        text = action.clarification_question or _DEFAULT_CLARIFY_FALLBACK
+        return ChatHandlerResult(text=text)
 
     overrides = action.overrides if action.mode == "counterfactual_explore" else None
 

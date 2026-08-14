@@ -102,7 +102,9 @@ def _get_doc_llm(api_key: Optional[str] = None):
     construction time. ``MarketCommentaryAgent`` passes its key explicitly —
     never via process-global env mutation, which races under async concurrency.
     """
-    llm = ChatAnthropic(model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS, api_key=api_key)
+    llm = ChatAnthropic(
+        model=_DOCUMENT_MODEL, max_tokens=_MAX_TOKENS, api_key=api_key, temperature=0
+    )
     return llm.bind_tools(
         [_DOC_TOOL], tool_choice={"type": "tool", "name": "return_commentary_document"}
     )

@@ -10,6 +10,12 @@ Hosts all Prozpr AI agent pipelines, runtime reference data, and archived implem
 - **lifecycle_sim_testing/** — DEV-ONLY (gitignored) multi-year lifecycle simulation harness: replays the engines over a simulated portfolio and writes HTML reports. Not imported by runtime.
 - **tests/** — pytest/eval harness for the bundled agents: a reusable suite runner (`_eval_harness.py`) + its self-tests, an intent-classifier test, and a `cashflow_statement/` eval subfolder. Not imported by runtime.
 
+## Files at this level
+
+- `requirements.txt` — pip dependency list for the bundled agent package (LangChain + Anthropic SDK + search tools). Separate from the backend's root `requirements.txt`.
+- `Prozpr_Customer_Flow.html` — DEV-ONLY standalone SVG diagram of the end-to-end customer flow; documentation artifact, not imported by runtime.
+- `__init__.py` — package marker only; agents are imported by bare module name (`from Rebalancing…`), never as `AI_Agents.*` (see header), so this namespace is intentionally unused.
+
 ## Conventions
 
 - **`sys.path` injection.** Agents under `src/` are loaded via `app.domains.ai_engine.common.ensure_ai_agents_path()`, which prepends `AI_Agents/src/` to `sys.path`. Always go through that helper rather than mutating `sys.path` directly.

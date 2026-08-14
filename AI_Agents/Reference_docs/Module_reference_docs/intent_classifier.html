@@ -289,7 +289,7 @@ The module lives at [`AI_Agents/src/intent_classifier/`](../../src/intent_classi
 
 `asset_allocation` · `goal_planning` · `stock_advice` · `portfolio_query` · `general_market_query` · `rebalancing` · `additional_investment` · `mutual_fund_query` · `out_of_scope`
 
-> **It is nine, not eight.** `mutual_fund_query` was added as a first-class sibling. The `IntentClassifier` docstring in [`classifier.py`](../../src/intent_classifier/classifier.py) and the folder's `CLAUDE.md` still say "eight intents" — those comments are stale; the `Intent` enum and `_IntentLiteral` are the truth (a drift test, §8, keeps them equal).
+> **It is nine, not eight.** `mutual_fund_query` was added as a first-class sibling. The `IntentClassifier` docstring in [`classifier.py`](../../src/intent_classifier/classifier.py) still says "eight intents" — that comment is stale; the `Intent` enum and `_IntentLiteral` are the truth (a drift test, §8, keeps them equal).
 
 The defining design decision: the module returns a **label, not a reply**. It carries a canned message *only* for the two "dead-end" intents (`out_of_scope`, `stock_advice`); for the other seven it emits an intent name and the [chat brain](../../../app/domains/ai_engine/services/brain.py) picks the flow. Routing is a plain table lookup in [`flow.py`](../../../app/domains/ai_engine/services/flow.py) — the classifier does not know what happens after it.
 
@@ -360,8 +360,20 @@ The engine returns [`ClassificationResult`](../../src/intent_classifier/models.p
 | `reasoning` | `str` | a **≤12-word** routing phrase — not analysis (capped in schema *and* prompt) |
 | `out_of_scope_message` | `Optional[str]` | the canned reply — populated **only** for `out_of_scope` and `stock_advice`; `None` otherwise |
 | `out_of_scope_subreason` | `Optional[OutOfScopeSubreason]` | set only when `intent == out_of_scope`; defaults to `other` if the model omitted one |
+| `tools_needed` | `list[Tool]` | extra data the **answer** stage needs; empty by default. Independent of the intent |
 
 `OutOfScopeSubreason` has six values — `gibberish`, `identity_or_meta`, `security_or_credentials`, `chat_summary`, `off_topic`, `other` — so the general-chat layer can tailor the decline (e.g. a chat-summary ask gets a different message than gibberish). The classifier's job is just to flag the sub-reason correctly.
+
+### `tools_needed` — a second verdict, not part of the label
+
+`Tool` is a separate enum in the same `models.py`, today with one member: `market_commentary`. It answers a different question from the intent — *what data will the answer stage need?* — and it does **not** influence routing. The brain copies it onto `TurnContext.tools_needed` after classification; a handler fetches only what is listed, and empty means the customer's own record suffices.
+
+Two implementation facts that bite:
+
+- **The guidance for this field lives in the pydantic `Field(description=...)`, not in `prompts.py`.** This is deliberate and was measured: the same text placed in the system prompt primes the market intent and misroutes benchmark questions ("how did I do against the Nifty?" is a question about the customer's *own returns*, not about the market).
+- **A new `Tool` member also needs `_ToolLiteral` in `classifier.py`** — the same hand-maintained-literal trap as `_IntentLiteral`, and the same drift test guards it.
+
+First and only consumer today is `portfolio_query`, which skips loading the market commentary entirely when the flag is absent.
 
 ---
 
@@ -454,11 +466,13 @@ The brain reads `intent.name == "additional_investment"`, looks it up in `FLOWS`
 | Part | Deterministic? | Notes |
 |---|---|---|
 | Prompt assembly (`_build_user_turn`, `_messages`) | deterministic | pure string building + last-12 truncation |
-| Classification | **LLM (Haiku)** | `with_structured_output(_LLMOutput)`, `max_tokens=1024`, system prompt cached |
+| Classification | **LLM (Haiku)** | `with_structured_output(_LLMOutput)`, `temperature=0`, `max_tokens=1024`, system prompt cached |
 | `_shape` + canned-message attach | deterministic | dict lookup; sub-reason defaulting |
 | App-layer override / scrub / fallback | deterministic | regex + history filter + OpenAI backup |
 
 The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LLMOutput)`. The static `SYSTEM_PROMPT` is marked `cache_control: ephemeral` for Anthropic prompt caching — after the first call that block costs ~10% of normal rate. `max_tokens=1024` is pure headroom (reasoning is capped to a ≤12-word phrase, so real output is well under 100 tokens).
+
+**`temperature=0` is explicit and load-bearing.** Omitting it applies the Anthropic API default of **1.0** — a classifier that samples. Measured: **4 of 101** labelled turns changed intent between two identical runs. Pinning it took the eval spread to 0.0%, which is what makes prompt changes measurable at all. A repo-wide test (`test_temperature_is_pinned.py`) fails any `ChatAnthropic(...)` call that omits it.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
@@ -472,7 +486,7 @@ The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LL
 | File | Role |
 |---|---|
 | [`classifier.py`](../../src/intent_classifier/classifier.py) | `IntentClassifier` (sync `classify` / async `aclassify`), `_LLMOutput` schema + `_IntentLiteral` lock, tag-noise scrubbers, history formatting |
-| [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
+| [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) + `Tool` (1) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
 | [`prompts.py`](../../src/intent_classifier/prompts.py) | `SYSTEM_PROMPT` (intent definitions, boundaries, edge cases, sub-reasons) + the two canned messages (`OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE`) |
 | [`__init__.py`](../../src/intent_classifier/__init__.py) | re-exports `IntentClassifier` + the I/O models (the app-layer import surface) |
 | [`Testing/`](../../src/intent_classifier/Testing/) | live boundary tests (`test_classifier_rebalancing.py`, `test_classifier_additional_investment.py`) — skipped without `ANTHROPIC_API_KEY` |
@@ -490,7 +504,11 @@ App-layer companions (not part of the engine, but where scrub/override/fallback/
 ## 8. Invariants & landmines
 
 - **`_IntentLiteral` must equal the `Intent` enum, exactly.** It is hand-maintained in `classifier.py` (Python 3.9 can't do `Literal[*tuple(...)]`). Add an intent to the enum and forget the literal → the new intent becomes **un-emittable** by the model. The drift test [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) fails loudly if they diverge — keep it green. (The stale in-code `NOTE` in `classifier.py` still points the test at an old `app/services/ai_bridge/...` path; the real test lives under `app/domains/ai_engine/tests/`.)
-- **It's nine intents now.** `mutual_fund_query` is live. Stale "eight intents" wording in the `IntentClassifier` docstring and folder `CLAUDE.md` is comment-rot — trust the enum.
+- **It's nine intents now.** `mutual_fund_query` is live. The one remaining stale "eight intents" is the `IntentClassifier` docstring (`classifier.py:156`) — comment-rot, trust the enum.
+- **`_ToolLiteral` has the same lock as `_IntentLiteral`.** Add a member to the `Tool` enum without adding it to `_ToolLiteral` in `classifier.py` and the model can never emit it. Same drift test guards both.
+- **`tools_needed` guidance must NOT move into `prompts.py`.** It lives in the pydantic field description on purpose: the same wording in the system prompt primes `general_market_query` and misroutes questions that name an index purely as a benchmark for the customer's own returns.
+- **`temperature=0` must stay explicit.** Unset means 1.0. This was measured at 4/101 turns flipping intent between identical runs; a repo-wide test fails the build if any `ChatAnthropic(...)` omits it.
+- **`out_of_scope` is not a fallback.** The prompt now requires a *positive* reason — a domain we don't handle, chatter, or adversarial input. "Short, vague or ambiguous" is explicitly insufficient; those resolve from `active_intent` or history. A bare acknowledgment with no `active_intent` but *with* history resolves against the last assistant turn; only with no context at all does it become `out_of_scope`/`gibberish`.
 - **Tag-noise scrubbers are load-bearing, not cosmetic.** `_scrub_tag_noise` + the reasoning scrubber strip serializer debris the Anthropic tool-call occasionally leaks into a value. Removing them re-exposes a `ValidationError` on live turns.
 - **`max_tokens=1024` is headroom, don't shrink it thinking it saves cost.** Billing is per generated token, so normal ~100-token output costs the same. Hitting `max_tokens` truncates the tool call → `ValidationError` → the turn silently drops to the OpenAI fallback. (Reasoning is capped to ≤12 words to keep output small — see the memory note on classifier max-tokens.)
 - **The rebalancing keyword override deliberately wins over the prompt.** If the word "rebalance" appears, `asset_allocation`/`portfolio_query` are forced to `rebalancing` — this **overrides** the prompt's "rebalance to be more aggressive = target change → asset_allocation" rule. Pinned by the eval-gate case `aa/rebalance-to-be-aggressive`; the prompt rule still governs paraphrases without the word.
@@ -503,6 +521,7 @@ App-layer companions (not part of the engine, but where scrub/override/fallback/
 ## 9. Extend & test
 
 - **Change a boundary / add an intent** → edit the `Intent` enum in [`models.py`](../../src/intent_classifier/models.py), the `_IntentLiteral` in [`classifier.py`](../../src/intent_classifier/classifier.py), add a `FLOWS` row + `flow_*` in [`flow.py`](../../../app/domains/ai_engine/services/flow.py), and update the intent-definition section of [`prompts.py`](../../src/intent_classifier/prompts.py). Then run the schema drift test and the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging.
+- **Add a `tools_needed` signal** → add the member to the `Tool` enum in `models.py` **and** to `_ToolLiteral` in `classifier.py`, describe it in the `_LLMOutput.tools_needed` field description (**not** in `prompts.py` — see landmines), then consume it off `TurnContext.tools_needed` in the handler that needs the data. Because it doesn't touch routing, the intent eval set should come back unchanged — if it moves, the description is leaking into the routing decision.
 - **Tests** live at two levels:
 
   | Level | Where | Covers |
@@ -528,7 +547,7 @@ App-layer companions (not part of the engine, but where scrub/override/fallback/
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

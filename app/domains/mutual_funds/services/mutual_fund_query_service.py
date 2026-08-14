@@ -36,7 +36,6 @@ from mutual_fund_query import (  # noqa: E402
     ConversationTurn,
     FundFacts,
     MutualFundQueryFacts,
-    MutualFundQueryResponse,
     FundReturns,
     PeerFund,
 )
@@ -138,16 +137,16 @@ def _build_held_map(user) -> dict[str, str]:
 
 
 _SCREEN_BODY_PROMPT = (
-    "The customer asked for the best / top performing mutual funds. FACTS_PACK.screen "
+    "The customer asked for the best / top performing mutual funds. CUSTOMER_RECORD.screen "
     "holds a ranked shortlist we computed from our fund universe — the top funds by "
     "trailing CAGR over `horizon_years` (Regular plan, Growth option), best first.\n"
     "\n"
     "Write the reply:\n"
-    "- Present the funds in FACTS_PACK order (best first), each with its return, and state "
+    "- Present the funds in CUSTOMER_RECORD order (best first), each with its return, and state "
     "the horizon in words (e.g. 'over the last 3 years') and that they're ranked by past return.\n"
     "- If `category` is set, frame them as the best in that category; if null, best overall.\n"
     "- Add one short, honest caveat that past performance doesn't guarantee future returns.\n"
-    "- Cite ONLY funds and figures present in FACTS_PACK — never invent a fund or a number.\n"
+    "- Cite ONLY funds and figures present in CUSTOMER_RECORD — never invent a fund or a number.\n"
     "- Keep it tight and scannable: a one-line intro, then the ranked funds."
 )
 
@@ -179,6 +178,34 @@ def _screen_fallback(funds: list[ScreenedFund], horizon_years: int) -> str:
         f"{i}. {f.scheme_name} — {f.return_cagr_pct:.1f}% ({horizon_years}y CAGR)"
         for i, f in enumerate(funds, start=1)
     ]
+    lines.append("Past performance doesn't guarantee future returns.")
+    return "\n".join(lines)
+
+
+def _fund_detail_fallback(facts: MutualFundQueryFacts) -> str:
+    """Deterministic brief used when the formatter LLM call fails."""
+    lines: list[str] = []
+    for f in facts.funds:
+        r = f.returns
+        horizons = [
+            (label, value)
+            for label, value in (
+                ("1y", getattr(r, "return_1y_cagr_pct", None)),
+                ("3y", getattr(r, "return_3y_cagr_pct", None)),
+                ("5y", getattr(r, "return_5y_cagr_pct", None)),
+            )
+            if value is not None
+        ]
+        returns = (
+            ", ".join(f"{label} {value:.1f}%" for label, value in horizons)
+            if horizons
+            else "no track record stored yet"
+        )
+        lines.append(f"**{f.fund_name}** — {returns}.")
+        if f.house_reason:
+            lines.append(f.house_reason)
+    if not lines:
+        return _GENERIC_FAILURE_REPLY
     lines.append("Past performance doesn't guarantee future returns.")
     return "\n".join(lines)
 
@@ -255,12 +282,12 @@ async def answer_mutual_fund_query(question: str, ctx) -> str:
         return "I couldn't find that fund in our data — could you double-check the name?"
 
     facts = await build_mutual_fund_query_facts(ctx.db, resolved, extracted.asked_for)
-    try:
-        resp: MutualFundQueryResponse = await orch.narrate(facts, question, history)
-    except AnthropicAuthenticationError:
-        logger.exception("mutual_fund_query: narrate auth error")
-        return _GENERIC_FAILURE_REPLY
-    except Exception:
-        logger.exception("mutual_fund_query: narrate failed")
-        return _GENERIC_FAILURE_REPLY
-    return resp.answer or resp.clarifying_question or _GENERIC_FAILURE_REPLY
+    return await format_with_telemetry(
+        ctx=ctx,
+        facts_pack=facts.model_dump(exclude_none=True),
+        body_prompt=orch.narrate_body,
+        module_name="mutual_fund_query",
+        action_mode="fund_detail",
+        profile={"first_name": getattr(getattr(ctx, "user_ctx", None), "first_name", None)},
+        build_fallback=lambda: _fund_detail_fallback(facts),
+    )

@@ -27,3 +27,19 @@ When you ask about a fund, we answer only from what we can actually back up: our
 ## Why this shape
 
 A fund recommendation is one of the most consequential things we say. The failure we design against is the *plausible fabrication* — a precise-looking return or ranking that sounds authoritative and is simply made up. Grounding every answer in our ranking and our NAV history, and refusing to fill gaps, is what keeps "why we recommend it" trustworthy.
+
+## What this step covers — and what it doesn't
+
+Three questions sound similar and get answered by three different parts of Pi. The line between them is worth stating, because getting it wrong is the difference between a fact and a recommendation.
+
+| You ask… | Who answers | Why |
+|---|---|---|
+| *"What are this fund's returns?"* · *"How does it compare to its peers?"* · *"Why do you recommend it?"* · *"Which are the best large-cap funds?"* | **This step** | These are questions about funds — as instruments, whether or not you own them. We answer from our ranking and our stored NAV history. |
+| *"Which of **my** funds has done best?"* · *"My top performers"* | Your **portfolio** answer | The possessive is the tell. This is a question about your holdings, answered from your own data — not from our recommended universe. A superlative like "best" doesn't override an explicit "my". |
+| *"Do I have the right funds?"* · *"Should I stop this SIP?"* · *"Which of my funds should I get rid of?"* | **Rebalancing** | This asks for a *verdict* and an *action*, not a fact. Answering it honestly means comparing what you hold against what we'd recommend and telling you what to change — which is the rebalancer's job, tax and all. |
+
+**On "which are the best funds in X?"** — when you ask for a shortlist rather than about a named fund, we answer with our own top-ranked funds in that category over a stated horizon. That is a *screen of our recommended universe*, not a market-wide league table, and not a recommendation to buy: putting money into any of them is the additional-investment step, which weighs the category against your actual plan first.
+
+---
+
+*Ask PI · Mutual Fund Query Thesis v1.0 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-08-04*

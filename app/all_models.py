@@ -49,6 +49,7 @@ from app.domains.mutual_funds.models import (  # noqa: F401
     mf_sip_mandate,
     mf_transaction,
     mf_allocation_snapshot,
+    user_cas_document,
     user_investment_list,
     user_mf_latest_snapshot,
 )

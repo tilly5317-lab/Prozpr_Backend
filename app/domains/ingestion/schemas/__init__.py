@@ -8,6 +8,9 @@ from app.domains.ingestion.schemas.cams import (
     CamsPdfImportResponse,
     CamsStatementRequestBody,
     CamsStatementRequestResponse,
+    CasDocumentDownloadResponse,
+    CasDocumentItem,
+    CasDocumentListResponse,
 )
 from app.domains.ingestion.schemas.finvu import (
     FinvuBucketInput,
@@ -25,6 +28,9 @@ __all__ = [
     "CamsPdfImportResponse",
     "CamsStatementRequestBody",
     "CamsStatementRequestResponse",
+    "CasDocumentDownloadResponse",
+    "CasDocumentItem",
+    "CasDocumentListResponse",
     "FinvuBucketInput",
     "FinvuPortfolioSyncRequest",
     "FinvuPortfolioSyncResponse",

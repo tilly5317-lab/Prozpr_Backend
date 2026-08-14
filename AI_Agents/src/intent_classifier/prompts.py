@@ -148,6 +148,12 @@ Triggers when the customer is asking:
 - Switching, exiting, or consolidating **their** mutual fund schemes (fund-level operation)
 - "How do I move from my current portfolio to the recommended one?"
 - To rebalance / "do the rebalancing"
+- For a **quality judgement on the funds they already hold** — "do I have the right mutual funds?", "are my current funds any good?", "is my fund selection okay?", "should I keep this SIP going or stop it?", "which of my funds should I get rid of?". Answering this requires comparing their holdings against the recommended set, which is what the rebalancing engine produces.
+- Whether to **continue, pause, or exit an existing position or SIP** in a fund they already own.
+
+Key distinction from `mutual_fund_query`: rebalancing judges the funds **they already hold** against the recommended set ("are MY funds right?"). mutual_fund_query is about funds in the abstract, held or not ("which are the best small cap funds?"). If the question is a verdict on their existing holdings, it is `rebalancing`.
+
+Key distinction from `portfolio_query`: portfolio_query REPORTS what they hold and how it has performed. rebalancing JUDGES whether those holdings are the right ones and what to change. A request for a verdict or an action is rebalancing, not portfolio_query.
 
 Example questions:
 - "Should I rebalance?"
@@ -203,6 +209,7 @@ Triggers when the customer is asking:
 - A specific fund's past performance / returns ("what are Parag Parikh's returns?", "how has this fund done over 3 years?")
 - How a specific fund compares to peers or to another named fund ("how does it compare to peers?", "Parag Parikh vs HDFC Flexi Cap")
 - Details about a fund we recommended, or a fund the customer holds ("tell me about the Kotak Technology fund", "is this fund any good?")
+- **Scope test — read the possessive first.** If the question is scoped to funds the customer ALREADY OWNS ("my top performing funds", "my best funds", "which of my funds have done well", "the funds I hold"), it is `portfolio_query`, NOT a fund screen. The answer comes from their own holdings data, not from our recommended universe. A superlative ("best", "top performing") does not override an explicit possessive — "the best funds" is a screen, "my best funds" is their portfolio.
 - **Which/what are the best or top-performing funds — no specific fund named — asking us to name a shortlist** ("which are the best performing mutual funds?", "top 5 funds to invest in", "best large cap funds", "which mid cap funds have given the highest returns?"). This is the **screen** case: the customer wants us to produce the list of fund names.
 
 Example questions:
@@ -221,6 +228,9 @@ Key distinction from `general_market_query`: the line is **do they want us to na
 ---
 
 ### 9. out_of_scope
+
+**`out_of_scope` is not a fallback.** Return it only when you can name the positive reason the message belongs outside Prozpr's scope — it is about a domain we do not handle (insurance, tax filing, crypto, legal or estate planning), it is non-financial chatter, or it is adversarial input. If the message is merely short, vague, or ambiguous, that is NOT sufficient: resolve it from `active_intent` or the conversation history instead. When a message could plausibly be a follow-up to the current thread, prefer the thread's intent over `out_of_scope`.
+
 The question does not fit any of the categories above.
 
 This includes: insurance queries, tax-specific advice, crypto, legal or estate planning queries, or anything else Prozpr does not currently handle (note: questions about the customer's own linked bank/demat/MF accounts are `portfolio_query`, NOT out_of_scope — see "Routing edge cases" below).
@@ -283,7 +293,8 @@ Handling missing inputs:
 
 **Pure acknowledgment** ("yes", "yeah", "yep", "no", "nope", "ok", "okay", "k", "sure", "alright", "thanks", "thank you", "got it", "understood", "noted", "sounds good", "agreed", "I agree", "that's fine", "fine"):
 - With `active_intent` set → keep the same intent, `is_follow_up=true`.
-- Without `active_intent` → `out_of_scope`. The message has no actionable content on its own.
+- Without `active_intent` but WITH conversation history → resolve the intent from the topic of the most recent assistant turn.
+- Without `active_intent` and without any history → `out_of_scope` with subreason `gibberish`. Only here, with no prior context at all, does a bare acknowledgment carry no recoverable intent.
 
 **Action-approval** ("go ahead", "go for it", "let's go", "let's do it", "let's do this", "do it", "do that", "make it happen", "proceed", "execute" / "execute it" / "execute that", "run it" / "run the rebalance" / "run that", "implement" / "implement it" / "implement that", "rebalance" / "rebalance it" / "rebalance my portfolio", "do the rebalance"):
 - **Bare** action-approval (message is essentially just the phrase, with optional fillers like "please", "now", "sure") AND `active_intent="asset_allocation"` → transition to `rebalancing`, `is_follow_up=true`. The customer has accepted the AA target and wants the trades.

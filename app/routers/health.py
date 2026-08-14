@@ -31,10 +31,25 @@ async def deploy_info():
         or os.getenv("VERCEL_GIT_COMMIT_SHA")
         or ""
     ).strip()
+    # Whether chat answers can stream. The reply is a forced tool call, so it
+    # only arrives incrementally with the fine-grained-tool-streaming beta, which
+    # the formatter passes as ChatAnthropic(betas=[...]) — a real field only from
+    # langchain-anthropic 1.4.x. Older releases swallow the kwarg and the answer
+    # lands in one lump with no error raised anywhere, so this is otherwise
+    # invisible without shell access to the host. False here means the running
+    # venv is behind requirements.txt.
+    try:
+        from langchain_anthropic import ChatAnthropic
+
+        tool_streaming = "betas" in ChatAnthropic.model_fields
+    except Exception:
+        tool_streaming = None
+
     return {
         "api_version": settings.VERSION,
         "git_commit": sha or None,
         "project": settings.PROJECT_NAME,
+        "tool_streaming": tool_streaming,
     }
 
 

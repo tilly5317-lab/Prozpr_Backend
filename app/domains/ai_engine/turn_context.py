@@ -48,6 +48,10 @@ class TurnContext:
     last_agent_runs: dict[str, AgentRunRecord]
     active_intent: str | None
     chat_overrides: dict[str, Any] | None = None
+    # Data the classifier says this answer needs (intent_classifier Tool values).
+    # Attached by the brain after classification; handlers fetch only what is
+    # listed. Empty means the customer's own record is enough.
+    tools_needed: tuple[str, ...] = ()
     # VESTIGIAL — always False. Nothing has set the save gate since the AA/
     # rebalancing "save it" follow-up was removed; the per-turn DB load and the
     # brain's routing override were deleted in the 2026-07 audit (F11). The

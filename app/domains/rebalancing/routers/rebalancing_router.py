@@ -34,8 +34,11 @@ from app.domains.rebalancing.schemas import (
     RebalancingStatusUpdate,
 )
 from app.domains.rebalancing.services.asset_class_breakdown import (
+    current_mix_from_rows,
+    plan_rows_from_run,
     run_current_asset_class_mix,
     target_asset_class_mix,
+    target_mix_from_rows,
 )
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
@@ -124,6 +127,8 @@ async def get_run(
             selectinload(RebalancingRun.totals),
             selectinload(RebalancingRun.subgroup_summaries),
             selectinload(RebalancingRun.trades),
+            # Needed by _build_asset_class_breakdown for the per-fund look-through.
+            selectinload(RebalancingRun.fund_rows),
             selectinload(RebalancingRun.warnings),
             selectinload(RebalancingRun.portfolio)
             .selectinload(Portfolio.holdings)
@@ -145,24 +150,33 @@ _BREAKDOWN_ORDER: tuple[str, ...] = ("Equity", "Debt", "Others")
 
 
 def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBreakdown:
-    """Multi-asset-aware Equity/Debt/Others split for the Invest-page bars.
+    """Hybrid-aware Equity/Debt/Others split for the Invest-page bars.
 
-    BOTH bars come from the plan's per-subgroup totals (``current_holding_inr`` /
-    ``suggested_final_holding_inr``) so they share one valuation basis and their
-    totals differ only by the plan's net cash flow (≈0). The engine's generic
-    ``multi_asset`` sleeve is split by the 65/25/10 composition the engine sized
-    it as — matching the engine ideal shown in chat. The portfolio-holdings
-    rollup is only a fallback for legacy runs without subgroup summaries — its
-    statement-NAV total can sit a few percent off the engine's today's-NAV
-    total, which rendered the Current bar shorter than the Target bar.
+    Built from the run's own per-fund rows + trades via the SHARED rollup in
+    ``asset_class_breakdown`` — the same call the rebalancing chat facts pack
+    makes, so the page and chat cannot quote different splits for one run. Both
+    bars share the engine's valuation basis, so their totals differ only by the
+    plan's net cash flow (≈0).
+
+    Fallbacks, in order: per-subgroup totals when a legacy run has no fund rows
+    (no sub_category, so no look-through), then the portfolio-holdings rollup
+    when it has no subgroup summaries either — the latter's statement-NAV total
+    can sit a few percent off the engine's today's-NAV total, which rendered the
+    Current bar shorter than the Target bar.
     """
+    fund_rows = list(run.fund_rows or [])
     subs = list(run.subgroup_summaries or [])
-    if subs:
-        current_mix = run_current_asset_class_mix(subs)
+    if fund_rows:
+        current_rows, target_rows = plan_rows_from_run(fund_rows, list(run.trades or []))
+        current_mix = current_mix_from_rows(current_rows)
+        target_mix = target_mix_from_rows(target_rows)
     else:
-        holdings = list(run.portfolio.holdings) if run.portfolio else []
-        current_mix = current_asset_class_mix(holdings)
-    target_mix = target_asset_class_mix(run.subgroup_summaries)
+        target_mix = target_asset_class_mix(subs)
+        if subs:
+            current_mix = run_current_asset_class_mix(subs)
+        else:
+            holdings = list(run.portfolio.holdings) if run.portfolio else []
+            current_mix = current_asset_class_mix(holdings)
 
     rows = [
         AssetClassBreakdownRow(

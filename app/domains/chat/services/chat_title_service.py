@@ -94,6 +94,7 @@ async def generate_chat_title(first_message: str, intent_name: str | None) -> st
             model=_TITLE_MODEL,
             api_key=api_key,
             max_tokens=_TITLE_MAX_TOKENS,
+            temperature=0,
         ).with_structured_output(_ChatTitle)
         user_block = (
             f"Detected topic: {intent_name or 'general'}\n"

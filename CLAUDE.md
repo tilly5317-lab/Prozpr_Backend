@@ -5,7 +5,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Child modules
 
 - **app/** — FastAPI application (routers, services, models, schemas).
-- **AI_Agents/src/** — Agent pipelines (asset_allocation_pydantic, practical_asset_allocation, cashflow_statement, Rebalancing, additional_investment, intent_classifier, market_commentary, portfolio_query, risk_profiling) plus the `financial_primitives/` numeric-kernel library; via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
+- **AI_Agents/src/** — Agent pipelines (one self-contained agent per subfolder) plus the `financial_primitives/` numeric-kernel library and shared helpers (`common.py`, `persona.py`, `reasoned_reply.py`, `token_stream.py`), loaded via `sys.path` injection. See `AI_Agents/src/CLAUDE.md` for the full module map.
 - **alembic/** — Database migrations.
 - **migrations/** — Hand-written raw SQL migration scripts (under `sql/`) for asset-allocation schema changes; applied manually, distinct from the Alembic-managed `alembic/` migrations.
 - **notebooks/** — DEV-ONLY exploration Jupyter notebooks (e.g. a portfolio-vs-Nifty-50 benchmark prototype). Not imported by runtime.
@@ -29,6 +29,7 @@ Ask PI is an AI-powered financial advisor. This package is the backend: FastAPI 
 ## Conventions
 
 - **LLM calls go through LangChain.** All Claude calls must use `langchain-anthropic` (`ChatAnthropic` directly or via LCEL chains). Do not import `anthropic` for `messages.create` — the only permitted raw `anthropic` imports are exception classes (e.g. `from anthropic import AuthenticationError`) for `except` clauses, since those live only in the SDK.
+- **Every `ChatAnthropic(...)` pins `temperature` explicitly.** Unset applies the Anthropic default of 1.0, which returned different rupee figures for the same customer on consecutive calls and flipped 4 of 101 classifier labels. `app/domains/ai_engine/tests/test_temperature_is_pinned.py` scans every call site under `app/` and `AI_Agents/src/` and fails on any that omits it — keep it a literal so the scan can see it. The answer formatter is the one indirection (kwargs dict + `AILAX_FORMATTER_TEMPERATURE`, default `"0"`).
 - **Observability is PostHog-only.** OTel (`app/core/otel.py`) exports spans and logs over OTLP; the PostHog Python SDK emits durable events. New Relic was removed on 2026-07-27 — do not reintroduce an APM agent alongside the OTel SDK, they fight over the same instrumentation hooks (`NEW_RELIC_OPENTELEMETRY_ENABLED` hijacks the TracerProvider, silently sending your exporter zero spans).
 - **Reference docs refresh manually, not on code changes.** A logic or production-wiring change is complete without updating any `AI_Agents/Reference_docs/` doc — do not rewrite, version-bump, or hunt for drift in them as a side effect. Refresh a reference doc only when a human explicitly asks. (The `Logics_reference_docs/*.md` ground customer-facing chat answers, so their accuracy is owned by whoever triggers the refresh.) CLAUDE.md files are exempt — those may still be kept current.
 
@@ -49,7 +50,7 @@ Cross-cutting flows live with their home folders:
 ## Don't read
 
 - `__pycache__/`, `.pytest_cache/`, `.venv/`, `.obsidian/` — build/editor caches.
-- `*.db`, `*.db.bak-*`, `*.db.partial-*`, `*.db.probe-artifact-*` — local SQLite dev state.
+- `*.db`, `*.db.*` — local SQLite dev state (live DB plus backup/restore/probe sidecars).
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
 - `docs/` — non-runtime documentation artifacts (`superpowers/` planning scaffolding: `specs/`, `plans/`, `notes/`). Not product code.
 

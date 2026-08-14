@@ -45,6 +45,15 @@ location /api/ {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 
+    # SSE fix. The chat streaming endpoint
+    # (POST /api/v1/chat/sessions/{id}/messages/stream) delivers the reply as
+    # Server-Sent Events. nginx buffers proxied responses by default, which holds
+    # the delta frames back and hands the client the whole answer at once — the
+    # customer sees no streaming, and nothing errors. The app already sends
+    # `X-Accel-Buffering: no` on that one response; this is the belt-and-braces
+    # half, and it also covers any additional proxy hop that ignores the header.
+    proxy_buffering off;
+
     # 504 Gateway Time-out fix. nginx's default proxy_read_timeout is 60s, but a
     # chat turn (e.g. "best performing mutual funds" → market_commentary web-search
     # LLM chain) is allowed up to _FLOW_TIMEOUT_S = 180s in the backend

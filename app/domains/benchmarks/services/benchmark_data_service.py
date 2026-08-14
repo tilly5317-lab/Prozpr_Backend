@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from decimal import Decimal
 
+from app.core.job_tracing import report_job_failure, traced_job
 from app.domains.benchmarks.models import BenchmarkIndex, BenchmarkIndexValue
 from app.domains.benchmarks.services.niftyindices_fetcher import (
     NIFTY_TRI_EARLIEST,
@@ -356,6 +357,7 @@ async def get_latest_value(
 # ---------------------------------------------------------------------------
 
 
+@traced_job("benchmark.refresh_job")
 async def run_benchmark_refresh_job() -> None:
     """Scheduled entry (fired 3x/day): own session + advisory lock, refresh actives.
 
@@ -390,11 +392,14 @@ async def run_benchmark_refresh_job() -> None:
                     len(indices),
                     total,
                 )
-            except Exception:
+            except Exception as exc:
                 await db.rollback()
                 logger.exception(
                     "Benchmark job crashed after %.1fs", time.monotonic() - t0
                 )
+                # Swallowed here, so @traced_job's span never sees it — report
+                # explicitly or the run stays green and files no issue.
+                report_job_failure(exc, job="benchmark.refresh_job")
             finally:
                 try:
                     await db.execute(

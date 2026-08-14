@@ -177,28 +177,67 @@ def build_goal_buckets_block(
     return out
 
 
-def _asset_class_mix_from_buckets(buckets: list[dict[str, Any]]) -> dict[str, float]:
+def ideal_asset_class_mix_pct(response: Any) -> Optional[dict[str, float]]:
+    """The goals-and-risk IDEAL Equity/Debt/Others split, as raw percentages.
+
+    This is what the customer SHOULD hold on their goals and risk profile alone,
+    before any holdings reality. It is NOT the rebalancing target — the target is
+    what this plan can actually reach given current holdings, lock-ins and the
+    trades it is willing to make, and the two legitimately differ (72/21/7 ideal
+    vs 83/13/4 target on a real portfolio). Customers compare the two and ask why,
+    so both belong in the facts pack; with only one of them present the answer
+    gets improvised.
+
+    Returns None when the response carries no practical allocation.
+    """
+    planned = getattr(
+        getattr(
+            getattr(response, "practical_allocation", None),
+            "asset_class_breakdown",
+            None,
+        ),
+        "planned",
+        None,
+    )
+    if planned is None:
+        return None
+    return {
+        "equity": float(getattr(planned, "equity_total_pct", 0.0) or 0.0),
+        "debt": float(getattr(planned, "debt_total_pct", 0.0) or 0.0),
+        "others": float(getattr(planned, "others_total_pct", 0.0) or 0.0),
+    }
+
+
+def _asset_class_mix_from_buckets(
+    buckets: list[dict[str, Any]],
+    *,
+    amount_key: str,
+    multi_asset_sleeve: bool,
+) -> dict[str, float]:
     """Lowercase Equity/Debt/Others ₹ mix from fact-pack buckets.
 
-    Splits blended multi-asset / hybrid funds across asset classes via the central
-    look-through (keyed on each bucket's ``sub_category``), falling back to the
-    subgroup's nominal class — same methodology as the dashboard donut and chat
-    current-mix. Built in canonical title-case, then mapped to this builder's
-    long-standing lowercase contract for chat facts.
+    Delegates to the SHARED rollup that also builds the Invest-page bars, so chat
+    and the page cannot disagree about one run. ``amount_key`` picks the column
+    (``current_inr`` for the current mix, ``planned_final_inr`` for the target);
+    ``multi_asset_sleeve`` must be True only for the target — see
+    ``asset_class_breakdown`` for why. Built in canonical title-case, then mapped
+    to this builder's long-standing lowercase contract for chat facts.
     """
-    from app.domains.mutual_funds.services.scheme_classification import (
-        add_to_asset_class_mix,
-        asset_class_for_subgroup as canonical_class_for_subgroup,
+    from app.domains.rebalancing.services.asset_class_breakdown import (
+        asset_class_mix_from_rows,
     )
 
-    title_mix: dict[str, float] = {}
-    for bucket in buckets:
-        add_to_asset_class_mix(
-            title_mix,
-            amount=float(bucket.get("current_inr", 0.0) or 0.0),
-            sub_category=bucket.get("sub_category"),
-            fallback_asset_class=canonical_class_for_subgroup(bucket.get("asset_subgroup")),
-        )
+    title_mix = asset_class_mix_from_rows(
+        (
+            (
+                bucket.get("asset_subgroup"),
+                bucket.get("sub_category"),
+                float(bucket.get(amount_key, 0.0) or 0.0),
+            )
+            for bucket in buckets
+        ),
+        multi_asset_sleeve=multi_asset_sleeve,
+    )
     return {
         "equity": title_mix.get("Equity", 0.0),
         "debt": title_mix.get("Debt", 0.0),
@@ -211,6 +250,7 @@ def build_rebal_facts_pack(
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    is_rerun: bool = False,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -225,6 +265,17 @@ def build_rebal_facts_pack(
         "direct_stock_sale_inr":   <float>,
         "direct_stock_sale_indian": <str>,
         "tax_impact_inr":      <float>, "tax_impact_indian":      <str>,
+
+        # How the tax bill above splits by holding period. A low/zero
+        # stcg_realised is the evidence the plan is already tax-optimised: trims
+        # sell long-term units first and leave short-term units untouched (STCG
+        # only ever comes from a forced exit). stcg_offset_by_losses is STCG
+        # cancelled by short-term losses.
+        "tax_treatment": {
+            "ltcg_realised_inr":            <float>, "ltcg_realised_indian":            <str>,
+            "stcg_realised_inr":            <float>, "stcg_realised_indian":            <str>,
+            "stcg_offset_by_losses_inr":    <float>, "stcg_offset_by_losses_indian":    <str>,
+        },
         "trade_count":         int,
 
         # Tax rules actually used by the engine for the LTCG / STCG figures
@@ -239,10 +290,17 @@ def build_rebal_facts_pack(
             "equity_long_term_threshold_months": <int>, # e.g. 12
         },
 
-        # High-level asset-class summary, derived from per-bucket asset_subgroup.
-        "asset_class_mix_pct":    {"equity": <float>, "debt": <float>, "others": <float>},
-        "asset_class_mix_inr":    {"equity": <float>, "debt": <float>, "others": <float>},
-        "asset_class_mix_indian": {"equity": <str>,   "debt": <str>,   "others": <str>},
+        # High-level asset-class summary. CURRENT is what the customer holds
+        # today; TARGET is the post-trade mix the plan moves them to. Both come
+        # from the shared rollup behind the Invest-page bars, so the two surfaces
+        # always agree. Ship BOTH — with only the current mix present, the
+        # formatter answered "what is the plan moving me toward?" by citing it.
+        "current_asset_class_mix_pct":    {"equity": <float>, "debt": <float>, "others": <float>},
+        "current_asset_class_mix_inr":    {"equity": <float>, "debt": <float>, "others": <float>},
+        "current_asset_class_mix_indian": {"equity": <str>,   "debt": <str>,   "others": <str>},
+        "target_asset_class_mix_pct":     {"equity": <float>, "debt": <float>, "others": <float>},
+        "target_asset_class_mix_inr":     {"equity": <float>, "debt": <float>, "others": <float>},
+        "target_asset_class_mix_indian":  {"equity": <str>,   "debt": <str>,   "others": <str>},
 
         # Per (asset_subgroup, sub_category) bucket — sub_category is the
         # SEBI label (e.g., "Large Cap Fund") and is the customer-facing name.
@@ -280,6 +338,10 @@ def build_rebal_facts_pack(
         # tie trades back to goals + horizon + planned equity/debt/others split.
         # See ``build_goal_buckets_block`` for shape.
         "goal_buckets": [...],
+
+        # Present only on an explicit re-run ("rebalance again"). The formatter
+        # leads with what changed instead of introducing the plan.
+        "is_rerun": True,
       }
 
     Money convention: every numeric ``*_inr`` field is paired with a sibling
@@ -298,6 +360,14 @@ def build_rebal_facts_pack(
     # totals is a RebalancingTotals object; fall back to computed if absent
     totals_obj = getattr(response, "totals", None)
     tax_impact = float(getattr(totals_obj, "total_tax_estimate_inr", 0) or 0)
+    # Tax-lot outcome: how the tax bill splits long- vs short-term, and STCG
+    # offset by losses. A low/zero stcg_realised is the concrete evidence of the
+    # engine's regulatory rule — trims sell long-term units first and leave
+    # short-term units untouched (STCG only on a forced exit). Without this the
+    # narrator has the total bill but can't say the plan is already tax-optimised.
+    ltcg_realised = float(getattr(totals_obj, "total_ltcg_realised", 0) or 0)
+    stcg_realised = float(getattr(totals_obj, "total_stcg_realised", 0) or 0)
+    stcg_offset_by_losses = float(getattr(totals_obj, "total_stcg_net_off", 0) or 0)
     total_buy_inr = float(
         getattr(totals_obj, "total_buy_inr", buys_total) or buys_total
     )
@@ -382,17 +452,28 @@ def build_rebal_facts_pack(
         bucket["planned_final_indian"] = format_inr_indian(bucket["planned_final_inr"])
         buckets.append(bucket)
 
-    # High-level asset-class mix — split blended multi-asset / hybrid funds across
-    # Equity/Debt/Others via the central look-through (see _asset_class_mix_from_buckets).
-    asset_class_inr = _asset_class_mix_from_buckets(buckets)
-    asset_class_total = sum(asset_class_inr.values()) or 0.0
-    asset_class_pct = {
-        cls: (round(amt / asset_class_total * 100) if asset_class_total > 0 else 0)
-        for cls, amt in asset_class_inr.items()
-    }
-    asset_class_indian = {
-        cls: format_inr_indian(amt) for cls, amt in asset_class_inr.items()
-    }
+    # Asset-class mix, CURRENT and TARGET. Both go through the shared rollup that
+    # builds the Invest-page bars. The target is the post-trade mix (per-bucket
+    # planned_final = current + buy - sell) and keeps the multi_asset sleeve at
+    # its engine composition. Shipping only the current mix is what let the
+    # formatter answer "what is the plan moving me toward?" with the current one.
+    def _mix_block(amount_key: str, *, multi_asset_sleeve: bool):
+        inr = _asset_class_mix_from_buckets(
+            buckets, amount_key=amount_key, multi_asset_sleeve=multi_asset_sleeve
+        )
+        total = sum(inr.values()) or 0.0
+        pct = {
+            cls: (round(amt / total * 100) if total > 0 else 0)
+            for cls, amt in inr.items()
+        }
+        return inr, pct, {cls: format_inr_indian(amt) for cls, amt in inr.items()}
+
+    asset_class_inr, asset_class_pct, asset_class_indian = _mix_block(
+        "current_inr", multi_asset_sleeve=False
+    )
+    target_class_inr, target_class_pct, target_class_indian = _mix_block(
+        "planned_final_inr", multi_asset_sleeve=True
+    )
 
     warnings: list[str] = []
     for w in warnings_list[:5]:
@@ -456,6 +537,14 @@ def build_rebal_facts_pack(
         "sells_total_indian": format_inr_indian(total_sell_inr),
         "tax_impact_inr": tax_impact,
         "tax_impact_indian": format_inr_indian(tax_impact),
+        "tax_treatment": {
+            "ltcg_realised_inr": ltcg_realised,
+            "ltcg_realised_indian": format_inr_indian(ltcg_realised),
+            "stcg_realised_inr": stcg_realised,
+            "stcg_realised_indian": format_inr_indian(stcg_realised),
+            "stcg_offset_by_losses_inr": stcg_offset_by_losses,
+            "stcg_offset_by_losses_indian": format_inr_indian(stcg_offset_by_losses),
+        },
         "trade_count": sum(
             1
             for r in rows
@@ -464,9 +553,12 @@ def build_rebal_facts_pack(
                 or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
             )
         ),
-        "asset_class_mix_pct": asset_class_pct,
-        "asset_class_mix_inr": asset_class_inr,
-        "asset_class_mix_indian": asset_class_indian,
+        "current_asset_class_mix_pct": asset_class_pct,
+        "current_asset_class_mix_inr": asset_class_inr,
+        "current_asset_class_mix_indian": asset_class_indian,
+        "target_asset_class_mix_pct": target_class_pct,
+        "target_asset_class_mix_inr": target_class_inr,
+        "target_asset_class_mix_indian": target_class_indian,
         "buckets": buckets,
         "warnings": warnings,
         "fund_actions": fund_actions,
@@ -488,6 +580,14 @@ def build_rebal_facts_pack(
         pack["direct_stock_sale_inr"] = _excess_stocks
         pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
 
+    # The ideal (goals + risk) split, so "why is my target 83% and not 72%?" can
+    # be answered from facts instead of from whatever the customer said earlier.
+    ideal_mix = ideal_asset_class_mix_pct(response)
+    if ideal_mix is not None:
+        pack["ideal_asset_class_mix_pct"] = {
+            cls: round(value) for cls, value in ideal_mix.items()
+        }
+
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
     if more_holdings_count > 0:
@@ -496,6 +596,8 @@ def build_rebal_facts_pack(
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
         pack["constraint_impact"] = constraint_impact
+    if is_rerun:
+        pack["is_rerun"] = True
     return pack
 
 

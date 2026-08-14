@@ -202,6 +202,24 @@ class CasParserClient:
             )
         return body
 
+    async def smart_parse_url(self, pdf_url: str, password: str) -> dict[str, Any]:
+        """Like :meth:`smart_parse`, but casparser downloads the PDF itself
+        from *pdf_url* — the request mode with no body-size cap (their
+        multipart cap is plan-dependent, ~1.8 MB). *pdf_url* must be reachable
+        from the public internet; do not log it (the token in it grants access
+        to the statement)."""
+        body = await self.request(
+            "POST",
+            "/v4/smart/parse",
+            json={"pdf_url": pdf_url, "password": password},
+            what="Parse CAS PDF via staged URL",
+        )
+        if not isinstance(body, dict):
+            raise CasParserApiError(
+                "CAS Parser API returned a non-JSON parse response", body=body
+            )
+        return body
+
     async def credits(self) -> dict[str, Any]:
         """Remaining API credits — ops/debug visibility."""
         body = await self.request("POST", "/v1/credits", json={}, what="Check credits")

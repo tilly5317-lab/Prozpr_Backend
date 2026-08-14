@@ -243,11 +243,97 @@ class FormatWithTelemetryTests(unittest.TestCase):
                 facts_pack={},
                 body_prompt="b",
                 module_name="rebalancing",
-                action_mode="recompute",
+                action_mode="compute",
                 profile={},
                 build_fallback=lambda: "",
             ))
         self.assertTrue(captured.get("formatter_invoked"))
         self.assertTrue(captured.get("formatter_succeeded"))
         self.assertEqual(captured.get("module"), "rebalancing")
-        self.assertEqual(captured.get("action_mode"), "recompute")
+        self.assertEqual(captured.get("action_mode"), "compute")
+
+
+# ---------------------------------------------------------------------------
+# Extra (non-prose) tool fields — used by portfolio_query for its guardrail
+# verdict and telemetry. A second PROSE field is still off the table.
+# ---------------------------------------------------------------------------
+
+
+def _fake_llm_returning(args: dict, captured: dict | None = None):
+    """A ChatAnthropic stand-in whose forced tool returns ``args``."""
+    class _FakeMessage:
+        tool_calls = [{"name": "return_formatted_answer", "args": args}]
+        response_metadata = {"stop_reason": "tool_use"}
+
+    class _BoundLLM:
+        async def ainvoke(self, _msgs):
+            return _FakeMessage()
+
+    class _FakeLLM:
+        def __init__(self, **_kw):
+            pass
+
+        def bind_tools(self, tools, **_kw):
+            if captured is not None:
+                captured["schema"] = tools[0]["input_schema"]
+            return _BoundLLM()
+
+    return _FakeLLM
+
+
+def _run_invoke(fake_llm, **kwargs):
+    from app.domains.ai_engine.answer_formatter import formatter as fmt
+
+    with patch("langchain_anthropic.ChatAnthropic", fake_llm), \
+         patch("app.core.config.get_settings") as gs:
+        gs.return_value.get_anthropic_answer_formatter_key.return_value = "sk-test"
+        return asyncio.run(fmt._invoke_llm("sys", "user", "portfolio_query", **kwargs))
+
+
+_EXTRA_FIELDS = {
+    "guardrail_triggered": {"type": "boolean", "description": "d"},
+    "path": {"type": ["string", "null"], "description": "d"},
+}
+
+
+def test_extra_tool_fields_reach_the_schema_and_their_values_come_back():
+    captured: dict = {}
+    extras: dict = {}
+    out = _run_invoke(
+        _fake_llm_returning(
+            {"answer": "You hold ₹23.61 lakh.", "guardrail_triggered": False, "path": "P"},
+            captured,
+        ),
+        extra_tool_fields=_EXTRA_FIELDS,
+        extras_out=extras,
+    )
+    assert out == "You hold ₹23.61 lakh."
+    assert extras == {"guardrail_triggered": False, "path": "P"}
+    assert set(captured["schema"]["properties"]) == {"answer", "guardrail_triggered", "path"}
+    assert captured["schema"]["required"] == ["answer"]   # only the answer is mandatory
+
+
+def test_answer_stays_non_nullable_unless_the_caller_opts_in():
+    captured: dict = {}
+    _run_invoke(_fake_llm_returning({"answer": "hi"}, captured))
+    assert captured["schema"]["properties"]["answer"]["type"] == "string"
+
+    captured2: dict = {}
+    _run_invoke(_fake_llm_returning({"answer": "hi"}, captured2), allow_empty_answer=True)
+    assert captured2["schema"]["properties"]["answer"]["type"] == ["string", "null"]
+
+
+def test_null_answer_is_a_failure_by_default_but_an_outcome_when_allowed():
+    """Path X nulls `answer` on purpose — that must not trigger the fallback brief."""
+    with pytest.raises(FormatterFailure, match="no_tool_call"):
+        _run_invoke(_fake_llm_returning({"answer": None}))
+
+    extras: dict = {}
+    out = _run_invoke(
+        _fake_llm_returning({"answer": None, "guardrail_triggered": True, "path": "X"}),
+        extra_tool_fields=_EXTRA_FIELDS,
+        extras_out=extras,
+        allow_empty_answer=True,
+    )
+    assert out == ""
+    assert extras["guardrail_triggered"] is True

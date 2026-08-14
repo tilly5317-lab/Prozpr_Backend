@@ -29,6 +29,17 @@ class OnboardingCompleteRequest(BaseModel):
     is_complete: bool = True
 
 
+class CamsSkipRequest(BaseModel):
+    """Toggle the "I'll do this later" choice on the onboarding CAMS step."""
+
+    skipped: bool = True
+
+
+class CamsSkipResponse(BaseModel):
+    cams_skipped: bool
+    skipped_at: Optional[datetime] = None
+
+
 class GenerationStepInfo(BaseModel):
     """One row of the loading page's checklist."""
 

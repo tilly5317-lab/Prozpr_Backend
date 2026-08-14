@@ -20,20 +20,32 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
+from app.domains.identity.models.user import User
 from app.domains.ingestion.schemas import (
     CamsCapabilitiesResponse,
     CamsPdfImportResponse,
     CamsStatementRequestBody,
     CamsStatementRequestResponse,
+    CasDocumentDownloadResponse,
+    CasDocumentItem,
+    CasDocumentListResponse,
     MfAaNormalizeOneResponse,
     MfAaNormalizePendingRequest,
     MfAaNormalizePendingResponse,
 )
+from app.domains.ingestion.services.cams_pdf_stage import (
+    delete_cas_object,
+    presign_cas_download,
+    stage_enabled,
+    stage_unavailable_reason,
+)
+from app.domains.mutual_funds.models import UserCasDocument
 from app.domains.ingestion.services.casparser_client import (
     CasParserApiError,
     get_casparser_client,
@@ -110,7 +122,11 @@ async def cams_capabilities(
     now = time.monotonic()
     cached = _caps_cache.get("data")
     ts = _caps_cache.get("ts")
-    if cached is not None and isinstance(ts, float) and (now - ts) < _CAPS_CACHE_TTL_SECONDS:
+    if (
+        cached is not None
+        and isinstance(ts, float)
+        and (now - ts) < _CAPS_CACHE_TTL_SECONDS
+    ):
         return cached  # type: ignore[return-value]
 
     try:
@@ -297,6 +313,15 @@ async def ingest_cams_statement_pdf(
         ) from exc
 
     await maybe_recalculate_effective_risk(db, current_user.id, "cams_pdf_ingest")
+    # The user now HAS a statement, so any earlier "I'll do this later" choice on
+    # the onboarding CAMS step is moot — clear it so the flag never outlives the
+    # condition it describes.
+    if result.status != "FAILED":
+        await db.execute(
+            update(User)
+            .where(User.id == current_user.id, User.cams_skipped_at.is_not(None))
+            .values(cams_skipped_at=None)
+        )
     await db.commit()
 
     # Auto-build the real net-worth history (NAV fetch + daily series) so the
@@ -349,6 +374,97 @@ async def ingest_cams_statement_pdf(
         profile_fields_filled=result.profile_fields_filled,
         message=message,
     )
+
+
+@router.get("/cas-documents", response_model=CasDocumentListResponse)
+async def list_cas_documents(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """The user's archived CAS statements (newest first) — the "My CAS
+    statements" list on the profile. Records survive the per-upload data
+    reset; the PDFs live in the private S3 bucket."""
+    rows = (
+        (
+            await db.execute(
+                select(UserCasDocument)
+                .where(UserCasDocument.user_id == current_user.id)
+                .order_by(UserCasDocument.uploaded_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return CasDocumentListResponse(
+        documents=[CasDocumentItem.model_validate(r) for r in rows]
+    )
+
+
+async def _get_owned_cas_document(
+    db: AsyncSession, doc_id: uuid.UUID, user_id: uuid.UUID
+) -> UserCasDocument:
+    row = (
+        await db.execute(
+            select(UserCasDocument).where(
+                UserCasDocument.id == doc_id,
+                UserCasDocument.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Statement not found.",
+        )
+    return row
+
+
+@router.get(
+    "/cas-documents/{doc_id}/download", response_model=CasDocumentDownloadResponse
+)
+async def download_cas_document(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Short-lived (5 min) presigned URL for one of the user's own statements.
+    The PDF is still protected by the user's statement password."""
+    row = await _get_owned_cas_document(db, doc_id, current_user.id)
+    unavailable = stage_unavailable_reason()
+    if unavailable is not None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Statement storage is not available on this server: {unavailable}.",
+        )
+    try:
+        url = await presign_cas_download(row.s3_key, row.source_filename)
+    except Exception as exc:  # noqa: BLE001 — misconfig (creds/region) or S3 outage
+        logger.exception("presigning CAS download failed for %s", doc_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Statement storage is temporarily unavailable on this server. "
+                "Please try again shortly."
+            ),
+        ) from exc
+    return CasDocumentDownloadResponse(url=url, expires_in_seconds=300)
+
+
+@router.delete("/cas-documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cas_document(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Remove an archived statement (S3 object + profile record)."""
+    row = await _get_owned_cas_document(db, doc_id, current_user.id)
+    if stage_enabled():
+        try:
+            await delete_cas_object(row.s3_key)
+        except Exception:  # noqa: BLE001 — the DB row is the source of truth
+            logger.warning("could not delete archived CAS object for %s", doc_id)
+    await db.delete(row)
+    await db.commit()
 
 
 @router.post("/normalize/{import_id}", response_model=MfAaNormalizeOneResponse)

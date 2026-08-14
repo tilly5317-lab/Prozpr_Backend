@@ -15,7 +15,7 @@ Pure-Python engine: splits a deploy amount across allocation subgroups, then pic
 
 ## Gotchas & invariants
 - **Pure engine.** No LLM, no I/O, no cross-agent imports. Cap percentages are passed IN (caller sources `Rebalancing/tables.py`) — one source of truth (`models.py`).
-- **Two split modes** (`pipeline.py:20`): LUMPSUM with `current_value_by_subgroup` set ⇒ deficit-fill; SIP, or lumpsum without holdings ⇒ legacy bucket targeting.
+- **Two split modes** (`pipeline.py:47`): LUMPSUM with `current_value_by_subgroup` set ⇒ deficit-fill; SIP, or lumpsum without holdings ⇒ legacy bucket targeting.
 - **Deficit-fill** (`compute_deficit_targets`): ideal = each eligible subgroup's `total` (caller runs PAA at corpus + deploy — the post-investment ideal); the deploy splits across `max(0, ideal − current)` deficits; all at/above ideal ⇒ fall back to ideal ratios. Iterate ideal rows, not holdings — a held subgroup with no ideal row gets no buy, no error.
 - **Bucket targeting (legacy path).** `select_target_bucket` picks the nearest unfunded horizon short → medium → long (long is the fallback); `compute_targets` weights subgroups by that bucket's column. Emergency is never a target; a targeted bucket with no allocation ⇒ fully undeployed (`ratio.py`).
 - **Fund selection is holding-agnostic.** BUYs come purely from the ranking (rank-1 first, overflow spills down); nearest-₹100 rounding (`selection.py`).

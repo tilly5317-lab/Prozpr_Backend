@@ -33,7 +33,9 @@ def _get_summary_chain(api_key: str | None = None):
     mutation, which both raced under async concurrency and was ignored after
     the first call anyway (the cached chain kept whatever key it was built with).
     """
-    llm = ChatAnthropic(model=_SUMMARY_MODEL, max_tokens=400, api_key=api_key)
+    llm = ChatAnthropic(
+        model=_SUMMARY_MODEL, max_tokens=400, api_key=api_key, temperature=0
+    )
     return summary_prompt | llm.with_structured_output(RiskProfileSummary)
 
 

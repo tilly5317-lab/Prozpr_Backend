@@ -1,48 +1,27 @@
 """
 orchestrator.py — PortfolioQueryOrchestrator
 =============================================
-Handles the portfolio_query intent: answers client questions about their own
-portfolio using three context sources — the fund house market commentary, the
-client profile, and the client's current portfolio.
+Prepares everything the portfolio_query intent needs, but does NOT answer:
+the reply is written by the shared answer formatter in
+``app/domains/ai_engine/answer_formatter`` (see ``AI_Agents/src/CLAUDE.md``).
 
-HOW IT WORKS (4-step pipeline)
---------------------------------
-Step 1  Load market commentary
-        Reads `AI_Agents/Reference_docs/market_commentary_latest.md` — the fund
-        house's current Indian-market commentary (auto-refreshed by the
-        `market_commentary` agent).
-
-Step 2  Format context
-        Serialises the client profile, current portfolio, and conversation
-        history into strings ready for template injection.
-
-Step 3  Call portfolio_query skill  [calls Claude Haiku]
-        Runs portfolio_query.md in this package. The system prompt embeds the
-        guardrail rules (from guardrails.md) and instructs the model to:
-          - Check if the question is in scope.
-          - If out of scope: return guardrail_triggered=true with a redirect message.
-          - If in scope: answer factually from the three context sources.
-
-Step 4  Return response
-        Parses the JSON response from Claude into a PortfolioQueryResponse.
+What this owns:
+  - ``query_body``   the skill prompt (portfolio_query.md) with guardrails.md
+                     filled in — the in/out-of-scope Path X/M/P rules.
+  - ``build_facts``  the three context sources as one INR-enriched dict: the
+                     fund-house market commentary (only when asked for), the
+                     client profile, and the client's current portfolio.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from common import format_inr_indian, read_text_bom_aware
 
-from .llm_client import LLMClient
-from .models import (
-    ClientContext,
-    ConversationTurn,
-    PortfolioContext,
-    PortfolioQueryResponse,
-)
+from .models import ClientContext, PortfolioContext
 from .skill_executor import SkillExecutor
 
 
@@ -58,6 +37,16 @@ _MARKET_COMMENTARY_PATH = (
 # Keep the commentary under this limit so it can't dominate the prompt
 # (mirrors general_chat's _MAX_COMMENTARY_CHARS).
 _MAX_COMMENTARY_CHARS = 7000
+
+
+_COMMENTARY_NOT_REQUESTED = (
+    "(Not loaded — this question was routed as being about the customer's own "
+    "portfolio, so no market view was fetched. Answer from their holdings and "
+    "profile. Do NOT speculate about market conditions, valuations or outlook, "
+    "and do not mention that commentary is missing — the customer did not ask "
+    "for it. If the question genuinely does need a market view, say you can "
+    "pull one up if they'd like.)"
+)
 
 
 def _load_market_commentary() -> str:
@@ -94,157 +83,45 @@ def _enrich_inr_fields(obj: Any) -> Any:
     return obj
 
 
-def _dump_enriched_json(model: Any) -> str:
-    """Serialise a pydantic model to JSON with ``*_indian`` siblings injected.
-
-    Compact on purpose: no indentation and ``exclude_none`` — pretty-printing
-    and explicit nulls inflate the prompt ~20-25% at zero information gain (the
-    skill prompt already treats absent fields as unknown/null).
-    """
-    return json.dumps(
-        _enrich_inr_fields(model.model_dump(exclude_none=True)),
-        separators=(",", ":"),
-        ensure_ascii=False,  # literal ₹ (1 char) beats ₹ escapes (6 chars)
-        default=str,
-    )
-
-
-# Tool schema forced on the portfolio_query LLM call. Anthropic returns a
-# tool_use block whose ``input`` matches this schema, so we never parse JSON
-# from raw text or strip markdown fences. The shape mirrors
-# ``PortfolioQueryResponse`` (validated below).
-_PORTFOLIO_QUERY_TOOL = {
-    "name": "return_portfolio_query_response",
-    "description": (
-        "Return the final structured reply for a portfolio_query turn. Call this "
-        "exactly once at the end of your turn — do NOT emit any free-text response "
-        "outside this tool call."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "guardrail_triggered": {
-                "type": "boolean",
-                "description": (
-                    "True if the question is out-of-scope per the guardrail rules. "
-                    "When true, set ``answer`` to null and provide ``redirect_message``."
-                ),
-            },
-            "answer": {
-                "type": ["string", "null"],
-                "description": (
-                    "Factual reply to the customer's in-scope question. Set to null "
-                    "when ``guardrail_triggered`` is true."
-                ),
-            },
-            "redirect_message": {
-                "type": ["string", "null"],
-                "description": (
-                    "Polite, one-sentence redirect when ``guardrail_triggered`` is "
-                    "true. Set to null when the answer is in-scope."
-                ),
-            },
-            "path": {
-                "type": ["string", "null"],
-                "enum": ["X", "M", "P", None],
-                "description": (
-                    "Which path you took in Step 1: 'X' out of scope, 'M' general "
-                    "market question, 'P' portfolio-specific question. Recorded for "
-                    "review; it does not change your reply. Always set it."
-                ),
-            },
-            "suggested_intent": {
-                "type": ["string", "null"],
-                "description": (
-                    "Usually null. Set it in exactly two cases: (a) you hit a "
-                    "capability limit — name its owner, e.g. goal_planning for "
-                    "feasibility maths; or (b) the customer's CURRENT question is "
-                    "one you genuinely could not answer from portfolio, profile and "
-                    "market data, its whole substance belonging elsewhere. Valid "
-                    "values: goal_planning, asset_allocation, rebalancing, "
-                    "additional_investment, general_market_query. A portfolio "
-                    "review, holdings, performance or market question you answered "
-                    "is NEVER a suggested_intent. Judge the current question only, "
-                    "never an earlier one in the history. RECORDED FOR REVIEW ONLY — "
-                    "it never changes your reply."
-                ),
-            },
-        },
-        "required": ["guardrail_triggered"],
-    },
-}
-
-
 class PortfolioQueryOrchestrator:
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self):
         module_root = Path(__file__).parent
 
         # BOM-aware read: these .md sources hold non-ASCII and must not depend
         # on the OS locale (cp1252 on Windows) or a stray UTF-16 BOM.
         self._guardrail_rules = read_text_bom_aware(module_root / "guardrails.md")
         self.query_skill = SkillExecutor(module_root / "portfolio_query.md")
-        self.llm = llm_client
 
-    def _format_history(self, history: list[ConversationTurn]) -> str:
-        if not history:
-            return "(No prior conversation)"
-        lines = []
-        for turn in history:
-            label = "User" if turn.role == "user" else "Assistant"
-            lines.append(f"{label}: {turn.content}")
-        return "\n".join(lines)
+    @property
+    def query_body(self) -> str:
+        """The System Prompt section with the guardrail rules filled in.
 
-    async def run(
+        For callers that own the LLM call themselves (the app bridge passes this
+        to the shared answer formatter). Editing the skill or `guardrails.md`
+        still changes behaviour with no code change.
+        """
+        return self.query_skill.render(guardrail_rules=self._guardrail_rules)[0]
+
+    def build_facts(
         self,
-        question: str,
+        *,
         client: ClientContext,
         portfolio: PortfolioContext,
-        conversation_history: list[ConversationTurn] | None = None,
-    ) -> PortfolioQueryResponse:
-        history = conversation_history or []
+        want_market_commentary: bool = True,
+    ) -> dict:
+        """The three context sources as one INR-enriched dict.
 
-        market_commentary = _load_market_commentary()
-        logger.debug(
-            "portfolio_query: market commentary loaded (%d words)",
-            len(market_commentary.split()),
-        )
-
-        formatted_history = self._format_history(history)
-        logger.debug("portfolio_query: %d prior turns formatted", len(history))
-
-        system_body, user = self.query_skill.render(
-            market_commentary=market_commentary,
-            client_profile=_dump_enriched_json(client),
-            current_portfolio=_dump_enriched_json(portfolio),
-            conversation_history=formatted_history,
-            question=question,
-            guardrail_rules=self._guardrail_rules,
-        )
-        from persona import build_system_prompt  # shared PI voice (AI_Agents/src)
-
-        system = build_system_prompt(
-            system_body, format_profile="chat", question_aware=True
-        )
-        meta = self.query_skill.meta
-        data, usage = await self.llm.call_structured(
-            model=meta.get("model", "haiku"),
-            system=system,
-            user=user,
-            tool=_PORTFOLIO_QUERY_TOOL,
-            max_tokens=meta.get("max_tokens", 1024),
-        )
-        logger.debug(
-            "portfolio_query: skill ok (in=%s out=%s)",
-            usage.get("input_tokens"),
-            usage.get("output_tokens"),
-        )
-
-        # Pydantic validation as defence-in-depth — Anthropic guarantees the
-        # tool input matches the schema, but we still want a typed model.
-        response = PortfolioQueryResponse.model_validate(data)
-        if response.guardrail_triggered:
-            logger.debug("portfolio_query: guardrail triggered")
-        else:
-            logger.debug("portfolio_query: in-scope answer generated")
-
-        return response
+        Raises ``FileNotFoundError`` when the commentary is wanted but missing —
+        the caller's cue to say so rather than answer without it.
+        """
+        return {
+            "market_commentary": (
+                _load_market_commentary()
+                if want_market_commentary
+                else _COMMENTARY_NOT_REQUESTED
+            ),
+            "client_profile": _enrich_inr_fields(client.model_dump(exclude_none=True)),
+            "current_portfolio": _enrich_inr_fields(
+                portfolio.model_dump(exclude_none=True)
+            ),
+        }
