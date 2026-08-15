@@ -39,6 +39,7 @@ from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.nav_history_service import (
     ensure_nav_history_for_chart,
 )
+from app.domains.mutual_funds.services.txn_value import trade_value
 from app.domains.portfolio.models.portfolio_networth_job import PortfolioNetworthJob
 from app.domains.portfolio.models.user_portfolio_nav_history import (
     UserPortfolioNavHistory,
@@ -154,7 +155,10 @@ async def compute_user_networth_history(
                 # and let the transaction type decide the sign below — otherwise a SELL's
                 # ``units -= (-x)`` would add the units back and inflate the balance.
                 t_units = abs(_f(t.units))
-                t_amt = abs(_f(t.amount))
+                # A mis-parsed amount column is repriced off units x NAV so the
+                # cost line of the net-worth chart matches the holdings snapshot
+                # (``txn_value``).
+                t_amt = trade_value(t.units, t.nav, t.amount)
                 if t.transaction_type in _UNITS_IN_TYPES:
                     units += t_units
                     invested += t_amt
@@ -483,7 +487,7 @@ async def compute_networth_as_of(
         # the transaction type drive the sign — ``held - (-x)`` would otherwise add the
         # redeemed units back and over-count the balance (the 1.33cr-vs-1.07cr bug).
         u = abs(_f(t.units) or 0.0)
-        amt = abs(_f(t.amount) or 0.0)
+        amt = trade_value(t.units, t.nav, t.amount)  # see ``txn_value``
         sc = t.scheme_code
         if t.transaction_type in _UNITS_IN_TYPES:
             units_by[sc] = units_by.get(sc, 0.0) + u

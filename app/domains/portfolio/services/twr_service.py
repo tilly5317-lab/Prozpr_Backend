@@ -21,6 +21,7 @@ from financial_primitives import twr_wealth_index
 
 from app.domains.benchmarks.services.benchmark_data_service import load_value_series
 from app.domains.mutual_funds.models import MfTransaction
+from app.domains.mutual_funds.services.txn_value import trade_value
 from app.domains.mutual_funds.services.xirr_service import compute_portfolio_xirr
 from app.domains.portfolio.models.user_portfolio_nav_history import (
     UserPortfolioNavHistory,
@@ -66,13 +67,17 @@ async def compute_twr_series(db: AsyncSession, user_id: uuid.UUID) -> TwrSeriesR
                 MfTransaction.transaction_date,
                 MfTransaction.transaction_type,
                 MfTransaction.amount,
+                MfTransaction.units,
+                MfTransaction.nav,
             ).where(MfTransaction.user_id == user_id)
         )
     ).all()
     cashflows: dict[date, float] = defaultdict(float)
-    for txn_date, txn_type, amount in txn_rows:
+    for txn_date, txn_type, amount, units, nav in txn_rows:
         type_value = txn_type.value if hasattr(txn_type, "value") else str(txn_type)
-        magnitude = abs(float(amount))
+        # A mis-parsed amount column is repriced off units x NAV (``txn_value``) —
+        # an under-stated external flow distorts the whole TWR index.
+        magnitude = trade_value(units, nav, amount)
         if type_value in EXTERNAL_IN_TYPES:
             cashflows[txn_date] += magnitude
         elif type_value in EXTERNAL_OUT_TYPES:

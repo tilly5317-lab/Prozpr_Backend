@@ -38,6 +38,7 @@ from app.domains.mutual_funds.services.nav_history_service import (
 )
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_pending_imports
 from app.domains.mutual_funds.services.scheme_classification import fill_classification
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,9 @@ def _position_from_ledger(
         # CAS stores redemption units as a *negative* number — use the magnitude and let
         # the type decide direction, else ``units -= (-x)`` adds redeemed units back.
         u = abs(_f(t.units) or 0.0)
-        amt = abs(_f(t.amount) or 0.0)
+        # Not abs(amount) — a mis-parsed amount column is repriced off units x NAV
+        # so this page and the holdings snapshot cannot disagree (``txn_value``).
+        amt = trade_value(t.units, t.nav, t.amount)
         if t.folio_number:
             folios.add(t.folio_number)
         if t.transaction_type in _INFLOW_TYPES:  # units in
@@ -301,8 +304,12 @@ def _position_from_ledger(
 
 def _to_txn_item(t: MfTransaction) -> MfHoldingTransactionItem:
     is_inflow = t.transaction_type in _INFLOW_TYPES
-    amount = _f(t.amount) or 0.0
-    signed = abs(amount) if is_inflow else -abs(amount)
+    # The listed amount is repriced the same way the position is, so the ledger
+    # rows add up to the invested figure shown above them (``txn_value``). Only
+    # the magnitude is healed — the stored sign convention is left as it is.
+    magnitude = trade_value(t.units, t.nav, t.amount)
+    amount = -magnitude if (_f(t.amount) or 0.0) < 0 else magnitude
+    signed = magnitude if is_inflow else -magnitude
     return MfHoldingTransactionItem(
         id=t.id,
         transaction_date=t.transaction_date,

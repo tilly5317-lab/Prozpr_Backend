@@ -26,6 +26,7 @@ from app.domains.ai_engine.answer_formatter import format_with_telemetry
 from app.domains.ai_engine.common import ensure_ai_agents_path, with_gap_notes
 from app.domains.ai_engine.types import AIModule
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 ensure_ai_agents_path()
 
@@ -196,7 +197,9 @@ def _compute_portfolio_xirr(user: Any, total_value: float | None) -> float | Non
         d = getattr(t, "transaction_date", None)
         if amt is None or amt == 0 or d is None:
             continue
-        amt = abs(amt)
+        # A mis-parsed amount column is repriced off units x NAV so chat quotes
+        # the same XIRR the portfolio pages do (``txn_value``).
+        amt = trade_value(_f(t, "units"), _f(t, "nav"), amt)
         # Coerce datetime → date.
         if isinstance(d, datetime):
             d = d.date()
