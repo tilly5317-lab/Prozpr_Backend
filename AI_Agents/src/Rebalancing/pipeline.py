@@ -33,6 +33,7 @@ from .steps import (
     step1_cap_and_spill,
     step2_compare_and_decide,
     step2b_suppress_debt_switch,
+    step2c_suppress_small_sells,
     step3_tax_classification,
     step4_initial_trades_under_stcg_cap,
     step5_loss_offset_top_up,
@@ -224,7 +225,10 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
     # any lot selection or tax arithmetic, so those run once on the corrected
     # picture rather than having to be unwound.
     s2b_rows, s2b_warnings = step2b_suppress_debt_switch.apply(s2_rows, request)
-    s3_rows = step3_tax_classification.apply(s2b_rows, request)
+    # 2c. Cancel optional sells we don't want to place (sub-0.5% trims, and
+    # recently-bought funds) — after netting, before any tax/lot selection.
+    s2c_rows, s2c_warnings = step2c_suppress_small_sells.apply(s2b_rows, request)
+    s3_rows = step3_tax_classification.apply(s2c_rows, request)
     # Direct-stock proceeds the NFA band frees up are real spendable cash —
     # step6 surfaces them as SELL_DIRECT_STOCKS, and the practical allocation
     # already assumes they are redeployed. Feed them into step4's pool.
@@ -241,6 +245,7 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
         list(s1_warnings)
         + list(s2_warnings)
         + list(s2b_warnings)
+        + list(s2c_warnings)
         + list(s4_warnings)
     )
     return step6_presentation.apply(

@@ -86,6 +86,11 @@ class FundRowInput(BaseModel):
     # Status
     fund_rating: int = Field(default=10, ge=1, le=10)
     is_recommended: bool = True
+    # Bought (via SIP or rebalance) since the previous rebalance. When set,
+    # step2c cancels an optional trim of this fund — we don't sell what we just
+    # told the customer to buy (feedback 2026-08). Force-exits still exit.
+    # Sourced by the input builder (prod) / bridge + sim state (sim).
+    bought_since_last_rebalance: bool = False
 
     # Per-fund rationale (carried from the ranking CSV). Populated for recommended
     # rows (selection_reason) and BAD rows (rejection_reason); the other side is

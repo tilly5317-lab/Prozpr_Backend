@@ -26,7 +26,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
-from ..config import LTCG_RATE_EQUITY_PCT, STCG_RATE_EQUITY_PCT
+from ..config import (
+    LTCG_RATE_EQUITY_PCT,
+    REBALANCE_DEPLOY_LEFTOVER_ENABLED,
+    STCG_RATE_EQUITY_PCT,
+)
 from ..models import (
     FundRowAfterStep3,
     FundRowAfterStep4,
@@ -332,6 +336,19 @@ def apply(
             buy_amt = floor_to_step(raw, request.rounding_step)
             state[r.isin]["pass1_buy_amount"] = buy_amt
             state[r.isin]["pass1_underbuy_amount"] = r.diff - buy_amt
+
+        # Feedback 2026-08: cash a forced exit frees beyond total buy demand (or
+        # left behind by flooring) is deployed into the highest-target buyer in
+        # this trade rather than left idle — deliberately ignoring the per-fund
+        # cap. `target_buy > 0` guarantees at least one buyer here.
+        deployed = sum(
+            (state[r.isin]["pass1_buy_amount"] for r in buyers), Decimal(0)
+        )
+        leftover = available_cash - deployed
+        if REBALANCE_DEPLOY_LEFTOVER_ENABLED and leftover > 0:
+            top = max(buyers, key=lambda r: (r.final_target_amount, r.isin))
+            state[top.isin]["pass1_buy_amount"] += leftover
+            state[top.isin]["pass1_underbuy_amount"] = Decimal(0)
 
     # Counterfactual: same logic with no STCG budget.
     cf_sold = _counterfactual_sold_per_row(forced_sorted, optional_sorted, target_buy)

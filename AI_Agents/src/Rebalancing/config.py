@@ -29,6 +29,35 @@ ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", 
 # For corpora ≥ ₹10L at the 10% default the floor never binds.
 FUND_CAP_FLOOR_INR: Decimal = Decimal(os.getenv("REBAL_FUND_CAP_FLOOR_INR", "100000"))
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
+# Buys clear at a lower materiality bar than sells (feedback 2026-08): exit cash
+# was stranded because each replacement buy fell under the single 10% bar. Sells
+# keep the 10% bar (REBALANCE_MIN_CHANGE_PCT) so we don't churn on small trims.
+REBALANCE_MIN_BUY_CHANGE_PCT: float = float(
+    os.getenv("REBAL_MIN_BUY_CHANGE_PCT", "0.05")
+)
+
+
+def min_change_factor(diff: Decimal) -> Decimal:
+    """Materiality factor for a proposed change (feedback 2026-08 dual threshold):
+    the lower buy bar when `diff > 0`, the sell bar otherwise. Shared by step2's
+    initial decision and step2b's re-gate so the two never drift."""
+    pct = REBALANCE_MIN_BUY_CHANGE_PCT if diff > 0 else REBALANCE_MIN_CHANGE_PCT
+    return Decimal(str(pct))
+
+
+# Feedback 2026-08: a trim smaller than this fraction of the total portfolio is
+# not worth placing unless it liquidates the whole fund — stops small slivers
+# being sold at many funds at once. Enforced in step2c, after debt netting so
+# the size test sees the settled sell.
+REBALANCE_MIN_SELL_PORTFOLIO_PCT: float = float(
+    os.getenv("REBAL_MIN_SELL_PORTFOLIO_PCT", "0.005")
+)
+# Feedback 2026-08 kill-switch (and the seam for A/B-ing against the sim): when
+# off, step4 leaves cash a forced exit frees beyond buy demand as idle cash
+# instead of deploying it into the highest-target buyer.
+REBALANCE_DEPLOY_LEFTOVER_ENABLED: bool = os.getenv(
+    "REBAL_DEPLOY_LEFTOVER", "1"
+).strip().lower() not in ("", "0", "false", "no", "off")
 # Step 2b: cancel matched debt sell/buy intents so one debt fund is never sold
 # to buy another (design note 2026-07-18). Kill-switch for ops, and the seam
 # for A/B-ing the change against the simulation harnesses.
@@ -103,4 +132,8 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #        residual is deployed as fresh money, so a rank-2 holding is no longer
 #        liquidated to fund a rank-1 buy; the per-fund cap no longer forces a
 #        sell, only bounds deployment.
-ENGINE_VERSION: str = "1.3.0"
+# 1.4.0: feedback 2026-08. Dual materiality bar (5% buy / 10% sell); exit cash
+#        beyond buy demand deployed into the highest-target buyer (step4); new
+#        step2c cancels optional sells that are sub-0.5%-of-portfolio trims or
+#        target funds bought since the last rebalance.
+ENGINE_VERSION: str = "1.4.0"

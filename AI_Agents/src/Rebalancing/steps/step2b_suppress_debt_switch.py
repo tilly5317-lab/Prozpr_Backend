@@ -28,7 +28,7 @@ from typing import Callable
 from ..config import (
     DEBT_NETTING_MODE,
     DEBT_SWITCH_NETTING_ENABLED,
-    REBALANCE_MIN_CHANGE_PCT,
+    min_change_factor,
 )
 from ..models import (
     FundRowAfterStep2,
@@ -107,7 +107,6 @@ def apply(
         return rows, []
 
     corpus = request.total_corpus
-    threshold_factor = Decimal(str(REBALANCE_MIN_CHANGE_PCT))
 
     debt = [r for r in rows if r.asset_subgroup in DEBT_POOL]
 
@@ -181,8 +180,10 @@ def apply(
         # is 0 and `abs(0) >= 0` is True, which would leave a fully-netted row
         # looking tradeable and undercount `funds_held_count` (step6:288).
         scale = max(final_target, r.present_allocation_inr)
+        # Same dual bar as step2 (5% buy / 10% sell) via the shared selector,
+        # so a netted-down buy is re-gated on the buy bar, not the sell bar.
         worth_to_change = r.exit_flag or (
-            diff != 0 and abs(diff) >= scale * threshold_factor
+            diff != 0 and abs(diff) >= scale * min_change_factor(diff)
         )
 
         # Absorb a residual too small to clear the materiality bar. Step4's

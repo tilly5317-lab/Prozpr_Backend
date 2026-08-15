@@ -15,9 +15,7 @@ Off-list holdings come in two flavours from the input builder:
 
 from __future__ import annotations
 
-from decimal import Decimal
-
-from ..config import EXIT_FLOOR_RATING, FORCE_EXIT_RANK, REBALANCE_MIN_CHANGE_PCT
+from ..config import EXIT_FLOOR_RATING, FORCE_EXIT_RANK, min_change_factor
 from ..models import (
     FundRowAfterStep1,
     FundRowAfterStep2,
@@ -34,7 +32,6 @@ def apply(
     _ = request  # not used here; signature kept consistent across steps
     out: list[FundRowAfterStep2] = []
     warnings: list[RebalancingWarning] = []
-    threshold_factor = Decimal(str(REBALANCE_MIN_CHANGE_PCT))
 
     for r in rows:
         # Per C.4 (spec 2026-05-23): the upstream input builder strips ELSS
@@ -46,7 +43,8 @@ def apply(
         exit_flag = (r.fund_rating < EXIT_FLOOR_RATING) or (r.rank == FORCE_EXIT_RANK)
 
         scale = max(r.final_target_amount, r.present_allocation_inr)
-        threshold = scale * threshold_factor
+        # Buys clear the lower 5% bar; sells keep the 10% bar (feedback 2026-08).
+        threshold = scale * min_change_factor(diff)
         worth_to_change = (abs(diff) >= threshold) or exit_flag
 
         out.append(
