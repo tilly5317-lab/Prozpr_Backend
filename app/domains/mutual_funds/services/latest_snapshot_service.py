@@ -46,6 +46,12 @@ _CLOSED_POSITION_UNITS = 1e-6
 # holding — drop the one field and keep the rest of the snapshot.
 _MAX_NAV = 1e8
 
+# The percentage columns are NUMERIC(10,4): |value| must stay under 10^6. A real
+# return never reaches 1,000,000%, but a CAS row with a broken amount does — one
+# statement books 11,453.263 units of HDFC NIFTY500 Multicap for Rs 10, which
+# prices the units at 0.0009 and returns 1,181,624.7698%.
+_MAX_PCT = 1e6
+
 
 def _f(value: object) -> float:
     if value is None:
@@ -55,18 +61,37 @@ def _f(value: object) -> float:
     return float(value)
 
 
-def _nav_or_none(value: Optional[float], scheme_code: str) -> Optional[float]:
-    """Round a NAV for a NUMERIC(12,4) column, or None if it cannot fit."""
+def _fit(
+    value: Optional[float], limit: float, scheme_code: str, column: str
+) -> Optional[float]:
+    """Round to 4dp for a NUMERIC column, or None when it would overflow it.
+
+    One corrupt fund must not abort a user's whole rebuild — the rollback also
+    reverts the DELETE, so the user keeps a frozen snapshot until someone
+    notices. Dropping the single field that cannot be stored keeps every other
+    holding, and the warning names the scheme to chase upstream.
+    """
     if value is None:
         return None
-    if not math.isfinite(value) or abs(value) >= _MAX_NAV:
+    if not math.isfinite(value) or abs(value) >= limit:
         logger.warning(
-            "scheme %s: NAV value %r does not fit NUMERIC(12,4) — storing NULL",
+            "scheme %s: value %r does not fit %s — storing NULL",
             scheme_code,
             value,
+            column,
         )
         return None
     return round(value, 4)
+
+
+def _nav_or_none(value: Optional[float], scheme_code: str) -> Optional[float]:
+    """Round a NAV for a NUMERIC(12,4) column, or None if it cannot fit."""
+    return _fit(value, _MAX_NAV, scheme_code, "NUMERIC(12,4)")
+
+
+def _pct_or_none(value: Optional[float], scheme_code: str) -> Optional[float]:
+    """Round a percentage for a NUMERIC(10,4) column, or None if it cannot fit."""
+    return _fit(value, _MAX_PCT, scheme_code, "NUMERIC(10,4)")
 
 
 def _xnpv(rate: float, cashflows: list[tuple[date, float]]) -> float:
@@ -314,12 +339,12 @@ async def rebuild_user_latest_snapshot(
             current_nav=_nav_or_none(curr_nav, scheme_code),
             current_value=round(curr_value, 2),
             unrealized_pnl=round(pnl, 2),
-            absolute_return_pct=round(abs_pct, 4) if abs_pct is not None else None,
-            xirr_pct=round(xirr_pct, 4) if xirr_pct is not None else None,
+            absolute_return_pct=_pct_or_none(abs_pct, scheme_code),
+            xirr_pct=_pct_or_none(xirr_pct, scheme_code),
             portfolio_weight_pct=None,
-            return_1y_pct=round(one_y, 4) if one_y is not None else None,
-            return_3y_pct=round(three_y, 4) if three_y is not None else None,
-            return_5y_pct=round(five_y, 4) if five_y is not None else None,
+            return_1y_pct=_pct_or_none(one_y, scheme_code),
+            return_3y_pct=_pct_or_none(three_y, scheme_code),
+            return_5y_pct=_pct_or_none(five_y, scheme_code),
             first_investment_date=items[0].transaction_date if items else None,
             last_transaction_date=items[-1].transaction_date if items else None,
             nav_date=nav.nav_date if nav else None,

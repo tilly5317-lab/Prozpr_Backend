@@ -123,6 +123,26 @@ async def test_near_full_exit_does_not_overflow_avg_nav(db):
     assert float(row["invested_amount"]) > 0
 
 
+async def test_absurd_return_drops_the_pct_not_the_holding(db):
+    """A CAS row booking 11,453.263 units for Rs 10 (production, scheme 152778).
+
+    absolute_return_pct comes out at 1,181,624.7698 — past the NUMERIC(10,4)
+    ceiling of 10^6 — which used to abort the user's entire rebuild. The
+    percentage is dropped; the holding itself still gets written.
+    """
+    row = await _rebuild(
+        db,
+        [(MfTransactionType.BUY, 11_453.263, 10.0, date(2026, 1, 19))],
+        nav=10.3178,
+    )
+
+    assert row is not None
+    assert row["absolute_return_pct"] is None
+    # The position itself survives — units and value are real.
+    assert float(row["current_units"]) == pytest.approx(11_453.263)
+    assert float(row["current_value"]) == pytest.approx(118_172.48, abs=0.01)
+
+
 async def test_full_exit_is_not_a_holding(db):
     row = await _rebuild(
         db,
