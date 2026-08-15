@@ -108,6 +108,22 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # ── Forgot-PIN reset (see /auth/pin-reset/*) ──
+    # The emailed code is stored HASHED, exactly like the PIN itself: a DB leak
+    # must not hand out a working credential-reset token. All three columns are
+    # cleared the moment a reset succeeds or is superseded by a new request.
+    pin_reset_code_hash: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    pin_reset_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Wrong guesses against the CURRENT code. Capped so an emailed 6-digit code
+    # can't be brute-forced (a million guesses is minutes of scripted traffic).
+    pin_reset_attempts: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False, server_default="0"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
