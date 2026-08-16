@@ -28,8 +28,8 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 
 ## Cross-module edges
 
-- `intent_classifier/` returns a label only; routing happens outside `src/` (no peer imports).
-- `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (written by `market_commentary/`) but does not import the module — the file is the contract.
+- `intent_classifier/` returns a label plus `tools_needed` (which market context the answer needs: `market_commentary` facts vs `fund_house_view`); routing/consumption happens outside `src/` (no peer imports).
+- `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (facts, written by `market_commentary/`) and `fund_house_commentry.md` (Prozpr's hand-maintained monthly view) but imports neither — the files are the contract; which loads is gated by the classifier's `tools_needed` (`market_commentary` vs `fund_house_view`).
 - `asset_allocation_pydantic/`'s `AllocationInput` carries fields from `risk_profiling/` and a `market_commentary` score block, but imports neither — the caller wires them in.
 - `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1.
 - `Rebalancing/` imports `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec); `run_rebalancing` calls it first.

@@ -106,7 +106,7 @@ async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:
 _FACTUAL_MAX_CHARS = 15_000
 _VIEW_MAX_CHARS = 90_000
 _LIVE_DATA_HEADER = "[LIVE MARKET DATA — current, factual]"
-_HOUSE_VIEW_HEADER = "[PROZPR HOUSE VIEW — our stance; synthesise as Prozpr, never name the houses]"
+_HOUSE_VIEW_HEADER = "[PROZPR HOUSE VIEW + fund-house outlooks — lead with Prozpr's stance, then cite the named houses as research sources]"
 
 
 async def flow_market(turn, ctx) -> ModuleOutput:
