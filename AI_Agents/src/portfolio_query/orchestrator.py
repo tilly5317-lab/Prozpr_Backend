@@ -63,6 +63,37 @@ def _load_market_commentary() -> str:
     return text.strip()[:_MAX_COMMENTARY_CHARS]
 
 
+_FUND_HOUSE_VIEW_PATH = (
+    Path(__file__).resolve().parents[2] / "Reference_docs" / "fund_house_commentry.md"
+)
+
+# Loaded whole: no research-distillation step exists on this path — the facts
+# pack goes straight to the compose formatter. (See the plan's portfolio
+# compose-weight note; latency is explicitly accepted.)
+_MAX_VIEW_CHARS = 90_000
+
+_VIEW_NOT_REQUESTED = (
+    "(Not loaded — this question was routed as being about the customer's own "
+    "portfolio without needing our market stance. Answer from their holdings and "
+    "profile; do not speculate about Prozpr's market view.)"
+)
+
+_VIEW_UNAVAILABLE = (
+    "(Our latest house view isn't on file right now. Answer from the customer's "
+    "holdings and profile; do not invent a Prozpr market stance, and do not "
+    "mention that the view is missing.)"
+)
+
+
+def _load_fund_house_view() -> str:
+    """Prozpr's monthly stance. Degrades to a placeholder (never raises): the
+    file is hand-maintained and optional — a missing view must not fail a turn."""
+    if not _FUND_HOUSE_VIEW_PATH.exists():
+        return _VIEW_UNAVAILABLE
+    text = read_text_bom_aware(_FUND_HOUSE_VIEW_PATH).strip()
+    return text[:_MAX_VIEW_CHARS] if text else _VIEW_UNAVAILABLE
+
+
 def _enrich_inr_fields(obj: Any) -> Any:
     """Walk a dict/list and add ``*_indian`` siblings to any ``*_inr`` field.
 
@@ -108,17 +139,24 @@ class PortfolioQueryOrchestrator:
         client: ClientContext,
         portfolio: PortfolioContext,
         want_market_commentary: bool = True,
+        want_fund_house_view: bool = False,
     ) -> dict:
-        """The three context sources as one INR-enriched dict.
+        """The context sources as one INR-enriched dict.
 
         Raises ``FileNotFoundError`` when the commentary is wanted but missing —
-        the caller's cue to say so rather than answer without it.
+        the caller's cue to say so rather than answer without it. The fund-house
+        view degrades to a placeholder instead (it is optional by design).
         """
         return {
             "market_commentary": (
                 _load_market_commentary()
                 if want_market_commentary
                 else _COMMENTARY_NOT_REQUESTED
+            ),
+            "fund_house_view": (
+                _load_fund_house_view()
+                if want_fund_house_view
+                else _VIEW_NOT_REQUESTED
             ),
             "client_profile": _enrich_inr_fields(client.model_dump(exclude_none=True)),
             "current_portfolio": _enrich_inr_fields(
