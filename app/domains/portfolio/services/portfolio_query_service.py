@@ -574,6 +574,7 @@ async def generate_portfolio_query_response(
     db: Any = None,
     user_id: Any = None,
     want_market_commentary: bool = True,
+    want_fund_house_view: bool = False,
     ctx: Any = None,
 ) -> PortfolioQueryOutcome:
     """Answer the user's portfolio question via the AI_Agents.portfolio_query agent.
@@ -604,6 +605,7 @@ async def generate_portfolio_query_response(
             client=client_ctx,
             portfolio=portfolio,
             want_market_commentary=want_market_commentary,
+            want_fund_house_view=want_fund_house_view,
         )
     except FileNotFoundError as exc:
         logger.warning("portfolio_query: market commentary file missing — %s", exc)
@@ -655,6 +657,8 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         db=getattr(ctx, "db", None),
         user_id=ctx.effective_user_id,
         want_market_commentary="market_commentary"
+        in (getattr(ctx, "tools_needed", ()) or ()),
+        want_fund_house_view="fund_house_view"
         in (getattr(ctx, "tools_needed", ()) or ()),
         ctx=ctx,
     )
