@@ -329,13 +329,23 @@ async def generate_general_chat_response(
         f"{json.dumps(_enrich_inr_fields(client_context), ensure_ascii=True) if client_context else 'null'}"
     )
     # Pass 1 (research) sees the raw market commentary; Pass 2 (compose) sees only
-    # the distilled research digest — so the ~7K-char commentary is sent once, not
+    # the distilled research digest — so the ~28K-char commentary is sent once, not
     # re-sent on the compose call.
-    research_user_prompt = (
-        f"{base_prompt}\n\n"
+    commentary_context = (
         f"Market commentary context (if relevant, use it; if not relevant, ignore):\n"
         f"{commentary}"
     )
+    if commentary:
+        # Cache the stable commentary/view as a prefix block (byte-identical across
+        # market turns within the TTL) so repeats re-read it at ~0.1x with faster
+        # prefill. Order matters: cached prefix FIRST, volatile question AFTER.
+        # No-commentary (general-chat) turns keep the original prompt (else branch).
+        research_human_content = [
+            {"type": "text", "text": commentary_context, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": base_prompt},
+        ]
+    else:
+        research_human_content = f"{base_prompt}\n\n{commentary_context}"
 
     unauthorised_reply = (
         "I couldn't reach the language model — Anthropic returned a 401 Unauthorized. "
@@ -362,7 +372,7 @@ async def generate_general_chat_response(
         research_resp = await research_llm.ainvoke(
             [
                 SystemMessage(content=_RESEARCH_SYSTEM_PROMPT),
-                HumanMessage(content=research_user_prompt),
+                HumanMessage(content=research_human_content),
             ]
         )
     except anthropic.AuthenticationError:
