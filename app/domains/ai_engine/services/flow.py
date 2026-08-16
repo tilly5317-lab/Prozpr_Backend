@@ -100,20 +100,51 @@ async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:
     return ModuleOutput(text=await answer_mutual_fund_query(turn.user_question, ctx))
 
 
+# flow_market context budgets. Applied per-file before concatenation so neither
+# source can starve the other; general_chat's _MAX_COMMENTARY_CHARS is the joint
+# backstop (raised there to fit both).
+_FACTUAL_MAX_CHARS = 15_000
+_VIEW_MAX_CHARS = 90_000
+_LIVE_DATA_HEADER = "[LIVE MARKET DATA — current, factual]"
+_HOUSE_VIEW_HEADER = "[PROZPR HOUSE VIEW — our stance; synthesise as Prozpr, never name the houses]"
+
+
 async def flow_market(turn, ctx) -> ModuleOutput:
-    # Market commentary produces a macro doc; general_chat tailors the reply to
-    # it (read from ``prior[MARKET_COMMENTARY]``).
+    # Market questions may want current data, our house view, or both. The
+    # classifier declares which via ctx.tools_needed; general_chat writes the
+    # final reply from whatever we load (read from prior[MARKET_COMMENTARY]).
     from app.domains.general_chat.services.general_chat_module_service import (
         run as run_general_chat,
+    )
+    from app.domains.market_commentary.services.fund_house_view_module_service import (
+        run as run_fund_house_view,
     )
     from app.domains.market_commentary.services.market_commentary_module_service import (
         run as run_market_commentary,
     )
 
-    _think(turn, 40, "Reviewing today's market context…")
-    macro = await run_market_commentary(turn, ctx, {})
+    tools = set(getattr(ctx, "tools_needed", ()) or ())
+    want_view = "fund_house_view" in tools
+    # Default when the classifier named neither: factual (preserves prior behaviour).
+    want_factual = "market_commentary" in tools or not want_view
+
+    parts: list[str] = []
+    if want_factual:
+        _think(turn, 40, "Reviewing today's market data…")
+        factual = await run_market_commentary(turn, ctx, {})
+        if isinstance(factual.payload, str) and factual.payload.strip():
+            parts.append(f"{_LIVE_DATA_HEADER}\n{factual.payload.strip()[:_FACTUAL_MAX_CHARS]}")
+    if want_view:
+        _think(turn, 52, "Pulling together our house view…")
+        view = await run_fund_house_view(turn, ctx, {})
+        if isinstance(view.payload, str) and view.payload.strip():
+            parts.append(f"{_HOUSE_VIEW_HEADER}\n{view.payload.strip()[:_VIEW_MAX_CHARS]}")
+
+    combined = "\n\n".join(parts)
     _think(turn, 72, "Writing your answer against that market view…")
-    return await run_general_chat(turn, ctx, {AIModule.MARKET_COMMENTARY.value: macro})
+    return await run_general_chat(
+        turn, ctx, {AIModule.MARKET_COMMENTARY.value: ModuleOutput(payload=combined or None)}
+    )
 
 
 async def flow_general_chat(turn, ctx) -> ModuleOutput:
