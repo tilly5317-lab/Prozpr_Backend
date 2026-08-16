@@ -151,7 +151,7 @@ async def format_redirect_or_canned(*, ctx: "TurnContext", intent: "IntentDecisi
 
 
 # Keep market commentary under this limit so the prompt fits the context window.
-_MAX_COMMENTARY_CHARS = 7000
+_MAX_COMMENTARY_CHARS = 110_000  # holds factual (~15K) + fund-house view (~90K); research pass only
 
 # Web-search rounds allowed in the research pass. Each extra round re-sends the
 # whole accumulated context (system + commentary + prior results), so input
@@ -246,8 +246,15 @@ _RESEARCH_SYSTEM_PROMPT = (
     "question.\n"
     "3. Never recall market data from training knowledge.\n"
     "\n"
-    "Output: a short plain-text factual digest (max ~150 words) of ONLY the data "
-    "points relevant to the question. Preserve every figure exactly as it appears — "
+    "The 'Market commentary context' may contain two labelled blocks:\n"
+    "- '[LIVE MARKET DATA ...]' — current factual figures; cite as 'per our daily snapshot'.\n"
+    "- '[PROZPR HOUSE VIEW ...]' — Prozpr's own market stance. When the question asks what we "
+    "think / whether now is a good time / a judgement, summarise this stance AS PROZPR'S OWN "
+    "('our view is ...'). It is internal grounding: NEVER name the underlying fund houses "
+    "(ICICI, Canara, HDFC, PPFAS, CLSA, Kotak) or attribute the view to them.\n"
+    "\n"
+    "Output: a short plain-text digest (max ~300 words; keep pure factual lookups tight, around "
+    "150 words) of ONLY the material relevant to the question. Preserve every figure exactly as it appears — "
     "copy ₹ amounts and pre-formatted numbers (e.g. '₹1.25 lakh') verbatim, never "
     "reformat, round, or recompute them — because the composer copies them straight "
     "into the reply. Do not format, do not advise, do not add a "
