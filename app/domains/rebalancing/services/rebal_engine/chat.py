@@ -15,7 +15,7 @@ from app.domains.ai_engine.chat_dispatcher import (
     register,
     register_speculative_detector,
 )
-from app.domains.ai_engine.common import build_detect_history_block
+from app.domains.ai_engine.common import build_detect_history_block, ensure_ai_agents_path
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.rebalancing.services.rebal_engine.service import (
     TAILORABLE_BLOCKERS,
@@ -38,6 +38,9 @@ from app.domains.rebalancing.services.rebal_engine.overrides import (
     _REBAL_ALLOWED_OVERRIDE_KEYS,
     with_chat_overrides,
 )
+
+ensure_ai_agents_path()
+from house_view import load_house_view  # noqa: E402  (bare import via ensure_ai_agents_path)
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +285,13 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   warnings: list of short human-readable strings (up to 5)
 
+  fund_house_view: optional — present only on judgement-style rebalancing turns.
+    Prozpr's OWN current market stance (our view on large/mid/small-cap equities,
+    debt, gold). Use it to FRAME why the plan's direction makes sense ("we're
+    cautious on small caps, so the plan trims them"). It is our voice — never name
+    or attribute a view to any fund house — and it NEVER overrides the computed
+    numbers; the trades stand on their own. Ignore it for purely factual questions.
+
   fund_actions: list of per-fund actions for the customer's specific funds
     (top 30 by exposure; if more, ``more_holdings_count`` carries the
     overflow count for "and N other smaller holdings"). Each entry:
@@ -434,6 +444,10 @@ async def _format_or_fallback_rebal(
     is_rerun: bool = False,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
+    # Prozpr-only house view, gated on the classifier's tools_needed. A rebalance is
+    # advice, so when the view is called it frames the trades; the flow sets scope.
+    want_view = "fund_house_view" in (getattr(ctx, "tools_needed", ()) or ())
+    fund_house_view = load_house_view(prozpr_only=True) if want_view else None
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_rebal_facts_pack(
@@ -441,6 +455,7 @@ async def _format_or_fallback_rebal(
             goal_buckets=goal_buckets,
             constraint_impact=constraint_impact,
             is_rerun=is_rerun,
+            fund_house_view=fund_house_view,
         ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",

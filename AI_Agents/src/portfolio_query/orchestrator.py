@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from common import format_inr_indian, read_text_bom_aware
+from house_view import load_house_view
 
 from .models import ClientContext, PortfolioContext
 from .skill_executor import SkillExecutor
@@ -27,50 +28,6 @@ from .skill_executor import SkillExecutor
 
 logger = logging.getLogger(__name__)
 
-
-_MARKET_COMMENTARY_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "Reference_docs"
-    / "market_commentary_latest.md"
-)
-
-# Keep the commentary under this limit so it can't dominate the prompt
-# (mirrors general_chat's _MAX_COMMENTARY_CHARS).
-_MAX_COMMENTARY_CHARS = 7000
-
-
-_COMMENTARY_NOT_REQUESTED = (
-    "(Not loaded — this question was routed as being about the customer's own "
-    "portfolio, so no market view was fetched. Answer from their holdings and "
-    "profile. Do NOT speculate about market conditions, valuations or outlook, "
-    "and do not mention that commentary is missing — the customer did not ask "
-    "for it. If the question genuinely does need a market view, say you can "
-    "pull one up if they'd like.)"
-)
-
-
-def _load_market_commentary() -> str:
-    if not _MARKET_COMMENTARY_PATH.exists():
-        raise FileNotFoundError(
-            f"Market commentary file missing at {_MARKET_COMMENTARY_PATH}. "
-            "Run the market_commentary agent (or trigger a general_market_query) first."
-        )
-    text = read_text_bom_aware(_MARKET_COMMENTARY_PATH)
-    if not text.strip():
-        raise ValueError(
-            f"Market commentary file at {_MARKET_COMMENTARY_PATH} is empty"
-        )
-    return text.strip()[:_MAX_COMMENTARY_CHARS]
-
-
-_FUND_HOUSE_VIEW_PATH = (
-    Path(__file__).resolve().parents[2] / "Reference_docs" / "fund_house_commentry.md"
-)
-
-# Loaded whole: no research-distillation step exists on this path — the facts
-# pack goes straight to the compose formatter. (See the plan's portfolio
-# compose-weight note; latency is explicitly accepted.)
-_MAX_VIEW_CHARS = 90_000
 
 _VIEW_NOT_REQUESTED = (
     "(Not loaded — this question was routed as being about the customer's own "
@@ -86,12 +43,9 @@ _VIEW_UNAVAILABLE = (
 
 
 def _load_fund_house_view() -> str:
-    """Prozpr's monthly stance. Degrades to a placeholder (never raises): the
-    file is hand-maintained and optional — a missing view must not fail a turn."""
-    if not _FUND_HOUSE_VIEW_PATH.exists():
-        return _VIEW_UNAVAILABLE
-    text = read_text_bom_aware(_FUND_HOUSE_VIEW_PATH).strip()
-    return text[:_MAX_VIEW_CHARS] if text else _VIEW_UNAVAILABLE
+    """Prozpr's OWN market stance — the Prozpr-only slice (no fund house is named).
+    Degrades to a placeholder (never raises): the view is optional by design."""
+    return load_house_view(prozpr_only=True) or _VIEW_UNAVAILABLE
 
 
 def _enrich_inr_fields(obj: Any) -> Any:
@@ -138,21 +92,15 @@ class PortfolioQueryOrchestrator:
         *,
         client: ClientContext,
         portfolio: PortfolioContext,
-        want_market_commentary: bool = True,
         want_fund_house_view: bool = False,
     ) -> dict:
         """The context sources as one INR-enriched dict.
 
-        Raises ``FileNotFoundError`` when the commentary is wanted but missing —
-        the caller's cue to say so rather than answer without it. The fund-house
-        view degrades to a placeholder instead (it is optional by design).
+        The fund-house view (Prozpr-only slice) degrades to a placeholder when
+        unavailable — it is optional by design, loaded only when the classifier
+        asks for it.
         """
         return {
-            "market_commentary": (
-                _load_market_commentary()
-                if want_market_commentary
-                else _COMMENTARY_NOT_REQUESTED
-            ),
             "fund_house_view": (
                 _load_fund_house_view()
                 if want_fund_house_view

@@ -52,11 +52,6 @@ _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
     "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
 )
-_MISSING_COMMENTARY_REPLY = (
-    "I'll have a sharper answer once the latest market commentary is loaded "
-    "— ask me a quick market question first (e.g. 'how are markets doing "
-    "today?') to refresh it, and then I'll be ready to dig into this for you."
-)
 _GENERIC_FAILURE_REPLY = (
     "Hmm, that one didn't come through cleanly on my end — give the question "
     "another phrasing and I'll take another shot at it."
@@ -573,7 +568,6 @@ async def generate_portfolio_query_response(
     conversation_history: list[dict[str, Any]] | None = None,
     db: Any = None,
     user_id: Any = None,
-    want_market_commentary: bool = True,
     want_fund_house_view: bool = False,
     ctx: Any = None,
 ) -> PortfolioQueryOutcome:
@@ -604,12 +598,8 @@ async def generate_portfolio_query_response(
         facts_pack = orch.build_facts(
             client=client_ctx,
             portfolio=portfolio,
-            want_market_commentary=want_market_commentary,
             want_fund_house_view=want_fund_house_view,
         )
-    except FileNotFoundError as exc:
-        logger.warning("portfolio_query: market commentary file missing — %s", exc)
-        return PortfolioQueryOutcome(_MISSING_COMMENTARY_REPLY)
     except Exception:
         logger.exception("portfolio_query: facts build failed")
         return PortfolioQueryOutcome(_GENERIC_FAILURE_REPLY)
@@ -656,8 +646,6 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         conversation_history=ctx.conversation_history,
         db=getattr(ctx, "db", None),
         user_id=ctx.effective_user_id,
-        want_market_commentary="market_commentary"
-        in (getattr(ctx, "tools_needed", ()) or ()),
         want_fund_house_view="fund_house_view"
         in (getattr(ctx, "tools_needed", ()) or ()),
         ctx=ctx,

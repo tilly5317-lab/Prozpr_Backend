@@ -9,7 +9,7 @@ Gateway domain over the bundled `AI_Agents` market_commentary agent. Owns no per
 - **services/** — three files:
   - `market_commentary_module_service` — the brain-facing gateway (above).
   - `market_commentary_engine` — the AI bridge: resolves cache paths + freshness config, then drives `MarketCommentaryAgent` (cache-fast-path → full-run). The agent itself writes the `Reference_docs/market_commentary_latest.md`/`.json` cache, the contract `portfolio_query` and `general_chat` read (`services/market_commentary_engine.py`).
-  - `fund_house_view_module_service` — sibling gateway for the **fund-house view**: a plain read of the hand-maintained `Reference_docs/fund_house_commentry.md` (no agent, no cache), returning `None` when absent. Loaded by `flow_market` when `tools_needed` asks for `fund_house_view`; the reply surfaces the named houses as research sources.
+  - `fund_house_view_module_service` — sibling gateway for the **fund-house view**: delegates to `house_view.load_house_view(prozpr_only=False)` (the whole multi-house `Reference_docs/fund_house_commentry.md`), returning `None` when absent/invalid. Loaded by `flow_market` when `tools_needed` asks for `fund_house_view`; the reply surfaces the named houses as research sources. (The advice paths — `portfolio_query`, `rebalancing` — call the same slicer with `prozpr_only=True` for Prozpr's view only, no house named.)
 
 ## Don't read
 - `__pycache__/`.

@@ -1,4 +1,4 @@
-"""The view module is a plain file read that degrades gracefully."""
+"""The market view module delegates to the shared house_view loader (prozpr_only=False)."""
 from __future__ import annotations
 
 import asyncio
@@ -10,23 +10,18 @@ def _run():
     return asyncio.run(svc.run(turn=None, ctx=None, prior={}))
 
 
-def test_returns_text_when_file_present(tmp_path, monkeypatch):
-    f = tmp_path / "fund_house_commentry.md"
-    f.write_text("PROZPR VIEW TEXT", encoding="utf-8")
-    monkeypatch.setattr(svc, "_VIEW_PATH", f)
+def test_returns_full_view_when_available(monkeypatch):
+    captured = {}
 
-    assert _run().payload == "PROZPR VIEW TEXT"
+    def fake_loader(*, prozpr_only):
+        captured["prozpr_only"] = prozpr_only
+        return "FULL MULTI-HOUSE VIEW"
 
-
-def test_returns_none_when_file_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(svc, "_VIEW_PATH", tmp_path / "absent.md")
-
-    assert _run().payload is None
+    monkeypatch.setattr(svc, "load_house_view", fake_loader)
+    assert _run().payload == "FULL MULTI-HOUSE VIEW"
+    assert captured["prozpr_only"] is False        # market gets every house
 
 
-def test_returns_none_when_file_empty(tmp_path, monkeypatch):
-    f = tmp_path / "fund_house_commentry.md"
-    f.write_text("   \n", encoding="utf-8")
-    monkeypatch.setattr(svc, "_VIEW_PATH", f)
-
+def test_returns_none_when_unavailable(monkeypatch):
+    monkeypatch.setattr(svc, "load_house_view", lambda *, prozpr_only: None)
     assert _run().payload is None
