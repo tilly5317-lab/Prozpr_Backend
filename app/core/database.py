@@ -425,8 +425,155 @@ async def apply_postgres_schema_patches() -> None:
             "ALTER COLUMN bank_account_masked DROP NOT NULL",
         ):
             await conn.execute(text(ddl))
+
+        # In-chat financial planning. Created here rather than by an Alembic
+        # revision because the repo's migration graph has a dangling second head
+        # and the DB is stamped at a lost revision, so `alembic upgrade head`
+        # cannot run on dev or prod (see the repo's alembic notes). Both
+        # statements are IF NOT EXISTS and additive.
+        #
+        # The table names predate the profile_capture / goal_capture merge into
+        # `financial_planning` and are deliberately NOT renamed: a rename would
+        # need the migration path that does not exist here, and the columns are
+        # unchanged. `chat_profile_capture_runs` backs `ChatPlanningAsk` and
+        # `profile_field_writes` backs `PlanningWrite`, which now also records
+        # goal changes (table_name='goals').
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS chat_profile_capture_runs (
+                    id UUID PRIMARY KEY,
+                    session_id UUID NOT NULL
+                        REFERENCES chat_sessions (id) ON DELETE CASCADE,
+                    user_id UUID NOT NULL
+                        REFERENCES users (id) ON DELETE CASCADE,
+                    field_key VARCHAR(64) NOT NULL,
+                    resume_intent VARCHAR(64),
+                    origin_question VARCHAR(1000),
+                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    ask_kind VARCHAR(8) NOT NULL DEFAULT 'hard',
+                    attempts SMALLINT NOT NULL DEFAULT 0,
+                    asked_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    resolved_at TIMESTAMP WITH TIME ZONE,
+                    deferred_until TIMESTAMP WITH TIME ZONE,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        # The gate reads these two on EVERY gated turn, so both are indexed:
+        # the open-question lookup by session, and the deferral check by user.
+        await conn.execute(
+            text(
+                "ALTER TABLE chat_profile_capture_runs ADD COLUMN IF NOT EXISTS "
+                "origin_question VARCHAR(1000)"
+            )
+        )
+        # Values we understood but have NOT written: a chat answer is a proposal
+        # until the customer confirms it in words.
+        await conn.execute(
+            text(
+                "ALTER TABLE chat_profile_capture_runs ADD COLUMN IF NOT EXISTS "
+                "staged_values JSONB"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_chat_profile_capture_runs_session "
+                "ON chat_profile_capture_runs (session_id, asked_at DESC)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_chat_profile_capture_runs_user_deferred "
+                "ON chat_profile_capture_runs (user_id, deferred_until)"
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS profile_field_writes (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL
+                        REFERENCES users (id) ON DELETE CASCADE,
+                    session_id UUID
+                        REFERENCES chat_sessions (id) ON DELETE SET NULL,
+                    capture_run_id UUID
+                        REFERENCES chat_profile_capture_runs (id) ON DELETE SET NULL,
+                    field_key VARCHAR(64) NOT NULL,
+                    table_name VARCHAR(64) NOT NULL,
+                    column_name VARCHAR(64) NOT NULL,
+                    previous_value JSONB,
+                    new_value JSONB,
+                    source VARCHAR(24) NOT NULL,
+                    confidence NUMERIC(4, 3),
+                    verbatim VARCHAR(300),
+                    undone_at TIMESTAMP WITH TIME ZONE,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_profile_field_writes_undo "
+                "ON profile_field_writes (user_id, session_id, created_at DESC)"
+            )
+        )
+
+        # Rate columns on `goals` were NUMERIC(7,6) — an absolute value below
+        # 10 — but they store PERCENTAGES (existing rows hold 6.00 and 7.00).
+        # So any rate of 10% or more overflowed: an 11% car loan, and also the
+        # goals API's own `inflation_rate` field, which validates up to 50 and
+        # could never have been stored. Widening to NUMERIC(9,6) keeps every
+        # existing value byte-identical and lets the real range fit.
+        for _col in (
+            "inflation_rate",
+            "inflation_annual",
+            "mortgage_interest_annual",
+            "downpayment_pct",
+        ):
+            await conn.execute(
+                text(f"ALTER TABLE goals ALTER COLUMN {_col} TYPE NUMERIC(9, 6)")
+            )
+
+        # In-chat goal builder. A draft is NOT a financial_goals row until the
+        # customer confirms — a half-specified goal in the goals list would be
+        # picked up by the cashflow engine and quietly change their plan while
+        # they were still deciding what to buy.
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS chat_goal_drafts (
+                    id UUID PRIMARY KEY,
+                    session_id UUID NOT NULL
+                        REFERENCES chat_sessions (id) ON DELETE CASCADE,
+                    user_id UUID NOT NULL
+                        REFERENCES users (id) ON DELETE CASCADE,
+                    stage VARCHAR(16) NOT NULL DEFAULT 'collecting',
+                    slots JSONB NOT NULL DEFAULT '{}',
+                    projection JSONB,
+                    origin_question VARCHAR(1000),
+                    committed_goal_id UUID
+                        REFERENCES goals (id) ON DELETE SET NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        # The builder looks the open draft up by session on every goal-planning
+        # turn, so this index is on the hot path.
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_chat_goal_drafts_session_stage "
+                "ON chat_goal_drafts (session_id, created_at DESC)"
+            )
+        )
+
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, "
+        "goals backfill, fp_exec_accounts kyc, profile capture, goal drafts)"
     )
 
 

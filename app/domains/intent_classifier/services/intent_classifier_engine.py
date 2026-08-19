@@ -49,7 +49,7 @@ _REBALANCE_UTTERANCE = re.compile(
 # customer-visible "label" surface appear here.
 _INTENT_LABELS: dict[str, str] = {
     "asset_allocation": "Portfolio Optimisation",
-    "goal_planning": "Goal Planning",
+    "financial_planning": "Financial Planning",
     "stock_advice": "Stock Advice",
     "portfolio_query": "Portfolio Query",
     "general_market_query": "General Market Query",

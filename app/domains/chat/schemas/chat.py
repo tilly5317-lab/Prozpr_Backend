@@ -74,6 +74,18 @@ class ChatSendMessageResponse(BaseModel):
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False
+    # Plan inputs written on this turn; the client shows a saved chip + undo.
+    # Each carries an optional ``basis`` when the value was worked out from one
+    # we already held ("20% increase on the ₹30,00,000 on file").
+    planning_saved: Optional[list[dict[str, Any]]] = None
+    # A goal created or re-costed on this turn.
+    goal_saved: Optional[dict[str, Any]] = None
+    # Goals removed on this turn; the same undo puts them back.
+    goal_removed: Optional[list[dict[str, Any]]] = None
+    # The session's title after this turn. On the first turn that is the freshly
+    # generated one, so the client can rename the conversation in its sidebar
+    # straight away instead of waiting for the next session-list fetch.
+    session_title: Optional[str] = None
 
 
 class ChatAiModuleRunResponse(BaseModel):

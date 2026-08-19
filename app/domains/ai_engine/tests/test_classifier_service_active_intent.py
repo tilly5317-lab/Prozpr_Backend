@@ -20,7 +20,6 @@ class ActiveIntentForwardingTests(unittest.TestCase):
             return MagicMock(
                 intent=MagicMock(value="asset_allocation"),
                 confidence=0.9,
-                is_follow_up=True,
                 reasoning="...",
                 out_of_scope_message=None,
             )

@@ -35,6 +35,35 @@ class GoalCreate(BaseModel):
     amount_needed: Optional[float] = Field(default=None, gt=0)
     goal_priority: Optional[str] = None  # "negotiable" | "non_negotiable"
     investment_goal: Optional[str] = None  # "wealth_creation" | "safety" | ...
+    # --- Loan / down-payment block -------------------------------------
+    # The goals screen has always COLLECTED these (funded-by-loan, loan %,
+    # total property value) and always DISCARDED them: only the derived
+    # self-funded amount was sent, so reopening a goal showed no loan at all
+    # and the cashflow engine could not tell a down payment from a full price.
+    # The columns existed the whole time; nothing was writing them.
+    funded_by_loan: Optional[bool] = Field(
+        default=None, description="True when part of the goal is covered by a loan."
+    )
+    loan_pct: Optional[float] = Field(
+        default=None, ge=0, le=100, description="Percentage of total value funded by the loan."
+    )
+    total_value: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "The FULL cost, in the same money as target_amount: both are today's "
+            "rupees when inflation_rate > 0, and both are already at the target "
+            "date when inflation_rate is 0 (the convention for a future-dated "
+            "amount). target_amount stays the self-funded share — the part the "
+            "plan has to build — so total_value minus target_amount is the loan."
+        ),
+    )
+    loan_interest_rate: Optional[float] = Field(
+        default=None, ge=0, le=36, description="Annual loan interest rate, percent."
+    )
+    loan_tenure_years: Optional[int] = Field(
+        default=None, ge=0, le=40, description="Loan tenure in years."
+    )
 
     @field_validator("goal_type", mode="before")
     @classmethod
@@ -86,6 +115,12 @@ class GoalUpdate(BaseModel):
     amount_needed: Optional[float] = Field(None, gt=0)
     goal_priority: Optional[str] = None
     investment_goal: Optional[str] = None
+
+    funded_by_loan: Optional[bool] = None
+    loan_pct: Optional[float] = Field(None, ge=0, le=100)
+    total_value: Optional[float] = Field(None, gt=0)
+    loan_interest_rate: Optional[float] = Field(None, ge=0, le=36)
+    loan_tenure_years: Optional[int] = Field(None, ge=0, le=40)
 
     @field_validator("goal_type", "status", mode="before")
     @classmethod
@@ -143,6 +178,13 @@ class GoalResponse(BaseModel):
     amount_needed: Optional[float] = None
     goal_priority: Optional[str] = None
     investment_goal: Optional[str] = None
+    # Loan / down-payment block, so reopening a goal shows what was entered.
+    funded_by_loan: Optional[bool] = None
+    loan_pct: Optional[float] = None
+    total_value: Optional[float] = None
+    loan_amount: Optional[float] = None
+    loan_interest_rate: Optional[float] = None
+    loan_tenure_years: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -246,6 +288,41 @@ def goal_to_response(
         amount_needed=_first_float(goal, "amount_needed"),
         goal_priority=getattr(goal, "goal_priority", None),
         investment_goal=getattr(goal, "investment_goal", None),
+        **_loan_block(goal),
         created_at=goal.created_at,
         updated_at=goal.updated_at,
     )
+
+
+def _loan_block(goal: Any) -> dict[str, Any]:
+    """Reconstruct the loan view from the stored columns.
+
+    ``target_amount`` is the SELF-FUNDED share (the down payment) — that is what
+    the plan has to build. ``total_value`` is the whole cost, and the loan is
+    the difference, so the screen can show the customer what they originally
+    entered instead of re-deriving it from a single number that has lost half
+    its meaning.
+    """
+    funded = getattr(goal, "is_downpayment_only", None)
+    total = _first_float(goal, "target_pv")
+    down = _first_float(goal, "upfront_amount", "present_value_amount", "goal_value_pv")
+    down_pct = _first_float(goal, "downpayment_pct")
+
+    loan_pct = None
+    if down_pct is not None:
+        # Stored as a fraction (see the check constraint); the API speaks percent.
+        loan_pct = max(0.0, 100.0 - float(down_pct) * 100.0)
+    loan_amount = None
+    if total is not None and down is not None:
+        loan_amount = max(0.0, float(total) - float(down))
+    if loan_pct is None and total and down is not None and float(total) > 0:
+        loan_pct = max(0.0, 100.0 * (1.0 - float(down) / float(total)))
+
+    return {
+        "funded_by_loan": bool(funded) if funded is not None else None,
+        "loan_pct": round(loan_pct, 4) if loan_pct is not None else None,
+        "total_value": total,
+        "loan_amount": loan_amount,
+        "loan_interest_rate": _first_float(goal, "mortgage_interest_annual"),
+        "loan_tenure_years": getattr(goal, "mortgage_tenure_years", None),
+    }

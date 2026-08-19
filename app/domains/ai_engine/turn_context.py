@@ -64,6 +64,12 @@ class TurnContext:
     # active_intent. Handlers consume it through
     # chat_dispatcher.consume_speculative_detect; None → serial detect.
     speculative_detect: Any = None
+    # ``planning_gate.PlanningDirective`` when this turn belongs to financial
+    # planning — an open question, a goal half-built, or an input another intent
+    # cannot run without. Attached by the brain (via dataclasses.replace)
+    # immediately before it routes to flow_financial_planning; None on every
+    # other turn.
+    planning_directive: Any = None
 
 
 async def build_turn_context(turn: ChatTurnInput) -> TurnContext:
@@ -152,12 +158,25 @@ async def _load_active_intent(
 ) -> str | None:
     """Most-recent intent_detected for this session, excluding canned-redirect intents.
 
-    out_of_scope, goal_planning, and stock_advice all surface a canned redirect
-    rather than engaging with the user's real topic. Feeding any of them back
-    as active_intent biases the classifier to keep refusing/redirecting on the
-    next turn, which mis-routes legitimate follow-ups.
+    out_of_scope and stock_advice surface a canned redirect rather than engaging
+    with the user's real topic. Feeding either back as active_intent biases the
+    classifier to keep refusing/redirecting on the next turn, which mis-routes
+    legitimate follow-ups. ``goal_planning`` and ``profile_update`` are here as
+    RETIRED labels: rows written before the financial_planning merge still carry
+    them, and the classifier can no longer emit either, so replaying one as
+    active_intent would raise on the ``Intent`` lookup.
+
+    ``financial_planning`` is deliberately NOT excluded. Unlike the intents it
+    replaced it is a genuine topic and usually a multi-turn one — a goal being
+    built, a figure being corrected — and carrying it forward is what lets a
+    follow-up land in the same thread.
     """
-    canned_redirect_intents = ("out_of_scope", "stock_advice")
+    canned_redirect_intents = (
+        "out_of_scope",
+        "stock_advice",
+        "goal_planning",
+        "profile_update",
+    )
     stmt = (
         select(ChatAiModuleRun.intent_detected)
         .where(ChatAiModuleRun.session_id == session_id)

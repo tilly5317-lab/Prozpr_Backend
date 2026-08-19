@@ -45,6 +45,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
+# Placeholder titles a session may carry before its first real turn. A session
+# is auto-titled only while it still has one of these, so a title the customer
+# set by hand — or one we generated earlier — is never overwritten.
+_DEFAULT_SESSION_TITLES: frozenset[str] = frozenset(
+    {"", "New Chat", "New conversation", "Pi Chat"}
+)
+
+
+def _should_auto_title(session, conversation_history) -> bool:
+    """First real turn of an untitled session."""
+    return not conversation_history and (session.title or "") in _DEFAULT_SESSION_TITLES
+
+
 class ChatThinkingResponse(BaseModel):
     """Live thinking feed of this user's in-flight chat turn (polled while the
     send-message POST runs). ``messages`` is the full history so far (oldest
@@ -235,12 +248,7 @@ async def send_message(
     # first message and while the title is still a default, so a manual or
     # earlier title is never overwritten. generate_chat_title never raises.
     title_task: asyncio.Task | None = None
-    if not conversation_history and (session.title or "") in (
-        "",
-        "New Chat",
-        "New conversation",
-        "Pi Chat",
-    ):
+    if _should_auto_title(session, conversation_history):
         title_task = asyncio.create_task(
             generate_chat_title(payload.content, intent_name=None)
         )
@@ -308,6 +316,10 @@ async def send_message(
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
         portfolio_data_missing=brain_result.portfolio_data_missing,
+        planning_saved=brain_result.planning_saved,
+        goal_saved=brain_result.goal_saved,
+        goal_removed=brain_result.goal_removed,
+        session_title=session.title,
     )
 
 
@@ -341,6 +353,17 @@ async def send_message_streaming(
             detail="This chat session is closed.",
         )
     conversation_history = await load_conversation_history(session_id, db)
+
+    # First-turn auto-title, exactly as ``send_message`` does it. This was
+    # missing here, and the client uses THIS endpoint — so in the real app every
+    # conversation kept its placeholder name ("New conversation") forever while
+    # the titling code sat on the twin nothing calls. Started concurrently with
+    # the turn so it adds no latency; never raises.
+    title_task: asyncio.Task | None = None
+    if _should_auto_title(session, conversation_history):
+        title_task = asyncio.create_task(
+            generate_chat_title(payload.content, intent_name=None)
+        )
 
     async def events():
         def sse(event: str, data: dict) -> str:
@@ -387,6 +410,8 @@ async def send_message_streaming(
             intent=brain_result.intent,
         )
         db.add(assistant_msg)
+        if title_task is not None:
+            session.title = await title_task
         await db.commit()
         await db.refresh(user_msg)
         await db.refresh(assistant_msg)
@@ -404,6 +429,10 @@ async def send_message_streaming(
                 asset_allocation_run_id=brain_result.asset_allocation_run_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
                 portfolio_data_missing=brain_result.portfolio_data_missing,
+                planning_saved=brain_result.planning_saved,
+                goal_saved=brain_result.goal_saved,
+                goal_removed=brain_result.goal_removed,
+                session_title=session.title,
             ).model_dump(),
         )
 

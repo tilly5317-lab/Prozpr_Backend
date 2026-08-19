@@ -338,6 +338,20 @@ class Settings:
         )
 
     @staticmethod
+    def get_anthropic_financial_planning_key() -> str | None:
+        """The in-chat planning extractor — plan inputs and goals, one call.
+
+        The two predecessor vars are still accepted so an existing .env keeps
+        working: they pointed at the two extractors this one replaced.
+        """
+        return Settings._anthropic_key(
+            "FINANCIAL_PLANNING_API_KEY",
+            "PROFILE_CAPTURE_API_KEY",
+            "GOAL_CAPTURE_API_KEY",
+            "ANTHROPIC_API_KEY",
+        )
+
+    @staticmethod
     def get_anthropic_answer_formatter_key() -> str | None:
         """Shared answer-formatter LLM call (used by AA + rebalancing chat formatters)."""
         return Settings._anthropic_key("ANSWER_FORMATTER_API_KEY", "ANTHROPIC_API_KEY")

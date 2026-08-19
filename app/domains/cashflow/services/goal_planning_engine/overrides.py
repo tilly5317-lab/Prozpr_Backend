@@ -15,7 +15,10 @@ would produce a confident, wrong projection, which is worse than an error.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Four to start. Each maps to a question customers actually ask; the assumption
 # knobs (return rates, income growth) are deliberately NOT here — letting a
@@ -65,14 +68,45 @@ def apply_overrides(gp_input: Any, overrides: dict[str, Any] | None) -> Any:
         updates["profile"] = gp_input.profile.model_copy(update=profile_updates)
 
     if "one_off_outflow" in overrides:
-        from cashflow_statement.models import OneOffEvent
-
-        event = overrides["one_off_outflow"]
-        # APPEND, never replace: the customer's existing planned outflows are
-        # part of the plan they are asking about.
-        updates["one_off_outflows"] = [
-            *gp_input.one_off_outflows,
-            event if isinstance(event, OneOffEvent) else OneOffEvent(**event),
-        ]
+        events = _coerce_one_off_events(overrides["one_off_outflow"])
+        if events:
+            # APPEND, never replace: the customer's existing planned outflows are
+            # part of the plan they are asking about.
+            updates["one_off_outflows"] = [*gp_input.one_off_outflows, *events]
 
     return gp_input.model_copy(update=updates)
+
+
+def _coerce_one_off_events(raw: Any) -> list[Any]:
+    """Turn whatever the model put in ``one_off_outflow`` into real events.
+
+    ``overrides`` is a free-form dict on an LLM structured output, so its shape
+    is a suggestion rather than a contract. Asked about two one-off expenses in
+    one sentence the model returned a LIST where the code assumed a single
+    mapping, and ``OneOffEvent(**event)`` raised — taking down the whole turn
+    with "I couldn't process your request due to a technical issue".
+
+    A counterfactual is an enhancement to the answer, never the answer itself,
+    so anything unusable here is dropped and logged rather than raised. The
+    projection still runs; it just runs without the hypothetical.
+    """
+    from cashflow_statement.models import OneOffEvent
+
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    out: list[Any] = []
+    for item in items:
+        if isinstance(item, OneOffEvent):
+            out.append(item)
+            continue
+        if isinstance(item, dict):
+            try:
+                out.append(OneOffEvent(**item))
+            except Exception:
+                logger.warning(
+                    "dropping unusable one_off_outflow override %r", item
+                )
+            continue
+        logger.warning(
+            "ignoring one_off_outflow override of type %s", type(item).__name__
+        )
+    return out

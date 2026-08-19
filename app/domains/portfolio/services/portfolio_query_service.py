@@ -44,11 +44,6 @@ from portfolio_query.models import _DEFAULT_REDIRECT  # noqa: E402  shared canne
 logger = logging.getLogger(__name__)
 
 
-_NO_PORTFOLIO_TEMPLATE = (
-    "Hi {first_name}, I couldn't find an active portfolio on your account yet. "
-    "Once you add holdings or allocation details, I can answer questions like "
-    "your biggest holding, allocation breakdown, and overall performance."
-)
 _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
     "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
@@ -233,6 +228,7 @@ def _build_client_context(user: Any) -> ClientContext:
 
     dob = getattr(user, "date_of_birth", None)
     age = _age_from_dob(dob) if dob is not None else None
+    dob_str = dob.isoformat() if dob is not None else None
 
     risk_category = rp.risk_category if rp is not None else None
     investment_horizon = (
@@ -252,6 +248,7 @@ def _build_client_context(user: Any) -> ClientContext:
 
     return ClientContext(
         age=age,
+        date_of_birth=dob_str,
         risk_category=risk_category,
         effective_risk_score=effective_risk_score,
         investment_horizon=investment_horizon,
@@ -587,10 +584,16 @@ async def generate_portfolio_query_response(
 
     portfolio = _build_portfolio_context(user, await _xirr_by_scheme(db, user_id))
     if portfolio is None:
-        first_name = getattr(user, "first_name", None) or "there"
-        return PortfolioQueryOutcome(
-            _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
-        )
+        # No holdings does NOT mean no answer. This intent also covers profile
+        # readouts — "what's my date of birth?", "how old am I?", "what income
+        # do you have on file?" — and those are answerable from the client
+        # context alone. Short-circuiting here sent a customer asking for their
+        # own date of birth a message about adding holdings.
+        #
+        # An EMPTY portfolio context (every field defaults) is passed instead,
+        # so the agent can answer profile questions and still say plainly that
+        # it has no holdings when the question needs them.
+        portfolio = PortfolioContext()
 
     api_key = (
         get_settings().get_anthropic_portfolio_query_key()

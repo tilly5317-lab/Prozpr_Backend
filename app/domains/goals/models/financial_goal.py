@@ -61,7 +61,7 @@ class FinancialGoal(Base):
         Numeric(18, 2), nullable=True
     )
     inflation_rate: Mapped[Optional[float]] = mapped_column(
-        Numeric(7, 6), nullable=True
+        Numeric(9, 6), nullable=True
     )
 
     target_pv: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), nullable=True)
@@ -73,14 +73,14 @@ class FinancialGoal(Base):
         Numeric(18, 2), nullable=True
     )
     downpayment_pct: Mapped[Optional[float]] = mapped_column(
-        Numeric(7, 6), nullable=True
+        Numeric(9, 6), nullable=True
     )
     inflation_annual: Mapped[Optional[float]] = mapped_column(
-        Numeric(7, 6), nullable=True
+        Numeric(9, 6), nullable=True
     )
     mortgage_tenure_years: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     mortgage_interest_annual: Mapped[Optional[float]] = mapped_column(
-        Numeric(7, 6), nullable=True
+        Numeric(9, 6), nullable=True
     )
 
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)

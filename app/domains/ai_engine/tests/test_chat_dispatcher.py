@@ -69,12 +69,12 @@ class RegisterImportSideEffectTests(unittest.TestCase):
     the noqa: F401 import in brain.py would cause every portfolio turn to fall
     through to the safe-fallback canned message with no test signal.
 
-    NOTE: as of the goal_planning routing fix, this handler is registered ONLY
-    for asset_allocation. goal_planning is handled by a dedicated branch in
-    brain.py that returns the classifier's canned message — it is intentionally
-    NOT in the dispatcher registry. If a future change re-adds the
-    @register("goal_planning") decorator to chat.py, the goal_planning branch
-    in brain.py will be silently bypassed.
+    NOTE: this handler is registered ONLY for asset_allocation. The
+    "goal_planning" registry key belongs to the CASHFLOW engine
+    (``cashflow.services.goal_planning_engine.chat``) — a module name, not the
+    intent, which is now ``financial_planning``. If a future change re-adds an
+    @register("goal_planning") decorator here, two modules would claim one key
+    and the last import would silently win.
     """
 
     def test_importing_asset_allocation_chat_registers_only_asset_allocation(self):
@@ -95,7 +95,7 @@ class RegisterImportSideEffectTests(unittest.TestCase):
             cd._HANDLERS["asset_allocation"],
             asset_allocation_chat.handle,
         )
-        # goal_planning is NOT registered — it is handled in brain.py via canned redirect.
+        # The cashflow engine owns the "goal_planning" key; aa_engine must not claim it.
         self.assertNotIn("goal_planning", cd._HANDLERS)
 
 

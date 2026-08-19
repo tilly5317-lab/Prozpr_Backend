@@ -18,6 +18,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **execution/** — Fintech Primitives (Cybrilla) sandbox order execution: account setup, KYC readiness, lumpsum + SIP order placement
   - **additional_investment/** — additional-investment chat/engine (deploy amount + cadence extractor)
   - **cashflow/** — cashflow plan engine: assumptions, one-off events, plan runs, headlines
+  - **financial_planning/** — the customer's plan inputs and goals, read and written from chat: one AI module → typed CRUD operations, staged then confirmed
   - **ingestion/** — CAMS-CAS PDF, SimBanks, Finvu (legacy) ingest adapters
   - **advisory/** — IPS, meeting notes, discovery helpers
   - **notifications/** — notification records and delivery

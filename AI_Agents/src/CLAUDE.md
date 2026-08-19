@@ -15,7 +15,8 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **cashflow_statement/** — goal-planning pipeline (pure-Python) + LangChain agent for NL goal extraction and lever proposal. See `cashflow_statement/CLAUDE.md`.
 - **financial_primitives/** — shared numerical kernel; pure functions, no LLM/I/O — a library, not an agent. See `financial_primitives/CLAUDE.md`.
 - **Rebalancing/** — pure-Python engine: ideal allocation + holdings → per-fund buy/sell with tax-aware sell prioritisation. See `Rebalancing/CLAUDE.md`.
-- **intent_classifier/** — classifies a question into one of nine intents (Haiku + structured output); also emits `tools_needed`, the data the answer stage needs. Entry: `classifier.py`.
+- **intent_classifier/** — classifies a question into one of nine intents (Haiku + structured output); also emits `tools_needed`, the data the answer stage needs. Deliberately kept to routing only — reading VALUES out of a message is `response_extractor/`'s job. Entry: `classifier.py`.
+- **response_extractor/** — runs right after the classifier: reads one message into typed plan operations (`target` × `verb`) for the customer's own figures and goals. Reports numbers in parts and never computes. See `response_extractor/CLAUDE.md`.
 - **market_commentary/** — web-search-extracts Indian macro indicators into a `MacroSnapshot`, writes the commentary doc to `Reference_docs/`, answers commentary Q&A. Entry: `main.py`.
 - **portfolio_query/** — builds the facts pack (client profile + holdings) and owns the skill prompt + scope guardrails. See `portfolio_query/CLAUDE.md`.
 - **mutual_fund_query/** — questions about **funds themselves**, held or not; forced-tool Haiku extract, DB-agnostic. See `mutual_fund_query/CLAUDE.md`.
@@ -29,6 +30,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Cross-module edges
 
 - `intent_classifier/` returns a label only; routing happens outside `src/` (no peer imports).
+- `response_extractor/` runs after `intent_classifier` but does not import it — the app layer sequences the two, and the extractor is handed its field catalogue rather than reaching for one.
 - `portfolio_query/` reads `AI_Agents/Reference_docs/market_commentary_latest.md` (written by `market_commentary/`) but does not import the module — the file is the contract.
 - `asset_allocation_pydantic/`'s `AllocationInput` carries fields from `risk_profiling/` and a `market_commentary` score block, but imports neither — the caller wires them in.
 - `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1.
