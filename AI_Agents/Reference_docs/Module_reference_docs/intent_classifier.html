@@ -366,7 +366,7 @@ The engine returns [`ClassificationResult`](../../src/intent_classifier/models.p
 
 ### `tools_needed` — a second verdict, not part of the label
 
-`Tool` is a separate enum in the same `models.py`, today with one member: `market_commentary`. It answers a different question from the intent — *what data will the answer stage need?* — and it does **not** influence routing. The brain copies it onto `TurnContext.tools_needed` after classification; a handler fetches only what is listed, and empty means the customer's own record suffices.
+`Tool` is a separate enum in the same `models.py`, today with two members: `market_commentary` (current factual market data) and `fund_house_view` (Prozpr's stance plus the major fund houses' outlooks, surfaced to the customer as research sources). It answers a different question from the intent — *what data will the answer stage need?* — and it does **not** influence routing. The brain copies it onto `TurnContext.tools_needed` after classification; a handler fetches only what is listed, and empty means the customer's own record suffices.
 
 Two implementation facts that bite:
 
@@ -486,7 +486,7 @@ The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LL
 | File | Role |
 |---|---|
 | [`classifier.py`](../../src/intent_classifier/classifier.py) | `IntentClassifier` (sync `classify` / async `aclassify`), `_LLMOutput` schema + `_IntentLiteral` lock, tag-noise scrubbers, history formatting |
-| [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) + `Tool` (1) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
+| [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) + `Tool` (2) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
 | [`prompts.py`](../../src/intent_classifier/prompts.py) | `SYSTEM_PROMPT` (intent definitions, boundaries, edge cases, sub-reasons) + the two canned messages (`OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE`) |
 | [`__init__.py`](../../src/intent_classifier/__init__.py) | re-exports `IntentClassifier` + the I/O models (the app-layer import surface) |
 | [`Testing/`](../../src/intent_classifier/Testing/) | live boundary tests (`test_classifier_rebalancing.py`, `test_classifier_additional_investment.py`) — skipped without `ANTHROPIC_API_KEY` |

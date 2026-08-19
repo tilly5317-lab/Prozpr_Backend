@@ -62,6 +62,7 @@ class AIModule(StrEnum):
       cashflow           →  app/domains/cashflow/services/cashflow_module_service.py
       portfolio_query    →  app/domains/portfolio/services/portfolio_query_service.py
       market_commentary  →  app/domains/market_commentary/services/market_commentary_module_service.py
+      fund_house_view    →  app/domains/market_commentary/services/fund_house_view_module_service.py
       intent_classifier  →  app/domains/intent_classifier/services/intent_classifier_service.py
       general_chat       →  app/domains/ai_engine/services/general_chat_module_service.py
     """
@@ -72,6 +73,7 @@ class AIModule(StrEnum):
     CASHFLOW = "cashflow"
     PORTFOLIO_QUERY = "portfolio_query"
     MARKET_COMMENTARY = "market_commentary"
+    FUND_HOUSE_VIEW = "fund_house_view"
     GENERAL_CHAT = "general_chat"
 
 
