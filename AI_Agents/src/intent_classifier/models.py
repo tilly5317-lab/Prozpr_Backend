@@ -23,6 +23,7 @@ class Tool(str, Enum):
     """
 
     MARKET_COMMENTARY = "market_commentary"
+    FUND_HOUSE_VIEW = "fund_house_view"
 
 
 class OutOfScopeSubreason(str, Enum):
@@ -52,4 +53,4 @@ class ClassificationResult(BaseModel):
     reasoning: str
     out_of_scope_message: Optional[str] = None
     out_of_scope_subreason: Optional[OutOfScopeSubreason] = None
-    tools_needed: list[Tool] = Field(default_factory=list)  # nothing consumes this yet
+    tools_needed: list[Tool] = Field(default_factory=list)  # consumed by flow_market + portfolio_query
