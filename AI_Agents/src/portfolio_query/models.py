@@ -21,6 +21,9 @@ _DEFAULT_REDIRECT = (
 
 class ClientContext(BaseModel):
     age: int | None = None
+    # The date itself, not just the derived age: "what's my date of birth?" is a
+    # normal profile readout and we could only ever answer it with an age.
+    date_of_birth: str | None = None
     risk_category: str | None = None
     effective_risk_score: float | None = None
     investment_horizon: str | None = None

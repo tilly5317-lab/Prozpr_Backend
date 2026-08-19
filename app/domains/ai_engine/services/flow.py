@@ -30,6 +30,7 @@ pulls a heavy agent package at app boot.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 
 from app.domains.ai_engine.thinking import publish_turn_thinking as _think
@@ -72,13 +73,165 @@ async def flow_rebalancing(turn, ctx) -> ModuleOutput:
     return await run_rebalancing(turn, ctx, {AIModule.ASSET_ALLOCATION.value: paa})
 
 
-async def flow_goal_planning(turn, ctx) -> ModuleOutput:
-    from app.domains.cashflow.services.cashflow_module_service import (
-        run as run_cashflow,
+async def flow_financial_planning(turn, ctx) -> ModuleOutput:
+    """The customer's plan: their figures, their goals, and the projection over both.
+
+    One flow where there were two, because the customer's turn is one thing.
+    "My income is up 20% — am I still on track?" used to be a routing coin-flip
+    between a profile update and a goal-planning question; here it is a single
+    read that produces a write and a projection, in that order.
+
+    The shape:
+
+      1. The planning module reads the message, stages what it asks for, and
+         replies. Nothing is written without a yes.
+      2. If it says the projection is now owed — because a plan input or a goal
+         ACTUALLY changed, or because the customer asked — run the engine. If
+         nothing that feeds the projection moved, the engine is not run at all:
+         re-deriving an identical answer is pure cost.
+      3. Before running it, apply the projection's own input requirement. This
+         is deliberately NOT applied at the top: the intent covers CREATING a
+         goal, which needs a cost and a date and nothing else, and TESTING the
+         plan, which does need their income. Gating at the top asked a customer
+         for their salary before it would let them describe a wedding.
+      4. If the answer unblocked another intent, run that instead — answering a
+         question we asked should cost the customer nothing.
+    """
+    from app.domains.financial_planning.services.planning_module_service import (
+        run as run_planning,
     )
 
-    _think(turn, 45, "Running your cashflow and goal projections…")
-    return await run_cashflow(turn, ctx, {})
+    _think(turn, 25, "Working out what you're planning for…")
+    out = await run_planning(turn, ctx, {})
+    side = dict(out.side_effects or {})
+
+    if side.get("handoff"):
+        # Read with the open thread in view, this turn turned out not to be
+        # about the plan at all. Whoever can answer it should.
+        logger.info("financial_planning handed the turn back to general chat")
+        return await flow_general_chat(turn, ctx)
+
+    if side.get("run_projection"):
+        return await _project(turn, ctx, side)
+
+    resume = side.get("resume_intent")
+    if not resume:
+        return out
+
+    resumed_flow = FLOWS.get(resume)
+    if resumed_flow is None or resumed_flow is flow_financial_planning:
+        return out
+
+    logger.info("financial_planning cleared the block; resuming intent=%r", resume)
+    _think(turn, 55, "Thanks — that's everything I needed. Working on your answer…")
+
+    # Re-run the engine against the question the customer ACTUALLY asked.
+    # Replaying this turn's message ("5+ years") through the engine made it ask
+    # what "5+ years" referred to, because the engine and the formatter both
+    # read user_question as the thing being answered.
+    origin = side.get("resume_question")
+    if origin and origin != turn.user_question:
+        turn = dataclasses.replace(turn, user_question=origin)
+        ctx = dataclasses.replace(ctx, user_question=origin)
+
+    resumed = await resumed_flow(turn, ctx)
+    resumed.side_effects = _carry_chips(side, resumed.side_effects)
+    return resumed
+
+
+async def _project(turn, ctx, side) -> ModuleOutput:
+    """Run the cashflow / goal projection, or ask for the one input it needs."""
+    import dataclasses as _dc
+
+    from app.domains.ai_engine.planning_gate import (
+        PlanningDirective,
+        next_blocking_field,
+    )
+    from app.domains.cashflow.services.cashflow_module_service import run as run_cashflow
+    from app.domains.financial_planning.services.planning_module_service import (
+        PROJECTION_REQUIREMENT,
+        run as run_planning,
+    )
+
+    if ctx.db is not None and ctx.session_id is not None:
+        try:
+            blocking = await next_blocking_field(
+                ctx.db, ctx.effective_user_id, ctx.session_id, PROJECTION_REQUIREMENT
+            )
+        except Exception:
+            logger.exception("projection input check failed; running the engine")
+            blocking = None
+        if blocking:
+            _think(turn, 35, "Checking what I still need to run your projection…")
+            asked = await run_planning(
+                turn,
+                _dc.replace(
+                    ctx,
+                    planning_directive=PlanningDirective(
+                        field_key=blocking, resume_intent="financial_planning"
+                    ),
+                ),
+                {},
+            )
+            asked.side_effects = _carry_chips(side, asked.side_effects)
+            return asked
+
+    turn, ctx = await _refresh_user_graph(turn, ctx, side)
+    _think(turn, 60, "Running your cashflow and goal projections…")
+    projection = await run_cashflow(turn, ctx, {})
+    projection.side_effects = _carry_chips(side, projection.side_effects)
+    return projection
+
+
+
+async def _refresh_user_graph(turn, ctx, side):
+    """Re-read the customer's graph when this turn already wrote to it.
+
+    The engine runs off the graph loaded at the START of the turn. A profile
+    column written since then is still visible — the write mutated the very
+    object the graph holds. A GOAL is not: adding one never appends to an
+    already-loaded ``user.financial_goals``, and deleting one never removes it.
+    Projecting on that graph reports a verdict computed without the goal the
+    customer just added, which is the one thing they were asking about.
+
+    Only runs when something WAS written, and fails soft — an unrefreshed
+    projection is worse than a fresh one, but far better than no answer.
+    """
+    import dataclasses as _dc
+
+    wrote = any(
+        side.get(k) for k in ("planning_saved", "goal_saved", "goal_removed")
+    )
+    if not wrote or ctx.db is None or ctx.effective_user_id is None:
+        return turn, ctx
+    try:
+        from app.domains.identity.services.user_context_loader import load_user_for_ai
+
+        user = await load_user_for_ai(ctx.db, ctx.effective_user_id, refresh=True)
+    except Exception:
+        logger.exception(
+            "could not refresh the user graph after a write; "
+            "projecting on the preloaded one"
+        )
+        return turn, ctx
+    if user is None:
+        return turn, ctx
+    logger.info("refreshed the user graph before projecting (this turn wrote)")
+    return _dc.replace(turn, user_ctx=user), _dc.replace(ctx, user_ctx=user)
+
+
+def _carry_chips(side, onto) -> dict:
+    """Carry what the planning turn changed onto whatever answers it.
+
+    The saved / removed chips belong to the message the customer sees, and the
+    message they see is the projection's — so they have to survive the handover
+    or the write happens invisibly.
+    """
+    merged = dict(onto or {})
+    for key in ("planning_saved", "planning_noted", "goal_saved", "goal_removed"):
+        if side.get(key):
+            merged[key] = side[key]
+    return merged
 
 
 async def flow_portfolio_query(turn, ctx) -> ModuleOutput:
@@ -100,51 +253,20 @@ async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:
     return ModuleOutput(text=await answer_mutual_fund_query(turn.user_question, ctx))
 
 
-# flow_market context budgets. Applied per-file before concatenation so neither
-# source can starve the other; general_chat's _MAX_COMMENTARY_CHARS is the joint
-# backstop (raised there to fit both).
-_FACTUAL_MAX_CHARS = 15_000
-_VIEW_MAX_CHARS = 90_000
-_LIVE_DATA_HEADER = "[LIVE MARKET DATA — current, factual]"
-_HOUSE_VIEW_HEADER = "[PROZPR HOUSE VIEW + fund-house outlooks — lead with Prozpr's stance, then cite the named houses as research sources]"
-
-
 async def flow_market(turn, ctx) -> ModuleOutput:
-    # Market questions may want current data, our house view, or both. The
-    # classifier declares which via ctx.tools_needed; general_chat writes the
-    # final reply from whatever we load (read from prior[MARKET_COMMENTARY]).
+    # Market commentary produces a macro doc; general_chat tailors the reply to
+    # it (read from ``prior[MARKET_COMMENTARY]``).
     from app.domains.general_chat.services.general_chat_module_service import (
         run as run_general_chat,
-    )
-    from app.domains.market_commentary.services.fund_house_view_module_service import (
-        run as run_fund_house_view,
     )
     from app.domains.market_commentary.services.market_commentary_module_service import (
         run as run_market_commentary,
     )
 
-    tools = set(getattr(ctx, "tools_needed", ()) or ())
-    want_view = "fund_house_view" in tools
-    # Default when the classifier named neither: factual (preserves prior behaviour).
-    want_factual = "market_commentary" in tools or not want_view
-
-    parts: list[str] = []
-    if want_factual:
-        _think(turn, 40, "Reviewing today's market data…")
-        factual = await run_market_commentary(turn, ctx, {})
-        if isinstance(factual.payload, str) and factual.payload.strip():
-            parts.append(f"{_LIVE_DATA_HEADER}\n{factual.payload.strip()[:_FACTUAL_MAX_CHARS]}")
-    if want_view:
-        _think(turn, 52, "Pulling together our house view…")
-        view = await run_fund_house_view(turn, ctx, {})
-        if isinstance(view.payload, str) and view.payload.strip():
-            parts.append(f"{_HOUSE_VIEW_HEADER}\n{view.payload.strip()[:_VIEW_MAX_CHARS]}")
-
-    combined = "\n\n".join(parts)
+    _think(turn, 40, "Reviewing today's market context…")
+    macro = await run_market_commentary(turn, ctx, {})
     _think(turn, 72, "Writing your answer against that market view…")
-    return await run_general_chat(
-        turn, ctx, {AIModule.MARKET_COMMENTARY.value: ModuleOutput(payload=combined or None)}
-    )
+    return await run_general_chat(turn, ctx, {AIModule.MARKET_COMMENTARY.value: macro})
 
 
 async def flow_general_chat(turn, ctx) -> ModuleOutput:
@@ -181,7 +303,7 @@ FLOWS = {
     "portfolio_query": flow_portfolio_query,
     "general_chat": flow_general_chat,
     "rebalancing": flow_rebalancing,
-    "goal_planning": flow_goal_planning,
+    "financial_planning": flow_financial_planning,
     "general_market_query": flow_market,
     "additional_investment": flow_additional_investment,
     "mutual_fund_query": flow_mutual_fund_query,

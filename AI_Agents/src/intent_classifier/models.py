@@ -6,7 +6,13 @@ from pydantic import BaseModel, Field
 
 class Intent(str, Enum):
     ASSET_ALLOCATION = "asset_allocation"
-    GOAL_PLANNING = "goal_planning"
+    # One intent for the customer's plan and the facts behind it: stating or
+    # correcting a personal figure, creating / changing / dropping a goal, and
+    # asking whether the plan gets there. Merged 2026-08-19 — the old
+    # goal_planning / profile_update split made the classifier decide whether a
+    # sentence was a statement or a question before anything could be read out
+    # of it, and "my income is now 32L, am I still on track?" is both.
+    FINANCIAL_PLANNING = "financial_planning"
     STOCK_ADVICE = "stock_advice"
     PORTFOLIO_QUERY = "portfolio_query"
     GENERAL_MARKET_QUERY = "general_market_query"
@@ -23,7 +29,6 @@ class Tool(str, Enum):
     """
 
     MARKET_COMMENTARY = "market_commentary"
-    FUND_HOUSE_VIEW = "fund_house_view"
 
 
 class OutOfScopeSubreason(str, Enum):
@@ -49,8 +54,7 @@ class ClassificationInput(BaseModel):
 class ClassificationResult(BaseModel):
     intent: Intent
     confidence: float = Field(ge=0.0, le=1.0)
-    is_follow_up: bool = False
     reasoning: str
     out_of_scope_message: Optional[str] = None
     out_of_scope_subreason: Optional[OutOfScopeSubreason] = None
-    tools_needed: list[Tool] = Field(default_factory=list)  # consumed by flow_market + portfolio_query
+    tools_needed: list[Tool] = Field(default_factory=list)  # nothing consumes this yet

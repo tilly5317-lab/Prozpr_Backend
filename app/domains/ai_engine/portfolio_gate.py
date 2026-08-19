@@ -26,19 +26,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-# Intents whose answer is derived from the customer's own holdings. Without a
-# statement there is simply nothing to compute against. NOTE: additional_investment
-# is deliberately NOT here — deploying fresh money (SIP / lump sum) follows the
-# ideal mix and needs no existing holdings, so the no-CAMS cohort can use it.
-PORTFOLIO_REQUIRED_INTENTS: frozenset[str] = frozenset(
-    {
-        "portfolio_query",
-        "rebalancing",
-    }
-)
+# Intents that cannot produce an answer at all without imported holdings.
+#
+# ONLY rebalancing. Rebalancing computes per-fund buy/sell trades against what
+# the customer actually owns — with nothing owned there is literally no trade
+# to propose, so the engine can only fail.
+#
+# Deliberately NOT here:
+#   * ``portfolio_query`` — "what do I hold?" is answerable with an empty
+#     portfolio: the honest answer is that we have nothing on record yet, and
+#     the query path can say so itself. Short-circuiting it meant a customer
+#     asking about their SIPs or linked accounts hit a CAMS wall instead of an
+#     answer.
+#   * ``additional_investment`` — deploying fresh money (SIP / lump sum)
+#     follows the ideal mix and needs no existing holdings.
+PORTFOLIO_REQUIRED_INTENTS: frozenset[str] = frozenset({"rebalancing"})
 
 # One reply, per intent, in PI's voice: say what's missing, why it matters for
 # THIS question, and what to do about it. The UI attaches the upload CTA.
+# ``portfolio_query`` is kept as the generic fallback wording for
+# ``missing_portfolio_reply`` even though that intent is no longer gated.
 _ASK: dict[str, str] = {
     "portfolio_query": (
         "I don't have your holdings yet, so I can't answer this on your real "

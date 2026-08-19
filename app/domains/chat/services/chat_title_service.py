@@ -32,7 +32,7 @@ _TITLE_MAX_TOKENS = 256
 _INTENT_LABELS: dict[str, str] = {
     "asset_allocation": "Asset allocation",
     "rebalancing": "Rebalancing",
-    "goal_planning": "Goal planning",
+    "financial_planning": "Financial planning",
     "portfolio_query": "Portfolio",
     "general_market_query": "Market",
     "general_chat": "Chat",

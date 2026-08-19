@@ -47,6 +47,7 @@ from app.domains.ai_engine.portfolio_gate import (
     missing_portfolio_reply,
     portfolio_data_missing as is_portfolio_data_missing,
 )
+from app.domains.ai_engine.planning_gate import evaluate as evaluate_planning_gate
 from app.domains.ai_engine.posthog_tracing import (
     set_turn_trace_name,
     track_turn_posthog,
@@ -74,8 +75,9 @@ _TELEMETRY_TIMEOUT_S = 5.0
 _FLOW_TIMEOUT_S = 180.0
 
 # Sentinel for the legacy goal-planning canned redirect. The classifier still
-# uses it to strip pre-cutover refusals out of historical chat. Kept here so
-# the name stays importable from ``app.domains.ai_engine``.
+# uses it to strip pre-cutover refusals out of historical chat — those rows are
+# tagged with the retired ``goal_planning`` intent and must not anchor the
+# model. Kept here so the name stays importable from ``app.domains.ai_engine``.
 _GOAL_PLANNING_SENTINEL = "isn't built into the chat yet"
 
 
@@ -304,8 +306,27 @@ class ChatBrain:
                     portfolio_data_missing=True,
                 )
 
+            # ---- 3c. Does this turn belong to the customer's plan? ---------
+            # Same position and same contract as the portfolio gate above, and
+            # the same fail-open instinct. Three things route here: an open
+            # question, a goal half-built, and an engine whose inputs we do not
+            # have. Mid-thread fragments ("50 lakhs down", "yes add it") do not
+            # classify as planning on their own, so the OPEN THREAD — not the
+            # classifier — decides where they go. The recorded intent is left
+            # untouched; only the route changes.
+            route_intent = intent.name
+            directive = await evaluate_planning_gate(db, uid, sid, intent.name)
+            if directive is not None and directive.routes_to_planning:
+                ctx = dataclasses.replace(ctx, planning_directive=directive)
+                route_intent = "financial_planning"
+                flow.append(f"financial planning — {directive.reason}")
+                trace_line(
+                    f"planning gate: routing to financial_planning "
+                    f"(intent={intent.name}, {directive.reason})"
+                )
+
             # ---- 4. Pick the flow -------------------------------------------
-            selected = self._flow_for(intent, ctx)
+            selected = self._flow_for(intent, ctx, route_intent)
             flow.append(f"flow: {selected.__name__}")
             trace_line(f"flow: {selected.__name__}")
 
@@ -410,12 +431,24 @@ class ChatBrain:
     # internals
     # ---------------------------------------------------------------------
 
-    def _flow_for(self, intent: IntentDecision, ctx: TurnContext):
-        """Pick the flow for this turn: ``intent.name`` looked up in ``FLOWS``;
-        unknown intents fall through to ``flow_general_chat``. (The old
-        ``awaiting_save`` override was removed in the 2026-07 audit — nothing
-        set the gate since the save-flow removal.)"""
-        return FLOWS.get(intent.name, flow_general_chat)
+    def _flow_for(
+        self,
+        intent: IntentDecision,
+        ctx: TurnContext,
+        route_intent: str | None = None,
+    ):
+        """Pick the flow for this turn: the route key looked up in ``FLOWS``;
+        unknown intents fall through to ``flow_general_chat``.
+
+        ``route_intent`` is normally just ``intent.name``. The planning gate is
+        the one thing that overrides it (to ``"financial_planning"``), and it
+        does so by passing a different key rather than by mutating the
+        classifier's verdict — the telemetry row must still record what the
+        customer actually asked. (The old ``awaiting_save`` override was removed
+        in the 2026-07 audit — nothing set that gate since the save-flow
+        removal.)
+        """
+        return FLOWS.get(route_intent or intent.name, flow_general_chat)
 
     async def _finalize(
         self,
@@ -490,4 +523,11 @@ class ChatBrain:
             ideal_allocation_snapshot_id=final.snapshot_id if final else None,
             chart_payloads=final.chart_payloads if final else None,
             portfolio_data_missing=portfolio_data_missing,
+            planning_saved=(final.side_effects or {}).get("planning_saved")
+            if final
+            else None,
+            goal_saved=(final.side_effects or {}).get("goal_saved") if final else None,
+            goal_removed=(final.side_effects or {}).get("goal_removed")
+            if final
+            else None,
         )

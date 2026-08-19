@@ -94,3 +94,8 @@ from app.domains.chat.models import (  # noqa: F401
     chat_session_state,
     chat_ai_module_run,
 )
+from app.domains.financial_planning.models import (  # noqa: F401
+    chat_goal_draft,
+    chat_planning_ask,
+    planning_write,
+)

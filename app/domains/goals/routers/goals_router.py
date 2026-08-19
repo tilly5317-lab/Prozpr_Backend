@@ -101,6 +101,43 @@ async def list_goals(
     return out
 
 
+def _apply_loan_fields(goal, payload) -> None:
+    """Persist the loan / down-payment block the goals screen collects.
+
+    Until now this was dropped on the floor: the form worked out the
+    self-funded share, sent that as ``target_amount``, and discarded the loan
+    percentage, the total value and the funded-by-loan flag — so a saved goal
+    could not tell you whether ₹50 lakh was the whole cost or the deposit on a
+    ₹2 crore flat, and reopening it showed an empty loan section.
+    """
+    funded = getattr(payload, "funded_by_loan", None)
+    if funded is not None:
+        goal.is_downpayment_only = bool(funded)
+    total = getattr(payload, "total_value", None)
+    if total is not None:
+        goal.target_pv = total
+    loan_pct = getattr(payload, "loan_pct", None)
+    if loan_pct is not None:
+        # Stored as the DOWN-PAYMENT share, and as a FRACTION: the table carries
+        # two different conventions and this column is checked against
+        # `downpayment_pct BETWEEN 0 AND 1`, while `inflation_rate` next to it
+        # is checked against 0..50 and holds a percent. Writing 25 here fails
+        # the constraint outright.
+        goal.downpayment_pct = max(0.0, min(1.0, (100.0 - float(loan_pct)) / 100.0))
+    # The self-funded amount is the corpus requirement; record it as the
+    # upfront payment too so the chat-built and form-built goals look alike.
+    if getattr(payload, "target_amount", None) is not None and (
+        funded or getattr(goal, "is_downpayment_only", False)
+    ):
+        goal.upfront_amount = payload.target_amount
+    rate = getattr(payload, "loan_interest_rate", None)
+    if rate is not None:
+        goal.mortgage_interest_annual = rate
+    tenure = getattr(payload, "loan_tenure_years", None)
+    if tenure is not None:
+        goal.mortgage_tenure_years = tenure
+
+
 @router.post("/", response_model=GoalResponse, status_code=status.HTTP_201_CREATED)
 async def create_goal(
     payload: GoalCreate,
@@ -126,6 +163,7 @@ async def create_goal(
         notes=notes,
         monthly_contribution=payload.monthly_contribution,
     )
+    _apply_loan_fields(goal, payload)
     db.add(goal)
     await db.commit()
     await db.refresh(goal)
@@ -233,6 +271,19 @@ async def update_goal(
         td = data.pop("target_date")
         goal.target_date = td
         goal.goal_date = td
+
+    # The loan block edits like everything else. Only keys the client actually
+    # sent are applied (``exclude_unset``), so an update that does not mention
+    # the loan leaves it exactly as it was.
+    _apply_loan_fields(goal, payload)
+    for _k in (
+        "funded_by_loan",
+        "loan_pct",
+        "total_value",
+        "loan_interest_rate",
+        "loan_tenure_years",
+    ):
+        data.pop(_k, None)
 
     await db.commit()
     await db.refresh(goal)

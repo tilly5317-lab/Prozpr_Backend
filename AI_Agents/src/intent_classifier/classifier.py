@@ -29,7 +29,7 @@ _MAX_HISTORY_MESSAGES = 12
 # loudly if the two get out of sync.
 _IntentLiteral = Literal[
     "asset_allocation",
-    "goal_planning",
+    "financial_planning",
     "stock_advice",
     "portfolio_query",
     "general_market_query",
@@ -49,12 +49,12 @@ _OutOfScopeSubreasonLiteral = Literal[
 ]
 
 # Keep in sync with ``Tool`` in models.py — same reason as ``_IntentLiteral``.
-_ToolLiteral = Literal["market_commentary", "fund_house_view"]
+_ToolLiteral = Literal["market_commentary"]
 
 
 # Strips stray XML/tool-call closing tokens that Anthropic structured-output
 # tool-calls occasionally leak into a field value (observed in prod:
-# is_follow_up = "true</is_follow_up>\n</invoke>"). Anything from the first
+# a boolean = "true</is_follow_up>\n</invoke>"). Anything from the first
 # '<' onward — plus trailing whitespace — is discarded.
 _TAG_NOISE_RE = re.compile(r"<[^>]*>.*$", re.DOTALL)
 
@@ -77,10 +77,6 @@ class _LLMOutput(BaseModel):
 
     intent: _IntentLiteral = Field(description="The classified intent category.")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0.")
-    is_follow_up: bool = Field(
-        default=False,
-        description="True if the message continues the previous conversation topic; false if it starts a new topic.",
-    )
     reasoning: str = Field(
         description=(
             "Why this intent was chosen — one short phrase, at most 12 words. "
@@ -99,20 +95,10 @@ class _LLMOutput(BaseModel):
     tools_needed: list[_ToolLiteral] = Field(
         default_factory=list,
         description=(
-            "Extra data the ANSWER stage needs; it does not affect the intent. Two sources:\n"
-            "- 'market_commentary' = current, factual market DATA: index levels, PE ratios, repo "
-            "rate, bond yields, gold/crude prices, FX. Include when the answer needs a current "
-            "number or a live market reading.\n"
-            "- 'fund_house_view' = Prozpr's OPINION / stance / outlook on the market or a segment "
-            "(large/mid/small-cap equities, debt, gold). Include when the customer asks what we "
-            "think, whether now is a good time, whether something is over- or under-valued, or "
-            "otherwise wants a judgement rather than a number — including judgement questions about "
-            "their OWN portfolio (e.g. 'is my portfolio too aggressive?'). Also include it for "
-            "rebalancing questions (the customer asks to rebalance or adjust their mix) — our stance "
-            "frames the trades.\n"
-            "Include BOTH when the answer needs a current number AND our view (e.g. 'should I buy "
-            "small caps now?'). Include NEITHER when the question is answerable purely from the "
-            "customer's own portfolio, goals, or holdings — including questions that name an index "
+            "Extra data the ANSWER stage needs; it does not affect the intent. Include "
+            "'market_commentary' only when answering requires a view on market conditions "
+            "or valuations. Leave empty when the question is answerable from the customer's "
+            "own portfolio, goals, or holdings — including questions that name an index "
             "purely as a benchmark for their own returns."
         ),
     )
@@ -120,7 +106,7 @@ class _LLMOutput(BaseModel):
     # Defensive scrubbers: Anthropic's tool-call serializer occasionally leaks
     # a closing tag into a value (e.g. "true</is_follow_up>"). Strip the tag
     # debris before each field's type coercion runs.
-    @field_validator("intent", "is_follow_up", "out_of_scope_subreason", mode="before")
+    @field_validator("intent", "out_of_scope_subreason", mode="before")
     @classmethod
     def _scrub_str_fields(cls, v: Any) -> Any:
         return _scrub_tag_noise(v)
@@ -165,7 +151,7 @@ class IntentClassifier:
     """
     Classifies a customer's financial question into one of eight intents:
       - asset_allocation
-      - goal_planning
+      - financial_planning
       - stock_advice   (redirects to mutual funds)
       - portfolio_query
       - general_market_query
@@ -174,8 +160,8 @@ class IntentClassifier:
       - out_of_scope
 
     stock_advice and out_of_scope each populate out_of_scope_message with
-    a customer-facing canned response. goal_planning is now a live bridge
-    (no canned redirect) — see app/services/ai_bridge/goal_planning/.
+    a customer-facing canned response. financial_planning is a live flow (no
+    canned redirect) — see app/domains/financial_planning/.
 
     Uses LangChain + Claude Haiku with structured output and Anthropic prompt caching.
     """
@@ -238,7 +224,6 @@ class IntentClassifier:
         return ClassificationResult(
             intent=intent,
             confidence=raw.confidence,
-            is_follow_up=raw.is_follow_up,
             reasoning=raw.reasoning,
             out_of_scope_message=_canned_responses.get(intent),
             out_of_scope_subreason=subreason,

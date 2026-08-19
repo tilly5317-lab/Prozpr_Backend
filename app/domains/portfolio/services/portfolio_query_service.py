@@ -44,14 +44,14 @@ from portfolio_query.models import _DEFAULT_REDIRECT  # noqa: E402  shared canne
 logger = logging.getLogger(__name__)
 
 
-_NO_PORTFOLIO_TEMPLATE = (
-    "Hi {first_name}, I couldn't find an active portfolio on your account yet. "
-    "Once you add holdings or allocation details, I can answer questions like "
-    "your biggest holding, allocation breakdown, and overall performance."
-)
 _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
     "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
+)
+_MISSING_COMMENTARY_REPLY = (
+    "I'll have a sharper answer once the latest market commentary is loaded "
+    "— ask me a quick market question first (e.g. 'how are markets doing "
+    "today?') to refresh it, and then I'll be ready to dig into this for you."
 )
 _GENERIC_FAILURE_REPLY = (
     "Hmm, that one didn't come through cleanly on my end — give the question "
@@ -228,6 +228,7 @@ def _build_client_context(user: Any) -> ClientContext:
 
     dob = getattr(user, "date_of_birth", None)
     age = _age_from_dob(dob) if dob is not None else None
+    dob_str = dob.isoformat() if dob is not None else None
 
     risk_category = rp.risk_category if rp is not None else None
     investment_horizon = (
@@ -247,6 +248,7 @@ def _build_client_context(user: Any) -> ClientContext:
 
     return ClientContext(
         age=age,
+        date_of_birth=dob_str,
         risk_category=risk_category,
         effective_risk_score=effective_risk_score,
         investment_horizon=investment_horizon,
@@ -571,7 +573,7 @@ async def generate_portfolio_query_response(
     conversation_history: list[dict[str, Any]] | None = None,
     db: Any = None,
     user_id: Any = None,
-    want_fund_house_view: bool = False,
+    want_market_commentary: bool = True,
     ctx: Any = None,
 ) -> PortfolioQueryOutcome:
     """Answer the user's portfolio question via the AI_Agents.portfolio_query agent.
@@ -582,10 +584,16 @@ async def generate_portfolio_query_response(
 
     portfolio = _build_portfolio_context(user, await _xirr_by_scheme(db, user_id))
     if portfolio is None:
-        first_name = getattr(user, "first_name", None) or "there"
-        return PortfolioQueryOutcome(
-            _NO_PORTFOLIO_TEMPLATE.format(first_name=first_name)
-        )
+        # No holdings does NOT mean no answer. This intent also covers profile
+        # readouts — "what's my date of birth?", "how old am I?", "what income
+        # do you have on file?" — and those are answerable from the client
+        # context alone. Short-circuiting here sent a customer asking for their
+        # own date of birth a message about adding holdings.
+        #
+        # An EMPTY portfolio context (every field defaults) is passed instead,
+        # so the agent can answer profile questions and still say plainly that
+        # it has no holdings when the question needs them.
+        portfolio = PortfolioContext()
 
     api_key = (
         get_settings().get_anthropic_portfolio_query_key()
@@ -601,8 +609,11 @@ async def generate_portfolio_query_response(
         facts_pack = orch.build_facts(
             client=client_ctx,
             portfolio=portfolio,
-            want_fund_house_view=want_fund_house_view,
+            want_market_commentary=want_market_commentary,
         )
+    except FileNotFoundError as exc:
+        logger.warning("portfolio_query: market commentary file missing — %s", exc)
+        return PortfolioQueryOutcome(_MISSING_COMMENTARY_REPLY)
     except Exception:
         logger.exception("portfolio_query: facts build failed")
         return PortfolioQueryOutcome(_GENERIC_FAILURE_REPLY)
@@ -649,7 +660,7 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         conversation_history=ctx.conversation_history,
         db=getattr(ctx, "db", None),
         user_id=ctx.effective_user_id,
-        want_fund_house_view="fund_house_view"
+        want_market_commentary="market_commentary"
         in (getattr(ctx, "tools_needed", ()) or ()),
         ctx=ctx,
     )

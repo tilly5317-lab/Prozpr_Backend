@@ -51,3 +51,12 @@ class ChatBrainResult:
     # True when the turn was answered by the "no holdings imported yet" guard
     # (see ``ai_engine.portfolio_gate``) — the UI shows an add-CAMS CTA.
     portfolio_data_missing: bool = False
+    # Plan inputs written on THIS turn: [{field_key, label, display_value,
+    # basis?}]. The UI shows a saved chip with an undo beside the reply.
+    # ``basis`` is present when the value was worked out from one we already
+    # held ("20% increase on the ₹30,00,000 on file").
+    planning_saved: list[dict[str, Any]] | None = None
+    # A goal created or re-costed on this turn.
+    goal_saved: dict[str, Any] | None = None
+    # Goals removed on this turn — the same undo puts them back.
+    goal_removed: list[dict[str, Any]] | None = None

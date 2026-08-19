@@ -711,3 +711,23 @@ async def get_review_preference(
             status_code=status.HTTP_404_NOT_FOUND, detail="Review preferences not found"
         )
     return ReviewPreferenceResponse.model_validate(pref)
+
+
+@router.get("/completeness")
+async def get_profile_completeness(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> dict:
+    """What the profile has, what it is missing, and what each gap blocks.
+
+    ONE truth for three consumers: `/profile/complete`'s section status, the
+    chat gate that decides whether an engine can honestly run, and the capture
+    flow choosing which question to ask next. Before this existed the form kept
+    its own mirror of the completion rules and the two could disagree about
+    whether a section was confirmed.
+    """
+    from app.domains.profile.services.profile_completeness_service import (
+        completeness_for_user,
+    )
+
+    return await completeness_for_user(db, current_user.id)

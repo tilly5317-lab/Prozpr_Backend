@@ -16,7 +16,17 @@ from app.domains.profile.models.investment_profile import InvestmentProfile
 from app.domains.identity.models.user import User
 
 
-async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
+async def load_user_for_ai(
+    db: AsyncSession, user_id: uuid.UUID, *, refresh: bool = False
+) -> User | None:
+    """The customer's graph, eager-loaded for the AI layer.
+
+    ``refresh=True`` re-reads a graph this session has ALREADY loaded. Without it
+    SQLAlchemy returns the identity-mapped object and leaves its loaded
+    collections alone, so a row written earlier in the same turn — a new goal, a
+    deleted one — would not appear. Callers that write and then project need it;
+    nobody else does, which is why it is off by default.
+    """
     stmt = (
         select(User)
         .options(
@@ -49,4 +59,6 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
         )
         .where(User.id == user_id)
     )
+    if refresh:
+        stmt = stmt.execution_options(populate_existing=True)
     return (await db.execute(stmt)).scalar_one_or_none()
