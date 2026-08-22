@@ -14,7 +14,7 @@ The modules at this package root are the shared chat *kernel* used across
 domains — contracts/utilities, not domain logic: ``types`` (ModuleOutput /
 IntentDecision / AIModule), ``chat_types`` (ChatTurnInput / ChatBrainResult),
 ``turn_context``, ``common``, ``classifier_llm``, ``chat_dispatcher``,
-``answer_formatter/``, ``visualizations/``.
+``answer_formatter/``.
 
 Public surface::
 
