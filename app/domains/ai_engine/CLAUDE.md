@@ -30,10 +30,10 @@ FLOWS = {
 Adding/altering an intent = one new `flow_*` + one `FLOWS` row; the brain never changes. Each intent's `run` lives in its owning domain's `services/` (agent in a `services/<engine>/` subpackage); see that domain's CLAUDE.md.
 
 ## Shared chat kernel (package root, not `services/`)
-Cross-domain contracts/utilities, not domain logic: `types.py` (the `ModuleOutput`/`IntentDecision`/`AIModule` contract), `chat_types.py`, `turn_context.py`, `classifier_llm.py` (Haiku structured-output helper), `chat_dispatcher.py` (per-intent handler registry), `visualizations/`, `schemas/`. Load-bearing edges:
+Cross-domain contracts/utilities, not domain logic: `types.py` (the `ModuleOutput`/`IntentDecision`/`AIModule` contract), `chat_types.py`, `turn_context.py`, `classifier_llm.py` (Haiku structured-output helper), `chat_dispatcher.py` (per-intent handler registry), `schemas/`. Load-bearing edges:
 - `answer_formatter/` — THE answer stage; every module's reply is written here.
 - `common.py` — `ensure_ai_agents_path()` sys.path inject, tracing, money fmt.
-- `streaming.py`/`persona.py` re-export `AI_Agents/src/token_stream.py`/`persona.py`; the canonical defs live under `src/` because agents (e.g. portfolio_query) cannot import `app/`.
+- `streaming.py` re-exports `AI_Agents/src/token_stream.py`; the canonical def lives under `src/` because agents (e.g. portfolio_query) cannot import `app/`. Consumers needing the PI persona import `persona` from `AI_Agents/src` directly (see `answer_formatter/formatter.py`).
 - `thinking.py` — live "thinking aloud" feed, polled via `GET /chat/sessions/{id}/thinking`.
 - `logic_docs.py` — module→Logics-thesis-doc loader; formatter attaches docs on educate/narrate.
 - `usage_tracking.py`/`posthog_tracing.py` — per-turn token accounting + zero-touch PostHog LLM tracing.

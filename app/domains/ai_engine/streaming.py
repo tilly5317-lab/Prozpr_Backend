@@ -3,8 +3,7 @@
 The canonical definition lives in ``AI_Agents/src/token_stream.py`` — it has to,
 because ``portfolio_query``'s LLM client is an agent under ``AI_Agents/src`` and
 agents must not import the app layer. This module injects ``AI_Agents/src`` into
-sys.path and re-exports, so app-layer consumers import from one place (mirrors
-``app/domains/ai_engine/persona.py``).
+sys.path and re-exports, so app-layer consumers import from one place.
 """
 
 from __future__ import annotations

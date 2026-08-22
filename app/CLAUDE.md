@@ -22,20 +22,18 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **advisory/** — IPS, meeting notes, discovery helpers
   - **notifications/** — notification records and delivery
   - **chat/** — chat sessions, messages, per-session state, AI module run telemetry
-  - **ai_engine/** — chat orchestrator (`ChatBrain`) + the `FLOWS` intent→flow table, shared chat kernel, answer formatter, visualizations. Hub for every chat turn. See `ai_engine/CLAUDE.md`.
+  - **ai_engine/** — chat orchestrator (`ChatBrain`) + the `FLOWS` intent→flow table, shared chat kernel, answer formatter. Hub for every chat turn. See `ai_engine/CLAUDE.md`.
   - **intent_classifier/** — gateway to `AI_Agents.intent_classifier`; the first module each turn
   - **market_commentary/** — gateway to `AI_Agents.market_commentary`; generates the macro doc consumed downstream
   - **practical_asset_allocation/** — holdings-aware allocation (variant of `asset_allocation`); first step of the rebalancing flow
   - **general_chat/** — Anthropic-backed fallback chat (web-search research + composed reply) when no specialist owns the intent
   - **support/** — in-app issue reports: logs to the Google Sheet register (+ optional screenshot/email)
-- **routers/** — thin top-level package: `health.py`, `tags.py` (OpenAPI tags), and the aggregator `__init__.py` exposing `all_routers` for `main.py`. `ai_modules/` holds docs only.
-- **services/** — DEAD refactor residue: every subpackage (`ai_bridge/`, `chat_core/`, `effective_risk_profile/`, `mf/`, `visualization_tools/`) is a tests/pycache shell with no production code. Live homes: chat kernel/formatter/visualizations → `domains/ai_engine/`; effective risk → `domains/profile/services/_effective_risk/`; rebalancing input builder → `domains/rebalancing/services/rebal_engine/`. Don't add new code here.
+- **routers/** — thin top-level package: `health.py`, `tags.py` (OpenAPI tags), and the aggregator `__init__.py` exposing `all_routers` for `main.py`. Every other route lives under `domains/*/routers/`.
 
 ## Files at this level
 
 - `main.py` — app factory, CORS, lifespan (metadata `create_all`, engine dispose), mounts `all_routers` at `API_V1_PREFIX`, registers exception handlers.
 - `all_models.py` — imports every domain's ORM models so they register with `Base.metadata` (Alembic migration coverage).
-- `data/dummy_data.json` + `data/mf_tables_sample.json` — dev seed fixtures.
 
 ## Conventions
 
@@ -54,7 +52,6 @@ Cross-cutting flows live with their home folders:
 ## Don't read
 
 - `__pycache__/`, `.pytest_cache/`, `.venv/`, `.obsidian/` — build/editor caches.
-- `models/`, `schemas/`, `routers/mf/` — pycache-only shells from the domain-first refactor; the live models/schemas are per-domain.
 - `*.db`, `*.db.bak-*`, `*.db.partial-*` — local SQLite dev state.
 - `market_commentary_*.json`, `market_commentary_*.md` — runtime cache files.
 

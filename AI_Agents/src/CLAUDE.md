@@ -5,7 +5,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 ## Files at this level
 
 - `common.py` — cross-agent utilities; stdlib-only, no peer imports. Re-imported by `app/` — edit here, app follows (`app/domains/ai_engine/common.py`, `app/domains/profile/models/risk_profile.py`).
-- `persona.py` — single source of truth for Ask PI's customer-facing voice, re-exported via `app/domains/ai_engine/persona.py` (edit here, app follows); build a surface's prompt with `build_system_prompt(...)`.
+- `persona.py` — single source of truth for Ask PI's customer-facing voice; app-layer consumers import it directly off `AI_Agents/src` after `ensure_ai_agents_path()` (see `app/domains/ai_engine/answer_formatter/formatter.py`). Build a surface's prompt with `build_system_prompt(...)`.
 - `reasoned_reply.py` — shared reasoned-reply helper for free-text surfaces: the thinking field is declared FIRST (load-bearing), discarded, never returned to the customer.
 - `token_stream.py` — answer-token stream for one chat turn (`open_token_stream`, `astream_tool_answer`). Lives here because `portfolio_query`/`mutual_fund_query` can't import `app/`; re-exported by `app/domains/ai_engine/streaming.py`. Nothing streams unless a stream is open.
 - `house_view.py` — structure-aware slicer for `Reference_docs/fund_house_commentry.md`. `load_house_view(prozpr_only=True)` = Prozpr's own view only (allow-list: emits only `Prozpr view:` paragraphs, so no fund house can leak); `prozpr_only=False` = the whole multi-house file. Fail-closed (returns `None` on missing/invalid). Shared library, not an agent — importable by `app/` and by `portfolio_query`.
