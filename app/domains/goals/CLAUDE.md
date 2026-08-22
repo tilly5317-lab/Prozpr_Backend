@@ -5,7 +5,7 @@
 - **models/** — `FinancialGoal`, `GoalContribution`, `GoalHolding` + enums.
 - **schemas/** — goal create/update/response + contribution and holding payloads.
 - **routers/** — `/goals` (goal CRUD, contributions, holdings).
-- **services/** — `goal_service` — read helpers only (`get_user_goals`, `calculate_goal_progress`).
+- **services/** — `retirement_sync` and the goal write/read helpers used by `routers/goals_router.py`.
 - **services/** — `retirement_sync` — keeps the Retirement goal's target year and the investment profile's `retirement_age` in lockstep; whichever side is edited, the other follows (`sync_retirement_age_from_goal` / `sync_retirement_goal_from_age`).
 
 ## Gotchas & invariants
