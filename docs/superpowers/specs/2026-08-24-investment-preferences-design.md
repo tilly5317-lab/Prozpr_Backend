@@ -61,7 +61,7 @@ The detector extracts a number or the absence of one; this table decides the res
 | Number stated ("by 10", "to 70%") | Use it (delta or absolute, normalized) |
 | Tilt, no number | Default to the customer's **risk-band edge** — concretely, the allocation computed at the top score of their risk band via the existing `effective_risk_score` override path (no new allocation machinery); reply names it and invites a number |
 | Tilt, no number, already at band edge | Fixed +5 pp beyond the edge; caution lens explains why our recommendation sits where it does |
-| Category weight, no number ("more mid cap") | Fixed +10 pp of the equity buy sleeve toward the named category, capped at the sleeve. v1 constant, tuned from transcripts |
+| Category weight, no number ("more mid cap") | Fixed default: raise the named category to 10% of the total buy budget (v1 constant, disclosed in the reply, tuned from transcripts) |
 | Vague quantifiers ("a bit more") | Treated as no-number in v1 |
 
 Every plan's tilt is traceable to a customer number or a documented default.
