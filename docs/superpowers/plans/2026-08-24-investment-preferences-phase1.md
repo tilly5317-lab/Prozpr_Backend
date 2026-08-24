@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Customers can state fund preferences in rebalancing chat — asset-class scope, equity tilt, category weights/exclusions, named funds — and get their plan their way, side by side with the recommended plan, in one deterministic pass.
+**Goal:** Customers can state fund preferences in rebalancing chat — asset-class scope, equity tilt, category weights/exclusions, named-fund explanations — and get their plan their way, side by side with the recommended plan, in one deterministic pass. (Named-fund *inclusion* in the plan is Phase 2, at its correct seam: the input builder, where the engine computes real numbers for the injected fund.)
+
+**Prime directive (audit 2026-08-24):** the shipped F3-B reshape arithmetic is NEVER modified — when only the legacy constraints are active, `compute_reshaped_buys` runs the original code path byte-for-byte. All new capability is layered AROUND the core, never through it.
 
 **Architecture:** Extends the existing F3-B constrained-run pattern (detect → canonicalize → engine once → deterministic reshape → comply-and-caution → narrate). Tilts apply pre-engine via a new `asset_class_tilt` on `RebalancingComputeRequest` (numbered tilts) or the existing `effective_risk_score` AA override (band-edge default); category preferences generalize `compute_reshaped_buys`. Spec: `docs/superpowers/specs/2026-08-24-investment-preferences-design.md`. Phase 2 (SIP/lump-sum parity) is a separate plan.
 
@@ -31,7 +33,7 @@
 
 **Interfaces:**
 - Consumes: `category_for_effective_risk_score`, `RISK_CATEGORIES` from `common` (AI_Agents src, importable after `ensure_ai_agents_path()`; in tests the pyproject pythonpath makes `from common import …` work directly).
-- Produces (used by Tasks 8–9):
+- Produces (used by Tasks 8–9b):
   - `normalize_tilt(current_mix_pct: dict[str, float], *, scope_only: list[str] | None, tilt_asset_class: str | None, tilt_delta_pp: float | None, tilt_target_pct: float | None) -> TiltResult`
   - `@dataclass(frozen=True) TiltResult: mix_pct: dict[str, float] | None; defaults_applied: dict[str, str]; needs_band_edge_default: bool`
   - `band_edge_score(category: str) -> float`
@@ -46,8 +48,6 @@
 import pytest
 
 from app.domains.mutual_funds.services.investment_preferences import (
-    AT_EDGE_STEP_PP,
-    TiltResult,
     band_edge_score,
     normalize_tilt,
 )
@@ -109,10 +109,6 @@ def test_band_edge_score_is_top_of_named_band():
         # nothing above the edge is still in this band (except the top band)
         if cat != RISK_CATEGORIES[-1]:
             assert category_for_effective_risk_score(edge + 0.02) != cat
-
-
-def test_at_edge_step_constant():
-    assert AT_EDGE_STEP_PP == 5.0
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -164,10 +160,18 @@ class TiltResult:
 
 
 def band_edge_score(category: str) -> float:
-    """Top effective-risk score that still maps into ``category``."""
+    """Top effective-risk score that still maps into ``category``.
+
+    ``_BAND_UPPER`` deliberately duplicates common.py's thresholds; this check
+    is the sync mechanism — a real exception (not ``assert``, which ``-O``
+    strips) so drift fails loudly in production, not silently in advice.
+    """
     upper = _BAND_UPPER[category]
     edge = upper if upper == 10.0 else upper - _EDGE_EPS
-    assert category_for_effective_risk_score(edge) == category
+    if category_for_effective_risk_score(edge) != category:
+        raise ValueError(
+            f"band table drift: edge {edge} no longer maps into {category!r}"
+        )
     return edge
 
 
@@ -253,10 +257,10 @@ git commit -m "feat(preferences): deterministic tilt/scope normalization + band-
 
 **Interfaces:**
 - Consumes: existing `BuyCandidate`, `_round_to_multiple`.
-- Produces (used by Task 9):
-  - `ConsolidationConstraints` gains `excluded_categories: tuple[str, ...] | None`, `category_weight_targets: dict[str, float] | None` (sub_category → requested share of TOTAL buy, 0–1), `include_fund: tuple[str, str, str] | None` ((isin, fund_name, sub_category)).
-  - `compute_reshaped_buys` honors the composition order: eligibility filters → named-fund substitution → weight targets → fund-count trim (never evicting a weight-target category) → round/residual.
-  - `reshape_response` may return new error codes: `"weight_category_not_in_plan"`, `"include_category_not_in_plan"`.
+- Produces (used by Task 9b):
+  - `ConsolidationConstraints` gains `excluded_categories: tuple[str, ...] | None` and `category_weight_targets: dict[str, float] | None` (sub_category → requested share of TOTAL buy, 0–1). No `include_fund` — named-fund inclusion is Phase 2, at the input-builder seam.
+  - `compute_reshaped_buys` honors the composition order: eligibility filters → weight targets → fund-count trim (never evicting a weight-target category; count bumps up to the protected-category count when they conflict) → round/residual. **Legacy invariant: when neither new field is set, the ORIGINAL code path runs byte-for-byte.**
+  - `reshape_response` may return one new error code: `"weight_category_not_in_plan"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -319,13 +323,26 @@ def test_count_trim_never_evicts_weight_target_category():
     assert sum(out.values()) == TOTAL
 
 
-def test_include_fund_substitutes_within_its_category():
+def test_legacy_only_constraints_hit_the_original_path():
+    # Guard for the prime directive: legacy-only constraints must produce the
+    # EXACT same result as before this change (arithmetic form included).
+    c = ConsolidationConstraints(target_fund_count=2)
+    out = compute_reshaped_buys(CANDS, c)
+    # Old algorithm: survivors frozen, displaced budget added pro-rata,
+    # share rounded THEN added (A:40k B... rank/buy order keeps A and C).
+    assert sum(out.values()) == TOTAL
+    assert out["D"] == 0 and out["B"] == 0
+
+
+def test_count_conflict_bumps_to_protected_category_count():
     c = ConsolidationConstraints(
-        include_fund=("NEW", "Named Fund", "Large Cap Fund")
+        target_fund_count=1,
+        category_weight_targets={"Mid Cap Fund": 0.2, "Gilt Fund": 0.2},
     )
     out = compute_reshaped_buys(CANDS, c)
-    assert out["NEW"] == Decimal(40_000)  # takes the category's budget
-    assert out["A"] == 0
+    # 1 fund can't honor 2 protected categories -> count bumps to 2 (disclosed
+    # upstream by Task 9b via impact["count_bumped_to"]).
+    assert sum(1 for v in out.values() if v > 0) == 2
     assert sum(out.values()) == TOTAL
 
 
@@ -355,7 +372,8 @@ class ConsolidationConstraints:
     allowed_categories: tuple[str, ...] | None = None    # redeploy whole budget here
     excluded_categories: tuple[str, ...] | None = None   # never buy these
     category_weight_targets: dict[str, float] | None = None  # sub_category -> share of total buy (0-1)
-    include_fund: tuple[str, str, str] | None = None     # (isin, fund_name, sub_category)
+    # NO include_fund: named-fund inclusion is Phase 2, at the input-builder
+    # seam where the engine computes real numbers for the injected fund.
     # NO reset flag: stateless design — "back to the full plan" is narrate mode.
 
 
@@ -365,100 +383,103 @@ def constraints_active(c: ConsolidationConstraints) -> bool:
         or bool(c.allowed_categories)
         or bool(c.excluded_categories)
         or bool(c.category_weight_targets)
-        or c.include_fund is not None
     )
 ```
 
-Rewrite the body of `compute_reshaped_buys` (keep signature + docstring contract) with the composition order. Full replacement for the section after the `total <= 0` guard:
+**Do NOT rewrite the existing body of `compute_reshaped_buys`.** Add a gate at the top of the existing steps so the shipped path is untouched, and a separate function for the extended path:
 
 ```python
-    # 1. Eligibility: allowed-list, then excluded-list, then named-fund
-    #    substitution (spec composition order: filters -> include -> weights -> count).
+def compute_reshaped_buys(candidates, constraints, *, rounding_multiple=100):
+    cands = list(candidates)
+    total = sum((c.buy_inr for c in cands), Decimal(0))
+    if total <= 0 or not cands:
+        return {c.isin: Decimal(0) for c in cands}
+    if not constraints.excluded_categories and not constraints.category_weight_targets:
+        return _reshape_legacy(cands, constraints, total,
+                               rounding_multiple=rounding_multiple)
+    return _reshape_extended(cands, constraints, total,
+                             rounding_multiple=rounding_multiple)
+```
+
+`_reshape_legacy` is the CURRENT steps 1–4, moved verbatim — same filter, same top-N, same `c.buy_inr + _round_to_multiple(share, ...)` arithmetic, same residual placement. Zero diff beyond the function wrapper (the existing consolidation tests plus `test_legacy_only_constraints_hit_the_original_path` guard this).
+
+`_reshape_extended` reuses the SAME arithmetic form (bases frozen, rounded DELTAS added, residual to the largest buy), composed as: filters → weight targets → count trim → distribute/round:
+
+```python
+def _reshape_extended(cands, constraints, total, *, rounding_multiple):
+    # 1. Eligibility: allowed-list, then excluded-list.
     eligible = list(cands)
     if constraints.allowed_categories:
         allowed = set(constraints.allowed_categories)
         eligible = [c for c in eligible if c.sub_category in allowed]
-        if not eligible:
-            return {c.isin: Decimal(0) for c in cands}   # honest no-op; caller surfaces error
     if constraints.excluded_categories:
         excluded = set(constraints.excluded_categories)
         eligible = [c for c in eligible if c.sub_category not in excluded]
-        if not eligible:
-            return {c.isin: Decimal(0) for c in cands}
+    if not eligible:
+        return {c.isin: Decimal(0) for c in cands}    # honest no-op; caller surfaces error
 
-    extra: list[BuyCandidate] = []
-    if constraints.include_fund is not None:
-        isin, name, sub_cat = constraints.include_fund
-        same_cat = [c for c in eligible if c.sub_category == sub_cat]
-        cat_budget = sum((c.buy_inr for c in same_cat), Decimal(0))
-        if cat_budget <= 0:
-            return {c.isin: Decimal(0) for c in cands}   # include_category_not_in_plan
-        eligible = [c for c in eligible if c.sub_category != sub_cat]
-        extra = [BuyCandidate(isin=isin, recommended_fund=name, sub_category=sub_cat,
-                              asset_subgroup=same_cat[0].asset_subgroup, rank=1,
-                              buy_inr=cat_budget)]
-
-    # 2. Weight targets: raise each named category to its requested share of the
-    #    ORIGINAL total; donors are eligible funds in non-named categories,
-    #    scaled down pro-rata (floor 0 -> partial satisfaction is honest, the
-    #    caller narrates the shortfall from the resulting shares).
-    working = {c.isin: c.buy_inr for c in eligible + extra}
+    # 2. Weight targets: raise each named category to its requested share of
+    #    the ORIGINAL total. Donors = eligible funds in non-named categories,
+    #    scaled down pro-rata; donors flooring at 0 means partial satisfaction,
+    #    which the caller narrates honestly from the resulting shares.
+    working = {c.isin: c.buy_inr for c in eligible}
+    by_isin = {c.isin: c for c in eligible}
     if constraints.category_weight_targets:
-        by_isin = {c.isin: c for c in eligible + extra}
         named = set(constraints.category_weight_targets)
-        deficit = Decimal(0)
         per_cat_deficit: dict[str, Decimal] = {}
         for cat, share in constraints.category_weight_targets.items():
             have = sum(v for k, v in working.items() if by_isin[k].sub_category == cat)
             want = (total * Decimal(str(share))).quantize(_ONE)
             if want > have:
                 per_cat_deficit[cat] = want - have
-                deficit += want - have
+        deficit = sum(per_cat_deficit.values(), Decimal(0))
         donors = [k for k, c in by_isin.items() if c.sub_category not in named]
         donor_total = sum(working[k] for k in donors)
         take = min(deficit, donor_total)
         for k in donors:
-            working[k] -= (take * working[k] / donor_total) if donor_total > 0 else Decimal(0)
+            if donor_total > 0:
+                working[k] -= take * working[k] / donor_total
         for cat, cat_deficit in per_cat_deficit.items():
-            grant = (take * cat_deficit / deficit) if deficit > 0 else Decimal(0)
+            grant = take * cat_deficit / deficit if deficit > 0 else Decimal(0)
             receivers = [k for k, c in by_isin.items() if c.sub_category == cat]
             recv_total = sum(working[k] for k in receivers)
             for k in receivers:
-                share_of = (working[k] / recv_total) if recv_total > 0 else (
+                frac = (working[k] / recv_total) if recv_total > 0 else (
                     Decimal(1) / Decimal(len(receivers)))
-                working[k] += grant * share_of
+                working[k] += grant * frac
 
-    # 3. Fund-count trim: keep top-N (rank asc, larger buy first) but never
-    #    evict the last fund of a weight-target or included category.
-    live = [c for c in eligible + extra if working[c.isin] > 0]
-    protected_cats = set(constraints.category_weight_targets or {})
-    if constraints.include_fund is not None:
-        protected_cats.add(constraints.include_fund[2])
+    # 3. Count trim. Protected = weight-target categories present in the plan.
+    #    A count below the protected-category count is unsatisfiable as asked:
+    #    bump keep_n up to len(protected) — Task 9b discloses the bump.
+    live = [c for c in eligible if working[c.isin] > 0]
     ordered = sorted(live, key=lambda c: (c.rank, -working[c.isin]))
+    keep = ordered
     if constraints.target_fund_count is not None:
-        keep_n = max(1, constraints.target_fund_count)
-        keep, seen_cats = [], set()
-        for c in ordered:                      # protected categories first
-            if c.sub_category in protected_cats and c.sub_category not in seen_cats:
-                keep.append(c); seen_cats.add(c.sub_category)
-        for c in ordered:
-            if len(keep) >= max(keep_n, len(keep)):
-                break
-            if c not in keep and len(keep) < keep_n:
+        protected = {
+            cat for cat in (constraints.category_weight_targets or {})
+            if any(c.sub_category == cat for c in live)
+        }
+        keep_n = max(1, constraints.target_fund_count, len(protected))
+        keep, seen = [], set()
+        for c in ordered:                      # best fund of each protected category first
+            if c.sub_category in protected and c.sub_category not in seen:
                 keep.append(c)
-    else:
-        keep = ordered
+                seen.add(c.sub_category)
+        for c in ordered:                      # fill the rest by rank
+            if len(keep) >= keep_n:
+                break
+            if c not in keep:
+                keep.append(c)
 
-    # 4. Redistribute the dropped funds' budget pro-rata over survivors, round,
-    #    and place the residual on the largest buy — identical to F3-B.
+    # 4. Same arithmetic form as legacy: frozen base + rounded delta, residual
+    #    onto the largest surviving buy, total preserved exactly.
     kept_total = sum((working[c.isin] for c in keep), Decimal(0))
-    out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
-    out.update({c.isin: Decimal(0) for c in extra})
     displaced = total - kept_total
+    out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
     for c in keep:
         share = (displaced * working[c.isin] / kept_total if kept_total > 0
                  else displaced / Decimal(len(keep)))
-        out[c.isin] = _round_to_multiple(working[c.isin] + share, rounding_multiple)
+        out[c.isin] = working[c.isin] + _round_to_multiple(share, rounding_multiple)
     placed = sum(out.values(), Decimal(0))
     residual = total - placed
     if residual != 0 and keep:
@@ -467,7 +488,7 @@ Rewrite the body of `compute_reshaped_buys` (keep signature + docstring contract
     return out
 ```
 
-In `reshape_response`, after the existing `allowed_categories` presence check, add the two new honest error codes (same pattern):
+In `reshape_response`, after the existing `allowed_categories` presence check, add the one new honest error code (same pattern):
 
 ```python
     present = {c.sub_category for c in candidates}
@@ -475,11 +496,7 @@ In `reshape_response`, after the existing `allowed_categories` presence check, a
         present & set(constraints.category_weight_targets)
     ):
         return response, "weight_category_not_in_plan"
-    if constraints.include_fund is not None and constraints.include_fund[2] not in present:
-        return response, "include_category_not_in_plan"
 ```
-
-and when `include_fund` produced a new ISIN, append a synthetic BUY row/trade for it when rewriting buys (mirror how rows are rewritten: any `new_buys` key not present among `out.rows` becomes one new row with `recommended_fund`, `sub_category`, `pass1_buy_amount` set — copy the shape of an existing row via `copy.deepcopy(out.rows[0])` and overwrite those three fields plus `isin`).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -490,7 +507,7 @@ Expected: all PASS. Also run the existing consolidation contract: `.venv-mac/bin
 
 ```bash
 git add AI_Agents/src/Rebalancing/consolidation.py app/domains/rebalancing/services/rebal_engine/tests/test_preference_reshape.py
-git commit -m "feat(preferences): generalize buy reshape - exclusions, weight targets, named-fund, protected count-trim"
+git commit -m "feat(preferences): layer exclusions + weight targets around the untouched F3-B reshape core"
 ```
 
 ---
@@ -505,7 +522,7 @@ git commit -m "feat(preferences): generalize buy reshape - exclusions, weight ta
 
 **Interfaces:**
 - Consumes: `PracticalAllocationOutput.aggregated_subgroups` (`AggregatedSubgroupRow`: subgroup, emergency, short_term, medium_term, long_term, total), `SUBGROUP_TO_ASSET_CLASS` from `asset_allocation_pydantic.tables`.
-- Produces (used by Tasks 4, 9): `RebalancingComputeRequest.asset_class_tilt: dict[str, float] | None` — absolute target mix percentages (`{"equity": 65.0, "debt": 27.2, "others": 7.8}`, sums to ~100). Pipeline scales every subgroup of a class by `tilted_class_total / current_class_total` across ALL bucket fields.
+- Produces (used by Tasks 4, 9b): `RebalancingComputeRequest.asset_class_tilt: dict[str, float] | None` — absolute target mix percentages (`{"equity": 65.0, "debt": 27.2, "others": 7.8}`, sums to ~100). Pipeline scales every subgroup of a class by `tilted_class_total / current_class_total` across ALL bucket fields. A requested class absent from the portfolio is silently re-spread here (engine stays pure); the HONEST DISCLOSURE of that shortfall is Task 9b's job (spec: never silently ignore) — the chat layer detects `requested class not in current mix` and adds the note to `applied_preferences` and the reply.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -651,7 +668,7 @@ git commit -m "feat(preferences): asset_class_tilt on RebalancingComputeRequest,
 
 **Interfaces:**
 - Consumes: `with_chat_overrides(ctx, dict)`, `effective_param(ctx, key, fallback)` (existing), `RebalancingComputeRequest.asset_class_tilt` (Task 3).
-- Produces (used by Task 9): override key `"asset_class_tilt"` accepted in the rebal allow-list; value shape `dict[str, float]` (absolute mix). The input builder copies it onto the request verbatim.
+- Produces (used by Task 9b): override key `"asset_class_tilt"` accepted in the rebal allow-list; value shape `dict[str, float]` (absolute mix). The input builder copies it onto the request verbatim.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -727,7 +744,7 @@ git commit -m "feat(preferences): thread asset_class_tilt override into the comp
 
 **Interfaces:**
 - Consumes: `get_fund_ranking()` (recommended rows), `get_rejection_reasons()` (`{isin: reason_text}` for rank-blank rows), plus a NEW `fund_rank.get_all_rows() -> list[FundRankRow]` (every CSV row, recommended or not; same cached-loader pattern as `get_fund_ranking`, rejected rows carry `rank=0`).
-- Produces (used by Task 9):
+- Produces (used by Task 9b):
 
 ```python
 @dataclass(frozen=True)
@@ -744,40 +761,69 @@ def resolve_fund(text: str) -> FundResolution: ...
 
 - [ ] **Step 1: Write the failing tests**
 
+Tests run against a 4-row FIXTURE CSV, never the live ranking — the May→June CSV swap already burned one pinned test in this repo; do not recreate that trap. Also Create: `app/domains/mutual_funds/services/tests/fund_ranking_fixture.csv` with exactly the live header row (copy it from `prozpr_fund_ranking_june_2026_v2.csv`) plus:
+
+```csv
+low_beta_equities,Large Cap Fund,1,INFTEST00001,100001,Alpha Large Cap Fund,solid pick,,,,,,,,,
+medium_beta_equities,Mid Cap Fund,,INFTEST00002,100002,Beta Mid Cap Fund,,,short PM tenure,,,,,,,
+low_beta_equities,Large Cap Fund,2,INFTEST00003,100003,Gamma Bluechip Fund,decent,,,,,,,,,
+short_debt,Liquid Fund,1,INFTEST00004,100004,Delta Liquid Fund,cash mgmt,,,,,,,,,
+```
+
+(Row 2 is rank-blank with a populated rejection column → "rejected".)
+
 ```python
 # app/domains/mutual_funds/services/tests/test_fund_resolver.py
-"""Name → ranking-row resolution with honest rejected/unknown outcomes."""
+"""Name → ranking-row resolution against a FIXTURE CSV (never the live one)."""
 
+from pathlib import Path
+
+import pytest
+
+import app.domains.rebalancing.services.rebal_engine.fund_rank as fund_rank
 from app.domains.mutual_funds.services.fund_resolver import resolve_fund
+
+_FIXTURE = Path(__file__).parent / "fund_ranking_fixture.csv"
+
+
+@pytest.fixture(autouse=True)
+def _fixture_csv(monkeypatch):
+    monkeypatch.setattr(fund_rank, "_CSV_PATH", _FIXTURE)
+    for fn in ("get_fund_ranking", "get_all_rows", "get_rejection_reasons"):
+        cached = getattr(fund_rank, fn, None)
+        if cached is not None and hasattr(cached, "cache_clear"):
+            cached.cache_clear()
+    yield
+    for fn in ("get_fund_ranking", "get_all_rows", "get_rejection_reasons"):
+        cached = getattr(fund_rank, fn, None)
+        if cached is not None and hasattr(cached, "cache_clear"):
+            cached.cache_clear()
 
 
 def test_recommended_fund_resolves_with_isin_and_category():
-    # Kotak Arbitrage is rank-1 in the live CSV (first data row).
-    r = resolve_fund("kotak arbitrage")
+    r = resolve_fund("alpha large cap")
     assert r.status == "recommended"
-    assert r.isin and r.sub_category == "Arbitrage Fund"
-
-
-def test_unknown_fund_is_unknown():
-    r = resolve_fund("definitely not a real scheme name 123")
-    assert r.status == "unknown"
+    assert r.isin == "INFTEST00001" and r.sub_category == "Large Cap Fund"
 
 
 def test_rejected_fund_carries_rejection_text():
-    # Pick any rank-blank row's name at implementation time from
-    # get_all_rows(); assert status == "rejected" and rejection_text truthy.
-    from app.domains.rebalancing.services.rebal_engine.fund_rank import (
-        get_all_rows, get_rejection_reasons)
-    rejected = [row for row in get_all_rows() if row.isin in get_rejection_reasons()]
-    assert rejected, "fixture expectation: live CSV has rejected rows"
-    r = resolve_fund(rejected[0].fund_name)
+    r = resolve_fund("beta mid cap")
     assert r.status == "rejected"
-    assert r.rejection_text
+    assert "tenure" in (r.rejection_text or "")
 
 
-def test_single_word_matching_many_is_ambiguous():
-    r = resolve_fund("fund")
-    assert r.status in ("ambiguous", "unknown")
+def test_unknown_fund_is_unknown():
+    assert resolve_fund("definitely not a real scheme 123").status == "unknown"
+
+
+def test_stopword_only_query_is_not_guessed():
+    assert resolve_fund("fund").status in ("ambiguous", "unknown")
+
+
+def test_two_matches_are_ambiguous_never_guessed():
+    r = resolve_fund("large cap")           # Alpha + Gamma both match
+    assert r.status == "ambiguous"
+    assert len(r.candidates) == 2
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -862,7 +908,7 @@ Expected: all PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/domains/rebalancing/services/rebal_engine/fund_rank.py app/domains/mutual_funds/services/fund_resolver.py app/domains/mutual_funds/services/tests/test_fund_resolver.py
+git add app/domains/rebalancing/services/rebal_engine/fund_rank.py app/domains/mutual_funds/services/fund_resolver.py app/domains/mutual_funds/services/tests/test_fund_resolver.py app/domains/mutual_funds/services/tests/fund_ranking_fixture.csv
 git commit -m "feat(preferences): conservative fund-name resolver over the full ranking CSV"
 ```
 
@@ -875,15 +921,15 @@ git commit -m "feat(preferences): conservative fund-name resolver over the full 
 - Test: `app/domains/rebalancing/services/rebal_engine/tests/test_preference_telemetry.py`
 
 **Interfaces:**
-- Produces (called from Task 9's chat branches):
+- Produces (called from Task 9b's chat branches):
 
 ```python
 def capture_preference_unserved(*, flow: str, failure_class: str,
-                                turn_id: object | None,
+                                session_id: object | None,
                                 distinct_id: object | None) -> None: ...
 ```
 
-Event name `preference_unserved`. `failure_class` is one of the fixed tokens: `"redirect"`, `"category_unranked"`, `"category_not_in_plan"`, `"fund_unknown"`, `"invalid_override"`, `"contradiction"`. **Properties carry ids and tokens only — never chat text** (spec boundary: PostHog has no content; reviewers join to Postgres by turn id).
+Event name `preference_unserved`. `failure_class` is one of the fixed tokens: `"redirect"`, `"category_unranked"`, `"category_not_in_plan"`, `"fund_unknown"`, `"invalid_override"`, `"contradiction"`, `"named_include_deferred"`. **Properties carry ids and tokens only — never chat text** (spec boundary: PostHog has no content). `TurnContext` has no per-turn id — verified 2026-08-24 — so the join key is `session_id` (+ event timestamp) against the transcript rows in Postgres.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -905,19 +951,19 @@ class _FakeClient:
 def test_capture_is_noop_without_client(monkeypatch):
     monkeypatch.setattr(obs, "_posthog_client", None)
     obs.capture_preference_unserved(flow="rebalancing", failure_class="redirect",
-                                    turn_id="t1", distinct_id="u1")  # must not raise
+                                    session_id="s1", distinct_id="u1")  # must not raise
 
 
 def test_capture_sends_ids_and_tokens_only(monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(obs, "_posthog_client", fake)
     obs.capture_preference_unserved(flow="rebalancing", failure_class="fund_unknown",
-                                    turn_id="turn-42", distinct_id="user-7")
+                                    session_id="sess-42", distinct_id="user-7")
     ((event, distinct_id, props),) = fake.events
     assert event == "preference_unserved"
     assert distinct_id == "user-7"
     assert props == {"flow": "rebalancing", "failure_class": "fund_unknown",
-                     "turn_id": "turn-42"}
+                     "session_id": "sess-42"}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -932,13 +978,14 @@ def capture_preference_unserved(
     *,
     flow: str,
     failure_class: str,
-    turn_id: object | None,
+    session_id: object | None,
     distinct_id: object | None,
 ) -> None:
     """A customer preference we could not serve (spec 2026-08-24, telemetry).
 
     ``failure_class`` is a fixed token, never free text. NO chat content —
-    PostHog holds no transcripts; join to Postgres by turn_id to read the ask.
+    PostHog holds no transcripts; join to the Postgres transcript rows by
+    session_id + event timestamp to read the actual ask.
     """
     client = _posthog_client
     if client is None:
@@ -950,7 +997,7 @@ def capture_preference_unserved(
             properties={
                 "flow": flow,
                 "failure_class": failure_class,
-                "turn_id": str(turn_id) if turn_id else None,
+                "session_id": str(session_id) if session_id else None,
             },
         )
     except Exception:  # pragma: no cover - reporting must never raise
@@ -975,6 +1022,7 @@ git commit -m "feat(preferences): content-free preference_unserved PostHog event
 
 **Files:**
 - Create: `AI_Agents/tests/test_rebal_detector_eval.py`
+- Create: `app/domains/rebalancing/services/rebal_engine/tests/detector_ctx.py` (plain helper module — conftests are NOT importable modules; both this suite and the rebal tests import `make_detector_ctx` from here)
 - Modify: `pyproject.toml` (register marker `rebal_detector_eval`)
 
 **Interfaces:**
@@ -1046,8 +1094,8 @@ CASES = [
          vocab="v1-pref"),
     Case("exclude-elss", "nothing with a lock-in please", "consolidate",
          vocab="v1-pref"),
-    Case("named-include", "use Parag Parikh Flexi Cap instead", "consolidate",
-         vocab="v1-pref"),
+    Case("named-include", "use Parag Parikh Flexi Cap instead", "narrate",
+         vocab="v1-pref"),   # Phase 1: honest "coming later" + demand telemetry
     Case("named-why-not", "why didn't you pick Quant Small Cap?", "narrate",
          vocab="v1-pref"),
     Case("stacked", "only equity, and more mid cap, max 4 funds", "consolidate",
@@ -1062,10 +1110,9 @@ CASES = [
 
 def _runner(case: Case):
     from app.domains.rebalancing.services.rebal_engine.chat import _detect_rebal_action
-    # last_run=None exercises the pure-question path; ctx built like
-    # rebal_engine/tests/conftest.py's detector fixture (reuse it if importable).
-    from app.domains.rebalancing.services.rebal_engine.tests.conftest import (
+    from app.domains.rebalancing.services.rebal_engine.tests.detector_ctx import (
         make_detector_ctx)
+    # last_run=None exercises the pure-question path.
     return asyncio.run(_detect_rebal_action(None, make_detector_ctx(case.question)))
 
 
@@ -1098,7 +1145,7 @@ def test_v1_preference_vocabulary():
     print(report.summary())
 ```
 
-(If `run_suite`'s exact signature differs — check `_eval_harness.py:62` — adapt the two call sites, keeping cases/runner/grader/threshold semantics. If `conftest.py` has no reusable detector-ctx fixture, add `make_detector_ctx(question)` there mirroring how the existing detector tests construct a `TurnContext`.)
+(If `run_suite`'s exact signature differs — check `_eval_harness.py:62` — adapt the two call sites, keeping cases/runner/grader/threshold semantics. `detector_ctx.py` contains one function, `make_detector_ctx(question: str) -> TurnContext`, extracted from however the existing detector tests in `rebal_engine/tests/` construct a TurnContext; the conftest fixture `detector_ctx` becomes a thin wrapper over it.)
 
 Register the marker in `pyproject.toml` under the existing markers list: `rebal_detector_eval: live Haiku eval of the rebalancing action detector`.
 
@@ -1116,7 +1163,7 @@ Expected: both tests SKIPPED (marker + no key), collection clean.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add AI_Agents/tests/test_rebal_detector_eval.py pyproject.toml
+git add AI_Agents/tests/test_rebal_detector_eval.py app/domains/rebalancing/services/rebal_engine/tests/detector_ctx.py pyproject.toml
 git commit -m "test(preferences): labeled rebal detector eval + recorded pre-change baseline"
 ```
 
@@ -1181,7 +1228,7 @@ Add the fields to `RebalanceAction` exactly as in **Produces** (each with a one-
 
 - In the `counterfactual_explore` bullet, add to the allowed-override list:
   `asset_class_tilt` is NOT emitted directly by the model — instead document the three tilt fields: *"Exposure asks ('increase my equity', 'take equity to 70%', 'only equity funds') → counterfactual_explore. Fill tilt_asset_class; fill tilt_delta_pp ONLY when the customer states a relative number, tilt_target_pct ONLY for an absolute one; NEVER invent a number — leave both unset when none was said. 'Only X funds' → scope_only_asset_classes=[x]."*
-- In the `consolidate` bullet, add this exact contract: *"'more/increase <category>' with a stated percent → category_weights {'<words>': pct}. With NO stated percent → category_weights {'<words>': 0} — the 0 is a sentinel meaning 'no number stated'; the app applies its documented default step and discloses it. 'no/without <category>' or 'nothing with a lock-in' → excluded_categories. A specific scheme name → named_fund + named_fund_intent ('use X' → include; 'why not X' → why_not, mode narrate). Contradictory asks (excluded category also requested) → clarify, naming the conflict."*
+- In the `consolidate` bullet, add this exact contract: *"'more/increase <category>' with a stated percent → category_weights {'<words>': pct}. With NO stated percent → category_weights {'<words>': 0} — the 0 is a sentinel meaning 'no number stated'; the app applies its documented default step and discloses it. 'no/without <category>' or 'nothing with a lock-in' → excluded_categories. A specific scheme name → mode narrate + named_fund + named_fund_intent ('use X' → include; 'why not X' → why_not) — BOTH intents ride on narrate in Phase 1 (include gets an honest 'coming later' with our reasoning; why_not gets the rejection reasons). Contradictory asks (excluded category also requested) → clarify, naming the conflict."*
 - Update `_INVALID_OVERRIDE_TEMPLATE` to mention exposure changes are now supported: `"...tax rate, STCG offset budget, carry-forward losses, additional cash, or your equity/debt/gold exposure..."`.
 
 (`category_weights` value `0` is the documented "no number stated" sentinel; Task 9 converts `0` → the +10pp-of-sleeve default and records it in `defaults_applied`.)
@@ -1201,15 +1248,39 @@ git commit -m "feat(preferences): detector vocabulary - tilt/scope/weights/exclu
 
 ---
 
-### Task 9: Chat wiring (defaults policy, two-run tilt, extended consolidate, named-fund, telemetry)
+### Task 9a: Extract `_handle_action` (pure refactor, zero behavior change)
 
 **Files:**
-- Modify: `app/domains/rebalancing/services/rebal_engine/chat.py` (`_counterfactual_explore` ~line 710, `_consolidate` ~line 774, redirect branch ~line 616, mode dispatch ~line 629)
+- Modify: `app/domains/rebalancing/services/rebal_engine/chat.py` (mode ladder, ~lines 592–697)
+
+**Interfaces:**
+- Produces (used by 9b and Task 10 tests): `async def _handle_action(ctx: TurnContext, action: RebalanceAction) -> ChatHandlerResult` — the existing `if action.mode == "clarify"/"redirect"/"counterfactual_explore"/"consolidate"/"compute"/narrate-educate` chain moved verbatim out of the main handler; the main handler calls it after detect. No logic edits of any kind in this task.
+
+- [ ] **Step 1: Extract the function** — cut the mode chain into `_handle_action`, replace the original site with `return await _handle_action(ctx, action)` (the narrate/educate tail that reads `last_run` moves with it; pass `last_run` as a third parameter if the tail needs it: `_handle_action(ctx, action, last_run)`).
+
+- [ ] **Step 2: Run the full existing rebal suite to prove zero drift**
+
+Run: `.venv-mac/bin/python -m pytest app/domains/rebalancing/services/rebal_engine/tests -q`
+Expected: green, no test edits needed — that is the definition of this refactor succeeding.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add app/domains/rebalancing/services/rebal_engine/chat.py
+git commit -m "refactor(rebal): extract mode ladder into _handle_action (no behavior change)"
+```
+
+---
+
+### Task 9b: Chat wiring (defaults policy, two-run tilt, extended consolidate, named-fund replies, telemetry)
+
+**Files:**
+- Modify: `app/domains/rebalancing/services/rebal_engine/chat.py` (`_handle_action` from 9a, `_counterfactual_explore` ~line 710, `_consolidate` ~line 774)
 - Test: `app/domains/rebalancing/services/rebal_engine/tests/test_preference_chat_wiring.py`
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–8. Key call shapes already in the file: `compute_rebalancing_result(..., persist=False, force_fresh_allocation=..., chat_ctx=...)`, `build_constraint_impact(baseline_response, changed_response, risk_profile=...)`, `format_relay_or_canned(...)`, `_format_or_fallback_rebal(..., constraint_impact=...)`.
-- Produces: the user-facing behavior. The `constraint_impact` dict gains two new keys the formatter passes through: `applied_preferences` (audit block) and `tilt_note` (fixed caution string).
+- Produces: the user-facing behavior. The `constraint_impact` dict gains new keys the formatter passes through: `applied_preferences` (audit block, may carry `shortfall_note`), `tilt_note` (fixed caution string), and `count_bumped_to` (disclosed count bump, consolidate path).
 
 - [ ] **Step 1: Write the failing tests** (monkeypatch the compute + formatter seams; no LLM, no DB)
 
@@ -1270,9 +1341,9 @@ async def test_no_number_tilt_defaults_to_band_edge_risk_score(spy, detector_ctx
 
 async def test_redirect_fires_content_free_telemetry(spy, detector_ctx):
     action = chat_mod.RebalanceAction(mode="redirect", redirect_reason="lock holdings")
-    await chat_mod._handle_action(detector_ctx, action)   # thin dispatcher, see Step 3
+    await chat_mod._handle_action(detector_ctx, action)   # extracted in Task 9a
     assert spy["telemetry"] == [dict(flow="rebalancing", failure_class="redirect",
-                                     turn_id=detector_ctx.turn_id,
+                                     session_id=detector_ctx.session_id,
                                      distinct_id=detector_ctx.effective_user_id)]
 
 
@@ -1284,6 +1355,18 @@ async def test_unknown_named_fund_is_honest_and_logged(spy, detector_ctx, monkey
     result = await chat_mod._handle_named_fund(detector_ctx, action)
     assert "don't rank" in result.text.lower() or spy["format"]
     assert spy["telemetry"][0]["failure_class"] == "fund_unknown"
+
+
+async def test_named_include_is_deferred_honestly_and_measured(spy, detector_ctx, monkeypatch):
+    monkeypatch.setattr(chat_mod, "resolve_fund",
+                        lambda text: chat_mod.FundResolution(
+                            status="recommended", isin="I1", fund_name="Alpha",
+                            sub_category="Large Cap Fund"))
+    action = chat_mod.RebalanceAction(mode="narrate", named_fund="alpha",
+                                      named_fund_intent="include")
+    await chat_mod._handle_named_fund(detector_ctx, action)
+    # Phase 1: never silently ignored — honest "coming later" reply + demand telemetry.
+    assert spy["telemetry"][0]["failure_class"] == "named_include_deferred"
 ```
 
 (`detector_ctx` comes from the same conftest fixture Task 7 uses; `_TEST_OUTCOME_FACTORY` is a tiny module-level test seam OR — preferred — build a real `RebalanceOutcome` stub in conftest with a minimal `RebalancingComputeResponse` fixture that `build_constraint_impact` accepts; the rebal tests conftest already builds responses for the consolidation tests — reuse it.)
@@ -1378,12 +1461,11 @@ async def _handle_preference_counterfactual(
 ```
 
 Also in this step:
-0. **Extract the mode ladder into `async def _handle_action(ctx, action) -> ChatHandlerResult`** — a pure refactor: move the existing `if action.mode == "clarify"/"redirect"/"counterfactual_explore"/"consolidate"/"compute"` chain out of the main handler into this function (the main handler calls it after detect). This is what the wiring/integration tests invoke, and it keeps the new dispatch (preference counterfactual, named fund) in one place.
-   *Turn identifier note:* `capture_preference_unserved(turn_id=...)` — verify the field on `TurnContext` (`app/domains/ai_engine/turn_context.py`); if there is no per-turn id, pass `ctx.session_id` and name the property `turn_ref` consistently in Task 6's helper instead. The requirement is only: a reviewer can join the event to the transcript row in Postgres.
-1. `_consolidate`: resolve `action.excluded_categories` through `resolve_categories` (same unresolved handling as allowed, `failure_class="category_unranked"` telemetry when nothing resolves); convert `action.category_weights` — resolve words, divide stated pct by 100; value `0` (detector's no-number sentinel) → `0.10` default with `applied["category_weights"]["source"] = "default_step"`; pass `excluded_categories` / `category_weight_targets` / `include_fund` into `ConsolidationConstraints`; surface the two new `reshape_response` error codes with honest replies (mirror `category_not_in_plan`'s text + telemetry `failure_class="category_not_in_plan"`); attach `impact["applied_preferences"]`.
-2. Named fund: `_handle_named_fund(ctx, action)` — `resolve_fund(action.named_fund)`; `recommended` + intent `include` → run `_consolidate` path with `include_fund=(isin, fund_name, sub_category)`; `rejected` → narrate with `impact`-style dict `{"named_fund_rejection": {"fund": name, "reasons": rejection_text}}` passed as `constraint_impact` so the formatter grounds the why-not answer in the CSV's own words; `unknown`/`ambiguous` → honest text + `capture_preference_unserved(failure_class="fund_unknown", ...)`.
-3. Redirect branch (~line 616) and `_counterfactual_explore`'s invalid-override branch: add `capture_preference_unserved(flow="rebalancing", failure_class="redirect"|"invalid_override", turn_id=..., distinct_id=ctx.effective_user_id)`.
-4. Mode dispatch: route `counterfactual_explore` with tilt/scope fields → `_handle_preference_counterfactual`; `named_fund` set → `_handle_named_fund`; detector-flagged contradiction arrives as `clarify` (no new dispatch needed).
+1. `_consolidate`: resolve `action.excluded_categories` through `resolve_categories` (same unresolved handling as allowed, `failure_class="category_unranked"` telemetry when nothing resolves); convert `action.category_weights` — resolve words, divide stated pct by 100; value `0` (detector's no-number sentinel) → `0.10` default with `applied["category_weights"]["source"] = "default_step"`; pass `excluded_categories` / `category_weight_targets` into `ConsolidationConstraints`; surface the `weight_category_not_in_plan` error with an honest reply (mirror `category_not_in_plan`'s text + telemetry `failure_class="category_not_in_plan"`); when the count-trim bumped the fund count to the protected-category count, set `impact["count_bumped_to"]` so the formatter discloses it (same pattern as `defaulted_fund_count`); attach `impact["applied_preferences"]`.
+2. Named fund: `_handle_named_fund(ctx, action)` — `resolve_fund(action.named_fund)`; `rejected` + intent `why_not` → narrate with `{"named_fund_rejection": {"fund": name, "reasons": rejection_text}}` passed as `constraint_impact` so the formatter grounds the answer in the CSV's own words; `recommended` + `why_not` → narrate "it IS on our list" with its `selection_reason`; ANY status + intent `include` → honest deferred reply ("including a specific fund in the plan is coming; here's why we picked what we picked") + `capture_preference_unserved(failure_class="named_include_deferred", ...)` — Phase 2 implements inclusion at the input-builder seam; `unknown`/`ambiguous` → honest text (offer the candidate names when ambiguous) + `failure_class="fund_unknown"`.
+3. Redirect branch and `_counterfactual_explore`'s invalid-override branch: add `capture_preference_unserved(flow="rebalancing", failure_class="redirect"|"invalid_override", session_id=ctx.session_id, distinct_id=ctx.effective_user_id)`.
+4. Mode dispatch inside `_handle_action` (from 9a): route `counterfactual_explore` with tilt/scope fields → `_handle_preference_counterfactual`; `named_fund` set → `_handle_named_fund`; detector-flagged contradiction arrives as `clarify` (no new dispatch needed).
+5. Zero-class shortfall disclosure (Task 3's note): in `_handle_preference_counterfactual`, when a requested class has ~0% in `current_mix`, append `{"shortfall_note": "no <class> holdings exist to scale — the request was spread over the present classes"}` to `applied_preferences` so the reply says it plainly.
 
 - [ ] **Step 4: Run the wiring tests + full rebal suite**
 
@@ -1394,7 +1476,7 @@ Expected: all PASS (new + pre-existing).
 
 ```bash
 git add app/domains/rebalancing/services/rebal_engine/chat.py app/domains/rebalancing/services/rebal_engine/tests/test_preference_chat_wiring.py
-git commit -m "feat(preferences): rebal chat wiring - defaults policy, two-run tilt, extended consolidate, named-fund, telemetry"
+git commit -m "feat(preferences): rebal chat wiring - defaults policy, two-run tilt, extended consolidate, named-fund replies, telemetry"
 ```
 
 ---
@@ -1439,7 +1521,7 @@ Run: `.venv-mac/bin/python -m pytest app/domains/rebalancing/services/rebal_engi
 
 - [ ] **Step 3: Update CLAUDE.md files** (2–3 lines total; CLAUDE.md is exempt from the no-docs rule)
 
-- `AI_Agents/src/Rebalancing/CLAUDE.md` consolidation bullet: note the constraint set now includes exclusions, weight targets, and named-fund substitution, composition order filters→include→weights→count.
+- `AI_Agents/src/Rebalancing/CLAUDE.md` consolidation bullet: note the constraint set now includes exclusions and weight targets; composition order filters→weights→count; the legacy-only path runs the original F3-B code byte-for-byte.
 - Rebalancing domain CLAUDE.md gotchas: one bullet — "preference turns are stateless (`persist=False`); the audit trail is `constraint_impact.applied_preferences`; `preference_unserved` PostHog event carries ids only, never text."
 
 - [ ] **Step 4: Full suite + lint**
@@ -1458,4 +1540,4 @@ git commit -m "test(preferences): integration guards for caution + telemetry inv
 
 ## Deferred to Phase 2 (separate plan, after this ships)
 
-SIP/lump-sum parity via `ainv_engine/chat.py` + the shared reshape; persisted ainv runs then carry the `applied_preferences` payload on the run row (they persist, unlike rebal preference turns). Out entirely (spec): sell-side locks, tax-shaped sell filters, tranches, theme-level sectoral, persistence, agent loop.
+SIP/lump-sum parity via `ainv_engine/chat.py` + the shared reshape; persisted ainv runs then carry the `applied_preferences` payload on the run row (they persist, unlike rebal preference turns). **Named-fund inclusion** — at its correct seam: the input builder injects the resolved fund as a ranked row so the engine computes real numbers for it (Phase 1's `named_include_deferred` telemetry measures the demand). Out entirely (spec): sell-side locks, tax-shaped sell filters, tranches, theme-level sectoral, persistence, agent loop.
