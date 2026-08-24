@@ -46,8 +46,6 @@ anthropic>=0.40.0
 # long-lived venv and pip will not upgrade an already-satisfied requirement.
 langchain-anthropic>=1.4.8,<2
 ddgs>=7.0.0
-# Used by AI_Agents/src/market_commentary/scraper.py (imported at app startup via ai_bridge)
-tavily>=1.0.0
 
 # Goal planning
 numpy-financial>=1.0.0

@@ -26,6 +26,7 @@ from app.domains.ai_engine.answer_formatter import format_with_telemetry
 from app.domains.ai_engine.common import ensure_ai_agents_path, with_gap_notes
 from app.domains.ai_engine.types import AIModule
 from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 ensure_ai_agents_path()
 
@@ -51,11 +52,6 @@ _NO_PORTFOLIO_TEMPLATE = (
 _MISSING_KEY_REPLY = (
     "I can't reach the language model right now — the Anthropic API key isn't "
     "configured on the server. Please set `PORTFOLIO_QUERY_API_KEY` or `ANTHROPIC_API_KEY` in `.env`."
-)
-_MISSING_COMMENTARY_REPLY = (
-    "I'll have a sharper answer once the latest market commentary is loaded "
-    "— ask me a quick market question first (e.g. 'how are markets doing "
-    "today?') to refresh it, and then I'll be ready to dig into this for you."
 )
 _GENERIC_FAILURE_REPLY = (
     "Hmm, that one didn't come through cleanly on my end — give the question "
@@ -196,7 +192,9 @@ def _compute_portfolio_xirr(user: Any, total_value: float | None) -> float | Non
         d = getattr(t, "transaction_date", None)
         if amt is None or amt == 0 or d is None:
             continue
-        amt = abs(amt)
+        # A mis-parsed amount column is repriced off units x NAV so chat quotes
+        # the same XIRR the portfolio pages do (``txn_value``).
+        amt = trade_value(_f(t, "units"), _f(t, "nav"), amt)
         # Coerce datetime → date.
         if isinstance(d, datetime):
             d = d.date()
@@ -573,7 +571,7 @@ async def generate_portfolio_query_response(
     conversation_history: list[dict[str, Any]] | None = None,
     db: Any = None,
     user_id: Any = None,
-    want_market_commentary: bool = True,
+    want_fund_house_view: bool = False,
     ctx: Any = None,
 ) -> PortfolioQueryOutcome:
     """Answer the user's portfolio question via the AI_Agents.portfolio_query agent.
@@ -603,11 +601,8 @@ async def generate_portfolio_query_response(
         facts_pack = orch.build_facts(
             client=client_ctx,
             portfolio=portfolio,
-            want_market_commentary=want_market_commentary,
+            want_fund_house_view=want_fund_house_view,
         )
-    except FileNotFoundError as exc:
-        logger.warning("portfolio_query: market commentary file missing — %s", exc)
-        return PortfolioQueryOutcome(_MISSING_COMMENTARY_REPLY)
     except Exception:
         logger.exception("portfolio_query: facts build failed")
         return PortfolioQueryOutcome(_GENERIC_FAILURE_REPLY)
@@ -654,7 +649,7 @@ async def answer_portfolio_query(question: str, ctx) -> str:
         conversation_history=ctx.conversation_history,
         db=getattr(ctx, "db", None),
         user_id=ctx.effective_user_id,
-        want_market_commentary="market_commentary"
+        want_fund_house_view="fund_house_view"
         in (getattr(ctx, "tools_needed", ()) or ()),
         ctx=ctx,
     )

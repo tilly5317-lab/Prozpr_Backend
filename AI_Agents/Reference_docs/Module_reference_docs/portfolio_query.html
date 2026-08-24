@@ -316,13 +316,14 @@ The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a
 
 ## 2. Where it sits
 
-The engine is a peer agent: it imports **no** other agent. Its only cross-file dependencies under `src/` are the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). It **reads** `Reference_docs/market_commentary_latest.md` — written by the `market_commentary` agent — but does **not import** that module: the file is the contract.
+The engine is a peer agent: it imports **no** other agent. Its only cross-file dependencies under `src/` are the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). It **reads** two files under `Reference_docs/` — `market_commentary_latest.md` (factual, written by the `market_commentary` agent) and `fund_house_commentry.md` (Prozpr's hand-maintained monthly view) — but imports neither module: the files are the contract. Which one loads is gated by the classifier's `tools_needed`, and view answers cite the named fund houses as research sources.
 
 | Direction | Who | What flows |
 |---|---|---|
 | **Upstream** | `intent_classifier` → chat brain `FLOWS` → `flow_portfolio_query` | the `portfolio_query` intent routes here |
 | **Gateway** | [`app/domains/portfolio/services/portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | `answer_portfolio_query(question, ctx)` — the ONLY caller of the engine; maps the User ORM graph → `ClientContext` / `PortfolioContext` DTOs |
-| **Commentary** | `market_commentary` agent (via the file) | `market_commentary_latest.md` is loaded fresh each turn, capped to 7 000 chars |
+| **Commentary (factual)** | `market_commentary` agent (via the file) | `market_commentary_latest.md`, loaded when `tools_needed` asks, capped to 7 000 chars |
+| **Fund-house view** | hand-maintained `fund_house_commentry.md` | loaded when `tools_needed` = `fund_house_view` (judgement questions); reply cites the named houses as research sources |
 | **Downstream** | chat brain | `answer or redirect_message` collapsed to a single customer-facing `str` |
 
 > **The engine touches no DB.** XIRR, cost-basis gains, allocation roll-ups, holdings itemization — all of it is computed in the **gateway** before the DTOs are built. If you're looking for "where does the annualised portfolio XIRR come from", it is `_compute_portfolio_xirr` in `portfolio_query_service.py`, not here.

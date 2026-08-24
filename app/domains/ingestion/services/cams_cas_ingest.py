@@ -77,6 +77,7 @@ from app.domains.ingestion.services.casparser_client import (
 )
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
 from app.domains.ingestion.services.user_data_reset import reset_user_financial_data
+from app.domains.mutual_funds.services.txn_value import trade_value
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
 )
@@ -258,7 +259,12 @@ def _derive_scheme_snapshot(scheme: dict[str, Any]) -> _SchemeSnapshot:
         # CAS prints redemption units/amounts as negatives — take the magnitude
         # and let the transaction type decide direction.
         u = abs(_num(txn.get("units")))
-        amount = abs(_num(txn.get("amount")))
+        # Not abs(amount) — a statement row whose amount column was mis-parsed is
+        # priced off units x NAV, the same way every reader of the normalized
+        # ledger prices it (``mutual_funds.services.txn_value``).
+        amount = trade_value(
+            _num(txn.get("units")), _num(txn.get("nav")), _num(txn.get("amount"))
+        )
         if flag in _INFLOW_FLAGS:
             units += u
             buy_units += u

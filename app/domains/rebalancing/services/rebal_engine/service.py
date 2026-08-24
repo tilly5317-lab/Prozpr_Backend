@@ -251,6 +251,7 @@ def build_rebal_facts_pack(
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
+    fund_house_view: Optional[str] = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -598,6 +599,10 @@ def build_rebal_facts_pack(
         pack["constraint_impact"] = constraint_impact
     if is_rerun:
         pack["is_rerun"] = True
+    if fund_house_view:
+        # Prozpr's own market stance (Prozpr-only slice — no fund house is named).
+        # Frames WHY the trades make sense; never overrides the computed numbers.
+        pack["fund_house_view"] = fund_house_view
     return pack
 
 

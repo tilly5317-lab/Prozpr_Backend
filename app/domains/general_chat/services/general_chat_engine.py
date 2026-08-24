@@ -151,7 +151,7 @@ async def format_redirect_or_canned(*, ctx: "TurnContext", intent: "IntentDecisi
 
 
 # Keep market commentary under this limit so the prompt fits the context window.
-_MAX_COMMENTARY_CHARS = 7000
+_MAX_COMMENTARY_CHARS = 110_000  # holds factual (~15K) + fund-house view (~90K); research pass only
 
 # Web-search rounds allowed in the research pass. Each extra round re-sends the
 # whole accumulated context (system + commentary + prior results), so input
@@ -189,6 +189,10 @@ _GENERAL_CHAT_BODY = (
     "- Open with 2-3 short sentences, MAXIMUM 60 words of prose, in PI's voice. Answer directly, "
     "citing the source inline ('per our daily snapshot' / 'per live web search'). No '**Answer**' "
     "heading.\n"
+    "- When `research_digest` cites specific fund houses' outlooks, you MAY exceed the 60-word cap "
+    "to build confidence: lead with our view, then name 2-4 fund houses as research sources "
+    "(e.g. 'ICICI's latest outlook is constructive…'), noting agreement and any disagreement. "
+    "Attribute outlooks to the houses; never present a house's view as advice to the customer.\n"
     "- ONLY when the question carries an actionable investment/portfolio implication, close with up "
     "to 3 bullets, each ≤15 words. For pure factual lookups (PE ratio, repo rate, FX rate) give the "
     "prose alone — no bullets.\n"
@@ -246,8 +250,17 @@ _RESEARCH_SYSTEM_PROMPT = (
     "question.\n"
     "3. Never recall market data from training knowledge.\n"
     "\n"
-    "Output: a short plain-text factual digest (max ~150 words) of ONLY the data "
-    "points relevant to the question. Preserve every figure exactly as it appears — "
+    "The 'Market commentary context' may contain two labelled blocks:\n"
+    "- '[LIVE MARKET DATA ...]' — current factual figures; cite as 'per our daily snapshot'.\n"
+    "- '[PROZPR HOUSE VIEW ...]' — Prozpr's own market stance PLUS the outlooks of major fund "
+    "houses (ICICI, Canara, HDFC, PPFAS, CLSA, Kotak). When the question asks what we think / "
+    "whether now is a good time / a judgement, lead with Prozpr's stance ('our view is ...'), then "
+    "PRESERVE the individual fund-house outlooks WITH their names as supporting research — capture "
+    "where they agree and any notable disagreement. Present the houses as research sources / "
+    "outlooks, never as recommendations to the customer (Prozpr is the adviser).\n"
+    "\n"
+    "Output: a short plain-text digest (max ~300 words; keep pure factual lookups tight, around "
+    "150 words) of ONLY the material relevant to the question. Preserve every figure exactly as it appears — "
     "copy ₹ amounts and pre-formatted numbers (e.g. '₹1.25 lakh') verbatim, never "
     "reformat, round, or recompute them — because the composer copies them straight "
     "into the reply. Do not format, do not advise, do not add a "
@@ -316,13 +329,23 @@ async def generate_general_chat_response(
         f"{json.dumps(_enrich_inr_fields(client_context), ensure_ascii=True) if client_context else 'null'}"
     )
     # Pass 1 (research) sees the raw market commentary; Pass 2 (compose) sees only
-    # the distilled research digest — so the ~7K-char commentary is sent once, not
+    # the distilled research digest — so the ~28K-char commentary is sent once, not
     # re-sent on the compose call.
-    research_user_prompt = (
-        f"{base_prompt}\n\n"
+    commentary_context = (
         f"Market commentary context (if relevant, use it; if not relevant, ignore):\n"
         f"{commentary}"
     )
+    if commentary:
+        # Cache the stable commentary/view as a prefix block (byte-identical across
+        # market turns within the TTL) so repeats re-read it at ~0.1x with faster
+        # prefill. Order matters: cached prefix FIRST, volatile question AFTER.
+        # No-commentary (general-chat) turns keep the original prompt (else branch).
+        research_human_content = [
+            {"type": "text", "text": commentary_context, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": base_prompt},
+        ]
+    else:
+        research_human_content = f"{base_prompt}\n\n{commentary_context}"
 
     unauthorised_reply = (
         "I couldn't reach the language model — Anthropic returned a 401 Unauthorized. "
@@ -349,7 +372,7 @@ async def generate_general_chat_response(
         research_resp = await research_llm.ainvoke(
             [
                 SystemMessage(content=_RESEARCH_SYSTEM_PROMPT),
-                HumanMessage(content=research_user_prompt),
+                HumanMessage(content=research_human_content),
             ]
         )
     except anthropic.AuthenticationError:

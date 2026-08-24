@@ -44,7 +44,7 @@ async def db():
     await engine.dispose()
 
 
-def _txn(user_id, ttype, units, amount, when):
+def _txn(user_id, ttype, units, amount, when, nav=None):
     return MfTransaction(
         user_id=user_id,
         scheme_code=SCHEME,
@@ -52,7 +52,8 @@ def _txn(user_id, ttype, units, amount, when):
         transaction_type=ttype,
         # CAS writes redemption units as a negative number.
         units=-units if ttype is MfTransactionType.SELL else units,
-        nav=amount / units,
+        # Default to the NAV the amount implies, i.e. a self-consistent row.
+        nav=amount / units if nav is None else nav,
         amount=amount,
         transaction_date=when,
     )
@@ -123,24 +124,48 @@ async def test_near_full_exit_does_not_overflow_avg_nav(db):
     assert float(row["invested_amount"]) > 0
 
 
-async def test_absurd_return_drops_the_pct_not_the_holding(db):
-    """A CAS row booking 11,453.263 units for Rs 10 (production, scheme 152778).
+async def test_misparsed_amount_is_repriced_from_units_and_nav(db):
+    """The production row for scheme 152778: 11,453.263 units, NAV 8.7307, Rs 10.
 
-    absolute_return_pct comes out at 1,181,624.7698 — past the NUMERIC(10,4)
-    ceiling of 10^6 — which used to abort the user's entire rebuild. The
-    percentage is dropped; the holding itself still gets written.
+    The pre-API local parser filed the Rs 10 stamp duty as the purchase amount
+    (the real one was Rs 99,995), which valued a Rs 1.18L holding at a Rs 10 cost
+    basis and returned 1,177,879.55% — past the NUMERIC(10,4) ceiling. The
+    transaction's own NAV contradicts the amount, so the cost is taken from
+    units x NAV and the return lands back in a plausible range.
     """
     row = await _rebuild(
         db,
-        [(MfTransactionType.BUY, 11_453.263, 10.0, date(2026, 1, 19))],
-        nav=10.3178,
+        [(MfTransactionType.BUY, 11_453.263, 10.0, date(2026, 1, 19), 8.7307)],
+        nav=10.2851,
+    )
+
+    assert row is not None
+    assert float(row["avg_nav"]) == pytest.approx(8.7307, abs=1e-4)
+    assert float(row["invested_amount"]) == pytest.approx(99_995.00, abs=0.05)
+    assert float(row["current_units"]) == pytest.approx(11_453.263)
+    assert float(row["current_value"]) == pytest.approx(117_797.96, abs=0.01)
+    assert float(row["absolute_return_pct"]) == pytest.approx(17.80, abs=0.05)
+
+
+async def test_absurd_return_drops_the_pct_not_the_holding(db):
+    """A self-consistent row can still overflow: 1 unit bought at NAV 0.001.
+
+    Nothing contradicts the amount here, so it is taken at face value and the
+    return comes out at 2e9% — past the NUMERIC(10,4) ceiling of 10^6, which
+    used to abort the user's entire rebuild. The percentage is dropped; the
+    holding itself still gets written.
+    """
+    row = await _rebuild(
+        db,
+        [(MfTransactionType.BUY, 1.0, 0.001, date(2026, 1, 19))],
+        nav=20_000.0,
     )
 
     assert row is not None
     assert row["absolute_return_pct"] is None
     # The position itself survives — units and value are real.
-    assert float(row["current_units"]) == pytest.approx(11_453.263)
-    assert float(row["current_value"]) == pytest.approx(118_172.48, abs=0.01)
+    assert float(row["current_units"]) == pytest.approx(1.0)
+    assert float(row["current_value"]) == pytest.approx(20_000.0, abs=0.01)
 
 
 async def test_full_exit_is_not_a_holding(db):

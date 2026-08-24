@@ -292,6 +292,8 @@ Two things consume the output, and neither imports the module — the **file is 
 - **`general_chat`** reads the rendered doc from `prior[MARKET_COMMENTARY].payload` and tailors the customer's reply to it (this is the live chat path).
 - **`portfolio_query`** reads `Reference_docs/market_commentary_latest.md` directly off disk as its macro-context block.
 
+> **Sibling — the fund-house view.** This agent writes only the *factual* commentary. Prozpr's qualitative **view** lives in a separate, hand-maintained file, `Reference_docs/fund_house_commentry.md` (not produced here). The same two flows load it when the classifier's `tools_needed` asks for `fund_house_view`, and the reply surfaces the named fund houses as research sources. See `app/domains/market_commentary/services/fund_house_view_module_service.py`.
+
 The defining design decision: **the numbers are grounded, not invented.** Every indicator comes from Claude's own `web_search` calls against named authoritative sources (RBI, MOSPI, NSE, NSDL…). Anything that can't be verified becomes `null` and lands in `data_gaps` — the doc-gen prompt then says "cannot be assessed from available inputs" rather than guessing.
 
 ### The run shape (fast-path first, full-run only when stale)

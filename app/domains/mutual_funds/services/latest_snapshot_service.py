@@ -22,6 +22,7 @@ from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.services.investor_detail_service import _cagr_pct
 from app.domains.mutual_funds.services.paging import clamp_skip_limit
 from app.domains.mutual_funds.services.scheme_classification import classify_holding
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 _OUTFLOW_TYPES = {
     MfTransactionType.BUY,
@@ -47,9 +48,9 @@ _CLOSED_POSITION_UNITS = 1e-6
 _MAX_NAV = 1e8
 
 # The percentage columns are NUMERIC(10,4): |value| must stay under 10^6. A real
-# return never reaches 1,000,000%, but a CAS row with a broken amount does — one
-# statement books 11,453.263 units of HDFC NIFTY500 Multicap for Rs 10, which
-# prices the units at 0.0009 and returns 1,181,624.7698%.
+# return never reaches 1,000,000%; the mis-parsed amounts that used to produce one
+# are now priced off units x NAV by ``txn_value.trade_value``, so this is the
+# backstop for a corruption nobody has seen yet, not the everyday path.
 _MAX_PCT = 1e6
 
 
@@ -228,7 +229,10 @@ async def rebuild_user_latest_snapshot(
             # the money-inflow (SELL) branch's ``units -= t_units`` actually removes units
             # instead of adding the negative back.
             t_units = abs(_f(txn.units))
-            t_amt = abs(_f(txn.amount))
+            # Not abs(amount): a row whose amount column was mis-parsed is priced
+            # off units x NAV instead, or a Rs 10 stamp duty becomes the cost
+            # basis of a Rs 1.18L holding. See ``txn_value``.
+            t_amt = trade_value(txn.units, txn.nav, txn.amount)
             if txn.transaction_type in _OUTFLOW_TYPES:
                 units += t_units
                 buy_units += t_units

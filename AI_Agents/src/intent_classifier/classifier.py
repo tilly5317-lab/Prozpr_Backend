@@ -49,7 +49,7 @@ _OutOfScopeSubreasonLiteral = Literal[
 ]
 
 # Keep in sync with ``Tool`` in models.py — same reason as ``_IntentLiteral``.
-_ToolLiteral = Literal["market_commentary"]
+_ToolLiteral = Literal["market_commentary", "fund_house_view"]
 
 
 # Strips stray XML/tool-call closing tokens that Anthropic structured-output
@@ -99,10 +99,20 @@ class _LLMOutput(BaseModel):
     tools_needed: list[_ToolLiteral] = Field(
         default_factory=list,
         description=(
-            "Extra data the ANSWER stage needs; it does not affect the intent. Include "
-            "'market_commentary' only when answering requires a view on market conditions "
-            "or valuations. Leave empty when the question is answerable from the customer's "
-            "own portfolio, goals, or holdings — including questions that name an index "
+            "Extra data the ANSWER stage needs; it does not affect the intent. Two sources:\n"
+            "- 'market_commentary' = current, factual market DATA: index levels, PE ratios, repo "
+            "rate, bond yields, gold/crude prices, FX. Include when the answer needs a current "
+            "number or a live market reading.\n"
+            "- 'fund_house_view' = Prozpr's OPINION / stance / outlook on the market or a segment "
+            "(large/mid/small-cap equities, debt, gold). Include when the customer asks what we "
+            "think, whether now is a good time, whether something is over- or under-valued, or "
+            "otherwise wants a judgement rather than a number — including judgement questions about "
+            "their OWN portfolio (e.g. 'is my portfolio too aggressive?'). Also include it for "
+            "rebalancing questions (the customer asks to rebalance or adjust their mix) — our stance "
+            "frames the trades.\n"
+            "Include BOTH when the answer needs a current number AND our view (e.g. 'should I buy "
+            "small caps now?'). Include NEITHER when the question is answerable purely from the "
+            "customer's own portfolio, goals, or holdings — including questions that name an index "
             "purely as a benchmark for their own returns."
         ),
     )

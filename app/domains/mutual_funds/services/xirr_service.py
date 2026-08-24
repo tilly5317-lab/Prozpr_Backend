@@ -30,6 +30,7 @@ from financial_primitives.xirr import xirr
 from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,10 @@ def _build_cashflows(
     for t in txns:
         # Ingest stores redemptions (SELL/SWITCH_OUT) with NEGATIVE amount AND units;
         # direction is decided by the transaction type below, so use magnitudes here.
-        amount = abs(float(t.amount))
+        # A mis-parsed amount column is repriced off units x NAV (``txn_value``);
+        # a Rs 10 stamp duty read as the purchase amount otherwise makes XIRR
+        # meaningless for the whole portfolio.
+        amount = trade_value(t.units, t.nav, t.amount)
         units = abs(float(t.units))
         ttype = t.transaction_type
 
@@ -207,6 +211,7 @@ async def compute_portfolio_xirr(db: AsyncSession, user_id: uuid.UUID) -> XirrRe
                     MfTransaction.transaction_type,
                     MfTransaction.amount,
                     MfTransaction.units,
+                    MfTransaction.nav,
                     MfTransaction.scheme_code,
                 )
                 .where(MfTransaction.user_id == user_id)

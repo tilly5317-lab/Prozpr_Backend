@@ -30,10 +30,10 @@ FLOWS = {
 Adding/altering an intent = one new `flow_*` + one `FLOWS` row; the brain never changes. Each intent's `run` lives in its owning domain's `services/` (agent in a `services/<engine>/` subpackage); see that domain's CLAUDE.md.
 
 ## Shared chat kernel (package root, not `services/`)
-Cross-domain contracts/utilities, not domain logic: `types.py` (the `ModuleOutput`/`IntentDecision`/`AIModule` contract), `chat_types.py`, `turn_context.py`, `classifier_llm.py` (Haiku structured-output helper), `chat_dispatcher.py` (per-intent handler registry), `visualizations/`, `schemas/`. Load-bearing edges:
+Cross-domain contracts/utilities, not domain logic: `types.py` (the `ModuleOutput`/`IntentDecision`/`AIModule` contract), `chat_types.py`, `turn_context.py`, `classifier_llm.py` (Haiku structured-output helper), `chat_dispatcher.py` (per-intent handler registry), `schemas/`. Load-bearing edges:
 - `answer_formatter/` — THE answer stage; every module's reply is written here.
 - `common.py` — `ensure_ai_agents_path()` sys.path inject, tracing, money fmt.
-- `streaming.py`/`persona.py` re-export `AI_Agents/src/token_stream.py`/`persona.py`; the canonical defs live under `src/` because agents (e.g. portfolio_query) cannot import `app/`.
+- `streaming.py` re-exports `AI_Agents/src/token_stream.py`; the canonical def lives under `src/` because agents (e.g. portfolio_query) cannot import `app/`. Consumers needing the PI persona import `persona` from `AI_Agents/src` directly (see `answer_formatter/formatter.py`).
 - `thinking.py` — live "thinking aloud" feed, polled via `GET /chat/sessions/{id}/thinking`.
 - `logic_docs.py` — module→Logics-thesis-doc loader; formatter attaches docs on educate/narrate.
 - `usage_tracking.py`/`posthog_tracing.py` — per-turn token accounting + zero-touch PostHog LLM tracing.
@@ -44,7 +44,7 @@ Cross-domain contracts/utilities, not domain logic: `types.py` (the `ModuleOutpu
 - **A domain never calls another domain.** Cross-domain data is produced by one domain and passed to the next via the `prior` dict (`services/flow.py`).
 - **Delegate AI to `AI_Agents/src`, never hand-roll Claude.** A domain service does CRUD + calls the ready-made agent (via `ensure_ai_agents_path()`); never write `ChatAnthropic`/`messages.create` for a reply an agent already produces.
 - **`routers/` here are debug endpoints, NOT the live chat path** (chat goes through `ChatBrain`) — don't wire production behavior into them (`routers/__init__.py`).
-- **`ctx.tools_needed` is a fetch list, not routing.** Empty means the customer's own record suffices. Its one member gates the market commentary in `portfolio_query`; loading that unconditionally made the model compare an allocation % against a P/E.
+- **`ctx.tools_needed` is a fetch list, not routing.** Empty means the customer's own record suffices. Its members (`market_commentary` = live facts, `fund_house_view` = Prozpr's stance + fund-house outlooks) select market context for `flow_market` and `portfolio_query`; loading commentary unconditionally used to make the model compare an allocation % against a P/E.
 - **`action_mode` is NOT set by the classifier** — `ClassificationResult` has no mode field; each module's detector picks it after routing. Union: `ActionMode` in `answer_formatter/formatter.py` (`recompute`/`recompute_full` are gone — a re-run is `compute` + `is_rerun: true`).
 - **Every `ChatAnthropic(...)` pins `temperature` explicitly** (root convention). The formatter is the one exception: kwargs dict + `AILAX_FORMATTER_TEMPERATURE`, default `"0"`.
 - **Streamed deltas are provisional; `run_turn`'s return wins.** Nothing streams unless a `TokenStream` is open, so the blocking path is untouched. The sink is in process memory — the streaming request and the turn must share one uvicorn worker (like `app.core.progress`).

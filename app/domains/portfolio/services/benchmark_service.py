@@ -33,6 +33,7 @@ from app.domains.benchmarks.services.benchmark_data_service import (
     load_value_series,
 )
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
+from app.domains.mutual_funds.services.txn_value import trade_value
 
 # Horizon -> trailing days; MAX = since first purchase.
 HORIZON_DAYS: dict[str, Optional[int]] = {
@@ -216,7 +217,10 @@ async def _load_txns(db: AsyncSession, user_id: uuid.UUID) -> list[TxnLite]:
         TxnLite(
             txn_date=t.transaction_date,
             txn_type=t.transaction_type.value,
-            amount=float(t.amount),
+            # Repriced off units x NAV when the statement's amount column was
+            # mis-parsed, so the Nifty clone buys the same rupees the customer
+            # did (``txn_value``).
+            amount=trade_value(t.units, t.nav, t.amount),
             units=float(t.units),
             scheme_code=t.scheme_code,
         )

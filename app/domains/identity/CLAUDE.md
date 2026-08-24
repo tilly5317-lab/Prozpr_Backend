@@ -5,7 +5,7 @@
 - **models/** — `User`, `FamilyMember`, `LinkedAccount`, `OnboardingGenerationJob` ORM.
 - **schemas/** — auth / family / linked-account / onboarding payloads.
 - **routers/** — auth, onboarding, family, linked-accounts.
-- **services/** — `auth_service`, `otp_service`, `user_service`, `user_context_loader`, `signup_notification_service`, `onboarding_generation_service`.
+- **services/** — `otp_service`, `user_context_loader`, `signup_notification_service`, `onboarding_generation_service`.
 
 ## Gotchas & invariants
 
