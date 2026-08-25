@@ -425,8 +425,47 @@ async def apply_postgres_schema_patches() -> None:
             "ALTER COLUMN bank_account_masked DROP NOT NULL",
         ):
             await conn.execute(text(ddl))
+
+        # DPDP erasure: soft-delete columns on users. The account stops
+        # authenticating the moment `deleted_at` is set (app/core/dependencies.py)
+        # and the purge job picks it up once `deletion_scheduled_for` passes.
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_for "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_users_deletion_scheduled_for "
+                "ON users (deletion_scheduled_for) WHERE deleted_at IS NOT NULL"
+            )
+        )
+
+        # DPDP: fp_exec_accounts.raw / fp_exec_orders.raw now carry Fernet
+        # ciphertext (app/core/encrypted_types.EncryptedJSON), not JSON. They
+        # hold the verbatim third-party payload — PAN, date of birth, gender,
+        # income band and the unmasked bank account — which is exactly what a
+        # database dump or an RDS snapshot would otherwise expose in the clear.
+        #
+        # USING raw::text keeps every existing row: the column becomes text
+        # holding the old JSON, and EncryptedJSON's reader accepts unprefixed
+        # values, so historical rows keep working and re-encrypt on next write.
+        for _tbl in ("fp_exec_accounts", "fp_exec_orders"):
+            await conn.execute(
+                text(
+                    f"ALTER TABLE IF EXISTS {_tbl} "
+                    f"ALTER COLUMN raw TYPE TEXT USING raw::text"
+                )
+            )
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest)"
     )
 
 

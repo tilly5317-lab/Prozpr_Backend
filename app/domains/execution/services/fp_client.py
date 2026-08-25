@@ -20,6 +20,7 @@ from typing import Any, Optional
 import httpx
 
 from app.core.config import get_settings
+from app.core.pii import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -223,17 +224,24 @@ class FpClient:
                     resp.status_code,
                     dur_ms,
                     desc,
-                    _short_fp_error(body),
+                    redact_text(_short_fp_error(body)),
                 )
+                # The message is what gets stringified into logs and into
+                # PostHog Error Tracking (12-month retention), so it must not
+                # carry the upstream body verbatim: a 422 from
+                # /v2/investor_profiles echoes PAN, name and date of birth, and
+                # one from /v2/bank_accounts echoes the account number and IFSC.
+                # The unredacted body stays on `.body` for callers that branch
+                # on it — that attribute is never serialised to a sink.
                 raise FpError(
                     "FP "
                     + method
                     + " "
-                    + path
+                    + clean_path
                     + " -> "
                     + str(resp.status_code)
                     + ": "
-                    + resp.text,
+                    + redact_text(_short_fp_error(body)),
                     status_code=resp.status_code,
                     body=body,
                 )
@@ -246,7 +254,14 @@ class FpClient:
                 desc,
             )
             return body
-        raise FpError("FP " + method + " " + path + " exhausted retries: " + last_err)
+        raise FpError(
+            "FP "
+            + method
+            + " "
+            + path.split("?", 1)[0]
+            + " exhausted retries: "
+            + redact_text(last_err)
+        )
 
 
 def get_fp_client() -> FpClient:

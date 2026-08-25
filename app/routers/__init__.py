@@ -37,6 +37,7 @@ from app.domains.ai_engine.routers import router as ai_modules_router
 from app.domains.support.routers.support_router import router as support_router
 from app.domains.benchmarks.routers import router as benchmarks_router
 from app.domains.execution.routers.fp_router import router as fp_router
+from app.domains.privacy.routers.privacy_router import router as privacy_router
 
 all_routers = [
     health_router,
@@ -63,4 +64,5 @@ all_routers = [
     support_router,
     benchmarks_router,
     fp_router,
+    privacy_router,
 ]

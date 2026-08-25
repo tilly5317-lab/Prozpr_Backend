@@ -126,6 +126,7 @@ async def report_issue(
         source_label,
         description,
         screenshot_name,
+        current_user.id,
     )
     try:
         await asyncio.to_thread(svc.append_to_google_sheet, *row_args)
