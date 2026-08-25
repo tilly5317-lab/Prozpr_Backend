@@ -25,11 +25,20 @@ _ONE = Decimal("1")
 class ConsolidationConstraints:
     target_fund_count: int | None = None                 # max NEW-BUY funds
     allowed_categories: tuple[str, ...] | None = None    # redeploy whole budget here
+    excluded_categories: tuple[str, ...] | None = None   # never buy these
+    category_weight_targets: dict[str, float] | None = None  # sub_category -> share of total buy (0-1)
+    # NO include_fund: named-fund inclusion is Phase 2, at the input-builder
+    # seam where the engine computes real numbers for the injected fund.
     # NO reset flag: stateless design — "back to the full plan" is narrate mode.
 
 
 def constraints_active(c: ConsolidationConstraints) -> bool:
-    return c.target_fund_count is not None or bool(c.allowed_categories)
+    return (
+        c.target_fund_count is not None
+        or bool(c.allowed_categories)
+        or bool(c.excluded_categories)
+        or bool(c.category_weight_targets)
+    )
 
 
 @dataclass(frozen=True)
@@ -61,12 +70,29 @@ def compute_reshaped_buys(
     funds' combined budget moves, spread pro-rata to the survivors' amounts.
     Identity when nothing is dropped. Total preserved exactly; rounding
     residual onto the largest surviving buy. Returns isin -> new buy (Decimal).
+
+    Legacy-only constraints (allowed_categories / target_fund_count) run the
+    original F3-B path byte-for-byte; exclusions and weight targets take the
+    extended path, which reuses the same arithmetic form.
     """
     cands = list(candidates)
     total = sum((c.buy_inr for c in cands), Decimal(0))
     if total <= 0 or not cands:
         return {c.isin: Decimal(0) for c in cands}
+    if not constraints.excluded_categories and not constraints.category_weight_targets:
+        return _reshape_legacy(cands, constraints, total,
+                               rounding_multiple=rounding_multiple)
+    return _reshape_extended(cands, constraints, total,
+                             rounding_multiple=rounding_multiple)
 
+
+def _reshape_legacy(
+    cands: list[BuyCandidate],
+    constraints: ConsolidationConstraints,
+    total: Decimal,
+    *,
+    rounding_multiple: int,
+) -> dict[str, Decimal]:
     # 1. Survivors: filter to allowed categories (match on sub_category — the
     #    SEBI-name vocabulary resolve_category emits; asset_subgroup is too
     #    coarse, e.g. multi_asset holds ten sub_categories), then keep top-N
@@ -112,6 +138,105 @@ def compute_reshaped_buys(
     return out
 
 
+def _reshape_extended(
+    cands: list[BuyCandidate],
+    constraints: ConsolidationConstraints,
+    total: Decimal,
+    *,
+    rounding_multiple: int,
+) -> dict[str, Decimal]:
+    """Filters → weight targets → count trim, same arithmetic form as legacy
+    (bases frozen, rounded deltas added, residual onto the largest buy)."""
+    # 1. Eligibility: allowed-list, then excluded-list.
+    eligible = list(cands)
+    if constraints.allowed_categories:
+        allowed = set(constraints.allowed_categories)
+        eligible = [c for c in eligible if c.sub_category in allowed]
+    if constraints.excluded_categories:
+        excluded = set(constraints.excluded_categories)
+        eligible = [c for c in eligible if c.sub_category not in excluded]
+    if not eligible:
+        return {c.isin: Decimal(0) for c in cands}    # honest no-op; caller surfaces error
+
+    # 2. Weight targets: raise each named category to its requested share of
+    #    the ORIGINAL total. Donors = eligible funds in non-named categories,
+    #    scaled down pro-rata; donors flooring at 0 means partial satisfaction,
+    #    which the caller narrates honestly from the resulting shares.
+    working = {c.isin: c.buy_inr for c in eligible}
+    by_isin = {c.isin: c for c in eligible}
+    if constraints.category_weight_targets:
+        named = set(constraints.category_weight_targets)
+        per_cat_deficit: dict[str, Decimal] = {}
+        for cat, share in constraints.category_weight_targets.items():
+            have = sum(
+                (v for k, v in working.items() if by_isin[k].sub_category == cat),
+                Decimal(0),
+            )
+            want = (total * Decimal(str(share))).quantize(_ONE)
+            if want > have:
+                per_cat_deficit[cat] = want - have
+        deficit = sum(per_cat_deficit.values(), Decimal(0))
+        donors = [k for k, c in by_isin.items() if c.sub_category not in named]
+        donor_total = sum((working[k] for k in donors), Decimal(0))
+        take = min(deficit, donor_total)
+        for k in donors:
+            if donor_total > 0:
+                working[k] -= take * working[k] / donor_total
+        for cat, cat_deficit in per_cat_deficit.items():
+            grant = take * cat_deficit / deficit if deficit > 0 else Decimal(0)
+            receivers = [k for k, c in by_isin.items() if c.sub_category == cat]
+            recv_total = sum((working[k] for k in receivers), Decimal(0))
+            for k in receivers:
+                frac = (
+                    working[k] / recv_total
+                    if recv_total > 0
+                    else Decimal(1) / Decimal(len(receivers))
+                )
+                working[k] += grant * frac
+
+    # 3. Count trim. Protected = weight-target categories present in the plan.
+    #    A count below the protected-category count is unsatisfiable as asked:
+    #    bump keep_n up to len(protected) — the chat layer discloses the bump.
+    live = [c for c in eligible if working[c.isin] > 0]
+    ordered = sorted(live, key=lambda c: (c.rank, -working[c.isin]))
+    keep = ordered
+    if constraints.target_fund_count is not None:
+        protected = {
+            cat for cat in (constraints.category_weight_targets or {})
+            if any(c.sub_category == cat for c in live)
+        }
+        keep_n = max(1, constraints.target_fund_count, len(protected))
+        keep, seen = [], set()
+        for c in ordered:              # best fund of each protected category first
+            if c.sub_category in protected and c.sub_category not in seen:
+                keep.append(c)
+                seen.add(c.sub_category)
+        for c in ordered:              # fill the rest by rank
+            if len(keep) >= keep_n:
+                break
+            if c not in keep:
+                keep.append(c)
+
+    # 4. Same arithmetic form as legacy: frozen base + rounded delta, residual
+    #    onto the largest surviving buy, total preserved exactly.
+    kept_total = sum((working[c.isin] for c in keep), Decimal(0))
+    displaced = total - kept_total
+    out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
+    for c in keep:
+        share = (
+            displaced * working[c.isin] / kept_total
+            if kept_total > 0
+            else displaced / Decimal(len(keep))
+        )
+        out[c.isin] = working[c.isin] + _round_to_multiple(share, rounding_multiple)
+    placed = sum(out.values(), Decimal(0))
+    residual = total - placed
+    if residual != 0 and keep:
+        biggest = max(keep, key=lambda c: out[c.isin])
+        out[biggest.isin] += residual
+    return out
+
+
 def _buy_key(obj) -> str:
     return getattr(obj, "isin", None) or getattr(obj, "recommended_fund", None) or ""
 
@@ -148,6 +273,10 @@ def reshape_response(
         present = {c.sub_category for c in candidates}
         if not (present & set(constraints.allowed_categories)):
             return response, "category_not_in_plan"
+    if constraints.category_weight_targets:
+        present = {c.sub_category for c in candidates}
+        if not (present & set(constraints.category_weight_targets)):
+            return response, "weight_category_not_in_plan"
 
     new_buys = compute_reshaped_buys(
         candidates, constraints, rounding_multiple=rounding_multiple)

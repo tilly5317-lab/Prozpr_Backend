@@ -15,6 +15,7 @@
 - **The pack ships current AND target AND ideal.** With only current present, the formatter answered "what is the plan moving me toward?" by citing it, then invented lock-ins to explain the mismatch (`rebal_engine/service.py` `build_rebal_facts_pack`).
 - A run ALWAYS rebalances toward a persisted asset-allocation run — `source_allocation_run_id` is required (`services/rebalancing_persist_service.py`).
 - The engine reuses a cached allocation for up to 90 days (`ALLOCATION_TTL_DAYS`); a chat override such as `additional_cash_inr` sets `force_fresh_allocation=True`, which skips that cache and re-runs allocation inline (`rebal_engine/service.py`). Miss this and chat returns a stale plan.
+- **Preference turns are stateless** (`persist=False`; spec 2026-08-24): the audit trail is `constraint_impact.applied_preferences` (payload + which magnitude default fired), and every unserved ask emits the `preference_unserved` PostHog event carrying ids only, never chat text (`rebal_engine/chat.py`, `app/core/observability.py`). Tilt turns run the engine twice (recommended + requested) and the facts pack is dual-source — the `tilt_note` labels which figures belong to which plan; don't let the formatter blend them.
 
 ## Don't read
 - `__pycache__/`.

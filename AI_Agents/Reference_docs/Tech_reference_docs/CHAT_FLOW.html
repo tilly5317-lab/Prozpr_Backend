@@ -315,6 +315,8 @@ Turns a target mix into an **actual trade plan**. Given the ideal mix (from Prac
 
 It is **tax-aware**. It knows how long each holding has been owned and what tax would apply if sold, and it chooses the order of sales to keep the customer's tax bill as low as possible (for example, favouring holdings that trigger lower tax, and using past losses to offset gains where possible). It also respects per-fund limits. The customer sees a readable summary of the recommended trades, *why* each one is suggested, and the tax impact. The recommendation is **saved**.
 
+**It now also takes fund preferences.** A customer can steer the plan in their own words — *"increase my equity,"* *"only equity funds,"* *"more mid cap,"* *"nothing with a lock-in,"* *"fewer funds"* — and the plan is rebuilt their way and shown **side by side** with the recommended one, so they see the trade-off instead of being refused. It never silently ignores a preference: if one can't be applied — a category we don't rank, or swapping in a specific named fund (which is coming later) — it says so plainly. These preference views are a **what-if**: they're **not saved**, and asking for the full plan again brings back the recommendation.
+
 ### Additional Investment
 Answers **"I have fresh money — where should it go?"** Given a lumpsum or a monthly SIP amount, it works out where the new money fits best in the customer's plan and recommends specific funds to **buy** (it never sells anything).
 

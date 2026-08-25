@@ -12,6 +12,9 @@ from collections import defaultdict
 from decimal import Decimal
 
 # Documented cross-agent import per spec §B.1 / §C.3.
+from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]
+    SUBGROUP_TO_ASSET_CLASS,
+)
 from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
     PracticalAllocationOutput,
     run_practical_allocation,
@@ -205,14 +208,63 @@ def _assign_subgroup_targets(
     return out
 
 
+def _apply_asset_class_tilt(rows, tilt):
+    """Scale each asset class's subgroup rows to hit the requested mix.
+
+    Within-class proportions are preserved (every bucket field scales by the
+    same factor). A requested class with zero current total cannot be created
+    from nothing — its share is re-spread over the present classes so the
+    grand total is preserved exactly.
+    """
+    if not tilt:
+        return rows
+    grand = sum(r.total for r in rows)
+    if grand <= 0:
+        return rows
+    current: dict[str, float] = {}
+    for r in rows:
+        cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
+        current[cls] = current.get(cls, 0.0) + r.total
+    present = {c: p for c, p in tilt.items() if current.get(c, 0.0) > 0}
+    present_share = sum(present.values())
+    if present_share <= 0:
+        return rows
+    factors = {
+        c: (grand * (p / present_share)) / current[c] for c, p in present.items()
+    }
+    out = []
+    for r in rows:
+        cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
+        f = factors.get(cls)
+        if f is None:
+            out.append(r)
+            continue
+        out.append(r.model_copy(update={
+            "emergency": r.emergency * f, "short_term": r.short_term * f,
+            "medium_term": r.medium_term * f, "long_term": r.long_term * f,
+            "total": r.total * f,
+        }))
+    return out
+
+
 def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeResponse:
     # 1. Practical allocation (holdings-aware; consumes ELSS + non-MF scalars).
     practical = run_practical_allocation(request.practical_allocation_input)
 
     # 2. Split per-subgroup MF targets across ranked rows: held funds inside the
     #    rank band reserve what they hold, the residual goes to the best rank.
+    #    A customer asset-class tilt reshapes only this targets view; the
+    #    response's practical_allocation stays engine-recommended (the
+    #    comply-and-caution baseline).
+    practical_for_targets = practical
+    if request.asset_class_tilt:
+        practical_for_targets = practical.model_copy(update={
+            "aggregated_subgroups": _apply_asset_class_tilt(
+                practical.aggregated_subgroups, request.asset_class_tilt
+            )
+        })
     rows_with_targets = _assign_subgroup_targets(
-        request.rows, practical, request.rounding_step
+        request.rows, practical_for_targets, request.rounding_step
     )
 
     # 3. Six-step rebalancing engine (interface unchanged).

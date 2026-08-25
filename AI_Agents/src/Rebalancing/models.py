@@ -156,6 +156,12 @@ class RebalancingComputeRequest(BaseModel):
     effective_tax_rate_pct: float = Field(ge=0.0, le=100.0)
     rounding_step: int = Field(default=100, ge=1)
 
+    # Optional customer preference: absolute asset-class target mix (percent,
+    # ~sums to 100) applied to the practical allocation before subgroup targets
+    # are lifted. None = engine-recommended mix. Spec:
+    # docs/superpowers/specs/2026-08-24-investment-preferences-design.md
+    asset_class_tilt: dict[str, float] | None = None
+
     # Per-request capital-gains state (bucket D). The three fields below are
     # INDEPENDENT inputs — do NOT derive one from another. In particular,
     # stcg_offset_budget_inr must not be populated from the carryforward losses,

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **EXECUTION STATUS (2026-08-25): ALL TASKS COMPLETE** (inline execution). Deviations from plan, all disclosed in-session: fund resolver placed in existing `fund_ranking_lookup.py` as `resolve_ranked_fund` (found existing DB-backed `fund_resolver_service.resolve_fund`; no new file); eval gated by `RUN_REBAL_DETECTOR_EVAL=1` (repo convention) instead of key-presence; why-not answers go through `format_relay_or_canned` (no engine response needed); Task 10's two integration guards live in `test_preference_chat_wiring.py` (exact duplicates dropped per DRY); ruff step skipped — no ruff binary in `.venv-mac`. Eval results: existing 8/8 → 8/8 (no regression), v1-pref 4/12 → 12/12. All 16 full-suite failures/errors verified pre-existing via stash-baseline diff.
+
 **Goal:** Customers can state fund preferences in rebalancing chat — asset-class scope, equity tilt, category weights/exclusions, named-fund explanations — and get their plan their way, side by side with the recommended plan, in one deterministic pass. (Named-fund *inclusion* in the plan is Phase 2, at its correct seam: the input builder, where the engine computes real numbers for the injected fund.)
 
 **Prime directive (audit 2026-08-24):** the shipped F3-B reshape arithmetic is NEVER modified — when only the legacy constraints are active, `compute_reshaped_buys` runs the original code path byte-for-byte. All new capability is layered AROUND the core, never through it.
@@ -737,10 +739,10 @@ git commit -m "feat(preferences): thread asset_class_tilt override into the comp
 
 ### Task 5: Named-fund resolver (`resolve_fund`)
 
-**Files:**
-- Modify: `app/domains/rebalancing/services/rebal_engine/fund_rank.py` (add a name index over ALL CSV rows)
-- Create: `app/domains/mutual_funds/services/fund_resolver.py`
-- Test: `app/domains/mutual_funds/services/tests/test_fund_resolver.py`
+**Files (revised during execution — duplication found):** the domain already has `fund_resolver_service.py` (DB-backed identity resolution — would miss CSV-only rejected funds) and `fund_ranking_lookup.py` (declared home for "thin lookups over the cached fund-ranking CSV"). So: NO new `fund_resolver.py`; the CSV-side matcher lives in `fund_ranking_lookup.py` as `resolve_ranked_fund` (name chosen to avoid colliding with the existing `resolve_fund` symbol).
+- Modify: `app/domains/rebalancing/services/rebal_engine/fund_rank.py` (add `get_all_rows()` over ALL CSV rows)
+- Modify: `app/domains/mutual_funds/services/fund_ranking_lookup.py` (add `FundResolution` + `resolve_ranked_fund`)
+- Test: `app/domains/mutual_funds/services/tests/test_fund_resolver.py` (+ fixture CSV)
 
 **Interfaces:**
 - Consumes: `get_fund_ranking()` (recommended rows), `get_rejection_reasons()` (`{isin: reason_text}` for rank-blank rows), plus a NEW `fund_rank.get_all_rows() -> list[FundRankRow]` (every CSV row, recommended or not; same cached-loader pattern as `get_fund_ranking`, rejected rows carry `rank=0`).
@@ -1466,6 +1468,7 @@ Also in this step:
 3. Redirect branch and `_counterfactual_explore`'s invalid-override branch: add `capture_preference_unserved(flow="rebalancing", failure_class="redirect"|"invalid_override", session_id=ctx.session_id, distinct_id=ctx.effective_user_id)`.
 4. Mode dispatch inside `_handle_action` (from 9a): route `counterfactual_explore` with tilt/scope fields → `_handle_preference_counterfactual`; `named_fund` set → `_handle_named_fund`; detector-flagged contradiction arrives as `clarify` (no new dispatch needed).
 5. Zero-class shortfall disclosure (Task 3's note): in `_handle_preference_counterfactual`, when a requested class has ~0% in `current_mix`, append `{"shortfall_note": "no <class> holdings exist to scale — the request was spread over the present classes"}` to `applied_preferences` so the reply says it plainly.
+6. **Dual-source labeling on tilt turns (architecture review 2026-08-24):** `build_rebal_facts_pack` reads `response.practical_allocation`, which stays UNTILTED while rows/targets are tilted — so the tilt-turn facts pack carries both the recommended mix and the requested mix. That is the comply-and-caution comparison, but the formatter must be told which is which: extend `tilt_note` to state explicitly that the practical/ideal-allocation figures are the RECOMMENDED baseline and the trade rows are the REQUESTED plan, and never to average or blend the two. Add one wiring test asserting `tilt_note` names both sources.
 
 - [ ] **Step 4: Run the wiring tests + full rebal suite**
 

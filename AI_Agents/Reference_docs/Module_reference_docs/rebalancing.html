@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Deterministic engine</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-08-25
       </div>
     </div>
     <article id="content"></article>
@@ -361,6 +361,7 @@ Entry is `run_rebalancing(request: RebalancingComputeRequest) → RebalancingCom
 | `carryforward_st_loss_inr` | `Decimal` ≥ 0 | brought-forward **short-term** loss; offsets STCG in step5 |
 | `carryforward_lt_loss_inr` | `Decimal` ≥ 0 | brought-forward LT loss — **reserved**, deliberately unused (LT losses offset only LTCG, not yet modelled) |
 | `rounding_step` | `int` = 100 | rupee rounding granularity |
+| `asset_class_tilt` | `dict[str, float]?` = `None` | **preference seam** (2026-08 spec) — an absolute `{equity, debt, others}` target mix (%, ~sums to 100) scaled onto the practical allocation *before* subgroup targets are lifted (`_apply_asset_class_tilt`). `None` = engine-recommended mix; set only on a chat tilt turn (see §6) |
 | `rows` | `list[FundRowInput]` | one homogeneous list of MF rows (recommended + BAD); ELSS rows are filtered out upstream |
 
 **`FundRowInput`** — one row per rank slot. Three flavours, distinguished by `rank`:
@@ -476,11 +477,101 @@ Watch the invariants fire: the force-exit's **short-term** slice is held back be
 
 ---
 
-## 6. Where the LLM is
+## 6. Investment preferences (chat-driven)
+
+Since the [2026-08-24 preferences spec](../../../docs/superpowers/specs/2026-08-24-investment-preferences-design.md), a customer can state a fund preference mid-rebalance — *"increase my equity to 70%"*, *"only equity funds"*, *"more mid cap"*, *"nothing with a lock-in"*, *"why not Quant Small Cap?"* — and get **their** plan computed and shown **beside** the recommended one. The stance is **comply-and-caution**: any expressible preference is honoured (even past the customer's risk band), and the deviation from the recommendation is always surfaced so the customer decides, informed — no suitability clamp, no refusal tier. This is **Phase 1 — rebalancing only**; SIP / lump-sum parity is sequenced behind it.
+
+None of it lives in the engine. It is glued on at the app layer ([`rebal_engine/chat.py`](../../../app/domains/rebalancing/services/rebal_engine/chat.py)) plus two thin engine seams, and the engine stays byte-for-byte deterministic — the same request still yields the same trades.
+
+<div class="callout">
+  <div class="title">One deterministic pass — no agentic loop</div>
+  <p>A single Haiku <strong>detector</strong> extracts a whitelisted vocabulary → <strong>pure Python</strong> applies it → the shared answer formatter <strong>narrates</strong>. The LLM never picks a magnitude and never decides whether computation happens. Everything a future loop would need is built here, but the loop itself stays a documented growth path, not shipped.</p>
+</div>
+
+### How a preference turn routes
+
+The follow-up detector returns a `RebalanceAction`; [`_handle_action`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) dispatches on the preference fields *before* the ordinary mode ladder.
+
+```mermaid
+flowchart TB
+    Q([follow-up question]) --> DET["Haiku detector<br/>→ RebalanceAction"]
+    DET --> NF{named_fund?}
+    NF -->|yes| HNF["_handle_named_fund<br/>answer from ranking CSV · no engine run"]
+    NF -->|no| TS{"tilt / scope?<br/>(counterfactual_explore)"}
+    TS -->|yes| PC["_handle_preference_counterfactual<br/>PRE-engine tilt · engine runs ×2"]
+    TS -->|no| CON{consolidate?}
+    CON -->|yes| RS["_consolidate<br/>POST-engine buy reshape · engine ×1"]
+    CON -->|no| LAD["ordinary ladder<br/>narrate · educate · compute · clarify · redirect"]
+```
+
+### The vocabulary the detector extracts
+
+`RebalanceAction` gained a preference vocabulary alongside the existing modes. The detector fills these fields; canonicalisation and magnitudes are the app's job, never the model's.
+
+| `RebalanceAction` field | Customer utterance | How it's served |
+|---|---|---|
+| `scope_only_asset_classes` | "only equity funds", "no gold" | normalised to an absolute tilt **before** the engine — "only equity" ≡ `{equity: 100}`; one pre-engine mechanism, not two |
+| `tilt_asset_class` (+ `tilt_delta_pp` / `tilt_target_pct`) | "increase equity by 10 / to 70%" | pre-engine asset-class tilt; the number is used **only when stated** |
+| `category_weights` | "more mid cap", "at least 30% small cap" | post-engine minimum share of the buy sleeve; sentinel `0` = "no percent said" |
+| `excluded_categories` | "nothing with a lock-in" | post-engine exclusion from new buys |
+| `allowed_categories`, `target_fund_count` | (existing F3-B) | post-engine restrict / trim — **unchanged** |
+| `named_fund` (+ `named_fund_intent`) | "use fund X", "why not fund X?" | answered from the ranking CSV; **include is Phase-2-deferred** |
+
+Multiple keys compose in one turn. Two contracts the prompt enforces: the detector **never invents a number**, and it **never emits the internal `asset_class_tilt` key** — it fills the `tilt_*` fields and the app builds the tilt. Category words stay the customer's verbatim; the app canonicalises them to SEBI `sub_category` via [`category_resolver.resolve_categories`](../../../app/domains/mutual_funds/services/category_resolver.py). A cross-key contradiction ("only debt, but more mid cap") routes to `clarify`, naming the conflict.
+
+### Two deterministic seams
+
+**Before the engine — asset-class tilts.** A tilt becomes the new `asset_class_tilt` field on `RebalancingComputeRequest` (an absolute `{class: pct}` mix). In [`pipeline.py`](../../src/Rebalancing/pipeline.py), `_apply_asset_class_tilt` scales each class's subgroup rows onto that mix *before* `_assign_subgroup_targets` lifts per-row targets — within-class proportions preserved, a requested-but-absent class re-spread over the classes actually present so the grand total stays exact. Only the **targets** view is tilted: `response.practical_allocation` stays engine-recommended, because that is the comply-and-caution **baseline**.
+
+The tilt turn ([`_handle_preference_counterfactual`](../../../app/domains/rebalancing/services/rebal_engine/chat.py)) runs the engine **twice**, both `persist=False`: run 1 = recommended, run 2 = requested. `build_constraint_impact(baseline, requested, …)` computes the deviation between the two plans — the caution lens — and the handler stamps `applied_preferences` (which default fired) plus a `tilt_note` telling the formatter to present the two plans **side by side, never blended** (the ideal/practical figures are the baseline's; the trade rows and tax are the requested plan's).
+
+<div class="callout danger">
+  <div class="title">⚠ Tilts legitimately change sells</div>
+  <p>"Increase my equity" against a debt-heavy book can mean <em>sell debt now</em>, with real STCG / exit-load consequences. That is intended (comply-and-caution) — but the caution lens must surface the tax of tilt-induced sells specifically, which is why the trade rows in a tilt turn come from the <strong>requested</strong> run, not the recommendation. And the tilt baseline is the recommended <strong>target mix</strong>, never current holdings (<code>_planned_mix_pct</code>).</p>
+</div>
+
+**After the engine — category weights, exclusions, counts.** These reshape only the **buy** side of a finished response ([`consolidation.py`](../../src/Rebalancing/consolidation.py)); sells and tax are untouched and the total buy is preserved exactly. The reshape generalises the original F3-B `compute_reshaped_buys`, under a hard rule:
+
+- **Legacy path, byte-for-byte.** `allowed_categories` and/or `target_fund_count` only (no exclusion, no weight) → `_reshape_legacy`: the original F3-B arithmetic, unchanged.
+- **Extended path.** Any `excluded_categories` or `category_weight_targets` → `_reshape_extended`: eligibility filters → raise each named category to its target share (donors in non-named categories scaled down pro-rata, flooring at 0 = honest partial satisfaction) → count trim that **protects** the weight-target categories (an unsatisfiable count bumps up to the protected count, disclosed as `count_bumped_to`). Same arithmetic form as legacy — frozen base + rounded delta, rounding residual onto the largest surviving buy.
+
+New capability is layered **around** the core, never through it, so the legacy path cannot regress.
+
+### Magnitude defaults are policy, not judgement
+
+The detector reports a number or its **absence**; a fixed policy table decides the rest, and every default is disclosed in `constraint_impact.applied_preferences` under a `source` token:
+
+| Case | Rule | Mechanism · `source` |
+|---|---|---|
+| Tilt **with** a number ("to 70%", "by 10") | use it | `asset_class_tilt` override · `customer_number` |
+| Tilt, no number | allocate at the top score of the customer's risk band, never pushed beyond it (no risk profile falls back to the AA default score) | `effective_risk_score = edge` override + fresh allocation · `band_edge_default` |
+| Category weight, no number ("more mid cap") | raise to **10%** of the buy budget (`_DEFAULT_WEIGHT_STEP`) | post-engine reshape · flagged `weight_default_applied` |
+| Consolidate, no count, already asked once | spread across **5** funds (`_DEFAULT_CONSOLIDATE_FUND_COUNT`) | disclosed as `defaulted_fund_count` |
+
+Note that the no-number tilt default is **not** a tilt at all — it re-runs allocation at the band-edge risk score through the existing `effective_risk_score` path, adding no new allocation machinery. The band edge is resolved by [`investment_preferences.band_edge_score`](../../../app/domains/mutual_funds/services/investment_preferences.py), whose `_BAND_UPPER` table deliberately duplicates `common.category_for_effective_risk_score`'s thresholds and **raises on drift** — a real exception, not an `assert` that `-O` would strip — so a sync bug fails loudly in production rather than silently in advice.
+
+### Named funds
+
+`named_fund` never runs the engine — [`_handle_named_fund`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) answers from the ranking CSV:
+
+- **Why-not** quotes the CSV's own words: an evaluated-but-rejected fund gets its `rejection_reason`; a fund that *is* on the list gets its `selection_reason`; an ambiguous name asks which; an unknown name refuses to guess (and fires `fund_unknown` telemetry) rather than comment on a fund we never evaluated.
+- **Include is deferred to Phase 2.** Injecting a customer-named fund belongs at the *input-builder* seam — the fund enters as a ranked row so the engine computes real buy/tax numbers; doing it at the reshape would fabricate row fields. Phase 1 answers the ask **honestly** ("coming later" + why we picked ours) and measures demand via `named_include_deferred` telemetry.
+
+### Never silently ignore
+
+Every preference turn is `persist=False` — nothing is stored, and *"back to the full plan"* is just `narrate`, not a stored constraint to unwind. If a detected preference cannot be served — an out-of-scope `redirect`, an unranked category, a category not in the plan, a deferred include, an unknown fund — the reply says so **before** any plan, and the flow fires a content-free [`preference_unserved`](../../../app/core/observability.py) PostHog event. It carries **ids only** — `flow`, a fixed `failure_class` token, and `session_id` — **never chat text** (PostHog holds no transcripts; reviewers join to the Postgres transcript by session + timestamp). That event is the demand signal that grows the vocabulary from evidence, not guesswork. Enforcement is honestly scoped: the runtime guarantees the honest-limitation sentence only on *detected-but-unservable* paths — an ask the detector misses entirely is owned by the detector eval set, not a runtime guard.
+
+> **Detector eval.** On the labelled set the existing rebalancing vocabulary held at **8/8** (no regression) while the new preference vocabulary went **4/12 → 12/12**. Routing stays a classification eval by design.
+
+---
+
+## 7. Where the LLM is
 
 **Nowhere — the engine never calls an LLM.** There is no `llm_client.py`, no prompt file, no model id anywhere under [`src/Rebalancing/`](../../src/Rebalancing/). Every output is a pure `Decimal` computation over the request.
 
 That matters for **reproducibility**: the same request always yields byte-identical trades, and `metadata.engine_version` + `KnobSnapshot` stamp exactly which logic and knobs produced them (for cache/repro tracking). Any narration a customer sees is added *later*, by the app-layer chat handler / shared answer formatter — the numbers it narrates are these deterministic ones, never re-derived by a model.
+
+The one model in the wider rebalancing *flow* is the follow-up **detector** — a Haiku call in the app-layer chat handler that classifies the turn and, since the 2026-08 spec, extracts the investment-preference vocabulary (§6). It picks a route and a whitelisted vocabulary; it never computes a rupee or a magnitude — the policy table and the pure-Python seams do.
 
 <div class="callout danger">
   <div class="title">⚠ The double-count trap the request contract guards against</div>
@@ -489,7 +580,7 @@ That matters for **reproducibility**: the same request always yields byte-identi
 
 ---
 
-## 7. File map
+## 8. File map
 
 | File | Role |
 |---|---|
@@ -500,7 +591,7 @@ That matters for **reproducibility**: the same request always yields byte-identi
 | [`utils.py`](../../src/Rebalancing/utils.py) | pure math: `round_to_step`, `floor_to_step`, `compute_stcg/ltcg`, `estimate_tax` |
 | [`rationales.py`](../../src/Rebalancing/rationales.py) | customer-facing `reason_code` → `(title, text)` map + the STCG-cap suffix template |
 | [`steps/`](../../src/Rebalancing/steps/) | the six ordered steps (see §5 table) |
-| [`consolidation.py`](../../src/Rebalancing/consolidation.py) | **post-hoc, opt-in** buy-side reshape (F3-B): redistributes only the BUY budget across allowed/fewer funds; runs *outside* the engine, on a finished response |
+| [`consolidation.py`](../../src/Rebalancing/consolidation.py) | **post-hoc, opt-in** buy-side reshape (F3-B): redistributes only the BUY budget across allowed/fewer funds; runs *outside* the engine, on a finished response. The 2026-08 preferences spec adds `excluded_categories` + `category_weight_targets` via `_reshape_extended`, with the legacy allowed/count-only path (`_reshape_legacy`) unchanged byte-for-byte |
 | [`__init__.py`](../../src/Rebalancing/__init__.py) | re-exports `run_rebalancing` + the three public I/O models (`FundRowInput`, `RebalancingComputeRequest`, `RebalancingComputeResponse`) |
 
 App-layer companions (where the request comes from — not part of the engine):
@@ -512,10 +603,13 @@ App-layer companions (where the request comes from — not part of the engine):
 | [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | builds `RebalancingComputeRequest` from `ctx` + allocation + DB |
 | [`rebal_engine/fund_rank.py`](../../../app/domains/rebalancing/services/rebal_engine/fund_rank.py) | ranking-CSV loader; owns the duplicated `FORCE_EXIT_RANK` |
 | [`rebal_engine/formatter.py`](../../../app/domains/rebalancing/services/rebal_engine/formatter.py) | sectioned chat markdown over the response |
+| [`rebal_engine/chat.py`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) | the `rebalancing` follow-up handler: mode + preference detector and the preference routing (`_handle_preference_counterfactual`, `_consolidate`, `_handle_named_fund`) — §6 |
+| [`rebal_engine/constraint_impact.py`](../../../app/domains/rebalancing/services/rebal_engine/constraint_impact.py) | comply-and-caution deviation numbers (`build_constraint_impact`) shared by the consolidate and tilt paths |
+| [`mutual_funds/services/investment_preferences.py`](../../../app/domains/mutual_funds/services/investment_preferences.py) | pure tilt/scope normalisation + magnitude-default helpers (`normalize_tilt`, `band_edge_score`), shared across preference-bearing flows |
 
 ---
 
-## 8. Invariants & landmines
+## 9. Invariants & landmines
 
 - **Money is `Decimal` here — the whole engine.** Do **not** let a `float` leak into a rupee amount; the sibling allocation family (`asset_allocation_pydantic`) works in floats, so a copy-paste from there is a real bug. Percentages are `float`, amounts are `Decimal`.
 - **STCG only on force-exit.** Optional (recommended-fund-trim) sells are **LT-only** — `_execute_sells` forces `st_available=0` for non-forced rows ([step4](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py)). Only a force-exit may realise STCG, and only up to `stcg_offset_budget_inr`. Loosening this in the "optional" branch silently changes tax behaviour.
@@ -529,10 +623,11 @@ App-layer companions (where the request comes from — not part of the engine):
 - **Overflow is never dropped.** Cap-spill that exhausts the last rank surfaces as `unrebalanced_remainder_inr` + an `UNREBALANCED_REMAINDER` warning — don't "clean it up" by discarding it.
 - **Bump `ENGINE_VERSION` on any output-altering change** ([`config.py`](../../src/Rebalancing/config.py)) — it's stamped into response metadata for cache/repro tracking.
 - **`consolidation.py` runs on a finished response, not inside the engine.** It reshapes *only* buys, preserving total buy and every sell; the engine itself is run once, unmodified.
+- **Investment preferences (2026-08) are chat-layer and stateless.** The preference seams live in the app layer, never in the engine (§6): asset-class **tilts** run the engine *twice* (recommended + requested) via the `asset_class_tilt` request field and `_apply_asset_class_tilt`; category weights/exclusions reshape buys *after* a single run. Every turn is `persist=False` — nothing is stored — and every applied magnitude default is disclosed in `constraint_impact.applied_preferences`. The extended reshape (`_reshape_extended`) is layered *around* the legacy F3-B arithmetic (`_reshape_legacy`), which must stay byte-for-byte for the allowed/count-only path. The detector must never emit `asset_class_tilt` itself — it fills the `tilt_*` fields and the app builds the mix.
 
 ---
 
-## 9. Extend & test
+## 10. Extend & test
 
 Engine tests live at [`AI_Agents/src/Rebalancing/Testing/`](../../src/Rebalancing/Testing/) — per-step + end-to-end:
 
@@ -568,7 +663,7 @@ Because the engine is deterministic, a step test is just "these inputs → exact
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-08-25 (adds §6 Investment preferences). If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

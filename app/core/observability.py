@@ -221,6 +221,37 @@ def capture_flow_completed(
         pass
 
 
+def capture_preference_unserved(
+    *,
+    flow: str,
+    failure_class: str,
+    session_id: object | None,
+    distinct_id: object | None,
+) -> None:
+    """A customer investment preference we could not serve (spec 2026-08-24).
+
+    ``failure_class`` is a fixed token, never free text. NO chat content —
+    PostHog holds no transcripts; join to the Postgres transcript rows by
+    session_id + event timestamp to read the actual ask. This event is the
+    demand signal that grows the preference vocabulary.
+    """
+    client = _posthog_client
+    if client is None:
+        return
+    try:
+        client.capture(
+            "preference_unserved",
+            distinct_id=str(distinct_id) if distinct_id else "backend",
+            properties={
+                "flow": flow,
+                "failure_class": failure_class,
+                "session_id": str(session_id) if session_id else None,
+            },
+        )
+    except Exception:  # pragma: no cover - reporting must never raise
+        pass
+
+
 def capture_job_completed(
     *,
     job: str,

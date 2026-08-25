@@ -1,7 +1,7 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: 25 August 2026*
 
 ---
 
@@ -27,6 +27,14 @@ A rebalance is a **disciplined return to the plan** — not a reaction to market
 | **8. Frozen holdings stay frozen; concentrated stocks get one instruction** | Tax-saving (ELSS) units under their statutory lock-in are shown but never traded by this engine until they unlock. Direct stocks and PMS, which we can't trim fund-by-fund, are handled as a separate envelope; when they're over-concentrated, we issue a single instruction to reduce them by a given amount and leave the choice of *which* names to sell to you and your advisor. |
 
 We are a rebalancing approach, not a market-timing engine. We do not raise cash before a perceived correction, lever up before a perceived rally, or chase whichever subgroup is in vogue. The plan that walks into a rebalance is the plan that walks out — better aligned, tax-efficient, and on the right side of every guardrail.
+
+## When you want to steer the plan — comply, and caution
+
+We won't tilt your portfolio to chase a market view — but you may want to shape it for reasons of your own, and that is a different thing entirely. You might want to lean further into equity, favour a category like mid-cap, or keep a whole kind of fund out — anything with a lock-in, say. When you tell us, we honour it. This is your money, and we are your advisor, not a gatekeeper — the call is yours to make.
+
+What we won't do is let you make it blind. Whenever your instruction moves the portfolio away from what we would otherwise recommend, we put the two plans next to each other — how the shape differs, and what the deviation costs, including any extra tax your change sets in motion. You get the plan you asked for *and* a clear-eyed view of the trade-off, every time. Comply, and caution — never one without the other.
+
+And where we genuinely cannot honour a request, we say so plainly rather than pretend. Ask us to favour a kind of fund we don't research and we will tell you we don't cover it — we won't quietly drop the ask, and we won't manufacture a view we don't hold. An honest "not here" is worth more than a confident answer we can't stand behind.
 
 ## How a rebalance is built — at a high level
 
@@ -80,4 +88,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask PI · Rebalancing Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Rebalancing Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly*
