@@ -6,7 +6,9 @@ Everything is best-effort — on a missing key, timeout, or any error we fall ba
 to a deterministic label (intent + a trimmed snippet of the message) so a session
 is never left without a sensible name and titling never blocks/fails the reply.
 
-Called once, on a session's first turn (see ``chat_router.send_message``).
+Called once, on a session's first turn, by BOTH send-message endpoints — see
+``maybe_start_auto_title`` below, which owns the "should we title this?" gate
+so the streaming and non-streaming paths cannot disagree about it.
 """
 
 from __future__ import annotations
@@ -69,6 +71,33 @@ def _fallback_title(first_message: str, intent_name: str | None) -> str:
         snippet = " ".join(snippet.split(" ")[:8])
         return _clean(f"{label} — {snippet}" if label else snippet)
     return label or "New chat"
+
+
+# Titles the auto-titler is allowed to replace. Anything else is a name the
+# user (or an earlier first turn) already chose, so it stands.
+_DEFAULT_TITLES = ("", "New Chat", "New conversation", "Pi Chat")
+
+
+def maybe_start_auto_title(
+    *, current_title: str | None, has_history: bool, first_message: str
+) -> asyncio.Task | None:
+    """Start first-turn titling CONCURRENTLY with the brain, or return None.
+
+    Kicking the call off before the brain runs means titling adds no latency to
+    the reply (it used to block for up to 6s after the brain finished). The
+    intent hint is dropped — it isn't known yet, and the message text dominates
+    the title anyway.
+
+    Returns None unless this is the very first turn of a still-default-named
+    session, so a manual rename is never overwritten. The returned task never
+    raises (``generate_chat_title`` falls back), so the caller can assign its
+    result unconditionally.
+    """
+    if has_history:
+        return None
+    if (current_title or "") not in _DEFAULT_TITLES:
+        return None
+    return asyncio.create_task(generate_chat_title(first_message, intent_name=None))
 
 
 async def generate_chat_title(first_message: str, intent_name: str | None) -> str:

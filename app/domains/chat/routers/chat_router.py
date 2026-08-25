@@ -38,7 +38,7 @@ from app.domains.ai_engine import ChatBrain, ChatTurnInput
 from app.domains.ai_engine.streaming import open_token_stream
 from app.domains.ai_engine.thinking import clear_thinking, get_thinking
 from app.domains.chat.services.chat_context import load_conversation_history
-from app.domains.chat.services.chat_title_service import generate_chat_title
+from app.domains.chat.services.chat_title_service import maybe_start_auto_title
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -228,22 +228,12 @@ async def send_message(
 
     conversation_history = await load_conversation_history(session_id, db)
 
-    # First-turn auto-title: start the Haiku call CONCURRENTLY with the brain
-    # so titling adds no latency to the reply (it used to block for up to 6s
-    # after the brain finished). The intent hint is dropped — it isn't known
-    # yet, and the message text dominates the title anyway. Only on the very
-    # first message and while the title is still a default, so a manual or
-    # earlier title is never overwritten. generate_chat_title never raises.
-    title_task: asyncio.Task | None = None
-    if not conversation_history and (session.title or "") in (
-        "",
-        "New Chat",
-        "New conversation",
-        "Pi Chat",
-    ):
-        title_task = asyncio.create_task(
-            generate_chat_title(payload.content, intent_name=None)
-        )
+    # First-turn auto-title, run alongside the brain so it adds no latency.
+    title_task = maybe_start_auto_title(
+        current_title=session.title,
+        has_history=bool(conversation_history),
+        first_message=payload.content,
+    )
 
     # Persist user message.
     user_msg = ChatMessage(
@@ -308,6 +298,7 @@ async def send_message(
         asset_allocation_run_id=brain_result.asset_allocation_run_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
         portfolio_data_missing=brain_result.portfolio_data_missing,
+        session_title=session.title,
     )
 
 
@@ -351,6 +342,15 @@ async def send_message_streaming(
         )
         db.add(user_msg)
 
+        # First-turn auto-title, exactly as the non-streaming endpoint does
+        # it. This endpoint is the one the app actually calls, so without
+        # this a session kept its "New Chat" placeholder forever.
+        title_task = maybe_start_auto_title(
+            current_title=session.title,
+            has_history=bool(conversation_history),
+            first_message=payload.content,
+        )
+
         try:
             async with open_token_stream() as stream:
                 turn = asyncio.create_task(
@@ -372,6 +372,8 @@ async def send_message_streaming(
                 brain_result = await turn
         except Exception as exc:
             logger.exception("streaming chat turn failed (session=%s)", session_id)
+            if title_task is not None:
+                title_task.cancel()
             yield sse("error", {"detail": type(exc).__name__})
             return
         finally:
@@ -387,6 +389,12 @@ async def send_message_streaming(
             intent=brain_result.intent,
         )
         db.add(assistant_msg)
+
+        # Collect the auto-title started before the brain (usually already
+        # done, so this await is ~free) and persist it in the same commit.
+        if title_task is not None:
+            session.title = await title_task
+
         await db.commit()
         await db.refresh(user_msg)
         await db.refresh(assistant_msg)
@@ -404,6 +412,7 @@ async def send_message_streaming(
                 asset_allocation_run_id=brain_result.asset_allocation_run_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
                 portfolio_data_missing=brain_result.portfolio_data_missing,
+                session_title=session.title,
             ).model_dump(),
         )
 
