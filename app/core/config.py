@@ -554,6 +554,26 @@ class Settings:
         return raw in {"1", "true", "yes", "on"}
 
     @staticmethod
+    def otp_bypass_domains() -> frozenset[str]:
+        """Email domains whose accounts skip the step-up code on sensitive edits.
+
+        This exists so the team can exercise the email/PAN change flow without a
+        live inbox in the loop. It is a REAL HOLE in an account-takeover control:
+        any account whose address ends in a listed domain can change its own
+        email and PAN with nothing but a session.
+
+        Default empty, so production is closed unless somebody opts in. Set
+        ``OTP_BYPASS_DOMAINS=prozpr.com`` on dev; never set it on prod, and if
+        prozpr.com ever becomes a domain real customers sign up under, delete
+        this setting rather than trying to scope it."""
+        raw = (_getenv("OTP_BYPASS_DOMAINS") or "").strip().lower()
+        if not raw:
+            return frozenset()
+        return frozenset(
+            d.strip().lstrip("@") for d in raw.split(",") if d.strip().lstrip("@")
+        )
+
+    @staticmethod
     def fp_sandbox_quest_enabled() -> bool:
         """Gate for the ``/fp/sandbox/*`` Quest Map dev routes.
 

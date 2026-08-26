@@ -5,10 +5,11 @@ Request/response or DTO shapes for API validation and OpenAPI documentation. Kep
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _normalize_country_code(value: str) -> str:
@@ -164,6 +165,21 @@ class CurrentUserResponse(BaseModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
+    # PAN is returned MASKED and never in full — there is no reveal endpoint.
+    # It is a permanent national identifier, nothing in the app needs the whole
+    # value, and `/auth/me` is fetched on nearly every page load and lands in
+    # browser devtools, HTTP caches and error payloads.
+    pan_masked: str | None = None
+    #: Whether a PAN is on file at all — the UI needs to tell "not set" apart
+    #: from "set but hidden" without seeing the value.
+    pan_set: bool = False
+    #: Which field, if any, is parked awaiting a step-up code. Lets the UI show
+    #: "verification pending" instead of silently discarding an in-flight edit.
+    pending_change_field: str | None = None
+    #: Whether a profile picture exists. The READ URL is not here on purpose —
+    #: it is presigned and short-lived, and /auth/me is called on nearly every
+    #: page load. Fetch it from /auth/me/avatar where it is actually rendered.
+    avatar_set: bool = False
     is_onboarding_complete: bool = False
     # True when the user chose "I'll do this later" on the onboarding CAMS step.
     # The app still offers the upload everywhere, but onboarding no longer
@@ -395,3 +411,98 @@ class WidgetVerifyRequest(BaseModel):
     @classmethod
     def validate_mobile(cls, v: str) -> str:
         return _validate_mobile_digits(v)
+
+
+# ── Step-up verification for sensitive edits (see /auth/me/sensitive/*) ──
+
+#: Fields that may not be changed on a session alone. All three are
+#: account-takeover primitives: the email owns the PIN reset, the mobile is the
+#: account's login identifier, and the PAN is what every CAS import and KYC
+#: check matches a person against.
+SENSITIVE_FIELDS = ("email", "pan", "mobile")
+
+#: Length of the emailed step-up code. Matches the PIN reset code so one OTP
+#: input component serves both.
+SENSITIVE_CODE_DIGITS = 6
+
+PAN_REGEX = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
+
+
+class SensitiveChangeRequest(BaseModel):
+    """Start a change. The value is parked server-side, not applied."""
+
+    field: str = Field(..., description="One of: email, pan, mobile")
+    new_value: str = Field(..., min_length=1, max_length=320)
+    #: Only read when ``field`` is "mobile". Folded into ``new_value`` by the
+    #: validator below so the parked value is self-contained — the confirm step
+    #: reads one column and must not need a second one to make sense of it.
+    country_code: str | None = Field(default=None, max_length=10)
+
+    @field_validator("field")
+    @classmethod
+    def validate_field(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in SENSITIVE_FIELDS:
+            raise ValueError(f"field must be one of {', '.join(SENSITIVE_FIELDS)}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_value_for_field(self) -> SensitiveChangeRequest:
+        """Validate the new value HERE, before a code is sent.
+
+        Rejecting a malformed PAN only at confirm time would burn the user's
+        code and make them start over for a typo they could have been shown
+        immediately."""
+        if self.field == "email":
+            v = self.new_value.strip().lower()
+            if "@" not in v or "." not in v.split("@")[-1]:
+                raise ValueError("Invalid email address")
+            object.__setattr__(self, "new_value", v)
+        elif self.field == "pan":
+            v = self.new_value.strip().upper().replace(" ", "")
+            if not re.match(PAN_REGEX, v):
+                raise ValueError("That doesn't look like a PAN (format: ABCDE1234F)")
+            object.__setattr__(self, "new_value", v)
+        elif self.field == "mobile":
+            digits = _validate_mobile_digits(self.new_value)
+            cc = _normalize_country_code(self.country_code or "+91")
+            if not cc or not cc.lstrip("+").isdigit():
+                raise ValueError("Invalid country code")
+            # Parked as "<country code> <national number>" — one column, split on
+            # the space at confirm time. Readable in the DB, and unambiguous in a
+            # way a concatenated E.164 string would not be.
+            object.__setattr__(self, "new_value", f"{cc} {digits}")
+        return self
+
+
+class SensitiveChangeRequestResponse(BaseModel):
+    field: str
+    #: False when the change was applied immediately because the account is on
+    #: a bypass domain (OTP_BYPASS_DOMAINS). The UI must not show a code screen.
+    verification_required: bool
+    message: str
+    #: Masked form of the inbox the code went to — the CURRENT address on file,
+    #: never the proposed new one.
+    email_hint: str | None = None
+    expires_in_minutes: int | None = None
+
+
+class SensitiveChangeConfirmRequest(BaseModel):
+    """Only the code. The pending value lives on the server, so an intercepted
+    confirm cannot redirect the change to a different address."""
+
+    code: str = Field(..., min_length=SENSITIVE_CODE_DIGITS, max_length=SENSITIVE_CODE_DIGITS)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        v = v.strip()
+        if not v.isdigit():
+            raise ValueError("The code is 6 digits")
+        return v
+
+
+class AvatarResponse(BaseModel):
+    """Short-lived read URL for the profile picture, or null when none is set."""
+
+    url: str | None = None

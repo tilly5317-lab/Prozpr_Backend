@@ -137,6 +137,40 @@ class User(Base):
         SmallInteger, default=0, nullable=False, server_default="0"
     )
 
+    # ── Profile picture (see /auth/me/avatar) ──
+    # S3 object key, not a URL: the object is private, so reads go through a
+    # short-lived presigned URL minted on demand. Storing a URL would bake an
+    # expiry into the database.
+    avatar_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
+    # ── Step-up verification for sensitive edits (see /auth/me/sensitive/*) ──
+    # Changing the email or PAN on an account is an account-takeover primitive:
+    # whoever holds the email holds the PIN reset, and the PAN is the identifier
+    # every downstream KYC and CAS match keys off. So the new value is PARKED
+    # here rather than written, and only lands once a code sent to the address
+    # already on file comes back.
+    #
+    # Parking the value server-side (rather than resending it with the code) is
+    # the point: confirm carries nothing but the code, so an attacker who
+    # intercepts the confirm call cannot swap in a different destination.
+    sensitive_change_field: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True
+    )
+    sensitive_change_value: Mapped[Optional[str]] = mapped_column(
+        String(320), nullable=True
+    )
+    # Hashed for the same reason the PIN reset code is: a DB leak must not hand
+    # out a working step-up token.
+    sensitive_change_code_hash: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    sensitive_change_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sensitive_change_attempts: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False, server_default="0"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
