@@ -10,9 +10,12 @@ on:
     branches: [main, master, develop]
   workflow_dispatch:
 
+# One run per PR (not per-ref, which double-runs push+pull_request on same-repo
+# branches). Never cancel on main/master: Deploy triggers on a *successful* CI
+# workflow_run, so a cancelled CI silently drops that commit's deploy.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
@@ -23,6 +26,7 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +45,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: lint
+    timeout-minutes: 20
     env:
       PYTHONPATH: ${{ github.workspace }}/AI_Agents/src
       PYTHONUTF8: "1"

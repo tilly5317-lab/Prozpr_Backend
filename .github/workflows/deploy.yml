@@ -20,8 +20,16 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+    # Filters on the *triggering* run's head branch. Without this, every CI run
+    # on develop/PRs creates a Deploy run that only gets skipped at job level --
+    # after it has already queued in the deploy concurrency group below.
+    branches: [main, master]
   workflow_dispatch:
 
+# Serialise deploys: one SSH session touching the server at a time.
+# cancel-in-progress stays false on purpose -- killing a deploy mid pip-install
+# leaves the box half-updated. Every queued deploy resets to origin/<branch>, so
+# the last one in the queue always lands the newest code.
 concurrency:
   group: deploy-${{ github.repository }}
   cancel-in-progress: false
@@ -41,6 +49,9 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
+    # Hard ceiling so a hung SSH session can never hold the deploy concurrency
+    # group for GitHub's 6h job limit and stall every deploy behind it.
+    timeout-minutes: 30
     environment: production
     steps:
       - name: Require SSH host and credentials
@@ -71,7 +82,7 @@ jobs:
           key: ${{ secrets.KEY || secrets.EC2_SSH_PRIVATE_KEY }}
           port: ${{ vars.SSH_PORT != '' && vars.SSH_PORT || 22 }}
           timeout: 120s
-          command_timeout: 30m
+          command_timeout: 25m
           script_stop: true
           envs: DEPLOY_BRANCH
           script: |
