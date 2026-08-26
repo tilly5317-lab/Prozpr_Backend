@@ -7,6 +7,7 @@ The loader (`rebal_engine.fund_rank`) exposes the shortlist grouped by
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -41,36 +42,40 @@ def peers_by_sub_category(sub_category: str, exclude_isin: str) -> list[FundRank
 # Distinct from fund_resolver_service.resolve_fund (DB-backed identity over the
 # full scheme universe): this matches ONLY the ranking CSV, because rejected
 # rows — and their rejection reasons — exist only there. Deliberately
-# conservative: normalized substring, >1 distinct ISIN = ambiguous, never guess.
+# conservative: TOKEN-SUBSET match (every typed word present, order-free), so
+# "ICICI Equity & Debt" finds "ICICI Prudential Equity & Debt Fund"; >1 distinct
+# fund = ambiguous, never guess.
 
-_STOPWORDS = {"fund", "plan", "direct", "growth", "the", "of"}
+# Generic words that carry no fund identity — a query made only of these is unknown.
+_GENERIC = {"fund", "the", "of", "a", "an", "scheme", "index", "plan"}
 
 # Plan/option words that distinguish variants of the SAME fund, not different
 # funds — dropped when computing a fund's identity so "X Direct Growth" and
-# "X Regular IDCW" collapse to one fund (mirrors fund_resolver_service).
+# "X Regular Bonus" collapse to one fund (mirrors fund_resolver_service).
 _PLAN_OPTION = {
     "direct", "regular", "growth", "idcw", "plan", "option",
-    "dividend", "payout", "reinvestment",
+    "dividend", "payout", "reinvestment", "bonus",
+    # IDCW payout frequencies — same fund, different distribution cadence.
+    "annual", "annually", "monthly", "quarterly", "weekly", "daily",
+    "fortnightly", "yearly", "half", "biannual", "semiannual",
 }
 
 
-def _norm(s: str) -> str:
-    return " ".join(s.lower().replace("-", " ").split())
+def _tok(s: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[a-z0-9]+", (s or "").lower()))
 
 
 def _fund_key(name: str) -> frozenset[str]:
     """A scheme name reduced to its fund identity (plan/option words dropped)."""
-    import re
-
-    return frozenset(re.findall(r"[a-z0-9]+", (name or "").lower())) - _PLAN_OPTION
+    return _tok(name) - _PLAN_OPTION
 
 
 def _pick_variant(rows: list[FundRankRow]) -> FundRankRow:
     """Canonical representative of one fund: prefer Direct-Growth, then Growth."""
-    dg = [r for r in rows if {"direct", "growth"} <= set(_norm(r.fund_name).split())]
+    dg = [r for r in rows if {"direct", "growth"} <= _tok(r.fund_name)]
     if dg:
         return dg[0]
-    g = [r for r in rows if "growth" in _norm(r.fund_name).split()]
+    g = [r for r in rows if "growth" in _tok(r.fund_name)]
     return (g or rows)[0]
 
 
@@ -85,10 +90,13 @@ class FundResolution:
 
 
 def resolve_ranked_fund(text: str) -> FundResolution:
-    needle = _norm(text)
-    if not needle or all(t in _STOPWORDS for t in needle.split()):
+    # Identity tokens = typed words minus plan/option words. Match a fund when
+    # EVERY identity token is present in its name (order-free, tolerates omitted
+    # middle words like "Prudential"). A query of only generic words is unknown.
+    q = _tok(text) - _PLAN_OPTION
+    if not q or q <= _GENERIC:
         return FundResolution(status="unknown")
-    hits = [r for r in _fund_rank.get_all_rows() if needle in _norm(r.fund_name)]
+    hits = [r for r in _fund_rank.get_all_rows() if q <= _tok(r.fund_name)]
     if not hits:
         return FundResolution(status="unknown")
 

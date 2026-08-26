@@ -437,11 +437,13 @@ async def build_rebalancing_input_for_user(
     carryforward_st_override = effective_param(ctx, "carryforward_st_loss_inr", None)
     carryforward_lt_override = effective_param(ctx, "carryforward_lt_loss_inr", None)
     tilt_override = effective_param(ctx, "asset_class_tilt", None)
+    pure_equity_override = effective_param(ctx, "pure_equity_only", False)
 
     request = RebalancingComputeRequest(
         practical_allocation_input=practical_input,
         tax_regime=tax_inputs["tax_regime"],
         asset_class_tilt=tilt_override,
+        pure_equity_only=bool(pure_equity_override),
         effective_tax_rate_pct=(
             float(tax_rate_override)
             if tax_rate_override is not None

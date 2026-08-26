@@ -208,21 +208,29 @@ def _assign_subgroup_targets(
     return out
 
 
-def _apply_asset_class_tilt(rows, tilt):
+def _apply_asset_class_tilt(rows, tilt, *, pure_equity=False):
     """Scale each asset class's subgroup rows to hit the requested mix.
 
     Within-class proportions are preserved (every bucket field scales by the
     same factor). A requested class with zero current total cannot be created
     from nothing — its share is re-spread over the present classes so the
     grand total is preserved exactly.
+
+    ``pure_equity`` (set only on an explicit "only/all/100% equity" ask): the
+    ``multi_asset`` subgroup is a hybrid (65/25/10 look-through), so it is
+    DROPPED here rather than counted as equity, and its budget flows to the
+    genuinely-pure equity subgroups — giving a true ~100% equity plan.
     """
     if not tilt:
         return rows
     grand = sum(r.total for r in rows)
     if grand <= 0:
         return rows
+    excluded = {"multi_asset"} if pure_equity else set()
     current: dict[str, float] = {}
     for r in rows:
+        if r.subgroup in excluded:
+            continue
         cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
         current[cls] = current.get(cls, 0.0) + r.total
     present = {c: p for c, p in tilt.items() if current.get(c, 0.0) > 0}
@@ -234,6 +242,12 @@ def _apply_asset_class_tilt(rows, tilt):
     }
     out = []
     for r in rows:
+        if r.subgroup in excluded:
+            out.append(r.model_copy(update={
+                "emergency": 0.0, "short_term": 0.0, "medium_term": 0.0,
+                "long_term": 0.0, "total": 0.0,
+            }))
+            continue
         cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
         f = factors.get(cls)
         if f is None:
@@ -260,7 +274,8 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
     if request.asset_class_tilt:
         practical_for_targets = practical.model_copy(update={
             "aggregated_subgroups": _apply_asset_class_tilt(
-                practical.aggregated_subgroups, request.asset_class_tilt
+                practical.aggregated_subgroups, request.asset_class_tilt,
+                pure_equity=request.pure_equity_only,
             )
         })
     rows_with_targets = _assign_subgroup_targets(

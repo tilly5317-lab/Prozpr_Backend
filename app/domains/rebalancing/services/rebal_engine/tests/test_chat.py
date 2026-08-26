@@ -527,8 +527,9 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertEqual(relay.call_args.kwargs["module_name"], "rebalancing")
         engine.assert_not_called()
 
-    def test_redirect_routes_template_through_relay(self):
-        action = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+    def test_redirect_non_lock_uses_profile_template(self):
+        action = mod.RebalanceAction(
+            mode="redirect", redirect_reason="delay rebalance by N months")
         relay = AsyncMock(return_value="RELAYED")
         with (
             patch.object(
@@ -543,7 +544,22 @@ class HandleRoutingTests(unittest.TestCase):
         kwargs = relay.call_args.kwargs
         self.assertEqual(kwargs["module_name"], "rebalancing")
         self.assertIn("Profile", kwargs["message"])
-        self.assertIn("lock fund Y", kwargs["message"])
+        self.assertIn("delay rebalance", kwargs["message"])
+
+    def test_redirect_lock_holding_is_honest_not_profile(self):
+        # "don't sell / lock fund X" can't go to Profile — answer honestly.
+        action = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+        relay = AsyncMock(return_value="RELAYED")
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "format_relay_or_canned", new=relay),
+        ):
+            asyncio.run(mod.handle(_ctx("don't sell my fund Y", last_run=_agent_run())))
+        msg = relay.call_args.kwargs["message"]
+        self.assertNotIn("Profile", msg)
+        self.assertIn("can't hold a specific fund", msg.lower().replace("’", "'"))
 
     def test_followup_compute_re_runs_engine(self):
         action = mod.RebalanceAction(mode="compute")

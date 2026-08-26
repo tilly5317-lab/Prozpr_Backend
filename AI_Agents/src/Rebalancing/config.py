@@ -103,4 +103,4 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #        residual is deployed as fresh money, so a rank-2 holding is no longer
 #        liquidated to fund a rank-1 buy; the per-fund cap no longer forces a
 #        sell, only bounds deployment.
-ENGINE_VERSION: str = "1.4.0"
+ENGINE_VERSION: str = "1.5.0"

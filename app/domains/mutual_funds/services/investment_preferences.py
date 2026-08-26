@@ -10,41 +10,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domains.ai_engine.common import ensure_ai_agents_path
-
-ensure_ai_agents_path()
-
-from common import RISK_CATEGORIES, category_for_effective_risk_score  # noqa: E402
-
 ASSET_CLASSES = ("equity", "debt", "others")
 
-# Upper score bound per band, aligned with common.category_for_effective_risk_score
-# thresholds (2.125 / 4.375 / 6.625 / 8.875, scores span 1.0-10.0). Edges sit
-# just below the threshold so the edge score still maps into the SAME band.
-_BAND_UPPER = dict(zip(RISK_CATEGORIES, (2.125, 4.375, 6.625, 8.875, 10.0)))
-_EDGE_EPS = 0.01
+# No-number tilt ("more equity", "make it safer") → move the named class this
+# many percentage points from the RECOMMENDED mix. A relative step guarantees
+# "more" always means more (a risk-band anchor could land below the recommended
+# plan for an already-aggressive profile and read as a step backward).
+DEFAULT_TILT_STEP_PP = 10.0
 
 
 @dataclass(frozen=True)
 class TiltResult:
     mix_pct: dict[str, float] | None
-    needs_band_edge_default: bool = False
-
-
-def band_edge_score(category: str) -> float:
-    """Top effective-risk score that still maps into ``category``.
-
-    ``_BAND_UPPER`` deliberately duplicates common.py's thresholds; this check
-    is the sync mechanism — a real exception (not ``assert``, which ``-O``
-    strips) so drift fails loudly in production, not silently in advice.
-    """
-    upper = _BAND_UPPER[category]
-    edge = upper if upper == 10.0 else upper - _EDGE_EPS
-    if category_for_effective_risk_score(edge) != category:
-        raise ValueError(
-            f"band table drift: edge {edge} no longer maps into {category!r}"
-        )
-    return edge
+    default_step_applied: bool = False
 
 
 def _renormalized(mix: dict[str, float], pinned: dict[str, float]) -> dict[str, float]:
@@ -71,12 +49,11 @@ def normalize_tilt(
     tilt_delta_pp: float | None,
     tilt_target_pct: float | None,
 ) -> TiltResult:
-    """Resolve scope + tilt into one absolute target mix (or a default request).
+    """Resolve scope + tilt into one absolute target mix.
 
-    Baseline is the RECOMMENDED target mix (never current holdings) — the
-    caller passes it in. Returns ``needs_band_edge_default=True`` when a tilt
-    names a class but no number: the caller resolves it via band_edge_score
-    (needs the customer's risk category, which lives caller-side).
+    Baseline is the RECOMMENDED target mix (never current holdings) — the caller
+    passes it in. A tilt with no number applies ``DEFAULT_TILT_STEP_PP`` toward
+    the named class (``default_step_applied=True`` so the caller discloses it).
     """
     mix = {c: float(current_mix_pct.get(c, 0.0)) for c in ASSET_CLASSES}
 
@@ -88,13 +65,16 @@ def normalize_tilt(
     if tilt_asset_class is None:
         return TiltResult(mix_pct=None)
 
-    if tilt_delta_pp is None and tilt_target_pct is None:
-        return TiltResult(mix_pct=None, needs_band_edge_default=True)
-
+    default_step = tilt_delta_pp is None and tilt_target_pct is None
+    if default_step:
+        tilt_delta_pp = DEFAULT_TILT_STEP_PP
     target = (
         tilt_target_pct
         if tilt_target_pct is not None
         else mix[tilt_asset_class] + tilt_delta_pp
     )
     clamped = min(100.0, max(0.0, target))
-    return TiltResult(mix_pct=_renormalized(mix, {tilt_asset_class: clamped}))
+    return TiltResult(
+        mix_pct=_renormalized(mix, {tilt_asset_class: clamped}),
+        default_step_applied=default_step,
+    )

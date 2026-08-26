@@ -162,6 +162,11 @@ class RebalancingComputeRequest(BaseModel):
     # docs/superpowers/specs/2026-08-24-investment-preferences-design.md
     asset_class_tilt: dict[str, float] | None = None
 
+    # Set only on an explicit "only/all/100% equity" ask: drop hybrid
+    # (multi_asset) funds from the equity sleeve so the plan is genuinely
+    # ~100% equity rather than ~85% after the 65/25/10 hybrid look-through.
+    pure_equity_only: bool = False
+
     # Per-request capital-gains state (bucket D). The three fields below are
     # INDEPENDENT inputs — do NOT derive one from another. In particular,
     # stcg_offset_budget_inr must not be populated from the carryforward losses,
