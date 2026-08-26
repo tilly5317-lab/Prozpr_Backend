@@ -249,6 +249,38 @@ async def apply_postgres_schema_patches() -> None:
                 "SMALLINT NOT NULL DEFAULT 0"
             )
         )
+        # ORM/column drift: User.sensitive_change_* — the parked email/PAN edit
+        # awaiting a step-up code. See /auth/me/sensitive/* and the model.
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_field "
+                "VARCHAR(32)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_value "
+                "VARCHAR(320)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_code_hash "
+                "VARCHAR(255)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_expires_at "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_attempts "
+                "SMALLINT NOT NULL DEFAULT 0"
+            )
+        )
         # ORM/column drift: ChatSession.rating — user's 1–5 rating of Pi, one per
         # conversation. Added after the table first shipped.
         await conn.execute(

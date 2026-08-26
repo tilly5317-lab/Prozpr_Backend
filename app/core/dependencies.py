@@ -40,6 +40,12 @@ class CurrentUser:
     # already loaded — every surface that needs "did they skip CAMS?" reads it
     # off /auth/me for free.
     cams_skipped_at: Optional[datetime] = None
+    # Carried off the already-loaded User row so /auth/me can report a masked
+    # PAN and any in-flight step-up change without a second query. The FULL pan
+    # value lives here but is never serialised by /auth/me — see
+    # `_current_user_response` in auth_router.
+    pan: Optional[str] = None
+    sensitive_change_field: Optional[str] = None
 
 
 async def get_current_user(
@@ -97,6 +103,8 @@ async def get_current_user(
         is_active=user.is_active,
         is_onboarding_complete=user.is_onboarding_complete,
         cams_skipped_at=user.cams_skipped_at,
+        pan=user.pan,
+        sensitive_change_field=user.sensitive_change_field,
     )
 
 
@@ -157,6 +165,8 @@ async def get_effective_user(
         is_active=member_user.is_active,
         is_onboarding_complete=member_user.is_onboarding_complete,
         cams_skipped_at=member_user.cams_skipped_at,
+        pan=member_user.pan,
+        sensitive_change_field=member_user.sensitive_change_field,
     )
 
 

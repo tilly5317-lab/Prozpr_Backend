@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 
 import httpx
 
@@ -99,7 +100,7 @@ _HTML_TEMPLATE = """\
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>Reset your Prozpr PIN</title>
+<title>{{TITLE}}</title>
 <style>
   @media only screen and (max-width:440px) {
     .px-outer { padding:20px 10px !important; }
@@ -123,7 +124,7 @@ _HTML_TEMPLATE = """\
 </head>
 <body class="px-page" style="margin:0;padding:0;width:100%;background-color:#f4f5f7;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all" aria-hidden="true">
-  Your PIN reset code is inside, and expires in {{MINUTES}} minutes.
+  {{PREHEADER}}
 </div>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
        class="px-page" style="background-color:#f4f5f7">
@@ -140,9 +141,9 @@ _HTML_TEMPLATE = """\
             <p class="px-brand" style="margin:0;font-size:12px;font-weight:700;
                       letter-spacing:1.6px;text-transform:uppercase;color:#6b7280">Prozpr</p>
             <h1 class="px-head" style="margin:16px 0 0 0;font-size:22px;line-height:1.3;
-                       font-weight:600;color:#131d34">Reset your PIN</h1>
+                       font-weight:600;color:#131d34">{{HEADING}}</h1>
             <p class="px-body" style="margin:10px 0 0 0;font-size:15px;line-height:1.6;color:#4b5563">
-              Enter this code in the app to choose a new sign-in PIN.
+              {{INTRO}}
             </p>
           </td>
         </tr>
@@ -178,8 +179,7 @@ _HTML_TEMPLATE = """\
                     Didn't ask for this?
                   </p>
                   <p class="px-muted" style="margin:6px 0 0 0;font-size:13px;line-height:1.6;color:#6b7280">
-                    You can safely ignore this email. Your current PIN still works
-                    and nothing about your account has changed.
+                    {{IGNORE}}
                   </p>
                   <p class="px-muted" style="margin:14px 0 0 0;font-size:13px;line-height:1.6;color:#6b7280">
                     Prozpr will never ask you for this code by phone, email or chat.
@@ -210,15 +210,107 @@ _HTML_TEMPLATE = """\
 </html>"""
 
 
-def _html_body(code: str, minutes: int) -> str:
+@dataclass(frozen=True)
+class _Copy:
+    """The strings that differ between one code mail and another.
+
+    Everything else in the template — the table layout, the inline light
+    styles, the dark-mode overrides, the contiguous code run that keeps
+    autofill working — is shared, because all of it is mail-client
+    compatibility work that has nothing to do with why the code was sent.
+    """
+
+    subject: str
+    heading: str
+    preheader: str
+    intro: str
+    ignore: str
+
+
+_PIN_RESET_COPY = _Copy(
+    subject="Reset your Prozpr PIN",
+    heading="Reset your PIN",
+    preheader="Your PIN reset code is inside, and expires in {{MINUTES}} minutes.",
+    intro="Enter this code in the app to choose a new sign-in PIN.",
+    ignore=(
+        "You can safely ignore this email. Your current PIN still works "
+        "and nothing about your account has changed."
+    ),
+)
+
+#: One entry per field that step-up verification protects, so the mail can name
+#: what is being changed. A user who did not start the change needs to read what
+#: someone is trying to do to their account, not a generic "confirm this".
+_SENSITIVE_COPY: dict[str, _Copy] = {
+    "email": _Copy(
+        subject="Confirm your new Prozpr email address",
+        heading="Confirm your email change",
+        preheader="Someone asked to change the email on your Prozpr account.",
+        intro=(
+            "Enter this code in the app to move your account to its new email "
+            "address. Until you do, this address stays in charge of the account."
+        ),
+        ignore=(
+            "Someone may have typed your address by mistake — or may be trying "
+            "to take over your account. Your email has NOT been changed. If this "
+            "wasn't you, change your sign-in PIN now."
+        ),
+    ),
+    "pan": _Copy(
+        subject="Confirm the PAN change on your Prozpr account",
+        heading="Confirm your PAN change",
+        preheader="Someone asked to change the PAN on your Prozpr account.",
+        intro=(
+            "Enter this code in the app to update the PAN on your account. Your "
+            "PAN is what your statements and holdings are matched against."
+        ),
+        ignore=(
+            "Your PAN has NOT been changed. If this wasn't you, change your "
+            "sign-in PIN now — someone else may be signed in to your account."
+        ),
+    ),
+}
+
+
+def _html_body(code: str, minutes: int, copy: _Copy = _PIN_RESET_COPY) -> str:
     """Fill the template. `code` is digits and `minutes` an int, so neither
-    needs HTML-escaping — keep it that way if either ever becomes caller text."""
-    return _HTML_TEMPLATE.replace("{{CODE}}", code).replace("{{MINUTES}}", str(minutes))
+    needs HTML-escaping — keep it that way if either ever becomes caller text.
+
+    The `copy` strings are module constants, never caller input, for the same
+    reason: nothing here escapes, so nothing here may come from a request."""
+    return (
+        _HTML_TEMPLATE.replace("{{CODE}}", code)
+        .replace("{{TITLE}}", copy.subject)
+        .replace("{{HEADING}}", copy.heading)
+        .replace("{{PREHEADER}}", copy.preheader)
+        .replace("{{INTRO}}", copy.intro)
+        .replace("{{IGNORE}}", copy.ignore)
+        .replace("{{MINUTES}}", str(minutes))
+    )
 
 
-async def send_pin_reset_code(to_email: str, code: str, expires_in_minutes: int) -> None:
-    """Email a reset code. Raises rather than returning a status so a delivery
-    failure can never be mistaken for a delivered mail."""
+def _plain_body_for(code: str, minutes: int, copy: _Copy) -> str:
+    """Plain-text alternative for a non-PIN-reset code. Same `Code: NNNNNN`
+    shape, so one-time-code autofill still fires."""
+    rule = "=" * len(copy.subject)
+    return (
+        f"{copy.subject}\n"
+        f"{rule}\n\n"
+        f"Code: {code}\n\n"
+        f"{copy.intro} It expires in {minutes} minutes and can only be used "
+        "once.\n\n"
+        "Prozpr will never ask you for this code by phone, email or chat.\n\n"
+        "Didn't ask for this?\n"
+        f"{copy.ignore}\n\n"
+        "--\n"
+        "Prozpr - Wealth, Unified.\n"
+        "This is an automated message; replies to it are not monitored.\n"
+    )
+
+
+async def _deliver(to_email: str, subject: str, text: str, html: str) -> None:
+    """POST one message to Resend. Raises rather than returning a status so a
+    delivery failure can never be mistaken for a delivered mail."""
     settings = get_settings()
     api_key = settings.get_resend_api_key()
     if not api_key:
@@ -230,9 +322,9 @@ async def send_pin_reset_code(to_email: str, code: str, expires_in_minutes: int)
         "to": [to_email],
         # The code is NOT in the subject: subjects show on lock screens and in
         # notification previews, where a shoulder-surfer would read it.
-        "subject": "Reset your Prozpr PIN",
-        "text": _plain_body(code, expires_in_minutes),
-        "html": _html_body(code, expires_in_minutes),
+        "subject": subject,
+        "text": text,
+        "html": html,
         # Unique per send, so Gmail treats each code as its own message instead
         # of collapsing a run of them into one thread — where the newest sits
         # collapsed under the oldest and users read a code that no longer works.
@@ -251,11 +343,39 @@ async def send_pin_reset_code(to_email: str, code: str, expires_in_minutes: int)
 
     if resp.status_code >= 400:
         # Never log the body verbatim at info level — it echoes the recipient.
-        logger.warning(
-            "Resend rejected a PIN reset mail (status=%s)", resp.status_code
-        )
+        logger.warning("Resend rejected a code mail (status=%s)", resp.status_code)
         raise ResendSendFailed(
             f"Resend returned {resp.status_code}. A sending domain must be "
             "verified in Resend before mail can reach addresses other than the "
             "account owner's."
         )
+
+
+async def send_sensitive_change_code(
+    to_email: str, field: str, code: str, expires_in_minutes: int
+) -> None:
+    """Email a step-up code for an email or PAN change.
+
+    Sent to the address ALREADY on file, never to the proposed new one. That is
+    the whole control: the person who can read the current inbox is the only
+    one who can move the account off it.
+    """
+    copy = _SENSITIVE_COPY.get(field)
+    if copy is None:
+        raise ValueError(f"no step-up mail copy for field {field!r}")
+    await _deliver(
+        to_email,
+        copy.subject,
+        _plain_body_for(code, expires_in_minutes, copy),
+        _html_body(code, expires_in_minutes, copy),
+    )
+
+
+async def send_pin_reset_code(to_email: str, code: str, expires_in_minutes: int) -> None:
+    """Email a forgot-PIN reset code."""
+    await _deliver(
+        to_email,
+        _PIN_RESET_COPY.subject,
+        _plain_body(code, expires_in_minutes),
+        _html_body(code, expires_in_minutes, _PIN_RESET_COPY),
+    )

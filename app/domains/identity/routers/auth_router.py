@@ -15,12 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
 from app.domains.identity.services.pin_reset_email_service import (
     ResendNotConfigured,
     ResendSendFailed,
     send_pin_reset_code,
+    send_sensitive_change_code,
 )
 from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import PersonalFinanceProfile
@@ -32,10 +34,15 @@ from app.domains.identity.schemas.auth import (
     MobileLookupRequest,
     MobileStatusResponse,
     PIN_RESET_CODE_DIGITS,
+    PanRevealResponse,
     PinResetConfirmRequest,
     PinResetRequestRequest,
     PinResetRequestResponse,
     PinUpdateRequest,
+    SENSITIVE_CODE_DIGITS,
+    SensitiveChangeConfirmRequest,
+    SensitiveChangeRequest,
+    SensitiveChangeRequestResponse,
     SignUpRequest,
     SignUpResponse,
     UserUpdateRequest,
@@ -362,18 +369,56 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     return response
 
 
+def _mask_pan(pan: str | None) -> str | None:
+    """`ABCDE1234F` -> `ABCDE••••F`.
+
+    The first five characters and the check letter are kept because that is what
+    lets a person confirm it is *their* PAN; the four digits in the middle are
+    the part that makes the identifier usable against someone else's records.
+    """
+    if not pan:
+        return None
+    pan = pan.strip().upper()
+    if len(pan) < 6:
+        return "•" * len(pan)
+    return f"{pan[:5]}{'•' * (len(pan) - 6)}{pan[-1]}"
+
+
+def _current_user_response(user: User | CurrentUser) -> CurrentUserResponse:
+    """One builder for every `/auth/me`-shaped payload.
+
+    Centralised so a new field can never be added to one of the three return
+    sites and forgotten on the other two — which is how the PAN would end up
+    unmasked on exactly one endpoint."""
+    return CurrentUserResponse(
+        id=user.id,
+        country_code=user.country_code,
+        mobile=user.mobile,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        pan_masked=_mask_pan(user.pan),
+        pan_set=bool(user.pan),
+        pending_change_field=user.sensitive_change_field,
+        is_onboarding_complete=user.is_onboarding_complete,
+        cams_skipped=user.cams_skipped_at is not None,
+    )
+
+
 @router.get("/me", response_model=CurrentUserResponse)
 async def me(current_user: CurrentUser = Depends(get_current_user)):
-    return CurrentUserResponse(
-        id=current_user.id,
-        country_code=current_user.country_code,
-        mobile=current_user.mobile,
-        email=current_user.email,
-        first_name=current_user.first_name,
-        last_name=current_user.last_name,
-        is_onboarding_complete=current_user.is_onboarding_complete,
-        cams_skipped=current_user.cams_skipped_at is not None,
-    )
+    return _current_user_response(current_user)
+
+
+@router.get("/me/pan", response_model=PanRevealResponse)
+async def reveal_my_pan(current_user: CurrentUser = Depends(get_current_user)):
+    """The full PAN, on an explicit request.
+
+    Split off `/auth/me` rather than gated by a flag on it: `/auth/me` is called
+    on nearly every page load, so anything it returns ends up in devtools, in
+    HTTP caches and attached to error reports. A reveal that the user has to ask
+    for is one request, at one moment, that they initiated."""
+    return PanRevealResponse(pan=current_user.pan)
 
 
 @router.put("/me", response_model=CurrentUserResponse)
@@ -397,6 +442,20 @@ async def update_me(
 
     updates = payload.model_dump(exclude_unset=True)
     new_email = updates.get("email")
+
+    # Setting the FIRST email is not a step-up event — there is no older inbox
+    # to verify against, and the signup setup page lands here with name+email
+    # immediately after /signup. REPLACING one is: whoever holds the address
+    # holds the PIN reset, so it goes through /auth/me/sensitive/*.
+    if new_email is not None and user.email and new_email != user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Changing the email on an account needs verification. "
+                "Start it at /auth/me/sensitive/request."
+            ),
+        )
+
     if (
         new_email is not None
         and new_email != user.email
@@ -414,16 +473,7 @@ async def update_me(
 
     _maybe_notify_new_signup(background_tasks, user, was_complete_before)
 
-    return CurrentUserResponse(
-        id=user.id,
-        country_code=user.country_code,
-        mobile=user.mobile,
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        is_onboarding_complete=user.is_onboarding_complete,
-        cams_skipped=user.cams_skipped_at is not None,
-    )
+    return _current_user_response(user)
 
 
 @router.put("/me/pin", status_code=status.HTTP_204_NO_CONTENT)
@@ -616,3 +666,247 @@ def _clear_pin_reset(user: User) -> None:
     user.pin_reset_code_hash = None
     user.pin_reset_expires_at = None
     user.pin_reset_attempts = 0
+
+
+# ── Step-up verification for sensitive edits ────────────────────────────────
+#
+# Same shape as the forgot-PIN flow above (hashed code on the user row, short
+# expiry, capped wrong guesses, send cooldown) with one difference that matters:
+# the code goes to the address ALREADY on file, never to the new one. Mailing
+# the proposed address would only prove the attacker controls the inbox they
+# just typed in, which is not a control at all.
+
+_SENSITIVE_TTL_MINUTES = 10
+_SENSITIVE_MAX_ATTEMPTS = 5
+_SENSITIVE_RESEND_COOLDOWN_S = 60
+
+_SENSITIVE_LABELS = {"email": "email address", "pan": "PAN"}
+
+
+def _clear_sensitive_change(user: User) -> None:
+    user.sensitive_change_field = None
+    user.sensitive_change_value = None
+    user.sensitive_change_code_hash = None
+    user.sensitive_change_expires_at = None
+    user.sensitive_change_attempts = 0
+
+
+def _bypasses_otp(email: str | None) -> bool:
+    """Whether this account skips the step-up code entirely.
+
+    Exists so the team can exercise the flow without a live inbox. See
+    ``Settings.otp_bypass_domains`` — empty by default, so this is False in any
+    environment that has not deliberately opened the hole."""
+    domains = get_settings().otp_bypass_domains()
+    if not domains or not email:
+        return False
+    return email.strip().lower().rpartition("@")[2] in domains
+
+
+async def _apply_sensitive_change(
+    db: AsyncSession, user: User, field: str, value: str
+) -> None:
+    """Write the parked value. Uniqueness is re-checked HERE, not only at
+    request time: another account can claim the same email or PAN during the ten
+    minutes a code is live."""
+    if field == "email":
+        if await _email_taken(db, value, exclude_user_id=user.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+            )
+        user.email = value
+    elif field == "pan":
+        existing = await db.execute(
+            select(User.id).where(User.pan == value, User.id != user.id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That PAN is already linked to another Prozpr account.",
+            )
+        user.pan = value
+    else:  # pragma: no cover - schema validation rejects anything else
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported field"
+        )
+
+
+@router.post("/me/sensitive/request", response_model=SensitiveChangeRequestResponse)
+async def request_sensitive_change(
+    payload: SensitiveChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    field, value = payload.field, payload.new_value
+    label = _SENSITIVE_LABELS[field]
+
+    current = user.email if field == "email" else user.pan
+    if current and current.strip().lower() == value.strip().lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"That's already your {label}.",
+        )
+
+    # Cheap rejection before a code is spent. Re-checked at confirm time, since
+    # another account can claim the value while this code is live.
+    if field == "email" and await _email_taken(db, value, exclude_user_id=user.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
+        )
+
+    # Setting a PAN for the first time still comes through this endpoint, but
+    # has nothing to verify against — no PAN is being replaced. It is written
+    # straight through, exactly like the first email on an account.
+    if field == "pan" and not user.pan:
+        await _apply_sensitive_change(db, user, field, value)
+        _clear_sensitive_change(user)
+        await db.commit()
+        await db.refresh(user)
+        return SensitiveChangeRequestResponse(
+            field=field,
+            verification_required=False,
+            message="PAN saved.",
+        )
+
+    if _bypasses_otp(user.email):
+        logger.warning(
+            "OTP bypass applied to a %s change for user_id=%s (OTP_BYPASS_DOMAINS)",
+            field,
+            user.id,
+        )
+        await _apply_sensitive_change(db, user, field, value)
+        _clear_sensitive_change(user)
+        await db.commit()
+        await db.refresh(user)
+        return SensitiveChangeRequestResponse(
+            field=field,
+            verification_required=False,
+            message=f"Your {label} was updated.",
+        )
+
+    # Everything past here needs a code, which needs somewhere to send it.
+    if not user.email:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Add an email to your account before changing your {label} — "
+                "that's where the confirmation code goes."
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    issued_at = (
+        _as_utc(user.sensitive_change_expires_at)
+        - timedelta(minutes=_SENSITIVE_TTL_MINUTES)
+        if user.sensitive_change_expires_at
+        else None
+    )
+    if issued_at and (now - issued_at).total_seconds() < _SENSITIVE_RESEND_COOLDOWN_S:
+        # Unlike the PIN reset, this caller is authenticated — they already know
+        # the account exists, so there is nothing to hide behind a generic
+        # answer and a real 429 is the honest response.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A code was just sent. Wait a minute before asking for another.",
+        )
+
+    code = f"{secrets.randbelow(10**SENSITIVE_CODE_DIGITS):0{SENSITIVE_CODE_DIGITS}d}"
+    user.sensitive_change_field = field
+    user.sensitive_change_value = value
+    user.sensitive_change_code_hash = hash_password(code)
+    user.sensitive_change_expires_at = now + timedelta(minutes=_SENSITIVE_TTL_MINUTES)
+    user.sensitive_change_attempts = 0
+    await db.commit()
+
+    try:
+        await send_sensitive_change_code(
+            user.email, field, code, _SENSITIVE_TTL_MINUTES
+        )
+    except ResendNotConfigured:
+        logger.warning("Sensitive change requested but RESEND_API_KEY is not set")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification by email isn't available right now.",
+        ) from None
+    except ResendSendFailed as exc:
+        logger.warning("Sensitive change mail failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't send the verification email. Please try again.",
+        ) from None
+
+    return SensitiveChangeRequestResponse(
+        field=field,
+        verification_required=True,
+        message=(
+            "We sent a code to the email on your account. Enter it to change "
+            f"your {label}."
+        ),
+        email_hint=_mask_email(user.email),
+        expires_in_minutes=_SENSITIVE_TTL_MINUTES,
+    )
+
+
+@router.post("/me/sensitive/confirm", response_model=CurrentUserResponse)
+async def confirm_sensitive_change(
+    payload: SensitiveChangeConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="That code is invalid or has expired. Request a new one.",
+    )
+    if (
+        not user.sensitive_change_field
+        or not user.sensitive_change_value
+        or not user.sensitive_change_code_hash
+        or not user.sensitive_change_expires_at
+    ):
+        raise invalid
+
+    if _as_utc(user.sensitive_change_expires_at) < datetime.now(timezone.utc):
+        raise invalid
+
+    if user.sensitive_change_attempts >= _SENSITIVE_MAX_ATTEMPTS:
+        # Burn the code rather than leaving a throttled-but-live target.
+        _clear_sensitive_change(user)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many incorrect codes. Start the change again.",
+        )
+
+    if not verify_password(payload.code, user.sensitive_change_code_hash):
+        user.sensitive_change_attempts += 1
+        await db.commit()
+        raise invalid
+
+    field = user.sensitive_change_field
+    value = user.sensitive_change_value
+    # Cleared BEFORE applying, so a 409 on the uniqueness re-check cannot leave
+    # a spent code sitting live on the row.
+    _clear_sensitive_change(user)
+    try:
+        await _apply_sensitive_change(db, user, field, value)
+    except HTTPException:
+        await db.commit()
+        raise
+    await db.commit()
+    await db.refresh(user)
+
+    return _current_user_response(user)
