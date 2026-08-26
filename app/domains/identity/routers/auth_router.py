@@ -52,7 +52,6 @@ from app.domains.identity.schemas.auth import (
     MobileLookupRequest,
     MobileStatusResponse,
     PIN_RESET_CODE_DIGITS,
-    PanRevealResponse,
     PinResetConfirmRequest,
     PinResetRequestRequest,
     PinResetRequestResponse,
@@ -427,17 +426,6 @@ def _current_user_response(user: User | CurrentUser) -> CurrentUserResponse:
 @router.get("/me", response_model=CurrentUserResponse)
 async def me(current_user: CurrentUser = Depends(get_current_user)):
     return _current_user_response(current_user)
-
-
-@router.get("/me/pan", response_model=PanRevealResponse)
-async def reveal_my_pan(current_user: CurrentUser = Depends(get_current_user)):
-    """The full PAN, on an explicit request.
-
-    Split off `/auth/me` rather than gated by a flag on it: `/auth/me` is called
-    on nearly every page load, so anything it returns ends up in devtools, in
-    HTTP caches and attached to error reports. A reveal that the user has to ask
-    for is one request, at one moment, that they initiated."""
-    return PanRevealResponse(pan=current_user.pan)
 
 
 @router.put("/me", response_model=CurrentUserResponse)

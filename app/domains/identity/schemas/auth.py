@@ -165,10 +165,10 @@ class CurrentUserResponse(BaseModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    # PAN is returned MASKED and never in full. `/auth/me` is fetched on nearly
-    # every page load and lands in browser devtools, HTTP caches and error
-    # payloads; the full value is a permanent national identifier, so it is
-    # served only from `/auth/me/pan`, on an explicit reveal.
+    # PAN is returned MASKED and never in full — there is no reveal endpoint.
+    # It is a permanent national identifier, nothing in the app needs the whole
+    # value, and `/auth/me` is fetched on nearly every page load and lands in
+    # browser devtools, HTTP caches and error payloads.
     pan_masked: str | None = None
     #: Whether a PAN is on file at all — the UI needs to tell "not set" apart
     #: from "set but hidden" without seeing the value.
@@ -486,12 +486,6 @@ class SensitiveChangeConfirmRequest(BaseModel):
         if not v.isdigit():
             raise ValueError("The code is 6 digits")
         return v
-
-
-class PanRevealResponse(BaseModel):
-    """The full PAN, served only on an explicit request."""
-
-    pan: str | None = None
 
 
 class AvatarResponse(BaseModel):
