@@ -46,6 +46,7 @@ class CurrentUser:
     # `_current_user_response` in auth_router.
     pan: Optional[str] = None
     sensitive_change_field: Optional[str] = None
+    avatar_key: Optional[str] = None
 
 
 async def get_current_user(
@@ -105,6 +106,7 @@ async def get_current_user(
         cams_skipped_at=user.cams_skipped_at,
         pan=user.pan,
         sensitive_change_field=user.sensitive_change_field,
+        avatar_key=user.avatar_key,
     )
 
 
@@ -167,6 +169,7 @@ async def get_effective_user(
         cams_skipped_at=member_user.cams_skipped_at,
         pan=member_user.pan,
         sensitive_change_field=member_user.sensitive_change_field,
+        avatar_key=member_user.avatar_key,
     )
 
 

@@ -176,6 +176,10 @@ class CurrentUserResponse(BaseModel):
     #: Which field, if any, is parked awaiting a step-up code. Lets the UI show
     #: "verification pending" instead of silently discarding an in-flight edit.
     pending_change_field: str | None = None
+    #: Whether a profile picture exists. The READ URL is not here on purpose —
+    #: it is presigned and short-lived, and /auth/me is called on nearly every
+    #: page load. Fetch it from /auth/me/avatar where it is actually rendered.
+    avatar_set: bool = False
     is_onboarding_complete: bool = False
     # True when the user chose "I'll do this later" on the onboarding CAMS step.
     # The app still offers the upload everywhere, but onboarding no longer
@@ -488,3 +492,9 @@ class PanRevealResponse(BaseModel):
     """The full PAN, served only on an explicit request."""
 
     pan: str | None = None
+
+
+class AvatarResponse(BaseModel):
+    """Short-lived read URL for the profile picture, or null when none is set."""
+
+    url: str | None = None

@@ -10,7 +10,16 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,10 +33,19 @@ from app.domains.identity.services.pin_reset_email_service import (
     send_pin_reset_code,
     send_sensitive_change_code,
 )
+from app.domains.identity.services.avatar_service import (
+    MAX_AVATAR_BYTES,
+    UnsupportedImage,
+    delete_avatar,
+    presign_avatar,
+    put_avatar,
+    sniff_image,
+)
 from app.domains.identity.services.signup_notification_service import notify_new_signup
 from app.domains.profile.models import PersonalFinanceProfile
 from app.domains.identity.models.user import User
 from app.domains.identity.schemas.auth import (
+    AvatarResponse,
     CurrentUserResponse,
     LoginRequest,
     LoginResponse,
@@ -400,6 +418,7 @@ def _current_user_response(user: User | CurrentUser) -> CurrentUserResponse:
         pan_masked=_mask_pan(user.pan),
         pan_set=bool(user.pan),
         pending_change_field=user.sensitive_change_field,
+        avatar_set=bool(user.avatar_key),
         is_onboarding_complete=user.is_onboarding_complete,
         cams_skipped=user.cams_skipped_at is not None,
     )
@@ -910,3 +929,100 @@ async def confirm_sensitive_change(
     await db.refresh(user)
 
     return _current_user_response(user)
+
+
+# ── Profile picture ─────────────────────────────────────────────────────────
+
+
+@router.get("/me/avatar", response_model=AvatarResponse)
+async def get_my_avatar(current_user: CurrentUser = Depends(get_current_user)):
+    """A short-lived read URL, or null.
+
+    Separate from `/auth/me` because the URL is presigned and expires; minting
+    one on an endpoint called on every page load would produce a different URL
+    each time and defeat image caching everywhere it is rendered."""
+    if not current_user.avatar_key:
+        return AvatarResponse(url=None)
+    try:
+        return AvatarResponse(url=await presign_avatar(current_user.avatar_key))
+    except Exception:  # noqa: BLE001 — a missing picture must not 500 a profile
+        logger.warning("Could not presign avatar for user_id=%s", current_user.id, exc_info=True)
+        return AvatarResponse(url=None)
+
+
+@router.post("/me/avatar", response_model=AvatarResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Replace the profile picture.
+
+    The client downscales to 512px before sending, so anything approaching the
+    cap means that path was bypassed — the cap is a backstop, not the plan. The
+    declared content type is ignored in favour of the magic bytes, so a file
+    cannot arrive labelled as an image and later be served back from our origin
+    as something else."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="That file was empty."
+        )
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Keep it under {MAX_AVATAR_BYTES // (1024 * 1024)} MB.",
+        )
+    try:
+        sniff_image(data)
+    except UnsupportedImage as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)
+        ) from None
+
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    previous_key = user.avatar_key
+    try:
+        key = await put_avatar(user.id, data)
+    except Exception:  # noqa: BLE001 — surface storage trouble as 502, not 500
+        logger.exception("Avatar upload failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't save that picture. Please try again.",
+        ) from None
+
+    user.avatar_key = key
+    await db.commit()
+
+    # Only after the row points at the new object. A different extension means a
+    # different key, so the old object would otherwise linger forever.
+    if previous_key and previous_key != key:
+        await delete_avatar(previous_key)
+
+    return AvatarResponse(url=await presign_avatar(key))
+
+
+@router.delete("/me/avatar", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_avatar(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    key = user.avatar_key
+    # Clear the column first: the user's intent is "no picture", and that must
+    # hold even if the object delete fails. A stranded object is cheap; a
+    # profile that still shows a face the user removed is not.
+    user.avatar_key = None
+    await db.commit()
+    await delete_avatar(key)

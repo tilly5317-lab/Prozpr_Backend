@@ -249,6 +249,10 @@ async def apply_postgres_schema_patches() -> None:
                 "SMALLINT NOT NULL DEFAULT 0"
             )
         )
+        # ORM/column drift: User.avatar_key — profile picture S3 object key.
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(512)")
+        )
         # ORM/column drift: User.sensitive_change_* — the parked email/PAN edit
         # awaiting a step-up code. See /auth/me/sensitive/* and the model.
         await conn.execute(

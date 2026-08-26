@@ -137,6 +137,12 @@ class User(Base):
         SmallInteger, default=0, nullable=False, server_default="0"
     )
 
+    # ── Profile picture (see /auth/me/avatar) ──
+    # S3 object key, not a URL: the object is private, so reads go through a
+    # short-lived presigned URL minted on demand. Storing a URL would bake an
+    # expiry into the database.
+    avatar_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
     # ── Step-up verification for sensitive edits (see /auth/me/sensitive/*) ──
     # Changing the email or PAN on an account is an account-takeover primitive:
     # whoever holds the email holds the PIN reset, and the PAN is the identifier
