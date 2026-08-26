@@ -35,6 +35,7 @@ from app.domains.identity.services.pin_reset_email_service import (
 )
 from app.domains.identity.services.avatar_service import (
     MAX_AVATAR_BYTES,
+    AvatarStorageUnavailable,
     UnsupportedImage,
     delete_avatar,
     presign_avatar,
@@ -1015,6 +1016,12 @@ async def upload_my_avatar(
     previous_key = user.avatar_key
     try:
         key = await put_avatar(user.id, data)
+    except AvatarStorageUnavailable:
+        logger.warning("Avatar upload attempted but no S3 bucket is configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Profile pictures aren't available in this environment yet.",
+        ) from None
     except Exception:  # noqa: BLE001 — surface storage trouble as 502, not 500
         logger.exception("Avatar upload failed for user_id=%s", user.id)
         raise HTTPException(

@@ -59,6 +59,18 @@ class UnsupportedImage(ValueError):
     """The bytes are not a JPEG, PNG or WebP we are willing to store."""
 
 
+class AvatarStorageUnavailable(RuntimeError):
+    """No bucket configured. Raised rather than letting boto3 fail on
+    ``Bucket=None``, which surfaces as an opaque ParamValidationError."""
+
+
+def _bucket() -> str:
+    bucket = Settings.get_cams_stage_s3_bucket()
+    if not bucket:
+        raise AvatarStorageUnavailable("CAMS_STAGE_S3_BUCKET is not set")
+    return bucket
+
+
 def sniff_image(data: bytes) -> tuple[str, str]:
     """Return ``(content_type, extension)`` from the magic bytes.
 
@@ -78,7 +90,7 @@ async def put_avatar(user_id: Any, data: bytes) -> str:
     this user — an avatar has no history worth keeping, and a key that includes
     the extension keeps the served content type honest."""
     content_type, ext = sniff_image(data)
-    bucket = Settings.get_cams_stage_s3_bucket()
+    bucket = _bucket()
     key = f"{_PREFIX}{user_id}/avatar.{ext}"
 
     put_kwargs: dict[str, Any] = {
@@ -107,7 +119,7 @@ async def presign_avatar(key: str) -> str:
     return await asyncio.to_thread(
         _get_s3().generate_presigned_url,
         "get_object",
-        Params={"Bucket": Settings.get_cams_stage_s3_bucket(), "Key": key},
+        Params={"Bucket": _bucket(), "Key": key},
         ExpiresIn=_URL_TTL_SECONDS,
     )
 
@@ -120,7 +132,7 @@ async def delete_avatar(key: Optional[str]) -> None:
     try:
         await asyncio.to_thread(
             _get_s3().delete_object,
-            Bucket=Settings.get_cams_stage_s3_bucket(),
+            Bucket=_bucket(),
             Key=key,
         )
     except Exception:  # noqa: BLE001 — clearing the column matters more
