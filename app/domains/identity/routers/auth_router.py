@@ -687,7 +687,11 @@ _SENSITIVE_TTL_MINUTES = 10
 _SENSITIVE_MAX_ATTEMPTS = 5
 _SENSITIVE_RESEND_COOLDOWN_S = 60
 
-_SENSITIVE_LABELS = {"email": "email address", "pan": "PAN"}
+_SENSITIVE_LABELS = {
+    "email": "email address",
+    "pan": "PAN",
+    "mobile": "mobile number",
+}
 
 
 def _clear_sensitive_change(user: User) -> None:
@@ -732,6 +736,23 @@ async def _apply_sensitive_change(
                 detail="That PAN is already linked to another Prozpr account.",
             )
         user.pan = value
+    elif field == "mobile":
+        # Parked as "<country code> <national number>" by the request schema.
+        cc, _, national = value.partition(" ")
+        phone = full_phone(cc, national)
+        existing = await db.execute(
+            select(User.id).where(User.phone == phone, User.id != user.id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That mobile number is already registered to another account.",
+            )
+        # All three move together — `phone` is the unique login key derived from
+        # the other two, and leaving it stale would let the old number sign in.
+        user.country_code = cc
+        user.mobile = national
+        user.phone = phone
     else:  # pragma: no cover - schema validation rejects anything else
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported field"
@@ -754,7 +775,11 @@ async def request_sensitive_change(
     field, value = payload.field, payload.new_value
     label = _SENSITIVE_LABELS[field]
 
-    current = user.email if field == "email" else user.pan
+    current = {
+        "email": user.email,
+        "pan": user.pan,
+        "mobile": f"{user.country_code} {user.mobile}",
+    }[field]
     if current and current.strip().lower() == value.strip().lower():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -767,6 +792,18 @@ async def request_sensitive_change(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN_DETAIL
         )
+    if field == "mobile":
+        cc, _, national = value.partition(" ")
+        taken = await db.execute(
+            select(User.id).where(
+                User.phone == full_phone(cc, national), User.id != user.id
+            )
+        )
+        if taken.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That mobile number is already registered to another account.",
+            )
 
     # Setting a PAN for the first time still comes through this endpoint, but
     # has nothing to verify against — no PAN is being replaced. It is written

@@ -415,10 +415,11 @@ class WidgetVerifyRequest(BaseModel):
 
 # ── Step-up verification for sensitive edits (see /auth/me/sensitive/*) ──
 
-#: Fields that may not be changed on a session alone. Both are account-takeover
-#: primitives: the email owns the PIN reset, and the PAN is what every CAS
-#: import and KYC check matches a person against.
-SENSITIVE_FIELDS = ("email", "pan")
+#: Fields that may not be changed on a session alone. All three are
+#: account-takeover primitives: the email owns the PIN reset, the mobile is the
+#: account's login identifier, and the PAN is what every CAS import and KYC
+#: check matches a person against.
+SENSITIVE_FIELDS = ("email", "pan", "mobile")
 
 #: Length of the emailed step-up code. Matches the PIN reset code so one OTP
 #: input component serves both.
@@ -430,8 +431,12 @@ PAN_REGEX = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
 class SensitiveChangeRequest(BaseModel):
     """Start a change. The value is parked server-side, not applied."""
 
-    field: str = Field(..., description="One of: email, pan")
+    field: str = Field(..., description="One of: email, pan, mobile")
     new_value: str = Field(..., min_length=1, max_length=320)
+    #: Only read when ``field`` is "mobile". Folded into ``new_value`` by the
+    #: validator below so the parked value is self-contained — the confirm step
+    #: reads one column and must not need a second one to make sense of it.
+    country_code: str | None = Field(default=None, max_length=10)
 
     @field_validator("field")
     @classmethod
@@ -458,6 +463,15 @@ class SensitiveChangeRequest(BaseModel):
             if not re.match(PAN_REGEX, v):
                 raise ValueError("That doesn't look like a PAN (format: ABCDE1234F)")
             object.__setattr__(self, "new_value", v)
+        elif self.field == "mobile":
+            digits = _validate_mobile_digits(self.new_value)
+            cc = _normalize_country_code(self.country_code or "+91")
+            if not cc or not cc.lstrip("+").isdigit():
+                raise ValueError("Invalid country code")
+            # Parked as "<country code> <national number>" — one column, split on
+            # the space at confirm time. Readable in the DB, and unambiguous in a
+            # way a concatenated E.164 string would not be.
+            object.__setattr__(self, "new_value", f"{cc} {digits}")
         return self
 
 

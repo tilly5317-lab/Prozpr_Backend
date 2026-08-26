@@ -256,6 +256,20 @@ _SENSITIVE_COPY: dict[str, _Copy] = {
             "wasn't you, change your sign-in PIN now."
         ),
     ),
+    "mobile": _Copy(
+        subject="Confirm the mobile number change on your Prozpr account",
+        heading="Confirm your mobile change",
+        preheader="Someone asked to change the mobile number on your Prozpr account.",
+        intro=(
+            "Enter this code in the app to move your account to its new mobile "
+            "number. That number is what you sign in with, so this is the last "
+            "step the old one is involved in."
+        ),
+        ignore=(
+            "Your mobile number has NOT been changed and you can still sign in "
+            "with it. If this wasn't you, change your sign-in PIN now."
+        ),
+    ),
     "pan": _Copy(
         subject="Confirm the PAN change on your Prozpr account",
         heading="Confirm your PAN change",

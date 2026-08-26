@@ -100,6 +100,27 @@ class TestSensitiveChangeRequestSchema:
         req = SensitiveChangeRequest(field="email", new_value="  A@B.COM ")
         assert req.new_value == "a@b.com"
 
+    def test_mobile_parks_country_code_with_the_number(self):
+        # Confirm reads ONE column, so the parked value has to be
+        # self-contained — a bare national number would be ambiguous.
+        req = SensitiveChangeRequest(
+            field="mobile", new_value="98765 43210", country_code="91"
+        )
+        assert req.new_value == "+91 9876543210"
+
+    def test_mobile_defaults_to_india_when_no_code_given(self):
+        req = SensitiveChangeRequest(field="mobile", new_value="9876543210")
+        assert req.new_value == "+91 9876543210"
+
+    def test_rejects_short_mobile(self):
+        with pytest.raises(ValidationError):
+            SensitiveChangeRequest(field="mobile", new_value="12345")
+
+    def test_rejects_letters_in_mobile(self):
+        # Silently stripping would turn a typo into a different real number.
+        with pytest.raises(ValidationError):
+            SensitiveChangeRequest(field="mobile", new_value="98765abcde")
+
     def test_rejects_malformed_email(self):
         with pytest.raises(ValidationError):
             SensitiveChangeRequest(field="email", new_value="not-an-email")
