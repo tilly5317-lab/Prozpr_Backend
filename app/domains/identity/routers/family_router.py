@@ -143,19 +143,26 @@ async def add_family_member(
             detail="This user is already in your family or has a pending verification",
         )
 
+    # The OTP is this flow's ONLY proof that the person being linked agrees to
+    # it, so it must go to the number on their account — never to one supplied
+    # by the caller. The lookup above accepts an email, so `phone_full` can be
+    # a number the caller controls while `linked_user` is somebody else; using
+    # it here let an attacker approve their own access to that account. Mirror
+    # the linked user's own contact details onto the row instead.
+    consent_phone = linked_user.phone
     fm = FamilyMember(
         owner_id=current_user.id,
         member_user_id=linked_user.id,
         nickname=payload.nickname.strip(),
-        email=payload.email,
-        phone=phone_full,
+        email=linked_user.email,
+        phone=consent_phone,
         relationship_type=payload.relationship_type,
         status="pending_otp",
     )
     db.add(fm)
     await db.commit()
 
-    country_code, mobile = _split_phone(phone_full)
+    country_code, mobile = _split_phone(consent_phone)
     try:
         await send_otp(country_code, mobile)
     except Exception as e:
@@ -273,6 +280,23 @@ async def verify_family_otp(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No phone number associated with this member",
+        )
+
+    # Defence in depth, and a migration guard: rows written before the linked
+    # phone was pinned above may still carry a caller-supplied number. Activating
+    # one hands `get_effective_user` a full identity swap into the member's
+    # account, so verify the number we OTP'd is genuinely theirs.
+    if fm.member_user is not None and fm.phone != fm.member_user.phone:
+        logger.warning(
+            "Refusing to activate family member %s: OTP phone does not match the linked account.",
+            fm.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "phone_mismatch",
+                "message": "This link must be verified from the number registered to that account. Remove it and add them again.",
+            },
         )
 
     country_code, mobile = _split_phone(fm.phone)

@@ -5,7 +5,9 @@ Sheet IS the one and only issue register (no local fallback):
 
 - ``ISSUE_SHEET_WEBHOOK_URL`` (.env) — a Google Apps Script web app attached to
   the admin's Google Sheet; we POST one row per report:
-  Date | User Name | Email | Source | Issue | Screenshot | Remarks
+  Date | User Id | User Name | Email | Source | Issue | Screenshot | Remarks
+  (User Name and Email are MASKED — see append_to_google_sheet. User Id is
+  the join key back to the database, which is where erasure can reach.)
   (Remarks stays empty — it is the admin's column to fill while triaging.)
   ``ISSUE_SHEET_TOKEN`` is a shared secret the script checks so strangers
   cannot post junk rows if the URL leaks.
@@ -36,6 +38,7 @@ from pathlib import Path
 import httpx
 
 from app.core.config import get_settings
+from app.core.pii import mask_email, mask_name
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +102,7 @@ def append_to_google_sheet(
     source_label: str,
     description: str,
     screenshot_name: str | None,
+    user_id: object | None = None,
 ) -> None:
     """POST one register row to the Apps Script webhook — the sole issue register.
 
@@ -114,11 +118,18 @@ def append_to_google_sheet(
             "ISSUE_SHEET_WEBHOOK_URL is not configured — cannot record the issue report."
         )
 
+    # DPDP: this Sheet is a durable third-party store with no processor
+    # agreement, no retention policy, and no path for an erasure request to
+    # reach it — a deleted user would keep a plaintext name and email here
+    # indefinitely. Identifiers are therefore MASKED, and `user_id` carries the
+    # link back to the account so triage can still look the person up in the
+    # database, which erasure DOES reach.
     payload = {
         "token": settings.get_issue_sheet_token() or "",
         "date": created_at.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S"),
-        "user_name": user_name,
-        "email": user_email,
+        "user_id": str(user_id or ""),
+        "user_name": mask_name(user_name) or "",
+        "email": mask_email(user_email) or "",
         "source": source_label,
         "issue": description,
         "screenshot": screenshot_name or "",

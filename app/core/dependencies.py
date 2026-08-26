@@ -72,6 +72,18 @@ async def get_current_user(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # A user who has asked to be erased stops being processed immediately, even
+    # though their row survives the 30-day grace window. Existing JWTs live for
+    # 7 days, so without this check a "deleted" account keeps working for a week
+    # and could cancel its own erasure. 401 rather than 403: the token is no
+    # longer valid, and the client's existing sign-out path handles it.
+    if user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deleted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Tag the request so a later 5xx can be attributed to this user without the
     # exception handler needing DB access. Read in app/core/exceptions.py.
     request.state.distinct_id = str(user.id)

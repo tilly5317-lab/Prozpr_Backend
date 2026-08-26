@@ -1,24 +1,19 @@
 """Defence-in-depth redaction for log bodies leaving the process.
 
 A backstop, not a licence to log PII — call sites are still fixed at source.
-Deliberately narrow: broad patterns mangle order ids and amounts, making
-incidents harder to read.
+
+The patterns themselves live in ``app.core.pii`` so that this exporter, the
+PostHog exception path (``app.core.observability.capture_exception``) and the
+third-party clients all redact to the same rules. They used to be duplicated
+here, which is how lower-cased PAN stayed readable in one pipeline after being
+scrubbed in another.
 """
 
 from __future__ import annotations
 
-import re
-
 from opentelemetry.sdk._logs import LogRecordProcessor
 
-_PATTERNS = (
-    # Indian mobile numbers, with or without the 91 country code.
-    re.compile(r"\b(?:\+?91[\-\s]?)?[6-9]\d{9}\b"),
-    # PAN: 5 letters, 4 digits, 1 letter.
-    re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),
-    # Email addresses.
-    re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b"),
-)
+from app.core.pii import redact_obj, redact_text
 
 
 class ScrubbingLogProcessor(LogRecordProcessor):
@@ -37,11 +32,11 @@ class ScrubbingLogProcessor(LogRecordProcessor):
         try:
             inner = log_record.log_record
             body = inner.body
-            if not isinstance(body, str):
-                return
-            for pattern in _PATTERNS:
-                body = pattern.sub("[REDACTED]", body)
-            inner.body = body
+            # Bodies are usually strings, but a structured log ships a dict or a
+            # list — those used to be returned untouched, which meant the one
+            # shape most likely to hold a whole request payload was the one shape
+            # that skipped scrubbing entirely.
+            inner.body = redact_text(body) if isinstance(body, str) else redact_obj(body)
         except Exception:  # pragma: no cover - a processor must never raise
             pass
 

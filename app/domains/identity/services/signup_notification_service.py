@@ -37,6 +37,7 @@ from functools import lru_cache
 import httpx
 
 from app.core.config import get_settings
+from app.core.pii import mask_email, mask_mobile
 
 logger = logging.getLogger(__name__)
 
@@ -149,11 +150,21 @@ def notify_new_signup(
     """
     when = created_at.astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
     display_name = name or "(name pending)"
+    # Contact details are MASKED before they leave the system. Slack and the
+    # Google Sheet are durable third-party stores we have no processor
+    # agreement with, no retention policy over, and — critically — no way to
+    # reach when a user asks to be erased: deleting their account would leave a
+    # full plaintext name/phone/email sitting in a spreadsheet forever. The
+    # masked values still let the team recognise a signup and confirm they are
+    # looking at the right person; the full record stays in the database, where
+    # erasure can reach it.
+    masked_phone = mask_mobile(phone) or "-"
+    masked_email = mask_email(email) or "-"
     text = (
         ":wave: *New signup on Prozpr*\n"
         f"*Name:* {display_name}\n"
-        f"*Phone:* {phone or '-'}\n"
-        f"*Email:* {email or '-'}\n"
+        f"*Phone:* {masked_phone}\n"
+        f"*Email:* {masked_email}\n"
         f"*When:* {when}"
     )
     # Keep our own test signups out of the team Slack channel — a name
@@ -164,4 +175,4 @@ def notify_new_signup(
         logger.info("Signup name contains 'test' — Slack ping skipped.")
     else:
         _post_to_slack(text)
-    _append_to_signup_sheet(created_at, display_name, email, phone, source)
+    _append_to_signup_sheet(created_at, display_name, masked_email, masked_phone, source)

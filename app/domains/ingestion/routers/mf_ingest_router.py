@@ -151,6 +151,7 @@ async def cams_capabilities(
 @router.post("/cams-request", response_model=CamsStatementRequestResponse)
 async def request_cams_statement_email(
     payload: CamsStatementRequestBody,
+    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Ask CAMS/KFintech to EMAIL the investor a detailed CAS PDF.
@@ -181,13 +182,41 @@ async def request_cams_statement_email(
             ),
         )
 
+    # The PAN decides WHOSE statement the registrar assembles, so it must be the
+    # caller's own — a body-supplied PAN meant one account could ask for another
+    # person's consolidated holdings. Once we know the caller's PAN it is
+    # authoritative; before that, the submitted one is the user asserting their
+    # own, at the same trust level as onboarding.
+    #
+    # The email stays caller-supplied on purpose: it is the address registered
+    # with the fund houses, which legitimately differs from the Prozpr login
+    # email, and the frontend only prefills it. With the PAN pinned, the worst
+    # a caller can do is have THEIR OWN statement sent somewhere they named.
+    stored_pan = (
+        await db.execute(select(User.pan).where(User.id == current_user.id))
+    ).scalar_one_or_none()
+    submitted_pan = (payload.pan_no or "").strip().upper() or None
+
+    if stored_pan:
+        if submitted_pan and submitted_pan != stored_pan.strip().upper():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "That PAN does not match the one on your account. "
+                    "Statements can only be requested for your own PAN."
+                ),
+            )
+        effective_pan = stored_pan
+    else:
+        effective_pan = submitted_pan
+
     try:
         result = await get_casparser_client().generate_kfintech_cas(
             email=payload.email,
             password=payload.password,
             from_date=_CAS_REQUEST_FROM_DATE,
             to_date=date.today().isoformat(),
-            pan_no=payload.pan_no,
+            pan_no=effective_pan,
         )
     except CasParserApiError as exc:
         logger.warning("CAS mailback request failed: %s", exc.short_reason)

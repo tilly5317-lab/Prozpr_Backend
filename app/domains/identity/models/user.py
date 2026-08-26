@@ -108,6 +108,19 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # ── DPDP erasure (see /privacy/account) ──
+    # Soft-delete first, hard purge later. The grace window exists because
+    # erasure is irreversible and account deletion is a common misclick; it also
+    # gives the purge job somewhere to pick the account up from. While
+    # `deleted_at` is set the account must not authenticate and must not be
+    # processed — see app/domains/privacy/services/erasure_service.py.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    deletion_scheduled_for: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     # ── Forgot-PIN reset (see /auth/pin-reset/*) ──
     # The emailed code is stored HASHED, exactly like the PIN itself: a DB leak
     # must not hand out a working credential-reset token. All three columns are

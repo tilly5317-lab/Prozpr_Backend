@@ -144,6 +144,7 @@ def _start_schedulers() -> None:
 
     - mfapi.in NAV polling (``MFAPI_SCHEDULER_ENABLED``)
     - thrice-daily benchmark EOD refresh (``BENCHMARK_SCHEDULER_ENABLED``)
+    - daily DPDP erasure purge + retention pass (``PRIVACY_SCHEDULER_ENABLED``)
     """
     if not get_settings().mfapi_scheduler_enabled():
         logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
@@ -163,6 +164,18 @@ def _start_schedulers() -> None:
         except Exception as exc:
             logger.warning("benchmark scheduler failed to start: %s", exc)
 
+    if not get_settings().privacy_scheduler_enabled():
+        logger.info("privacy scheduler disabled (PRIVACY_SCHEDULER_ENABLED is false)")
+    else:
+        try:
+            from app.domains.privacy.services.privacy_scheduler import (
+                start_privacy_scheduler,
+            )
+
+            start_privacy_scheduler()
+        except Exception as exc:
+            logger.warning("privacy scheduler failed to start: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # shutdown
@@ -173,6 +186,14 @@ async def _shutdown() -> None:
     logger.info("Shutting down Ask PI API...")
     await shutdown_scheduler()
     await shutdown_benchmark_scheduler()
+    try:
+        from app.domains.privacy.services.privacy_scheduler import (
+            shutdown_privacy_scheduler,
+        )
+
+        await shutdown_privacy_scheduler()
+    except Exception:  # pragma: no cover - shutdown must not raise
+        logger.warning("privacy scheduler shutdown failed.", exc_info=True)
     # Flush buffered LLM events before the process goes away, or the last turns'
     # traces are lost.
     shutdown_posthog()

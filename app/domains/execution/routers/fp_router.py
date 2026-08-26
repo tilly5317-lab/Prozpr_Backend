@@ -323,10 +323,18 @@ async def refresh(
 
 # ===========================================================================
 # Sandbox QUEST endpoints — DEV TOOLS for FP_Sandbox_Quest_Map.html
-# (unauthenticated; one named route per journey step so the uvicorn access
-# log reads like the flow itself). Every call funnels through FpClient, which
-# emits the ">>> FP-API >>>" log line. Hard-gated to the FP *sandbox* host —
-# these can never touch production, and they refuse non-sandbox base URLs.
+# (one named route per journey step so the uvicorn access log reads like the
+# flow itself). Every call funnels through FpClient, which emits the
+# ">>> FP-API >>>" log line.
+#
+# These proxy FP's tenant-wide endpoints, so an open route here exposes EVERY
+# investor on the tenant — folios, orders, holdings, KYC — and the write verbs
+# accept an unvalidated body straight through to the KYC/order gateway. They
+# therefore hang off `quest_router`, which carries TWO gates as router-level
+# dependencies: `FP_SANDBOX_QUEST_ENABLED` (off unless explicitly set) and
+# normal JWT auth. The sandbox-host check is a third, narrower gate — it stops
+# these ever touching production FP, but it is NOT an access control, which is
+# what the original "unauthenticated" wiring mistook it for.
 # ===========================================================================
 
 from typing import Any, Literal  # noqa: E402
@@ -360,6 +368,31 @@ def _sandbox_only() -> None:
         )
 
 
+def _require_quest_access(
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> CurrentUser:
+    """Router-level gate for every ``/fp/sandbox/*`` route.
+
+    Two independent conditions, because either alone has failed us: the flag
+    keeps the whole block off in any environment that has not opted in, and the
+    auth dependency stops an opted-in environment serving another tenant's
+    investor data to anonymous callers.
+    """
+    if not get_settings().fp_sandbox_quest_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found.",
+        )
+    return current_user
+
+
+# No prefix: this is mounted INTO `router`, which already carries "/fp".
+quest_router = APIRouter(
+    tags=["Fintech Primitives"],
+    dependencies=[Depends(_require_quest_access)],
+)
+
+
 def _quest_client(kind: str) -> FpClient:
     """Module-level singletons so the 30-min token is reused across calls
     (fresh clients per call re-mint every time and trip FP's 429 limiter)."""
@@ -390,7 +423,7 @@ class FpQuestTokenRequest(BaseModel):
     tenant: Literal["order", "kyc"] = "order"
 
 
-@router.post("/sandbox/token", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/token", response_model=FpProxyResponse)
 async def quest_token(payload: FpQuestTokenRequest) -> FpProxyResponse:
     """Step 1 — mint/refresh the OAuth token for one of the two systems:
     ``order`` = Fintech Primitives order tenant (prozpr), ``kyc`` = Cybrilla
@@ -407,55 +440,55 @@ async def quest_token(payload: FpQuestTokenRequest) -> FpProxyResponse:
     )
 
 
-@router.post("/sandbox/kyc-preverification", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/kyc-preverification", response_model=FpProxyResponse)
 async def quest_kyc_preverification(body: Any = Body(...)) -> FpProxyResponse:
     """Step 2 — KYC readiness check on the Cybrilla POA service
     (``POST /poa/pre_verifications``, tenant cybrillarta)."""
     return await _fp_pass("kyc", "POST", "/poa/pre_verifications", body)
 
 
-@router.get("/sandbox/kyc-preverification/{pv_id}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/kyc-preverification/{pv_id}", response_model=FpProxyResponse)
 async def quest_kyc_preverification_poll(pv_id: str) -> FpProxyResponse:
     return await _fp_pass("kyc", "GET", "/poa/pre_verifications/" + pv_id)
 
 
-@router.post("/sandbox/investor-profile", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/investor-profile", response_model=FpProxyResponse)
 async def quest_investor_profile(body: Any = Body(...)) -> FpProxyResponse:
     """Step 3 — CREATE the investor on FP (``POST /v2/investor_profiles``)."""
     return await _fp_pass("order", "POST", "/v2/investor_profiles", body)
 
 
-@router.post("/sandbox/email-address", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/email-address", response_model=FpProxyResponse)
 async def quest_email_address(body: Any = Body(...)) -> FpProxyResponse:
     return await _fp_pass("order", "POST", "/v2/email_addresses", body)
 
 
-@router.post("/sandbox/phone-number", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/phone-number", response_model=FpProxyResponse)
 async def quest_phone_number(body: Any = Body(...)) -> FpProxyResponse:
     return await _fp_pass("order", "POST", "/v2/phone_numbers", body)
 
 
-@router.post("/sandbox/address", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/address", response_model=FpProxyResponse)
 async def quest_address(body: Any = Body(...)) -> FpProxyResponse:
     """Step 4c — postal address. ``nature`` (residential/...) is MANDATORY or
     every later order fails at the gateway."""
     return await _fp_pass("order", "POST", "/v2/addresses", body)
 
 
-@router.post("/sandbox/bank-account", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/bank-account", response_model=FpProxyResponse)
 async def quest_bank_account(body: Any = Body(...)) -> FpProxyResponse:
     """Step 5 — link the bank account (sandbox rule: a/c ending 11XX verifies)."""
     return await _fp_pass("order", "POST", "/v2/bank_accounts", body)
 
 
-@router.post("/sandbox/mf-investment-account", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/mf-investment-account", response_model=FpProxyResponse)
 async def quest_mf_investment_account(body: Any = Body(...)) -> FpProxyResponse:
     """Step 6 — open the MF investment account; ``folio_defaults`` carries the
     reference IDs minted in steps 4-5."""
     return await _fp_pass("order", "POST", "/v2/mf_investment_accounts", body)
 
 
-@router.get("/sandbox/scheme/{isin}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/scheme/{isin}", response_model=FpProxyResponse)
 async def quest_scheme(isin: str) -> FpProxyResponse:
     """Step 7 — confirm the ISIN is transactable on the sandbox (ABSL + ICICI
     only). ``expand`` is required by FP."""
@@ -467,38 +500,38 @@ async def quest_scheme(isin: str) -> FpProxyResponse:
     )
 
 
-@router.post("/sandbox/mf-purchase", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/mf-purchase", response_model=FpProxyResponse)
 async def quest_mf_purchase(body: Any = Body(...)) -> FpProxyResponse:
     """Step 8 — place the lumpsum BUY. Consent must ride inline (sandbox blocks
     all updates); amount ending 0 is destined to settle, ending 1 to fail."""
     return await _fp_pass("order", "POST", "/v2/mf_purchases", body)
 
 
-@router.get("/sandbox/mf-purchase/{order_id}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/mf-purchase/{order_id}", response_model=FpProxyResponse)
 async def quest_mf_purchase_poll(order_id: str) -> FpProxyResponse:
     return await _fp_pass("order", "GET", "/v2/mf_purchases/" + order_id)
 
 
-@router.post("/sandbox/payment", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/payment", response_model=FpProxyResponse)
 async def quest_payment(body: Any = Body(...)) -> FpProxyResponse:
     """Step 9 — lodge the payment on the payment-gateway realm
     (``POST /api/pg/payments/netbanking``; numeric old_ids)."""
     return await _fp_pass("order", "POST", "/api/pg/payments/netbanking", body)
 
 
-@router.get("/sandbox/payment/{payment_id}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/payment/{payment_id}", response_model=FpProxyResponse)
 async def quest_payment_poll(payment_id: int) -> FpProxyResponse:
     return await _fp_pass("order", "GET", "/api/pg/payments/" + str(payment_id))
 
 
-@router.get("/sandbox/orders", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/orders", response_model=FpProxyResponse)
 async def quest_orders() -> FpProxyResponse:
     """Order history — every purchase on the tenant with its live state
     (pending / failed / successful), for the Hall of Records panel."""
     return await _fp_pass("order", "GET", "/v2/mf_purchases")
 
 
-@router.get("/sandbox/mf-folios", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/mf-folios", response_model=FpProxyResponse)
 async def quest_mf_folios(mf_investment_account: str | None = None) -> FpProxyResponse:
     params = (
         {"mf_investment_account": mf_investment_account}
@@ -508,7 +541,7 @@ async def quest_mf_folios(mf_investment_account: str | None = None) -> FpProxyRe
     return await _fp_pass("order", "GET", "/v2/mf_folios", params=params)
 
 
-@router.post("/sandbox/kyc-form", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/kyc-form", response_model=FpProxyResponse)
 async def quest_kyc_form(body: Any = Body(...)) -> FpProxyResponse:
     """Step 2b — SUBMIT a fresh/modify KYC (``POST /poa/kyc_forms``, Cybrilla
     POA tenant). Note: our sandbox partner is not yet provisioned for
@@ -518,7 +551,7 @@ async def quest_kyc_form(body: Any = Body(...)) -> FpProxyResponse:
     return await _fp_pass("kyc", "POST", "/poa/kyc_forms", body)
 
 
-@router.get("/sandbox/kyc-form/{form_id}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/kyc-form/{form_id}", response_model=FpProxyResponse)
 async def quest_kyc_form_poll(form_id: str) -> FpProxyResponse:
     return await _fp_pass("kyc", "GET", "/poa/kyc_forms/" + form_id)
 
@@ -526,7 +559,7 @@ async def quest_kyc_form_poll(form_id: str) -> FpProxyResponse:
 _ACTIVE_ORDER_STATES = {"under_review", "pending", "confirmed", "submitted"}
 
 
-@router.get("/sandbox/orders-filtered", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/orders-filtered", response_model=FpProxyResponse)
 async def quest_orders_filtered(state: str | None = None) -> FpProxyResponse:
     """Order history with an optional state filter: ``state=active`` (in
     flight: under_review/pending/confirmed/submitted), or an exact FP state
@@ -562,7 +595,7 @@ async def _fp_get(kind: str, path: str, params: dict | None = None) -> Any:
 # ---- daily transactions (create) ------------------------------------------
 
 
-@router.post("/sandbox/sip-plan", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/sip-plan", response_model=FpProxyResponse)
 async def daily_sip_plan(body: Any = Body(...)) -> FpProxyResponse:
     """Start a monthly SIP (``POST /v2/mf_purchase_plans``). Gotcha (live-
     verified): ``consent.email``/``mobile`` must MATCH the investment
@@ -570,31 +603,31 @@ async def daily_sip_plan(body: Any = Body(...)) -> FpProxyResponse:
     return await _fp_pass("order", "POST", "/v2/mf_purchase_plans", body)
 
 
-@router.get("/sandbox/sip-plan/{plan_id}", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/sip-plan/{plan_id}", response_model=FpProxyResponse)
 async def daily_sip_plan_poll(plan_id: str) -> FpProxyResponse:
     return await _fp_pass("order", "GET", "/v2/mf_purchase_plans/" + plan_id)
 
 
-@router.post("/sandbox/redemption", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/redemption", response_model=FpProxyResponse)
 async def daily_redemption(body: Any = Body(...)) -> FpProxyResponse:
     """Sell (``POST /v2/mf_redemptions``). Requires ``folio_number`` — a folio
     only exists after a purchase has SETTLED, so this 400s until then."""
     return await _fp_pass("order", "POST", "/v2/mf_redemptions", body)
 
 
-@router.post("/sandbox/switch", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/switch", response_model=FpProxyResponse)
 async def daily_switch(body: Any = Body(...)) -> FpProxyResponse:
     """Switch scheme->scheme within one AMC (``POST /v2/mf_switches``)."""
     return await _fp_pass("order", "POST", "/v2/mf_switches", body)
 
 
-@router.post("/sandbox/swp", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/swp", response_model=FpProxyResponse)
 async def daily_swp(body: Any = Body(...)) -> FpProxyResponse:
     """Systematic withdrawal plan (``POST /v2/mf_redemption_plans``)."""
     return await _fp_pass("order", "POST", "/v2/mf_redemption_plans", body)
 
 
-@router.post("/sandbox/stp", response_model=FpProxyResponse)
+@quest_router.post("/sandbox/stp", response_model=FpProxyResponse)
 async def daily_stp(body: Any = Body(...)) -> FpProxyResponse:
     """Systematic transfer plan (``POST /v2/mf_switch_plans``)."""
     return await _fp_pass("order", "POST", "/v2/mf_switch_plans", body)
@@ -603,7 +636,7 @@ async def daily_stp(body: Any = Body(...)) -> FpProxyResponse:
 # ---- daily reads (analyse) -------------------------------------------------
 
 
-@router.get("/sandbox/schemes", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/schemes", response_model=FpProxyResponse)
 async def daily_schemes() -> FpProxyResponse:
     """The full transactable scheme universe on this gateway (ABSL + ICICI on
     sandbox), with fund/scheme names expanded."""
@@ -615,7 +648,7 @@ async def daily_schemes() -> FpProxyResponse:
     )
 
 
-@router.get("/sandbox/settlement-detail", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/settlement-detail", response_model=FpProxyResponse)
 async def daily_settlement_detail(mf_purchase: str) -> FpProxyResponse:
     """RTA settlement detail for one purchase (``GET /v2/mf_settlement_details``)."""
     return await _fp_pass(
@@ -634,7 +667,7 @@ def _amc_of(isin: str) -> str:
     return _AMC_BY_ISIN_PREFIX.get((isin or "")[:6], "Other AMC")
 
 
-@router.get("/sandbox/transactions", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/transactions", response_model=FpProxyResponse)
 async def daily_transactions(mf_investment_account: str | None = None) -> FpProxyResponse:
     """Unified transaction feed for an account (or the whole tenant): merges
     purchases, SIP plans, redemptions and switches into one list, newest
@@ -687,7 +720,7 @@ async def daily_transactions(mf_investment_account: str | None = None) -> FpProx
     )
 
 
-@router.get("/sandbox/holdings", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/holdings", response_model=FpProxyResponse)
 async def daily_holdings(mf_investment_account: str | None = None) -> FpProxyResponse:
     """Holdings for an account. Primary source: ``GET /v2/mf_folios`` (real
     folios, minted on settlement). Until something settles those are empty, so
@@ -745,7 +778,7 @@ async def daily_holdings(mf_investment_account: str | None = None) -> FpProxyRes
     )
 
 
-@router.get("/sandbox/investor-report", response_model=FpProxyResponse)
+@quest_router.get("/sandbox/investor-report", response_model=FpProxyResponse)
 async def daily_investor_report(mf_investment_account: str) -> FpProxyResponse:
     """Portfolio analysis for one investment account: status breakdown,
     per-scheme and per-AMC allocation, SIP commitments, folios. Composed
@@ -859,3 +892,6 @@ async def daily_investor_report(mf_investment_account: str) -> FpProxyResponse:
         ),
     }
     return FpProxyResponse(status=200, body=report)
+
+
+router.include_router(quest_router)

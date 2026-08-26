@@ -536,6 +536,35 @@ class Settings:
             and Settings.get_fp_api_secret()
         )
 
+    # ── DPDP retention + erasure purge ─────────────────────────────────────
+    @staticmethod
+    def privacy_scheduler_enabled() -> bool:
+        """Runs the daily erasure purge + retention pass. Off unless set."""
+        raw = (_getenv("PRIVACY_SCHEDULER_ENABLED") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def privacy_retention_apply() -> bool:
+        """Whether that pass DELETES, or only reports what it would delete.
+
+        Two flags rather than one because the job is irreversible: the sensible
+        first deployment schedules it in dry-run and reads the numbers before
+        anything is destroyed."""
+        raw = (_getenv("PRIVACY_RETENTION_APPLY") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def fp_sandbox_quest_enabled() -> bool:
+        """Gate for the ``/fp/sandbox/*`` Quest Map dev routes.
+
+        Default OFF. Those routes proxy FP's TENANT-WIDE endpoints, so leaving
+        them reachable exposes every investor on the tenant, not just the
+        caller's own data. Opt in per-environment with
+        ``FP_SANDBOX_QUEST_ENABLED=true``; they still require a logged-in user
+        on top of this flag."""
+        raw = (_getenv("FP_SANDBOX_QUEST_ENABLED") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
     @staticmethod
     def get_fp_sandbox_schemes() -> list[str]:
         """ISINs known to be transactable on the FP sandbox tenant. The sandbox
