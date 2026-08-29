@@ -50,6 +50,33 @@ Keep snapshots in **ap-south-1**. Cross-border transfer is permitted under the
 DPDP Act unless a country is notified as restricted, but keeping the copies in
 India removes the question and matches where the primary already sits.
 
+### Superseded CAS statements
+
+A CAMS re-upload no longer deletes what came before it: the previous statement's
+`cas_uploads` row is marked `superseded` and everything derived from it stays in
+place (`app/core/cas_scope.py`). That is a deliberate increase in how much
+personal financial data the live database holds, so the position on it:
+
+- **Superseded snapshots are kept indefinitely.** They exist precisely to be
+  compared against — allocation drift, net-worth history, whether a user acted
+  on a plan. A time-based expiry would delete the earlier half of every
+  comparison, which is the problem this replaced.
+- **The identity columns inside them still expire on schedule.** The 90-day
+  `mf_aa_imports_identity` minimisation (`app/core/retention.py`) keys off
+  `normalized_at`, so it nulls the name, address, email, mobile and PAN carried
+  in a superseded statement's header exactly as it does for the live one. What
+  a superseded snapshot keeps long-term is holdings and transactions, not
+  contact identity.
+- **Erasure takes all of them.** `cas_uploads` hangs off `users` with
+  `ON DELETE CASCADE` and the purge walks the live FK graph
+  (`app/domains/privacy/services/user_graph.py`), so every snapshot a user has
+  ever uploaded — active, superseded or failed — is deleted with the account. No
+  list needs maintaining for this to stay true.
+- If growth ever forces a prune, drop the *derived rows* of snapshots older than
+  the newest N and keep the `cas_uploads` header, which carries the headline
+  figures. Nothing exists for this yet, and it should not be added before real
+  upload cadence is known.
+
 ## 3. Access
 
 Snapshot restore is a full data exfiltration path. Confirm who holds

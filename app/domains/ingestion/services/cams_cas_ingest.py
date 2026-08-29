@@ -80,6 +80,7 @@ from app.core.cas_scope import (
     get_scope,
     scope_filter,
     scoped_to,
+    set_scope,
     versioning_enabled,
 )
 from app.domains.cashflow.services.cashflow_persist_service import (
@@ -987,8 +988,9 @@ async def ingest_cams_pdf(
 
     parsed = await _parse_cas_via_api(file_bytes, source_filename, password)
 
-    # Reject statement variants we can't build a real portfolio from — BEFORE any
-    # DB writes, and before the reset wipes the user's prior data:
+    # Reject statement variants we can't build a real portfolio from — before any
+    # DB write and before a snapshot is minted, so a bad file leaves no trace and
+    # the live statement keeps serving the app:
     #   * a Summary CAS has holdings but NO transaction history; and
     #   * a statement with no current holdings (net value 0) has nothing invested.
     if (_clean(parsed.get("cas_type")) or "").upper() == "SUMMARY":
@@ -1037,7 +1039,7 @@ async def ingest_cams_pdf(
 
     with scoped_to(snapshot.id):
         try:
-            return await _persist_parsed_cas(
+            result = await _persist_parsed_cas(
                 db,
                 user_id,
                 parsed=parsed,
@@ -1048,6 +1050,15 @@ async def ingest_cams_pdf(
         except Exception as exc:  # noqa: BLE001
             await cas_upload_service.mark_failed(db, snapshot.id, repr(exc))
             raise
+
+    # The rest of THIS request has to see the statement we just imported, not the
+    # one it authenticated against — the scope was resolved before this snapshot
+    # existed. Without this, work the upload endpoint does after the ingest is
+    # stamped with, and read against, the statement this one replaced: the
+    # net-worth backfill job the router queues next would be written under the
+    # old snapshot and then be invisible to the progress endpoint polling for it.
+    set_scope(snapshot.id)
+    return result
 
 
 def _result_from_snapshot(snapshot) -> CamsIngestResult:
@@ -1150,8 +1161,14 @@ async def _persist_parsed_cas(
         )
         # The plans the user is looking at were computed against the statement
         # this one just replaced. They are not deleted — they keep pointing at
-        # their own snapshot — but the cashflow projection is marked stale so the
-        # next read recomputes it against the new portfolio.
+        # their own snapshot, which the scope already hides.
+        #
+        # Marking them stale anyway is the belt to that braces, and it earns its
+        # keep on the rollback path: switch CAS_SNAPSHOT_VERSIONING off and those
+        # rows become visible again, at which point "stale" is the difference
+        # between recomputing and serving a projection priced off a portfolio the
+        # user no longer holds. Deliberately not scoped — the rows worth flagging
+        # are precisely the superseded ones.
         await mark_cashflow_stale(db, user_id, commit=False)
 
     return CamsIngestResult(

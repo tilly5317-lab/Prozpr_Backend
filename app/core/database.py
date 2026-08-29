@@ -504,26 +504,15 @@ async def apply_postgres_schema_patches() -> None:
         # already exists, so each stamped table is patched here. All nullable:
         # NULL means "not owned by any statement" and stays visible under every
         # scope (see app/core/cas_scope.py).
-        for _tbl in (
-            "mf_aa_imports",
-            "mf_transactions",
-            "mf_sip_mandates",
-            "user_mf_latest_snapshot",
-            "portfolio_allocation_snapshots",
-            "funds",
-            "user_investment_lists",
-            "portfolio_networth_jobs",
-            "user_portfolio_nav_history",
-            "asset_allocation_runs",
-            "practical_asset_allocation_runs",
-            "rebalancing_runs",
-            "additional_investment_runs",
-            "cashflow_plan_runs",
-            "chat_ai_module_runs",
-            "portfolio_holdings",
-            "portfolio_allocations",
-            "portfolio_history",
-        ):
+        #
+        # The list is DERIVED from the mapper registry, not written out again:
+        # a model that gains the CasScoped mixin gets its column and index here
+        # automatically. A hand-copied list is how a table ends up stamped in
+        # Python and unstamped in Postgres — which reads as "this user has no
+        # holdings", not as an error.
+        from app.domains.ingestion.models.cas_upload import scoped_table_names
+
+        for _tbl in scoped_table_names():
             await conn.execute(
                 text(
                     f"ALTER TABLE IF EXISTS {_tbl} "
@@ -534,6 +523,27 @@ async def apply_postgres_schema_patches() -> None:
                 text(
                     f"CREATE INDEX IF NOT EXISTS ix_{_tbl}_cas_upload_id "
                     f"ON {_tbl} (cas_upload_id)"
+                )
+            )
+            # The FK is added separately from the column: ``create_all`` only
+            # ever emits it for a table it creates from scratch, so an existing
+            # table would otherwise carry the column with no constraint behind
+            # it. NOT VALID skips the scan of existing rows (all NULL at this
+            # point, so there is nothing to validate).
+            await conn.execute(
+                text(
+                    f"""
+                    DO $$ BEGIN
+                        ALTER TABLE {_tbl}
+                          ADD CONSTRAINT fk_{_tbl}_cas_upload_id
+                          FOREIGN KEY (cas_upload_id) REFERENCES cas_uploads(id)
+                          ON DELETE SET NULL NOT VALID;
+                    EXCEPTION
+                        WHEN duplicate_object THEN NULL;
+                        WHEN undefined_table THEN NULL;
+                        WHEN undefined_column THEN NULL;
+                    END $$;
+                    """
                 )
             )
         # THE invariant: one live statement per user, enforced by the database.
