@@ -141,6 +141,7 @@ class RebalancingRunListItem(BaseModel):
     portfolio_id: uuid.UUID
     source_allocation_run_id: uuid.UUID
     status: str
+    origin: Optional[str] = None
     engine_version: str
     tax_regime: str
     total_corpus: float
@@ -160,6 +161,7 @@ class RebalancingRunDetailResponse(BaseModel):
     source_allocation_run_id: uuid.UUID
     supersedes_id: Optional[uuid.UUID] = None
     status: str
+    origin: Optional[str] = None
     executed_at: Optional[datetime] = None
 
     engine_request_id: uuid.UUID

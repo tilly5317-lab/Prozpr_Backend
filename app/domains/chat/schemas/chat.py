@@ -70,6 +70,10 @@ class ChatSendMessageResponse(BaseModel):
     user_message: ChatMessageResponse
     assistant_message: ChatMessageResponse
     asset_allocation_run_id: Optional[uuid.UUID] = None
+    # The persisted rebalancing run the assistant just presented, so the client
+    # can offer "Save this plan" → POST /rebalancing/{run_id}/save. The frontend
+    # already declares/reads this exact name; today the backend just never sent it.
+    ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.

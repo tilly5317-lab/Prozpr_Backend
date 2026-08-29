@@ -155,6 +155,10 @@ class RebalancingRun(Base):
     used_cached_allocation: Mapped[Optional[bool]] = mapped_column(nullable=True)
     user_question: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
 
+    # Provenance of this run. "saved" marks the customer's committed plan (set
+    # by POST /rebalancing/{run_id}/save); NULL for ordinary computed runs.
+    origin: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
