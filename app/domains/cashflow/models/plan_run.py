@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 from app.domains.cashflow.models.enums import DetailLevel, InvestmentSource
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class CashflowPlanRun(Base):
+class CashflowPlanRun(CasScoped, Base):
     __tablename__ = "cashflow_plan_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(

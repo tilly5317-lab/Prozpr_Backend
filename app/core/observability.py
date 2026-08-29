@@ -13,6 +13,8 @@ import logging
 import os
 import time
 
+from app.core.pii import redact_obj, redact_text
+
 logger = logging.getLogger(__name__)
 
 _posthog_client: object | None = None
@@ -105,6 +107,27 @@ def shutdown_posthog() -> None:
 _REPORTED_FLAG = "_prozpr_failure_reported"
 
 
+def _redact_exception_args(exc: BaseException) -> None:
+    """Scrub identifier-shaped text out of an exception's args, in place.
+
+    In place rather than on a copy because PostHog serialises the exception
+    asynchronously — a restored-afterwards message would be a race. The local
+    log line has already been written by the time we get here, so nothing
+    diagnostic is lost from stdout.
+    """
+    try:
+        args = getattr(exc, "args", None)
+        if not args:
+            return
+        redacted = tuple(
+            redact_text(a) if isinstance(a, str) else a for a in args
+        )
+        if redacted != args:
+            exc.args = redacted
+    except Exception:  # pragma: no cover - never break reporting
+        pass
+
+
 def capture_exception(
     exc: BaseException,
     *,
@@ -120,11 +143,20 @@ def capture_exception(
     client = _posthog_client
     if client is None or getattr(exc, _REPORTED_FLAG, False):
         return
+
+    # Error Tracking retains 12 months — four times the OTLP log window — and it
+    # is a SEPARATE pipeline, so `ScrubbingLogProcessor` never sees anything sent
+    # here. Third-party clients raise with the upstream response embedded in the
+    # message, which is how PAN, date of birth, bank account and IFSC reached a
+    # year-long store. Sources are fixed too (see FpError); this is the backstop
+    # for the next client nobody remembered to fix.
+    _redact_exception_args(exc)
+
     kwargs: dict[str, object] = {}
     if distinct_id is not None:
         kwargs["distinct_id"] = distinct_id
     if properties is not None:
-        kwargs["properties"] = properties
+        kwargs["properties"] = redact_obj(properties)
     try:
         client.capture_exception(exc, **kwargs)
         try:

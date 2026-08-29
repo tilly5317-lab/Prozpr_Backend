@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 if TYPE_CHECKING:
     from app.domains.chat.models.chat import ChatSession
@@ -63,7 +64,7 @@ class TaxRegime(str, enum.Enum):
     new = "new"
 
 
-class RebalancingRun(Base):
+class RebalancingRun(CasScoped, Base):
     """One execution of the rebalancing engine for a user's portfolio."""
 
     __tablename__ = "rebalancing_runs"

@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 from app.domains.mutual_funds.models.enums import PortfolioSnapshotKind
 
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class PortfolioAllocationSnapshot(Base):
+class PortfolioAllocationSnapshot(CasScoped, Base):
     """Ideal / suggested / actual allocation snapshots with full history."""
 
     __tablename__ = "portfolio_allocation_snapshots"

@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 from app.domains.mutual_funds.models.enums import MfTransactionSource, MfTransactionType
 
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class MfTransaction(Base):
+class MfTransaction(CasScoped, Base):
     __tablename__ = "mf_transactions"
     __table_args__ = (
         UniqueConstraint(

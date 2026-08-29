@@ -16,9 +16,8 @@ from typing import Any, Optional
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.types import JSON
-
 from app.core.database import Base
+from app.core.encrypted_types import EncryptedJSON
 
 
 class FpExecAccount(Base):
@@ -57,7 +56,12 @@ class FpExecAccount(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    raw: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    # Encrypted at rest: this is the verbatim third-party response, and for the
+    # account row that means PAN, date of birth, gender, income band and the
+    # FULL bank account — sitting beside a `bank_account_masked` column whose
+    # masking it quietly undid. Never queried by content, so encryption costs
+    # nothing above the ORM (see app/core/encrypted_types.py).
+    raw: Mapped[Optional[dict[str, Any]]] = mapped_column(EncryptedJSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -96,7 +100,12 @@ class FpExecOrder(Base):
         Integer, nullable=True
     )
 
-    raw: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    # Encrypted at rest: this is the verbatim third-party response, and for the
+    # account row that means PAN, date of birth, gender, income band and the
+    # FULL bank account — sitting beside a `bank_account_masked` column whose
+    # masking it quietly undid. Never queried by content, so encryption costs
+    # nothing above the ORM (see app/core/encrypted_types.py).
+    raw: Mapped[Optional[dict[str, Any]]] = mapped_column(EncryptedJSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

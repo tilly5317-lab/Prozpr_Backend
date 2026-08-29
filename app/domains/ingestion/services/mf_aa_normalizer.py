@@ -117,6 +117,7 @@ def _map_transaction_type(
 def _build_fingerprint(
     *,
     user_id: uuid.UUID,
+    cas_upload_id: Optional[uuid.UUID],
     scheme_code: str,
     folio_number: str,
     transaction_type: MfTransactionType,
@@ -125,9 +126,23 @@ def _build_fingerprint(
     nav: float,
     amount: float,
 ) -> str:
+    """Dedupe key for one transaction, scoped to the statement it came from.
+
+    ``cas_upload_id`` is part of the hash and MUST stay that way. The ledger
+    insert is ON CONFLICT DO NOTHING against
+    ``uq_mf_txn_source_fingerprint (source_system, source_txn_fingerprint)``, and
+    the same transaction appears in every statement that covers its date. Without
+    the snapshot in the key, the second upload collides on every single row and
+    lands a snapshot with an EMPTY ledger while reporting a large
+    ``skipped_duplicate`` count — a silent, total failure.
+
+    Within one snapshot the key still does its original job: a statement that
+    lists the same transaction twice inserts it once.
+    """
     raw = "|".join(
         [
             str(user_id),
+            str(cas_upload_id or ""),
             scheme_code,
             folio_number,
             transaction_type.value,
@@ -303,6 +318,7 @@ async def normalize_single_import(
 
             fp = _build_fingerprint(
                 user_id=aa_import.user_id,
+                cas_upload_id=aa_import.cas_upload_id,
                 scheme_code=scheme_code,
                 folio_number=folio_number,
                 transaction_type=tx_type,
@@ -337,6 +353,10 @@ async def normalize_single_import(
                     "source_system": MfTransactionSource.AA,
                     "source_import_id": aa_import.id,
                     "source_txn_fingerprint": fp,
+                    # Core bulk insert — the ORM before_flush stamper in
+                    # app/core/cas_scope.py never sees these rows, so the
+                    # snapshot is set here by hand.
+                    "cas_upload_id": aa_import.cas_upload_id,
                 }
             )
 

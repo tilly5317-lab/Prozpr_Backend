@@ -6,7 +6,9 @@ import uuid
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.core.pii import mask_name, mask_pan
 
 
 class FpSetupRequest(BaseModel):
@@ -87,6 +89,16 @@ class FpKycSetupRequest(BaseModel):
 
 
 class FpAccountResponse(BaseModel):
+    """The account summary behind ``GET /fp/status``.
+
+    PAN and holder name are masked on the way out. They used to serialise
+    verbatim next to ``bank_account_masked``, which read as an assurance the
+    payload had not earned. The caller already knows their own PAN, so the last
+    four digits are enough to confirm WHICH one we hold — sending the rest only
+    adds a copy of a government identifier to browser caches, proxy logs and
+    screenshots.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -99,6 +111,14 @@ class FpAccountResponse(BaseModel):
     kyc_pv_id: Optional[str] = None
     kyc_checked_at: Optional[datetime] = None
     created_at: datetime
+
+    @field_serializer("pan")
+    def _mask_pan_out(self, v: Optional[str]) -> Optional[str]:
+        return mask_pan(v)
+
+    @field_serializer("holder_name")
+    def _mask_holder_out(self, v: Optional[str]) -> Optional[str]:
+        return mask_name(v)
 
 
 class FpStatusResponse(BaseModel):

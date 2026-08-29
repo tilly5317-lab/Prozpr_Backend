@@ -249,6 +249,42 @@ async def apply_postgres_schema_patches() -> None:
                 "SMALLINT NOT NULL DEFAULT 0"
             )
         )
+        # ORM/column drift: User.avatar_key — profile picture S3 object key.
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(512)")
+        )
+        # ORM/column drift: User.sensitive_change_* — the parked email/PAN edit
+        # awaiting a step-up code. See /auth/me/sensitive/* and the model.
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_field "
+                "VARCHAR(32)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_value "
+                "VARCHAR(320)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_code_hash "
+                "VARCHAR(255)"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_expires_at "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_change_attempts "
+                "SMALLINT NOT NULL DEFAULT 0"
+            )
+        )
         # ORM/column drift: ChatSession.rating — user's 1–5 rating of Pi, one per
         # conversation. Added after the table first shipped.
         await conn.execute(
@@ -409,8 +445,7 @@ async def apply_postgres_schema_patches() -> None:
             "ADD COLUMN IF NOT EXISTS kyc_pv_id VARCHAR(80)",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS fp_exec_accounts "
-            "ADD COLUMN IF NOT EXISTS raw JSON",
+            "ALTER TABLE IF EXISTS fp_exec_accounts ADD COLUMN IF NOT EXISTS raw JSON",
             # The account row is now a shell created at signup — FP-side ids
             # arrive later (post-KYC), so the v1 NOT NULLs must go.
             "ALTER TABLE IF EXISTS fp_exec_accounts "
@@ -419,14 +454,132 @@ async def apply_postgres_schema_patches() -> None:
             "ALTER COLUMN fp_investment_account_id DROP NOT NULL",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ALTER COLUMN holder_name DROP NOT NULL",
-            "ALTER TABLE IF EXISTS fp_exec_accounts "
-            "ALTER COLUMN pan DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts ALTER COLUMN pan DROP NOT NULL",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ALTER COLUMN bank_account_masked DROP NOT NULL",
         ):
             await conn.execute(text(ddl))
+
+        # DPDP erasure: soft-delete columns on users. The account stops
+        # authenticating the moment `deleted_at` is set (app/core/dependencies.py)
+        # and the purge job picks it up once `deletion_scheduled_for` passes.
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_for "
+                "TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_users_deletion_scheduled_for "
+                "ON users (deletion_scheduled_for) WHERE deleted_at IS NOT NULL"
+            )
+        )
+
+        # DPDP: fp_exec_accounts.raw / fp_exec_orders.raw now carry Fernet
+        # ciphertext (app/core/encrypted_types.EncryptedJSON), not JSON. They
+        # hold the verbatim third-party payload — PAN, date of birth, gender,
+        # income band and the unmasked bank account — which is exactly what a
+        # database dump or an RDS snapshot would otherwise expose in the clear.
+        #
+        # USING raw::text keeps every existing row: the column becomes text
+        # holding the old JSON, and EncryptedJSON's reader accepts unprefixed
+        # values, so historical rows keep working and re-encrypt on next write.
+        for _tbl in ("fp_exec_accounts", "fp_exec_orders"):
+            await conn.execute(
+                text(
+                    f"ALTER TABLE IF EXISTS {_tbl} "
+                    f"ALTER COLUMN raw TYPE TEXT USING raw::text"
+                )
+            )
+        # ── CAS snapshot versioning ────────────────────────────────────────
+        # Every table that carries a statement's identity. ``create_all`` makes
+        # the ``cas_uploads`` table but never ADDs a column to a table that
+        # already exists, so each stamped table is patched here. All nullable:
+        # NULL means "not owned by any statement" and stays visible under every
+        # scope (see app/core/cas_scope.py).
+        #
+        # The list is DERIVED from the mapper registry, not written out again:
+        # a model that gains the CasScoped mixin gets its column and index here
+        # automatically. A hand-copied list is how a table ends up stamped in
+        # Python and unstamped in Postgres — which reads as "this user has no
+        # holdings", not as an error.
+        from app.domains.ingestion.models.cas_upload import scoped_table_names
+
+        for _tbl in scoped_table_names():
+            await conn.execute(
+                text(
+                    f"ALTER TABLE IF EXISTS {_tbl} "
+                    f"ADD COLUMN IF NOT EXISTS cas_upload_id UUID"
+                )
+            )
+            await conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{_tbl}_cas_upload_id "
+                    f"ON {_tbl} (cas_upload_id)"
+                )
+            )
+            # The FK is added separately from the column: ``create_all`` only
+            # ever emits it for a table it creates from scratch, so an existing
+            # table would otherwise carry the column with no constraint behind
+            # it. NOT VALID skips the scan of existing rows (all NULL at this
+            # point, so there is nothing to validate).
+            await conn.execute(
+                text(
+                    f"""
+                    DO $$ BEGIN
+                        ALTER TABLE {_tbl}
+                          ADD CONSTRAINT fk_{_tbl}_cas_upload_id
+                          FOREIGN KEY (cas_upload_id) REFERENCES cas_uploads(id)
+                          ON DELETE SET NULL NOT VALID;
+                    EXCEPTION
+                        WHEN duplicate_object THEN NULL;
+                        WHEN undefined_table THEN NULL;
+                        WHEN undefined_column THEN NULL;
+                    END $$;
+                    """
+                )
+            )
+        # THE invariant: one live statement per user, enforced by the database.
+        # A partial unique index cannot be expressed on the model, so it lives here.
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_uploads_one_active "
+                "ON cas_uploads (user_id) WHERE status = 'active'"
+            )
+        )
+        # The latest-holdings cache is rebuilt per snapshot, so its uniqueness has
+        # to include the snapshot: on (user_id, scheme_code) alone, a second
+        # statement holding the same fund cannot be written at all.
+        await conn.execute(
+            text(
+                "ALTER TABLE user_mf_latest_snapshot "
+                "DROP CONSTRAINT IF EXISTS uq_user_mf_latest_snapshot_user_scheme"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_mf_latest_snapshot_user_cas_scheme "
+                "ON user_mf_latest_snapshot (user_id, cas_upload_id, scheme_code) "
+                "WHERE cas_upload_id IS NOT NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_mf_latest_snapshot_user_scheme_legacy "
+                "ON user_mf_latest_snapshot (user_id, scheme_code) "
+                "WHERE cas_upload_id IS NULL"
+            )
+        )
+
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps)"
     )
 
 

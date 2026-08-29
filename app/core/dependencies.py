@@ -17,6 +17,11 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import (
+    resolve_active_cas_upload_id,
+    set_scope,
+    versioning_enabled,
+)
 from app.core.database import get_db
 from app.domains.identity.models.user import User
 from app.domains.identity.services.user_context_loader import load_user_for_ai
@@ -40,6 +45,13 @@ class CurrentUser:
     # already loaded — every surface that needs "did they skip CAMS?" reads it
     # off /auth/me for free.
     cams_skipped_at: Optional[datetime] = None
+    # Carried off the already-loaded User row so /auth/me can report a masked
+    # PAN and any in-flight step-up change without a second query. The FULL pan
+    # value lives here but is never serialised by /auth/me — see
+    # `_current_user_response` in auth_router.
+    pan: Optional[str] = None
+    sensitive_change_field: Optional[str] = None
+    avatar_key: Optional[str] = None
 
 
 async def get_current_user(
@@ -72,9 +84,27 @@ async def get_current_user(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # A user who has asked to be erased stops being processed immediately, even
+    # though their row survives the 30-day grace window. Existing JWTs live for
+    # 7 days, so without this check a "deleted" account keeps working for a week
+    # and could cancel its own erasure. 401 rather than 403: the token is no
+    # longer valid, and the client's existing sign-out path handles it.
+    if user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deleted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Tag the request so a later 5xx can be attributed to this user without the
     # exception handler needing DB access. Read in app/core/exceptions.py.
     request.state.distinct_id = str(user.id)
+    # Pin every query in this request to the user's live CAS statement. One
+    # indexed lookup here is what lets ~56 read sites stay untouched — see
+    # app/core/cas_scope.py. get_effective_user re-pins it for family members,
+    # and a CAS upload re-pins it to the statement it just imported.
+    if versioning_enabled():
+        set_scope(await resolve_active_cas_upload_id(db, user.id))
     return CurrentUser(
         id=user.id,
         country_code=user.country_code,
@@ -85,6 +115,9 @@ async def get_current_user(
         is_active=user.is_active,
         is_onboarding_complete=user.is_onboarding_complete,
         cams_skipped_at=user.cams_skipped_at,
+        pan=user.pan,
+        sensitive_change_field=user.sensitive_change_field,
+        avatar_key=user.avatar_key,
     )
 
 
@@ -135,6 +168,9 @@ async def get_effective_user(
             detail="Family member's account not found",
         )
 
+    # Acting as someone else means reading THEIR statement, not the caller's.
+    if versioning_enabled():
+        set_scope(await resolve_active_cas_upload_id(db, member_user.id))
     return CurrentUser(
         id=member_user.id,
         country_code=member_user.country_code,
@@ -145,6 +181,9 @@ async def get_effective_user(
         is_active=member_user.is_active,
         is_onboarding_complete=member_user.is_onboarding_complete,
         cams_skipped_at=member_user.cams_skipped_at,
+        pan=member_user.pan,
+        sensitive_change_field=member_user.sensitive_change_field,
+        avatar_key=member_user.avatar_key,
     )
 
 

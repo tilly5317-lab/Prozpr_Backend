@@ -39,6 +39,9 @@ from app.domains.portfolio.models import (  # noqa: F401
     user_portfolio_nav_history,
     portfolio_networth_job,
 )
+from app.domains.ingestion.models import (  # noqa: F401
+    cas_upload,
+)
 from app.domains.mutual_funds.models import (  # noqa: F401
     enums as mf_enums,
     fund,
@@ -94,3 +97,4 @@ from app.domains.chat.models import (  # noqa: F401
     chat_session_state,
     chat_ai_module_run,
 )
+from app.domains.privacy.models import consent as privacy_consent  # noqa: F401

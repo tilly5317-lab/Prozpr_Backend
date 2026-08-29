@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.cas_scope import effective_scope, scope_filter
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.asset_allocation.models.run import AssetAllocationRun
@@ -245,9 +246,13 @@ async def update_allocations(
 ):
     portfolio = await get_or_create_primary_portfolio(db, current_user.id)
 
+    # Replaces the allocation rows of the CURRENT snapshot only; earlier
+    # statements keep theirs. The replacements are stamped automatically on flush.
+    snapshot_id = await effective_scope(db, current_user.id)
     await db.execute(
         delete(PortfolioAllocation).where(
-            PortfolioAllocation.portfolio_id == portfolio.id
+            PortfolioAllocation.portfolio_id == portfolio.id,
+            *scope_filter(PortfolioAllocation, snapshot_id),
         )
     )
 

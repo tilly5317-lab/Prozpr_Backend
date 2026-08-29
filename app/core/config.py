@@ -536,6 +536,75 @@ class Settings:
             and Settings.get_fp_api_secret()
         )
 
+    # ── CAS snapshot versioning ────────────────────────────────────────────
+    @staticmethod
+    def cas_snapshot_versioning() -> bool:
+        """Whether a CAMS re-upload SUPERSEDES the previous statement (default)
+        or WIPES it (the pre-2026-08 behaviour).
+
+        On: every upload mints a ``cas_uploads`` row, everything derived from it
+        is stamped with that id, and reads are scoped to the active snapshot —
+        nothing is ever deleted. Off: ``reset_user_financial_data`` runs on every
+        upload as before and the scope hooks stay inert.
+
+        Defaults ON. This is the kill switch, not the rollout switch: set
+        ``CAS_SNAPSHOT_VERSIONING=false`` to fall straight back to the
+        destructive path without a deploy.
+        """
+        raw = (_getenv("CAS_SNAPSHOT_VERSIONING") or "").strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return True
+
+    # ── DPDP retention + erasure purge ─────────────────────────────────────
+    @staticmethod
+    def privacy_scheduler_enabled() -> bool:
+        """Runs the daily erasure purge + retention pass. Off unless set."""
+        raw = (_getenv("PRIVACY_SCHEDULER_ENABLED") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def privacy_retention_apply() -> bool:
+        """Whether that pass DELETES, or only reports what it would delete.
+
+        Two flags rather than one because the job is irreversible: the sensible
+        first deployment schedules it in dry-run and reads the numbers before
+        anything is destroyed."""
+        raw = (_getenv("PRIVACY_RETENTION_APPLY") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def otp_bypass_domains() -> frozenset[str]:
+        """Email domains whose accounts skip the step-up code on sensitive edits.
+
+        This exists so the team can exercise the email/PAN change flow without a
+        live inbox in the loop. It is a REAL HOLE in an account-takeover control:
+        any account whose address ends in a listed domain can change its own
+        email and PAN with nothing but a session.
+
+        Default empty, so production is closed unless somebody opts in. Set
+        ``OTP_BYPASS_DOMAINS=prozpr.com`` on dev; never set it on prod, and if
+        prozpr.com ever becomes a domain real customers sign up under, delete
+        this setting rather than trying to scope it."""
+        raw = (_getenv("OTP_BYPASS_DOMAINS") or "").strip().lower()
+        if not raw:
+            return frozenset()
+        return frozenset(
+            d.strip().lstrip("@") for d in raw.split(",") if d.strip().lstrip("@")
+        )
+
+    @staticmethod
+    def fp_sandbox_quest_enabled() -> bool:
+        """Gate for the ``/fp/sandbox/*`` Quest Map dev routes.
+
+        Default OFF. Those routes proxy FP's TENANT-WIDE endpoints, so leaving
+        them reachable exposes every investor on the tenant, not just the
+        caller's own data. Opt in per-environment with
+        ``FP_SANDBOX_QUEST_ENABLED=true``; they still require a logged-in user
+        on top of this flag."""
+        raw = (_getenv("FP_SANDBOX_QUEST_ENABLED") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
     @staticmethod
     def get_fp_sandbox_schemes() -> list[str]:
         """ISINs known to be transactable on the FP sandbox tenant. The sandbox

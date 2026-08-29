@@ -3,11 +3,12 @@
 A user's uploaded CAS statement PDF, kept permanently in the private S3
 bucket (`user-cas/{user_id}/{id}.pdf`) and listed on their profile.
 
-Deliberately SEPARATE from ``mf_aa_imports``: that audit trail is wiped by
-``reset_user_financial_data`` on every re-upload (a CAS is a full snapshot),
-while these document records — like profile and goals — survive resets so the
-user keeps their statement history. This table must therefore NEVER be added
-to the reset's delete list.
+Deliberately SEPARATE from ``mf_aa_imports`` (the parsed audit trail) and from
+``cas_uploads`` (the snapshot header): this is the FILE. It carries no
+``cas_upload_id`` and is not snapshot-scoped — the archive outlives the ingest
+that read it, and a snapshot points at its PDF through
+``cas_uploads.cas_document_id``. This table must also never be added to
+``reset_user_financial_data``'s delete list.
 """
 
 from __future__ import annotations

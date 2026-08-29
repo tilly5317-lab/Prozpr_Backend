@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 from app.domains.mutual_funds.models.enums import UserInvestmentListKind
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class UserInvestmentList(Base):
+class UserInvestmentList(CasScoped, Base):
     """Per-client guardrail lists consumed by recommendation engines.
 
     Not a transaction/holding ledger. These lists represent advisory constraints

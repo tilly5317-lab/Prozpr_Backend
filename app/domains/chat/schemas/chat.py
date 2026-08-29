@@ -78,6 +78,10 @@ class ChatSendMessageResponse(BaseModel):
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False
+    # The session's title after this turn. Only ever differs from the previous
+    # one on the first turn, when the auto-titler replaces the placeholder —
+    # the client uses it to repaint the session list without a refetch.
+    session_title: Optional[str] = None
 
 
 class ChatAiModuleRunResponse(BaseModel):

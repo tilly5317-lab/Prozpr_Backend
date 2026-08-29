@@ -10,25 +10,47 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
-    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 
-class UserMfLatestSnapshot(Base):
+class UserMfLatestSnapshot(CasScoped, Base):
     """Denormalized latest MF holdings row per (user, scheme_code)."""
 
     __tablename__ = "user_mf_latest_snapshot"
+    # Uniqueness has to include the snapshot: this cache is rebuilt per CAS
+    # upload, and on (user_id, scheme_code) alone a second statement holding the
+    # same fund could not be written at all. Two partial indexes rather than one
+    # 3-column constraint, because NULL never equals NULL in a unique index —
+    # unstamped (manual / SimBanks / pre-versioning) rows would lose their
+    # one-row-per-fund guarantee otherwise.
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "scheme_code", name="uq_user_mf_latest_snapshot_user_scheme"
+        Index(
+            "uq_user_mf_latest_snapshot_user_cas_scheme",
+            "user_id",
+            "cas_upload_id",
+            "scheme_code",
+            unique=True,
+            postgresql_where=text("cas_upload_id IS NOT NULL"),
+            sqlite_where=text("cas_upload_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_user_mf_latest_snapshot_user_scheme_legacy",
+            "user_id",
+            "scheme_code",
+            unique=True,
+            postgresql_where=text("cas_upload_id IS NULL"),
+            sqlite_where=text("cas_upload_id IS NULL"),
         ),
     )
 
