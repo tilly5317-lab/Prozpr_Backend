@@ -100,6 +100,31 @@ class CasScoped:
         )
 
 
+def scoped_table_names() -> tuple[str, ...]:
+    """Every table stamped with ``cas_upload_id``, read off the mapper registry.
+
+    The single source of truth for "which tables belong to a statement". The
+    startup DDL derives its ALTER/CREATE INDEX loop from this, so adding the
+    mixin to a new model is enough — there is no second list to forget, which is
+    the drift that would leave a table stamped in Python and unstamped in
+    Postgres. The adoption lists in ``cas_upload_service`` (which additionally
+    need to know how each table reaches its user) are checked against this by
+    ``test_cas_scope.py``.
+
+    Requires the models to be imported — ``app.all_models`` guarantees that at
+    boot, and callers here run well after it.
+    """
+    from app.core.database import Base
+
+    return tuple(
+        sorted(
+            mapper.class_.__tablename__
+            for mapper in Base.registry.mappers
+            if issubclass(mapper.class_, CasScoped)
+        )
+    )
+
+
 class CasUpload(Base):
     __tablename__ = "cas_uploads"
     __table_args__ = (

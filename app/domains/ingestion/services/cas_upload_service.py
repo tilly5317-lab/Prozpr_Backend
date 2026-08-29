@@ -293,27 +293,30 @@ async def ensure_legacy_snapshot(
     old rows would stay NULL — permanently visible under THE NULL RULE — and be
     counted alongside the incoming statement.
     """
-    has_data = (
-        await db.execute(
-            text(
-                "SELECT 1 FROM mf_transactions WHERE user_id = :uid "
-                "AND cas_upload_id IS NULL LIMIT 1"
-            ).bindparams(*_uuid_params(uid=user_id))
-        )
-    ).first()
-    if has_data is None:
-        # Nothing from a previous life; check the portfolio side too, since a
-        # user can hold allocations without a normalized ledger.
+    # Three probes rather than one, cheapest and most decisive first. Each covers
+    # a way a user can hold pre-versioning data without the others: an earlier CAS
+    # leaves an import row, a normalised ledger leaves transactions, and a
+    # portfolio can carry holdings with neither (SimBanks, a partial ingest).
+    probes = (
+        "SELECT 1 FROM mf_aa_imports WHERE user_id = :uid "
+        "AND cas_upload_id IS NULL LIMIT 1",
+        "SELECT 1 FROM mf_transactions WHERE user_id = :uid "
+        "AND cas_upload_id IS NULL LIMIT 1",
+        "SELECT 1 FROM portfolio_holdings h JOIN portfolios p ON h.portfolio_id = p.id "
+        "WHERE p.user_id = :uid AND h.cas_upload_id IS NULL LIMIT 1",
+    )
+    has_data = None
+    for sql in probes:
         has_data = (
-            await db.execute(
-                text(
-                    "SELECT 1 FROM portfolio_holdings h "
-                    "JOIN portfolios p ON h.portfolio_id = p.id "
-                    "WHERE p.user_id = :uid AND h.cas_upload_id IS NULL LIMIT 1"
-                ).bindparams(*_uuid_params(uid=user_id))
-            )
+            await db.execute(text(sql).bindparams(*_uuid_params(uid=user_id)))
         ).first()
+        if has_data is not None:
+            break
     if has_data is None:
+        # Genuinely nothing to adopt. Any stray unstamped row in a table these
+        # probes do not cover belongs to a "latest row wins" read (a plan run),
+        # where a newer snapshot's row is returned anyway — so it cannot be
+        # summed against the incoming statement.
         return None
 
     legacy = await mint(db, user_id, source_filename="(pre-versioning data)")
