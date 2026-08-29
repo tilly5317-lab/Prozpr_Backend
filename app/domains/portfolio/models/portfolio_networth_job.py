@@ -20,9 +20,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 
-class PortfolioNetworthJob(Base):
+class PortfolioNetworthJob(CasScoped, Base):
     __tablename__ = "portfolio_networth_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(

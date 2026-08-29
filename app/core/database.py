@@ -445,8 +445,7 @@ async def apply_postgres_schema_patches() -> None:
             "ADD COLUMN IF NOT EXISTS kyc_pv_id VARCHAR(80)",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMPTZ",
-            "ALTER TABLE IF EXISTS fp_exec_accounts "
-            "ADD COLUMN IF NOT EXISTS raw JSON",
+            "ALTER TABLE IF EXISTS fp_exec_accounts ADD COLUMN IF NOT EXISTS raw JSON",
             # The account row is now a shell created at signup — FP-side ids
             # arrive later (post-KYC), so the v1 NOT NULLs must go.
             "ALTER TABLE IF EXISTS fp_exec_accounts "
@@ -455,8 +454,7 @@ async def apply_postgres_schema_patches() -> None:
             "ALTER COLUMN fp_investment_account_id DROP NOT NULL",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ALTER COLUMN holder_name DROP NOT NULL",
-            "ALTER TABLE IF EXISTS fp_exec_accounts "
-            "ALTER COLUMN pan DROP NOT NULL",
+            "ALTER TABLE IF EXISTS fp_exec_accounts ALTER COLUMN pan DROP NOT NULL",
             "ALTER TABLE IF EXISTS fp_exec_accounts "
             "ALTER COLUMN bank_account_masked DROP NOT NULL",
         ):
@@ -500,8 +498,78 @@ async def apply_postgres_schema_patches() -> None:
                     f"ALTER COLUMN raw TYPE TEXT USING raw::text"
                 )
             )
+        # ── CAS snapshot versioning ────────────────────────────────────────
+        # Every table that carries a statement's identity. ``create_all`` makes
+        # the ``cas_uploads`` table but never ADDs a column to a table that
+        # already exists, so each stamped table is patched here. All nullable:
+        # NULL means "not owned by any statement" and stays visible under every
+        # scope (see app/core/cas_scope.py).
+        for _tbl in (
+            "mf_aa_imports",
+            "mf_transactions",
+            "mf_sip_mandates",
+            "user_mf_latest_snapshot",
+            "portfolio_allocation_snapshots",
+            "funds",
+            "user_investment_lists",
+            "portfolio_networth_jobs",
+            "user_portfolio_nav_history",
+            "asset_allocation_runs",
+            "practical_asset_allocation_runs",
+            "rebalancing_runs",
+            "additional_investment_runs",
+            "cashflow_plan_runs",
+            "chat_ai_module_runs",
+            "portfolio_holdings",
+            "portfolio_allocations",
+            "portfolio_history",
+        ):
+            await conn.execute(
+                text(
+                    f"ALTER TABLE IF EXISTS {_tbl} "
+                    f"ADD COLUMN IF NOT EXISTS cas_upload_id UUID"
+                )
+            )
+            await conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{_tbl}_cas_upload_id "
+                    f"ON {_tbl} (cas_upload_id)"
+                )
+            )
+        # THE invariant: one live statement per user, enforced by the database.
+        # A partial unique index cannot be expressed on the model, so it lives here.
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_uploads_one_active "
+                "ON cas_uploads (user_id) WHERE status = 'active'"
+            )
+        )
+        # The latest-holdings cache is rebuilt per snapshot, so its uniqueness has
+        # to include the snapshot: on (user_id, scheme_code) alone, a second
+        # statement holding the same fund cannot be written at all.
+        await conn.execute(
+            text(
+                "ALTER TABLE user_mf_latest_snapshot "
+                "DROP CONSTRAINT IF EXISTS uq_user_mf_latest_snapshot_user_scheme"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_mf_latest_snapshot_user_cas_scheme "
+                "ON user_mf_latest_snapshot (user_id, cas_upload_id, scheme_code) "
+                "WHERE cas_upload_id IS NOT NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_mf_latest_snapshot_user_scheme_legacy "
+                "ON user_mf_latest_snapshot (user_id, scheme_code) "
+                "WHERE cas_upload_id IS NULL"
+            )
+        )
+
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps)"
     )
 
 

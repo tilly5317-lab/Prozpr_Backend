@@ -29,6 +29,7 @@ from typing import Optional
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import effective_scope, scoped_to
 from app.core.database import _get_session_factory
 from app.domains.identity.models.onboarding_generation_job import (
     OnboardingGenerationJob,
@@ -67,6 +68,7 @@ def generation_steps(has_holdings: bool) -> tuple[tuple[str, str], ...]:
     if has_holdings:
         return GENERATION_STEPS
     return tuple(step for step in GENERATION_STEPS if step[0] != "networth")
+
 
 # Progress bands per phase (start %, end %). The net-worth build dominates
 # because it is the genuinely slow part (per-fund NAV fetches + daily replay).
@@ -140,6 +142,20 @@ async def _update(db: AsyncSession, job_id: uuid.UUID, **fields: object) -> None
 
 
 async def run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
+    """Pin the user's CAS snapshot, then run every personalisation step.
+
+    A BackgroundTasks callback carries no request scope of its own, so the
+    snapshot is resolved here — every read below (holdings, risk, net worth) must
+    see one statement, not all of them summed.
+    """
+    factory = _get_session_factory()
+    async with factory() as scope_db:
+        snapshot_id = await effective_scope(scope_db, user_id)
+    with scoped_to(snapshot_id):
+        await _run_onboarding_generation(user_id, job_id)
+
+
+async def _run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
     """Run every personalisation step, updating the polled job row as it goes.
 
     Opens a fresh session because the request-scoped one is closed by the time a
@@ -322,5 +338,3 @@ async def _step_networth(
                 "onboarding generation: net-worth wait timed out — continuing"
             )
             break
-
-

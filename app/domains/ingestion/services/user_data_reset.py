@@ -1,10 +1,19 @@
-"""Full per-user financial-data reset for a clean CAMS re-ingest.
+"""Full per-user financial-data reset — the pre-snapshot CAMS re-ingest path.
 
-A CAMS / KFintech CAS is a *complete* snapshot of the user's mutual-fund holdings,
-so re-uploading one should rebuild every downstream figure from scratch rather than
-merge onto whatever stale, cached state a previous upload left behind. This module
-wipes all of a user's financial and computed data in one FK-safe pass so the fresh
-statement is the sole source of truth.
+NO LONGER THE DEFAULT. A CAMS re-upload now supersedes the previous statement
+instead of deleting it: every upload mints a ``cas_uploads`` row, everything
+derived from it is stamped with that id, and reads are scoped to the active one
+(``app/core/cas_scope.py``). This module runs only when
+``CAS_SNAPSHOT_VERSIONING=false`` — the kill switch that restores the old
+behaviour without a deploy — and as an admin-only hard reset.
+
+What it did, and still does when called: a CAMS / KFintech CAS is a *complete*
+snapshot of the user's mutual-fund holdings, so re-uploading one rebuilt every
+downstream figure from scratch rather than merging onto whatever stale, cached
+state a previous upload left behind. It wipes all of a user's financial and
+computed data in one FK-safe pass so the fresh statement is the sole source of
+truth — and takes every plan, projection and net-worth point with it, which is
+exactly why snapshots replaced it.
 
 WHAT IS DELETED (everything derived from / computed off a portfolio):
   * portfolio container + holdings + allocations + history, daily net-worth series,

@@ -822,16 +822,29 @@ async def sync_simbanks_accounts(
 
     await db.execute(
         delete(PortfolioAllocation).where(
-            PortfolioAllocation.portfolio_id == portfolio_id
+            *non_snapshot_filter(PortfolioAllocation),
+            PortfolioAllocation.portfolio_id == portfolio_id,
         )
     )
     await db.execute(
-        delete(PortfolioHolding).where(PortfolioHolding.portfolio_id == portfolio_id)
+        delete(PortfolioHolding).where(
+            PortfolioHolding.portfolio_id == portfolio_id,
+            *non_snapshot_filter(PortfolioHolding),
+        )
     )
     await db.execute(
-        delete(PortfolioHistory).where(PortfolioHistory.portfolio_id == portfolio_id)
+        delete(PortfolioHistory).where(
+            PortfolioHistory.portfolio_id == portfolio_id,
+            *non_snapshot_filter(PortfolioHistory),
+        )
     )
-    await db.execute(delete(MfTransaction).where(MfTransaction.user_id == user.id))
+    # Only SimBanks' own (unstamped) rows — never a CAS snapshot's ledger.
+    await db.execute(
+        delete(MfTransaction).where(
+            MfTransaction.user_id == user.id,
+            *non_snapshot_filter(MfTransaction),
+        )
+    )
     await db.execute(
         delete(LinkedAccount).where(
             LinkedAccount.user_id == user.id,

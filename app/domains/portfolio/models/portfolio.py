@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 if TYPE_CHECKING:
     from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
@@ -61,7 +62,7 @@ class Portfolio(Base):
     )
 
 
-class PortfolioAllocation(Base):
+class PortfolioAllocation(CasScoped, Base):
     """Current computed allocation state for a portfolio.
 
     This table should be treated as a derived state from holdings/ledger sync,
@@ -94,7 +95,7 @@ class PortfolioAllocation(Base):
     portfolio: Mapped["Portfolio"] = relationship(back_populates="allocations")
 
 
-class PortfolioHolding(Base):
+class PortfolioHolding(CasScoped, Base):
     __tablename__ = "portfolio_holdings"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -139,7 +140,7 @@ class PortfolioHolding(Base):
     )
 
 
-class PortfolioHistory(Base):
+class PortfolioHistory(CasScoped, Base):
     __tablename__ = "portfolio_history"
 
     id: Mapped[uuid.UUID] = mapped_column(

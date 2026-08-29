@@ -12,6 +12,7 @@ from typing import Optional
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import effective_scope, scope_filter
 from app.domains.mutual_funds.models import (
     MfFundMetadata,
     MfNavHistory,
@@ -211,8 +212,15 @@ async def rebuild_user_latest_snapshot(
     for txn in txns:
         by_scheme.setdefault(txn.scheme_code, []).append(txn)
 
+    # Scoped: this cache is rebuilt per snapshot, so an unqualified delete would
+    # take the previous statement's rows with it. uq_user_mf_latest_snapshot_user_scheme
+    # is widened to include cas_upload_id for the same reason.
+    snapshot_id = await effective_scope(db, user_id)
     await db.execute(
-        delete(UserMfLatestSnapshot).where(UserMfLatestSnapshot.user_id == user_id)
+        delete(UserMfLatestSnapshot).where(
+            UserMfLatestSnapshot.user_id == user_id,
+            *scope_filter(UserMfLatestSnapshot, snapshot_id),
+        )
     )
 
     rows: list[UserMfLatestSnapshot] = []
@@ -396,9 +404,7 @@ async def rebuild_all_users_latest_snapshot(db: AsyncSession) -> tuple[int, int]
         # Rolling back discards the uncommitted batch, so commit per user and
         # accept the extra round-trips — correctness over throughput here.
         try:
-            total_rows += await rebuild_user_latest_snapshot(
-                db, user_id, _commit=False
-            )
+            total_rows += await rebuild_user_latest_snapshot(db, user_id, _commit=False)
             await db.commit()
             users_processed += 1
         except Exception:

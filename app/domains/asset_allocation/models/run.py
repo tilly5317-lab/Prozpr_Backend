@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 if TYPE_CHECKING:
     from app.domains.asset_allocation.models.bucket import (
@@ -51,7 +52,7 @@ class AssetAllocationRunStatus(str, enum.Enum):
     rejected = "rejected"
 
 
-class AssetAllocationRun(Base):
+class AssetAllocationRun(CasScoped, Base):
     """One execution of the asset-allocation engine (persisted run header)."""
 
     __tablename__ = "asset_allocation_runs"

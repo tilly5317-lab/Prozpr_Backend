@@ -39,6 +39,9 @@ from app.domains.portfolio.models import (  # noqa: F401
     user_portfolio_nav_history,
     portfolio_networth_job,
 )
+from app.domains.ingestion.models import (  # noqa: F401
+    cas_upload,
+)
 from app.domains.mutual_funds.models import (  # noqa: F401
     enums as mf_enums,
     fund,

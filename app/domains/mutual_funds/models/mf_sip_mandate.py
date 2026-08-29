@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 from app.domains.mutual_funds.models.enums import (
     MfSipFrequency,
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class MfSipMandate(Base):
+class MfSipMandate(CasScoped, Base):
     __tablename__ = "mf_sip_mandates"
     __table_args__ = (
         CheckConstraint(

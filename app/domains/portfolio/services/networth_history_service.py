@@ -32,6 +32,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import effective_scope, scope_filter, scoped_to
 from app.core.database import _get_session_factory
 from app.core.job_tracing import record_job_counts, traced_job
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
@@ -236,10 +237,13 @@ async def compute_user_networth_history(
         )
         day += timedelta(days=1)
 
-    # Replace any prior (synthetic or stale) series for this user.
+    # Replace any prior (synthetic or stale) series for this user — within this
+    # snapshot only, so the series computed off earlier statements survives.
+    snapshot_id = await effective_scope(db, user_id)
     await db.execute(
         delete(UserPortfolioNavHistory).where(
-            UserPortfolioNavHistory.user_id == user_id
+            UserPortfolioNavHistory.user_id == user_id,
+            *scope_filter(UserPortfolioNavHistory, snapshot_id),
         )
     )
     for start in range(0, len(rows), 1000):
@@ -302,7 +306,21 @@ async def _update_job(db: AsyncSession, job_id: uuid.UUID, **fields: object) -> 
 
 
 async def run_networth_backfill(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
-    """Background entrypoint: fetch NAV history (Phase A) then compute (Phase B).
+    """Background entrypoint: pin the user's CAS snapshot, then run the backfill.
+
+    A BackgroundTasks callback carries no request scope. Without pinning it here,
+    every read below would span all of the user's statements at once and the
+    series would be built from double-counted units.
+    """
+    factory = _get_session_factory()
+    async with factory() as scope_db:
+        snapshot_id = await effective_scope(scope_db, user_id)
+    with scoped_to(snapshot_id):
+        await _run_networth_backfill(user_id, job_id)
+
+
+async def _run_networth_backfill(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
+    """Fetch NAV history (Phase A) then compute (Phase B).
 
     Runs on a fresh session because the request-scoped one is closed by the time
     a BackgroundTasks callback fires.

@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 
-class UserPortfolioNavHistory(Base):
+class UserPortfolioNavHistory(CasScoped, Base):
     __tablename__ = "user_portfolio_nav_history"
     __table_args__ = (
         UniqueConstraint(

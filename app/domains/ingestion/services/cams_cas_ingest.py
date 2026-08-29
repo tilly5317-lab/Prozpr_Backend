@@ -76,6 +76,16 @@ from app.domains.ingestion.services.casparser_client import (
     get_casparser_client,
 )
 from app.domains.ingestion.services.mf_aa_normalizer import normalize_single_import
+from app.core.cas_scope import (
+    get_scope,
+    scope_filter,
+    scoped_to,
+    versioning_enabled,
+)
+from app.domains.cashflow.services.cashflow_persist_service import (
+    mark_stale as mark_cashflow_stale,
+)
+from app.domains.ingestion.services import cas_upload_service
 from app.domains.ingestion.services.user_data_reset import reset_user_financial_data
 from app.domains.mutual_funds.services.txn_value import trade_value
 from app.domains.portfolio.services.portfolio_service import (
@@ -130,7 +140,14 @@ class CamsIngestResult:
     mf_transactions_skipped_duplicate: int
     portfolio_allocation_rows: int
     total_value_inr: float
+    # The snapshot this upload created (None only when versioning is switched off).
+    # Everything written by this ingest carries it, and the app reads only rows
+    # that do.
+    cas_upload_id: Optional[uuid.UUID] = None
     normalize_error: Optional[str] = None
+    # True when the user re-uploaded the byte-identical PDF that is already
+    # active: nothing was parsed or written, the live snapshot is returned as-is.
+    reused_existing: bool = False
     # Identity fields on the `users` row that were back-filled from the CAS investor
     # block (only ever fills blanks — never overwrites what the user already set).
     profile_fields_filled: list[str] = field(default_factory=list)
@@ -614,9 +631,12 @@ async def _apply_portfolio_rollup(
         return 0, 0.0
 
     portfolio = await get_or_create_primary_portfolio(db, user_id)
+    # Only this snapshot's allocation rows are cleared — the previous statement's
+    # roll-up stays on disk, superseded but intact.
     await db.execute(
         delete(PortfolioAllocation).where(
-            PortfolioAllocation.portfolio_id == portfolio.id
+            PortfolioAllocation.portfolio_id == portfolio.id,
+            *scope_filter(PortfolioAllocation, get_scope()),
         )
     )
     rows = 0
@@ -655,6 +675,7 @@ async def _sync_mf_portfolio_holdings_from_cas(
         delete(PortfolioHolding).where(
             PortfolioHolding.portfolio_id == portfolio_id,
             PortfolioHolding.instrument_type == "mutual_fund",
+            *scope_filter(PortfolioHolding, get_scope()),
         )
     )
     if portfolio_total <= 0:
@@ -872,13 +893,15 @@ async def _archive_statement_pdf(
     parsed: dict[str, Any],
     schemes: int,
     transactions: int,
-) -> None:
+) -> Optional[uuid.UUID]:
     """Best-effort: S3-archive the parsed statement + add its profile record.
 
-    The row rides the caller's final commit; an S3 failure only logs (the
-    import itself must never fail because archival did)."""
+    Returns the ``user_cas_documents`` id so the snapshot can point at its PDF,
+    or None when archiving is disabled or failed. The row rides the caller's
+    final commit; an S3 failure only logs (the import itself must never fail
+    because archival did)."""
     if not stage_enabled():
-        return
+        return None
     try:
         doc_id = uuid.uuid4()
         s3_key = await archive_cas_pdf(user_id, doc_id, file_bytes)
@@ -899,8 +922,10 @@ async def _archive_statement_pdf(
                 transactions=transactions,
             )
         )
+        return doc_id
     except Exception:  # noqa: BLE001
         logger.exception("could not archive the CAS PDF (upload continues)")
+        return None
 
 
 # --------------------------------------------------------------------------- entry point
@@ -915,21 +940,51 @@ async def ingest_cams_pdf(
     source_filename: Optional[str] = None,
     replace_existing: bool = False,
 ) -> CamsIngestResult:
-    """Parse a CAMS/KFintech CAS PDF and persist it. Caller is responsible for the final commit.
+    """Parse a CAMS/KFintech CAS PDF and persist it as a new snapshot.
 
-    A CAS is a *complete* snapshot of the user's mutual-fund holdings, so EVERY upload
-    first wipes the user's entire financial/computed footprint
-    (:func:`reset_user_financial_data` — portfolio, holdings, the MF ledger + audit
-    trail, asset-allocation / practical-allocation / rebalancing runs, cashflow plans
-    and inputs, net-worth history, advisory notes/IPS) and rebuilds it from this
-    statement alone. This guarantees no stale, cached state from a prior upload can
-    leak through. Profile/onboarding, goals, chats, notifications, account links and
-    family relationships are preserved; global reference data (fund metadata, NAV
-    history, benchmarks) is never touched.
+    A CAS is a *complete* snapshot of the user's mutual-fund holdings, so an upload
+    has to fully replace what the app shows. It does that by SUPERSEDING, not by
+    deleting: the statement gets a ``cas_uploads`` row, everything derived from it
+    is stamped with that row's id, and the previous upload is marked superseded.
+    Reads are scoped to the active snapshot (``app/core/cas_scope.py``), so the app
+    shows exactly the newest statement while every earlier one stays queryable —
+    which is what makes allocation drift, net-worth history and plan-vs-actual
+    answerable at all.
 
-    ``replace_existing`` is retained for API compatibility but no longer changes
-    behaviour — the full reset now runs unconditionally on every upload.
+    Three things happen before any of that, in this order, and all three matter:
+
+      1. an upload of the byte-identical PDF that is already active returns the
+         existing snapshot untouched (no second paid parse, no duplicate row);
+      2. Summary and zero-value statements are rejected before any DB write;
+      3. a user whose data predates this feature has it adopted into a "legacy"
+         snapshot first, so the old rows can never be summed with the new ones.
+
+    With ``CAS_SNAPSHOT_VERSIONING=false`` this falls back to the original
+    behaviour: :func:`reset_user_financial_data` wipes the user's financial and
+    computed footprint and the statement is rebuilt into the vacuum.
+
+    Profile/onboarding, goals, chats, notifications, account links and family
+    relationships are untouched either way; global reference data (fund metadata,
+    NAV history, benchmarks) is never touched.
+
+    ``replace_existing`` is retained for API compatibility and does not change
+    behaviour.
     """
+    versioning = versioning_enabled()
+    content_sha256 = cas_upload_service.sha256_of(file_bytes)
+
+    if versioning:
+        identical = await cas_upload_service.find_identical_active(
+            db, user_id, content_sha256
+        )
+        if identical is not None:
+            logger.info(
+                "cams upload is byte-identical to active snapshot %s (user %s) — reusing",
+                identical.id,
+                user_id,
+            )
+            return _result_from_snapshot(identical)
+
     parsed = await _parse_cas_via_api(file_bytes, source_filename, password)
 
     # Reject statement variants we can't build a real portfolio from — BEFORE any
@@ -948,12 +1003,87 @@ async def ingest_cams_pdf(
             "Please upload a statement that includes your active investments."
         )
 
-    # Clean slate on every upload: a CAS fully replaces prior MF state, so wipe all
-    # derived/computed data (keeping profile, goals, chats) and rebuild from scratch —
-    # no incremental merge, no cache to go stale. ``replace_existing`` is now moot.
-    await reset_user_financial_data(db, user_id)
+    if not versioning:
+        # Legacy path: a CAS fully replaces prior MF state, so wipe all
+        # derived/computed data (keeping profile, goals, chats) and rebuild from
+        # scratch. Kept behind the flag as the one-step rollback.
+        await reset_user_financial_data(db, user_id)
+        return await _persist_parsed_cas(
+            db,
+            user_id,
+            parsed=parsed,
+            file_bytes=file_bytes,
+            source_filename=source_filename,
+            snapshot=None,
+        )
 
+    # Adopt anything predating this feature into its own snapshot BEFORE minting
+    # the new one. Unstamped rows are visible under every scope (THE NULL RULE),
+    # so leaving them would double-count the old statement against the new.
+    if await cas_upload_service.get_active(db, user_id) is None:
+        await cas_upload_service.ensure_legacy_snapshot(db, user_id)
+
+    snapshot = await cas_upload_service.mint(
+        db,
+        user_id,
+        content_sha256=content_sha256,
+        source_filename=source_filename,
+        file_size_bytes=len(file_bytes),
+    )
+    # Commit the header on its own so a failure below is RECORDED (status
+    # 'failed') rather than rolled back into nothing — and so the live snapshot,
+    # still active at this point, keeps serving the app untouched.
+    await db.commit()
+
+    with scoped_to(snapshot.id):
+        try:
+            return await _persist_parsed_cas(
+                db,
+                user_id,
+                parsed=parsed,
+                file_bytes=file_bytes,
+                source_filename=source_filename,
+                snapshot=snapshot,
+            )
+        except Exception as exc:  # noqa: BLE001
+            await cas_upload_service.mark_failed(db, snapshot.id, repr(exc))
+            raise
+
+
+def _result_from_snapshot(snapshot) -> CamsIngestResult:
+    """Rebuild the upload response from a snapshot we already hold (dedupe path)."""
+    return CamsIngestResult(
+        import_id=snapshot.mf_aa_import_id or snapshot.id,
+        cas_upload_id=snapshot.id,
+        status="NORMALIZED",
+        cas_file_type=snapshot.file_type,
+        cas_type=snapshot.cas_type,
+        statement_period_from=snapshot.statement_from,
+        statement_period_to=snapshot.statement_to,
+        folios=int(snapshot.folios or 0),
+        schemes=int(snapshot.schemes or 0),
+        aa_transactions_parsed=int(snapshot.transactions or 0),
+        mf_transactions_inserted=0,
+        mf_transactions_skipped_duplicate=0,
+        portfolio_allocation_rows=0,
+        total_value_inr=float(snapshot.total_value_inr or 0.0),
+        reused_existing=True,
+    )
+
+
+async def _persist_parsed_cas(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    parsed: dict[str, Any],
+    file_bytes: bytes,
+    source_filename: Optional[str],
+    snapshot,
+) -> CamsIngestResult:
+    """Write one parsed statement: audit rows, ledger, roll-up, archive, activate."""
     aa_import = _build_import_row(user_id, parsed, source_filename)
+    if snapshot is not None:
+        aa_import.cas_upload_id = snapshot.id
     db.add(aa_import)
     scheme_count, txn_count, bucket_value, cost_total = _populate_children(
         aa_import, parsed
@@ -990,7 +1120,7 @@ async def ingest_cams_pdf(
     # profile's "My CAS statements" list. Best-effort — never fails the upload.
     # The row lives in `user_cas_documents`, which (deliberately) survives the
     # per-upload reset, unlike the `mf_aa_imports` audit trail.
-    await _archive_statement_pdf(
+    cas_document_id = await _archive_statement_pdf(
         db,
         user_id,
         file_bytes=file_bytes,
@@ -1000,8 +1130,33 @@ async def ingest_cams_pdf(
         transactions=txn_count,
     )
 
+    if snapshot is not None:
+        # Last write of the ingest: the previous statement stays live until this
+        # line, so everything above ran against a user whose app never blinked.
+        await cas_upload_service.activate(
+            db,
+            snapshot,
+            cas_type=_clean(parsed.get("cas_type"), limit=20),
+            file_type=_clean(parsed.get("file_type"), limit=30),
+            statement_from=stmt_from,
+            statement_to=stmt_to,
+            folios=len(parsed.get("folios") or []),
+            schemes=scheme_count,
+            transactions=txn_count,
+            total_value_inr=round(total_value, 2),
+            total_invested_inr=round(cost_total, 2) if cost_total > 0 else None,
+            mf_aa_import_id=import_id,
+            cas_document_id=cas_document_id,
+        )
+        # The plans the user is looking at were computed against the statement
+        # this one just replaced. They are not deleted — they keep pointing at
+        # their own snapshot — but the cashflow projection is marked stale so the
+        # next read recomputes it against the new portfolio.
+        await mark_cashflow_stale(db, user_id, commit=False)
+
     return CamsIngestResult(
         import_id=import_id,
+        cas_upload_id=(snapshot.id if snapshot is not None else None),
         status=norm.status.value,
         cas_file_type=_clean(parsed.get("file_type")),
         cas_type=_clean(parsed.get("cas_type")),
