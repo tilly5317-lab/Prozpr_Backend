@@ -17,6 +17,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import resolve_active_cas_upload_id, set_scope
 from app.core.database import get_db
 from app.domains.identity.models.user import User
 from app.domains.identity.services.user_context_loader import load_user_for_ai
@@ -94,6 +95,10 @@ async def get_current_user(
     # Tag the request so a later 5xx can be attributed to this user without the
     # exception handler needing DB access. Read in app/core/exceptions.py.
     request.state.distinct_id = str(user.id)
+    # Pin every query in this request to the user's live CAS statement. One
+    # indexed lookup here is what lets ~56 read sites stay untouched — see
+    # app/core/cas_scope.py. get_effective_user re-pins it for family members.
+    set_scope(await resolve_active_cas_upload_id(db, user.id))
     return CurrentUser(
         id=user.id,
         country_code=user.country_code,
@@ -157,6 +162,8 @@ async def get_effective_user(
             detail="Family member's account not found",
         )
 
+    # Acting as someone else means reading THEIR statement, not the caller's.
+    set_scope(await resolve_active_cas_upload_id(db, member_user.id))
     return CurrentUser(
         id=member_user.id,
         country_code=member_user.country_code,

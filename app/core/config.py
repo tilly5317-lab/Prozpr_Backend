@@ -536,6 +536,26 @@ class Settings:
             and Settings.get_fp_api_secret()
         )
 
+    # ── CAS snapshot versioning ────────────────────────────────────────────
+    @staticmethod
+    def cas_snapshot_versioning() -> bool:
+        """Whether a CAMS re-upload SUPERSEDES the previous statement (default)
+        or WIPES it (the pre-2026-08 behaviour).
+
+        On: every upload mints a ``cas_uploads`` row, everything derived from it
+        is stamped with that id, and reads are scoped to the active snapshot —
+        nothing is ever deleted. Off: ``reset_user_financial_data`` runs on every
+        upload as before and the scope hooks stay inert.
+
+        Defaults ON. This is the kill switch, not the rollout switch: set
+        ``CAS_SNAPSHOT_VERSIONING=false`` to fall straight back to the
+        destructive path without a deploy.
+        """
+        raw = (_getenv("CAS_SNAPSHOT_VERSIONING") or "").strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return True
+
     # ── DPDP retention + erasure purge ─────────────────────────────────────
     @staticmethod
     def privacy_scheduler_enabled() -> bool:

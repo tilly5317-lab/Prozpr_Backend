@@ -34,10 +34,17 @@ from fastapi.middleware.cors import CORSMiddleware
 # Keep at the top of the import block so registration happens once at boot.
 import app.all_models  # noqa: F401
 
+from app.core.cas_scope import install_cas_scope_listeners
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.observability import otel_request_hook, otel_response_hook
 from app.core.lifespan import lifespan
+
+# Session-wide hooks that scope every read to the user's live CAS statement and
+# stamp every new derived row with it. Installed at import so background jobs
+# and tests get them too, not just HTTP requests.
+install_cas_scope_listeners()
+
 from app.routers import all_routers
 from app.routers.tags import OPENAPI_TAG_METADATA
 

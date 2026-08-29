@@ -23,13 +23,14 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 from app.domains.mutual_funds.models.enums import MfAaImportStatus
 
 if TYPE_CHECKING:
     from app.domains.identity.models.user import User
 
 
-class MfAaImport(Base):
+class MfAaImport(CasScoped, Base):
     """One row per AA payload/meta group (meta + investor identity).
 
     This table is append-only ingestion/audit context; canonical business logic

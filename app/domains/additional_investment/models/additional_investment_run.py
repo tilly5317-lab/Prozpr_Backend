@@ -46,6 +46,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.domains.ingestion.models.cas_upload import CasScoped
 
 if TYPE_CHECKING:
     from app.domains.chat.models.chat import ChatSession
@@ -72,7 +73,7 @@ class Cadence(str, enum.Enum):
     SIP_MONTHLY = "sip_monthly"
 
 
-class AdditionalInvestmentRun(Base):
+class AdditionalInvestmentRun(CasScoped, Base):
     """One execution of the additional-investment engine for a user's portfolio."""
 
     __tablename__ = "additional_investment_runs"

@@ -20,6 +20,7 @@ from app.domains.ingestion.schemas.finvu import (
     FinvuPortfolioSyncRequest,
     FinvuPortfolioSyncResponse,
 )
+from app.core.cas_scope import non_snapshot_filter
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
 )
@@ -47,7 +48,8 @@ async def apply_finvu_bucket_snapshot(
 
     await db.execute(
         delete(PortfolioAllocation).where(
-            PortfolioAllocation.portfolio_id == portfolio.id
+            *non_snapshot_filter(PortfolioAllocation),
+            PortfolioAllocation.portfolio_id == portfolio.id,
         )
     )
 
