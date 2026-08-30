@@ -31,6 +31,7 @@ from app.domains.ai_engine.answer_formatter import (
     format_relay_or_canned,
     format_with_telemetry,
 )
+from app.domains.rebalancing.services.saved_plan_service import ORIGIN_CANDIDATE
 from app.domains.rebalancing.services.rebal_engine.formatter import (
     build_fallback_rebal_brief,
 )
@@ -1016,13 +1017,17 @@ async def _handle_preference_counterfactual(
             "was spread over the classes present in the plan"
         )
 
+    # Persist the requested (tilted) plan as a CANDIDATE so the customer can Save
+    # it. It stays firewalled out of the committed/current reads until saved — a
+    # tilt they merely view never becomes their plan (see saved_plan_service).
     requested_run = await compute_rebalancing_result(
         user=ctx.user_ctx,
         user_question=ctx.user_question,
         db=ctx.db,
         acting_user_id=ctx.effective_user_id,
         chat_session_id=ctx.session_id,
-        persist=False,
+        persist=True,
+        origin=ORIGIN_CANDIDATE,
         chat_ctx=with_chat_overrides(ctx, overrides),
     )
     early = await _degraded_or_none(ctx, requested_run)
@@ -1075,7 +1080,9 @@ async def _handle_preference_counterfactual(
         constraint_impact=impact,
     )
     return ChatHandlerResult(
-        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        text=text,
+        snapshot_id=None,
+        rebalancing_recommendation_id=requested_run.recommendation_id,
     )
 
 

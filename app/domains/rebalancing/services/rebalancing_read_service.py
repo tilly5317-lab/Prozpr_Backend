@@ -20,6 +20,7 @@ from app.domains.rebalancing.models.rebalancing_trade import (
     RebalancingTrade,
     TradeAction,
 )
+from app.domains.rebalancing.services.saved_plan_service import committed_run_filter
 
 
 async def latest_buy_trades_by_subgroup(
@@ -39,7 +40,7 @@ async def latest_buy_trades_by_subgroup(
     run_id = (
         await db.execute(
             select(RebalancingRun.id)
-            .where(RebalancingRun.user_id == user_id)
+            .where(RebalancingRun.user_id == user_id, committed_run_filter())
             .order_by(RebalancingRun.created_at.desc())
             .limit(1)
         )

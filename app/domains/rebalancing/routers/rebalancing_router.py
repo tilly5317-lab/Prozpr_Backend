@@ -41,6 +41,7 @@ from app.domains.rebalancing.services.asset_class_breakdown import (
     target_mix_from_rows,
 )
 from app.domains.rebalancing.services.saved_plan_service import (
+    committed_run_filter,
     save_plan,
     select_current_run_id,
 )
@@ -69,7 +70,7 @@ async def list_runs(
 ):
     stmt = (
         select(RebalancingRun)
-        .where(RebalancingRun.user_id == current_user.id)
+        .where(RebalancingRun.user_id == current_user.id, committed_run_filter())
         .order_by(RebalancingRun.created_at.desc())
     )
     rows = (await db.execute(stmt)).scalars().all()

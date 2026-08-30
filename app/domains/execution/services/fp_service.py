@@ -903,6 +903,9 @@ async def execute_rebalance_buys(
     NOTHING could be placed, raises 422 so the client never sees a false
     success."""
     from app.domains.rebalancing.models.rebalancing_run import RebalancingRun
+    from app.domains.rebalancing.services.saved_plan_service import (
+        committed_run_filter,
+    )
     from app.domains.rebalancing.models.rebalancing_trade import (
         RebalancingTrade,
         TradeAction,
@@ -912,7 +915,7 @@ async def execute_rebalance_buys(
     account = await _require_account(db, user.id)
     result = await db.execute(
         select(RebalancingRun)
-        .where(RebalancingRun.user_id == user.id)
+        .where(RebalancingRun.user_id == user.id, committed_run_filter())
         .order_by(RebalancingRun.created_at.desc())
     )
     run = result.scalars().first()

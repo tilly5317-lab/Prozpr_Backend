@@ -63,8 +63,13 @@ async def persist_rebalancing_recommendation(
     used_cached_allocation: bool = False,
     user_question: Optional[str] = None,
     request: Optional[RebalancingComputeRequest] = None,
+    origin: Optional[str] = None,
 ) -> uuid.UUID:
-    """Write the engine response and return the new ``RebalancingRun`` id."""
+    """Write the engine response and return the new ``RebalancingRun`` id.
+
+    ``origin`` sets ``rebalancing_runs.origin`` (e.g. 'candidate' for a viewed
+    tilt); NULL for an ordinary computed run. See ``saved_plan_service``.
+    """
     portfolio = await get_or_create_primary_portfolio(db, user_id)
 
     metadata = response.metadata
@@ -102,6 +107,7 @@ async def persist_rebalancing_recommendation(
         request_input=request.model_dump(mode="json") if request else None,
         used_cached_allocation=used_cached_allocation,
         user_question=user_question,
+        origin=origin,
     )
     db.add(run)
     await db.flush()

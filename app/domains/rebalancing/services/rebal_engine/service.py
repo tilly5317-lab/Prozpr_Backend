@@ -682,6 +682,7 @@ async def compute_rebalancing_result(
     acting_user_id: uuid.UUID,
     chat_session_id: Optional[uuid.UUID],
     persist: bool = True,
+    origin: Optional[str] = None,
     force_fresh_allocation: bool = False,
     chat_ctx: "TurnContext | None" = None,
     progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
@@ -844,6 +845,7 @@ async def compute_rebalancing_result(
             source_allocation_run_id=source_allocation_id,
             used_cached_allocation=used_cache,
             user_question=user_question,
+            origin=origin,
         )
 
         try:

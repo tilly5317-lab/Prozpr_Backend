@@ -396,6 +396,10 @@ async def send_message_streaming(
         if title_task is not None:
             session.title = await title_task
 
+        # Read the title before commit expires it — a post-commit access would
+        # lazy-load inside this streaming generator (no greenlet) and raise
+        # MissingGreenlet, killing the "done" event.
+        session_title = session.title
         await db.commit()
         await db.refresh(user_msg)
         await db.refresh(assistant_msg)
@@ -414,7 +418,7 @@ async def send_message_streaming(
                 ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
                 portfolio_data_missing=brain_result.portfolio_data_missing,
-                session_title=session.title,
+                session_title=session_title,
             ).model_dump(),
         )
 
