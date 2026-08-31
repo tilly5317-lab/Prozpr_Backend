@@ -57,6 +57,10 @@ MFAPI_DAILY_MINUTE = 5
 MFAPI_DAILY_PHASE_SIZE = 150
 MFAPI_DAILY_CONCURRENCY = 8
 
+# Above this share of the run failing, mfapi.in is down rather than flapping and
+# a retry sweep would just double the load for nothing.
+MFAPI_SWEEP_MAX_SHARE = 0.5
+
 _scheduler: Optional[Any] = None
 
 
@@ -80,6 +84,48 @@ def _min_nav_date_for_daily_refresh() -> date:
     if now_ist.hour >= 21:
         return today_ist
     return today_ist - timedelta(days=1)
+
+
+async def _sweep_failed_codes(
+    db, failed_codes: list[str], attempted: int
+) -> tuple[int, int]:
+    """Re-fetch the schemes that lost the coin flip against a flapping upstream.
+
+    mfapi.in 502s a large share of requests, in bursts that outlast the
+    per-request retry ladder in ``mfapi_fetcher``. The failures are NOT sticky
+    per scheme, so one sweep minutes later recovers most of them — without it a
+    scheme stays stale until the next run, 8–11 hours away.
+
+    Returns (NAV rows inserted by the sweep, schemes still unfetched).
+    """
+    if attempted and len(failed_codes) > attempted * MFAPI_SWEEP_MAX_SHARE:
+        logger.warning(
+            "mfapi daily job: %d/%d schemes failed — upstream looks down, "
+            "skipping the retry sweep",
+            len(failed_codes),
+            attempted,
+        )
+        return 0, len(failed_codes)
+
+    logger.info(
+        "mfapi daily job: retry sweep over %d failed schemes", len(failed_codes)
+    )
+    result = await ingest_mfapi(
+        db,
+        mode=IngestMode.INCREMENTAL,
+        scheme_codes=failed_codes,
+        concurrency=MFAPI_DAILY_CONCURRENCY,
+    )
+    if result.failed_codes:
+        # The only per-scheme record of a failure now that the fetcher logs at
+        # DEBUG — one capped line a run instead of ~1.5K.
+        logger.warning(
+            "mfapi daily job: %d schemes still stale after the retry sweep: %s%s",
+            len(result.failed_codes),
+            ", ".join(result.failed_codes[:20]),
+            " …" if len(result.failed_codes) > 20 else "",
+        )
+    return result.nav_rows_inserted, len(result.failed_codes)
 
 
 async def _rebuild_latest_snapshots(db) -> tuple[int, int]:
@@ -123,6 +169,7 @@ async def run_daily_mfapi_job() -> None:
 
                 total_nav_inserted = 0
                 total_failed = 0
+                failed_codes: list[str] = []
                 if stale_codes:
                     phases = (
                         len(stale_codes) + MFAPI_DAILY_PHASE_SIZE - 1
@@ -158,6 +205,7 @@ async def run_daily_mfapi_job() -> None:
                             )
                         total_nav_inserted += result.nav_rows_inserted
                         total_failed += len(result.failed_codes)
+                        failed_codes.extend(result.failed_codes)
                         logger.info(
                             "mfapi daily job: phase %d/%d done in %.1fs — "
                             "nav_inserted=%d failed=%d",
@@ -167,6 +215,23 @@ async def run_daily_mfapi_job() -> None:
                             result.nav_rows_inserted,
                             len(result.failed_codes),
                         )
+                    if failed_codes:
+                        # Retried once here rather than left for the next run:
+                        # the upstream's 502s are transient and unsticky, so a
+                        # second pass converts most of them. Span-suppressed for
+                        # the same reason the phases are — one span, not one
+                        # per scheme.
+                        with (
+                            job_span(
+                                "mfapi.daily_job.sweep",
+                                schemes=len(failed_codes),
+                            ),
+                            suppress_instrumentation(),
+                        ):
+                            swept_nav, total_failed = await _sweep_failed_codes(
+                                db, failed_codes, len(stale_codes)
+                            )
+                        total_nav_inserted += swept_nav
                 else:
                     logger.info("mfapi daily job: no NAV refresh needed")
 
