@@ -672,5 +672,28 @@ class LastActionModeTests(unittest.TestCase):
         self.assertIsNone(asyncio.run(mod._last_action_mode(_ctx("anything"))))
 
 
+def test_current_market_cap_mix_pct_buckets_beta_subgroups():
+    class SG:
+        def __init__(self, asset_subgroup, final):
+            self.asset_subgroup = asset_subgroup
+            self.suggested_final_holding_inr = final   # the REAL SubgroupSummary field
+
+    class Resp:
+        subgroups = [SG("low_beta_equities", 300), SG("medium_beta_equities", 200),
+                     SG("high_beta_equities", 100), SG("short_debt", 999)]
+
+    mix = mod._current_market_cap_mix_pct(Resp())
+    assert round(mix["large"], 1) == 50.0   # 300/600
+    assert round(mix["mid"], 1) == 33.3
+    assert round(mix["small"], 1) == 16.7
+
+
+def test_formatter_body_requires_sebi_category_table():
+    from app.domains.rebalancing.services.rebal_engine.chat import _REBAL_FORMATTER_BODY
+    body = _REBAL_FORMATTER_BODY.lower()
+    assert "sebi" in body and "table" in body
+    assert "one row per sub_category" in body
+
+
 if __name__ == "__main__":
     unittest.main()

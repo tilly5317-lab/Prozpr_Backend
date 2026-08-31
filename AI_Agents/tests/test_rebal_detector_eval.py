@@ -35,7 +35,11 @@ pytestmark = pytest.mark.rebal_detector_eval
 
 BASELINE_NOTE = (
     "2026-08-24 pre-vocabulary baseline: existing-vocab 8/8; v1-pref 4/12. "
-    "Post-vocabulary (same day, plan Task 8): existing-vocab 8/8; v1-pref 12/12."
+    "Post-vocabulary (same day, plan Task 8): existing-vocab 8/8; v1-pref 12/12. "
+    "2026-08-30 market-cap tilt (Task 4): the cap phrases 'more mid cap' / "
+    "'only equity, more mid cap, max 4 funds' now route to market_cap "
+    "(counterfactual_explore), not consolidate; +2 v1-pref cases. Live-Haiku "
+    "pass rate for these gated cases not yet measured."
 )
 
 _ENABLED = bool(os.environ.get("RUN_REBAL_DETECTOR_EVAL"))
@@ -49,6 +53,10 @@ class Case:
     vocab: str = "existing"                    # "existing" | "v1-pref"
     expect_override_keys: frozenset = field(default_factory=frozenset)
     expect_clarify: bool = False
+    expect_market_cap: str | None = None       # "large" | "mid" | "small"
+    expect_market_cap_heavy: bool = False
+    expect_scope_only: tuple = ()              # asset classes, order-insensitive
+    expect_fund_count: int | None = None
 
 
 CASES = [
@@ -76,16 +84,24 @@ CASES = [
          vocab="v1-pref"),
     Case("hundred-pct-equity", "make it 100% equity", "counterfactual_explore",
          vocab="v1-pref"),
-    Case("weight-mid-cap", "I want more mid cap in this plan", "consolidate",
-         vocab="v1-pref"),
+    # Market-cap asks moved from consolidate/category_weights to the market_cap
+    # tilt (spec 2026-08-30) — they now re-run the plan (counterfactual_explore).
+    Case("mc-weight-mid-cap", "I want more mid cap in this plan",
+         "counterfactual_explore", vocab="v1-pref", expect_market_cap="mid"),
+    Case("mc-more-small", "more small cap", "counterfactual_explore",
+         vocab="v1-pref", expect_market_cap="small"),
+    Case("mc-small-heavy", "make it small-cap heavy", "counterfactual_explore",
+         vocab="v1-pref", expect_market_cap="small", expect_market_cap_heavy=True),
     Case("exclude-elss", "nothing with a lock-in please", "consolidate",
          vocab="v1-pref"),
     Case("named-include", "use Parag Parikh Flexi Cap instead", "narrate",
          vocab="v1-pref"),   # Phase 1: honest "coming later" + demand telemetry
     Case("named-why-not", "why didn't you pick Quant Small Cap?", "narrate",
          vocab="v1-pref"),
-    Case("stacked", "only equity, and more mid cap, max 4 funds", "consolidate",
-         vocab="v1-pref"),
+    Case("mc-stacked", "only equity, more mid cap, max 4 funds",
+         "counterfactual_explore", vocab="v1-pref",
+         expect_scope_only=("equity",), expect_market_cap="mid",
+         expect_fund_count=4),
     Case("contradiction", "only debt funds but add more mid cap", "clarify",
          vocab="v1-pref", expect_clarify=True),
     Case("vague-safer", "make it safer", "clarify", vocab="v1-pref",
@@ -114,6 +130,17 @@ def _grader(case: Case, action):
         return False, f"override keys={sorted(got_keys)}"
     if case.expect_clarify and not action.clarification_question:
         return False, "no clarification_question"
+    if case.expect_market_cap and action.market_cap != case.expect_market_cap:
+        return False, f"market_cap={action.market_cap} want={case.expect_market_cap}"
+    if case.expect_market_cap_heavy and not action.market_cap_heavy:
+        return False, "market_cap_heavy not set"
+    if case.expect_scope_only and (
+        set(action.scope_only_asset_classes or []) != set(case.expect_scope_only)
+    ):
+        return False, f"scope_only={action.scope_only_asset_classes}"
+    if (case.expect_fund_count is not None
+            and action.target_fund_count != case.expect_fund_count):
+        return False, f"target_fund_count={action.target_fund_count}"
     return True, ""
 
 

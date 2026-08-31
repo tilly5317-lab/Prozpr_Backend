@@ -161,6 +161,7 @@ class RebalancingComputeRequest(BaseModel):
     # are lifted. None = engine-recommended mix. Spec:
     # docs/superpowers/specs/2026-08-24-investment-preferences-design.md
     asset_class_tilt: dict[str, float] | None = None
+    market_cap_tilt: dict[str, float] | None = None  # {large,mid,small} abs % of the equity beta sleeve — spec 2026-08-30
 
     # Set only on an explicit "only/all/100% equity" ask: drop hybrid
     # (multi_asset) funds from the equity sleeve so the plan is genuinely

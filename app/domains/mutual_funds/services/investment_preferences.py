@@ -25,9 +25,9 @@ class TiltResult:
     default_step_applied: bool = False
 
 
-def _renormalized(mix: dict[str, float], pinned: dict[str, float]) -> dict[str, float]:
+def _renormalized(mix: dict[str, float], pinned: dict[str, float], classes=ASSET_CLASSES) -> dict[str, float]:
     """Hold ``pinned`` classes fixed; scale the rest pro-rata to sum 100."""
-    free = [c for c in ASSET_CLASSES if c not in pinned]
+    free = [c for c in classes if c not in pinned]
     pinned_total = sum(pinned.values())
     free_current = sum(mix[c] for c in free)
     remaining = max(0.0, 100.0 - pinned_total)
@@ -77,4 +77,36 @@ def normalize_tilt(
     return TiltResult(
         mix_pct=_renormalized(mix, {tilt_asset_class: clamped}),
         default_step_applied=default_step,
+    )
+
+
+MARKET_CAPS = ("large", "mid", "small")
+MORE_CAP_STEP_PP = 10.0        # "more X" = +10 percentage points on the favored cap
+HEAVY_CAP_FLOOR_PCT = 60.0     # "X heavy / mostly X" = lift favored cap to at least this
+
+
+@dataclass(frozen=True)
+class MarketCapTiltResult:
+    mix_pct: dict[str, float] | None
+    zero_current: bool = False
+    default_step_applied: bool = False
+
+
+def normalize_market_cap_tilt(current_mix_pct, *, cap, heavy):
+    """Absolute {large,mid,small} mix from a spoken ask, aimed at the current mix.
+
+    Absolute (not relative) step, mirroring the asset-class tilt: "more X" adds
+    ``MORE_CAP_STEP_PP`` points to the favored cap; "X heavy / mostly X" lifts it
+    to at least ``HEAVY_CAP_FLOOR_PCT`` (dominant), ratcheting up by the same step
+    when already above the floor so it never steps back down. Upward, capped at
+    100. A cap the customer doesn't hold yet -> ask (mix_pct None)."""
+    mix = {c: float(current_mix_pct.get(c, 0.0)) for c in MARKET_CAPS}
+    cur = mix.get(cap, 0.0)
+    if cur <= 0.0:
+        return MarketCapTiltResult(mix_pct=None, zero_current=True)
+    stepped = cur + MORE_CAP_STEP_PP
+    target = min(100.0, max(HEAVY_CAP_FLOOR_PCT, stepped) if heavy else stepped)
+    return MarketCapTiltResult(
+        mix_pct=_renormalized(mix, {cap: target}, classes=MARKET_CAPS),
+        default_step_applied=not heavy,
     )

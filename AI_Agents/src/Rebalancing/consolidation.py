@@ -12,6 +12,7 @@ pro-rata to the survivors' amounts. Identity when nothing is dropped.
 from __future__ import annotations
 
 import copy
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable
@@ -71,9 +72,14 @@ def compute_reshaped_buys(
     Identity when nothing is dropped. Total preserved exactly; rounding
     residual onto the largest surviving buy. Returns isin -> new buy (Decimal).
 
-    Legacy-only constraints (allowed_categories / target_fund_count) run the
-    original F3-B path byte-for-byte; exclusions and weight targets take the
-    extended path, which reuses the same arithmetic form.
+    Legacy-only constraints (allowed_categories / bare target_fund_count) run
+    the legacy path, split two ways: allowed_categories keeps the original
+    F3-B portfolio-wide "redeploy the whole budget" behaviour byte-for-byte;
+    a bare target_fund_count is subgroup-aware — it preserves each
+    asset_subgroup's own buy total and only redistributes WITHIN a subgroup,
+    so a fund-count trim can never undo a market-cap tilt. Exclusions and
+    weight targets take the extended path, which reuses the same arithmetic
+    form and is (for now) portfolio-wide/tilt-unaware like the old count path.
     """
     cands = list(candidates)
     total = sum((c.buy_inr for c in cands), Decimal(0))
@@ -93,48 +99,78 @@ def _reshape_legacy(
     *,
     rounding_multiple: int,
 ) -> dict[str, Decimal]:
-    # 1. Survivors: filter to allowed categories (match on sub_category — the
-    #    SEBI-name vocabulary resolve_category emits; asset_subgroup is too
-    #    coarse, e.g. multi_asset holds ten sub_categories), then keep top-N
-    #    (rank asc, larger buy first).
+    # allowed_categories keeps its portfolio-wide "redeploy the whole budget into
+    # these categories" semantics — UNCHANGED (cross-subgroup movement is the point).
+    # Match on sub_category — the SEBI-name vocabulary resolve_category emits;
+    # asset_subgroup is too coarse, e.g. multi_asset holds ten sub_categories.
     if constraints.allowed_categories:
         allowed = set(constraints.allowed_categories)
         eligible = [c for c in cands if c.sub_category in allowed]
         if not eligible:                        # honest no-op; caller surfaces error
             return {c.isin: Decimal(0) for c in cands}
-    else:
-        eligible = cands
-    ordered = sorted(eligible, key=lambda c: (c.rank, -c.buy_inr))
-    keep = (
-        ordered[: max(1, constraints.target_fund_count)]
-        if constraints.target_fund_count is not None
-        else ordered
-    )
-
-    # 2. Identity fast-path: nothing dropped → nothing moves.
-    if len(keep) == len(cands):
-        return {c.isin: c.buy_inr for c in cands}
-
-    # 3. Displaced budget = everything not surviving; spread pro-rata to the
-    #    survivors' own (frozen) amounts. Caps deliberately not re-imposed.
-    kept_total = sum((c.buy_inr for c in keep), Decimal(0))
-    displaced = total - kept_total
-
-    out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
-    for c in keep:
-        share = (
-            displaced * c.buy_inr / kept_total
-            if kept_total > 0
-            else displaced / Decimal(len(keep))
+        ordered = sorted(eligible, key=lambda c: (c.rank, -c.buy_inr))
+        keep = (
+            ordered[: max(1, constraints.target_fund_count)]
+            if constraints.target_fund_count is not None
+            else ordered
         )
-        out[c.isin] = c.buy_inr + _round_to_multiple(share, rounding_multiple)
+        if len(keep) == len(cands):
+            return {c.isin: c.buy_inr for c in cands}
+        kept_total = sum((c.buy_inr for c in keep), Decimal(0))
+        displaced = total - kept_total
+        out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
+        for c in keep:
+            share = (
+                displaced * c.buy_inr / kept_total
+                if kept_total > 0
+                else displaced / Decimal(len(keep))
+            )
+            out[c.isin] = c.buy_inr + _round_to_multiple(share, rounding_multiple)
+        placed = sum(out.values(), Decimal(0))
+        residual = total - placed
+        if residual != 0:
+            biggest = max(keep, key=lambda c: out[c.isin])
+            out[biggest.isin] += residual
+        return out
 
-    # 4. Preserve total exactly: residual onto the largest surviving buy.
-    placed = sum(out.values(), Decimal(0))
-    residual = total - placed
-    if residual != 0:
-        biggest = max(keep, key=lambda c: out[c.isin])
-        out[biggest.isin] += residual
+    # Bare target_fund_count: SUBGROUP-AWARE. Preserve each subgroup's buy total so a
+    # count trim never pulls money out of a market-cap tilt. Redistribute WITHIN a
+    # subgroup only; count floor = number of subgroups with buys.
+    out: dict[str, Decimal] = {c.isin: Decimal(0) for c in cands}
+    by_sg: dict[str, list[BuyCandidate]] = defaultdict(list)
+    for c in cands:
+        by_sg[c.asset_subgroup].append(c)
+    keep_per_sg: dict[str, int] = {sg: 1 for sg in by_sg}
+    if constraints.target_fund_count is not None:
+        extra = max(0, constraints.target_fund_count - len(by_sg))
+        sgs = list(by_sg)  # plain round-robin; spec fixes no extra-slot ordering
+        i = 0
+        while extra > 0 and any(keep_per_sg[s] < len(by_sg[s]) for s in sgs):
+            sg = sgs[i % len(sgs)]
+            if keep_per_sg[sg] < len(by_sg[sg]):
+                keep_per_sg[sg] += 1
+                extra -= 1
+            i += 1
+    else:
+        keep_per_sg = {sg: len(by_sg[sg]) for sg in by_sg}
+    for sg, group in by_sg.items():
+        sg_total = sum((c.buy_inr for c in group), Decimal(0))
+        ordered = sorted(group, key=lambda c: (c.rank, -c.buy_inr))
+        keep = ordered[: keep_per_sg[sg]]
+        kept_total = sum((c.buy_inr for c in keep), Decimal(0))
+        displaced = sg_total - kept_total
+        for c in keep:
+            share = (
+                displaced * c.buy_inr / kept_total
+                if kept_total > 0
+                else displaced / Decimal(len(keep))
+            )
+            out[c.isin] = c.buy_inr + _round_to_multiple(share, rounding_multiple)
+        placed = sum(out[c.isin] for c in keep)
+        residual = sg_total - placed
+        if residual != 0 and keep:
+            biggest = max(keep, key=lambda c: out[c.isin])
+            out[biggest.isin] += residual
     return out
 
 
@@ -146,7 +182,14 @@ def _reshape_extended(
     rounding_multiple: int,
 ) -> dict[str, Decimal]:
     """Filters → weight targets → count trim, same arithmetic form as legacy
-    (bases frozen, rounded deltas added, residual onto the largest buy)."""
+    (bases frozen, rounded deltas added, residual onto the largest buy).
+
+    Intentionally tilt-unaware: unlike the bare-count path in _reshape_legacy,
+    this redeploys budget across subgroups and does not preserve a per-subgroup
+    (market-cap tilt) total. A future "more small cap, exclude sectoral" request
+    would route here and would NOT preserve the tilt — that's a known gap, not
+    a latent bug in this phase.
+    """
     # 1. Eligibility: allowed-list, then excluded-list.
     eligible = list(cands)
     if constraints.allowed_categories:
