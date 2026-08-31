@@ -688,11 +688,14 @@ def test_current_market_cap_mix_pct_buckets_beta_subgroups():
     assert round(mix["small"], 1) == 16.7
 
 
-def test_formatter_body_requires_sebi_category_table():
+def test_formatter_body_requires_group_table():
+    # The plan table is now the compact GROUP table (one row per group_flows entry),
+    # NOT the ~16-row per-SEBI-sub_category table (too long for a customer to read).
     from app.domains.rebalancing.services.rebal_engine.chat import _REBAL_FORMATTER_BODY
-    body = _REBAL_FORMATTER_BODY.lower()
-    assert "sebi" in body and "table" in body
-    assert "one row per sub_category" in body
+    body = " ".join(_REBAL_FORMATTER_BODY.lower().split())  # collapse newlines/indent
+    assert "group table" in body
+    assert "one row per `group_flows` entry" in body
+    assert "not one per sebi sub_category" in body
 
 
 if __name__ == "__main__":

@@ -422,7 +422,10 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     it is the SAME number the Invest page shows on its Current-vs-Target bars.
 
   ideal_asset_class_mix_pct — {equity, debt, others}: the split their goals and
-    risk profile alone call for, ignoring what they currently hold. Optional.
+    risk profile alone call for, ignoring what they currently hold. Present ONLY on
+    the first plan-presentation answer; ABSENT on every follow-up. When absent, the
+    ideal does not exist for this turn — never mention, quote, or infer one; contrast
+    only against target_* (the recommended/practical plan).
 
   These three are different questions and must never be swapped:
     "what do I hold now?"              → current_*
@@ -433,8 +436,9 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   The ideal and the target legitimately differ: the ideal is the destination on
   paper, the target is what THIS plan can reach given what they already hold and
   what it is willing to trade (chiefly, it avoids short-term capital-gains tax by
-  selling only long-held units, and keeps holdings still worth owning). WHENEVER
-  the target sits well away from the ideal on equity (more than ~5 points),
+  selling only long-held units, and keeps holdings still worth owning). ONLY when
+  ideal_asset_class_mix_pct is present (the first answer) AND the target sits well
+  away from it on equity (more than ~5 points),
   PROACTIVELY bridge the two in ONE sentence — quote both and frame the target as
   a STEP TOWARD the ideal, not a rival number, naming the reason it stops short
   from the tax figures / ``warnings`` (e.g. "your long-term ideal is ~40% equity;
@@ -472,12 +476,15 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
       sell_indian          — amount being sold (always non-negative)
       planned_final_indian — current + buy − sell
 
-  group_flows: pre-computed buy/sell SUBTOTALS by customer-facing group — the
-    buckets rolled up (e.g. "Multi-asset & hybrid funds", "US & international
-    equity", "Small-cap equity"), biggest flow first. Fields per entry: group,
-    buy_indian, sell_indian. When you describe WHERE money is redeployed at a
-    group/theme level ("into multi-asset funds", "into US equity"), cite THESE
-    _indian figures verbatim — do NOT add up the underlying buckets yourself.
+  group_flows: the customer-facing rollup by group — buckets grouped into a handful
+    of labels (e.g. "Multi-asset & hybrid funds", "US & international equity",
+    "Small-cap equity", "Debt funds"), largest holding first. Fields per entry:
+    group, current_indian, buy_indian, sell_indian, planned_final_indian. This is
+    BOTH the plan TABLE (see below) and the pre-computed group subtotal: when you
+    describe WHERE money moves at a group level ("into multi-asset funds", "trimming
+    small caps"), cite THESE _indian figures verbatim — never add up the underlying
+    buckets/funds yourself. A "sell X out of Y held" line MUST take Y from the same
+    group's current_indian (never a single fund/category's held).
 
   warnings: list of short human-readable strings (up to 5)
 
@@ -501,17 +508,27 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     after?" view, list planned_final > 0, biggest first. For narrate/educate, fund
     detail only when the question is fund-specific.
     ALSO on any turn that PRESENTS A PLAN (compute, counterfactual_explore,
-    consolidate), render a SEBI-category table: one row per sub_category from
-    `buckets`, columns Current → Buy → Sell → Planned (copy the `_indian`
-    amounts verbatim), bold the header, right-align the numbers, and a bold
-    totals row. In that totals row COPY total_portfolio_indian (Current),
-    buys_total_indian (Buy) and sells_total_indian (Sell) verbatim — do NOT
-    re-add the columns yourself; the Planned total equals the Current total
-    (buys and sells match unless direct_stock_sale is present). Then the
-    fund-level trade list. The customer-facing label is always the SEBI
-    sub_category. When a market-cap tilt moved a shared subgroup, add ONE light
-    line (e.g. "this also nudges your flexi/multi-cap funds in the same bucket") —
-    do not imply pin-point precision.
+    consolidate), you MUST render an actual markdown GROUP table (with | pipes) —
+    this is REQUIRED, not optional, and it REPLACES a prose group-by-group
+    walkthrough (do not also narrate each group's numbers in a paragraph). Exactly
+    THREE numeric columns so it fits a phone: Current | Net change | Final. One row
+    per `group_flows` entry (NOT one per SEBI sub_category — that table is too long
+    to read), copying the `_indian` amounts verbatim (Current=current_indian, Net
+    change=net_change_indian, Final=planned_final_indian), header bold, numbers
+    right-aligned, and a bold totals row. Shape:
+      | Group | Current | Net change | Final |
+      |---|---:|---:|---:|
+      | **Multi-asset & hybrid funds** | ₹24.34 lakh | +₹2.42 crore | ₹2.67 crore |
+      | ... one row per group_flows entry ... |
+      | **Total** | ₹6.29 crore | — | ₹6.29 crore |
+    In the totals row COPY total_portfolio_indian for Current AND Final (a rebalance
+    preserves the corpus, so Net change is "—" / ₹0 unless direct_stock_sale is
+    present) — do NOT re-add the columns yourself. Then the fund-level trade list,
+    which gives the specific funds behind the groups. Any commentary about where
+    money moves is ONE short lead-in sentence, not a per-group paragraph — the table
+    carries the numbers. When a market-cap tilt moved a shared subgroup, add ONE
+    light line (e.g. "this also nudges your flexi/multi-cap funds in the same
+    bucket") — do not imply pin-point precision.
 
   constraint_impact: optional — on a consolidate OR equity-tilt/scope turn. Fields:
       recommended_mix_pct / requested_mix_pct: {equity, debt, others} — the
@@ -699,6 +716,10 @@ async def _format_or_fallback_rebal(
             constraint_impact=constraint_impact,
             is_rerun=is_rerun,
             fund_house_view=fund_house_view,
+            # Ship the goal-based ideal ONLY on the plan-presentation (compute) turn,
+            # so it reconciles with the allocation tab. Follow-ups/tilts contrast
+            # against the recommended plan only — never the ideal (baseline shift).
+            include_ideal=(action_mode == "compute"),
         ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",

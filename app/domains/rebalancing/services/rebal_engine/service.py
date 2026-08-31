@@ -276,11 +276,20 @@ _SUBGROUP_FLOW_LABEL: dict[str, str] = {
 # still read DURING construction (asset-class rollup, group_flows, sorting); they
 # are removed only from the final rows to keep the pack lean.
 _ROW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "asset_subgroup")
-_GROUP_FLOW_DROP = ("buy_inr", "sell_inr")
+_GROUP_FLOW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "net_change_inr")
 
 
 def _slim_row(row: dict[str, Any], drop: tuple[str, ...]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if k not in drop}
+
+
+def _signed_indian(value: float) -> str:
+    """Pre-formatted net change with an explicit sign (matches change_indian)."""
+    if value > 0:
+        return "+" + format_inr_indian(value)
+    if value < 0:
+        return "−" + format_inr_indian(abs(value))
+    return format_inr_indian(0)
 
 
 def build_rebal_facts_pack(
@@ -290,6 +299,7 @@ def build_rebal_facts_pack(
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
     fund_house_view: Optional[str] = None,
+    include_ideal: bool = True,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -349,13 +359,19 @@ def build_rebal_facts_pack(
             "sell_indian":    <str>, "planned_final_indian": <str>,
         }, ...],
 
-        # Group-level buy/sell subtotals, one per customer-facing group label
-        # (buckets rolled up by asset_subgroup), biggest total flow first. Pre-
-        # computed so the formatter cites a group total verbatim instead of summing
-        # bucket amounts itself — LLM prose arithmetic hallucinated crore figures.
+        # Group-level rollup, one per customer-facing group label (buckets rolled up
+        # by asset_subgroup), largest holding first. It is BOTH the customer-facing
+        # Current->Buy->Sell->Planned table (a ~9-row replacement for the ~16-row
+        # per-SEBI-category table) AND the pre-computed subtotal the formatter cites
+        # verbatim for "where the money goes" (so it never sums buckets in prose —
+        # that arithmetic hallucinated crore figures). Each group carries its own
+        # held total, so "sell X out of Y held" pairs correctly at the group level.
         "group_flows": [{
             "group": <str>,                                       # e.g. "Multi-asset & hybrid funds"
+            "current_indian": <str>,
             "buy_indian": <str>, "sell_indian": <str>,
+            "net_change_indian": <str>,                           # signed, "+₹2.42 crore" / "−₹1.75 crore"
+            "planned_final_indian": <str>,
         }, ...],
 
         "warnings": [<short_string>, ...],   # human-readable, <= 5 entries
@@ -501,22 +517,35 @@ def build_rebal_facts_pack(
     # goes" summaries instead of summing bucket amounts in prose — the LLM's mental
     # arithmetic on a multi-bucket group produced crore-scale hallucinations
     # ("multi-asset funds — ₹10.37 crore" against a ₹1.48 crore total buy).
+    # current/planned_final carried too so the group is the customer-facing TABLE
+    # (Current -> Buy -> Sell -> Planned, one row per group instead of ~16 SEBI
+    # rows), and so the group holds its OWN held total — a "sell X out of Y held"
+    # line then pairs the group sell with the GROUP's held, not a single category's.
+    _z = lambda: {"current_inr": 0.0, "buy_inr": 0.0, "sell_inr": 0.0, "planned_final_inr": 0.0}  # noqa: E731
     group_acc: dict[str, dict[str, float]] = {}
     for bucket in buckets:
         label = _SUBGROUP_FLOW_LABEL.get(bucket["asset_subgroup"], "Other funds")
-        g = group_acc.setdefault(label, {"buy_inr": 0.0, "sell_inr": 0.0})
-        g["buy_inr"] += bucket["buy_inr"]
-        g["sell_inr"] += bucket["sell_inr"]
+        g = group_acc.setdefault(label, _z())
+        for k in ("current_inr", "buy_inr", "sell_inr", "planned_final_inr"):
+            g[k] += bucket[k]
     group_flows = [
         {
             "group": label,
+            "current_inr": v["current_inr"], "current_indian": format_inr_indian(v["current_inr"]),
             "buy_inr": v["buy_inr"], "buy_indian": format_inr_indian(v["buy_inr"]),
             "sell_inr": v["sell_inr"], "sell_indian": format_inr_indian(v["sell_inr"]),
+            # net_change = buy - sell (= planned - current), pre-signed for the table's
+            # middle column so the LLM never computes or signs it.
+            "net_change_inr": v["buy_inr"] - v["sell_inr"],
+            "net_change_indian": _signed_indian(v["buy_inr"] - v["sell_inr"]),
+            "planned_final_inr": v["planned_final_inr"],
+            "planned_final_indian": format_inr_indian(v["planned_final_inr"]),
         }
         for label, v in sorted(
-            group_acc.items(), key=lambda kv: -(kv[1]["buy_inr"] + kv[1]["sell_inr"])
+            group_acc.items(),
+            key=lambda kv: -max(kv[1]["current_inr"], kv[1]["planned_final_inr"]),
         )
-        if v["buy_inr"] > 0 or v["sell_inr"] > 0
+        if v["current_inr"] > 0 or v["buy_inr"] > 0 or v["sell_inr"] > 0
     ]
 
     # Asset-class mix, CURRENT and TARGET. Both go through the shared rollup that
@@ -652,13 +681,17 @@ def build_rebal_facts_pack(
         pack["direct_stock_sale_inr"] = _excess_stocks
         pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
 
-    # The ideal (goals + risk) split, so "why is my target 83% and not 72%?" can
-    # be answered from facts instead of from whatever the customer said earlier.
-    ideal_mix = ideal_asset_class_mix_pct(response)
-    if ideal_mix is not None:
-        pack["ideal_asset_class_mix_pct"] = {
-            cls: round(value) for cls, value in ideal_mix.items()
-        }
+    # The ideal (goals + risk) split, shipped ONLY on the first/compute answer
+    # (include_ideal) so it can reconcile chat with the allocation tab. It is
+    # withheld from follow-up/tilt turns: comparing a tilt against the ideal shifts
+    # the baseline away from the recommended plan the customer was just shown and
+    # reads as a contradiction — chat always contrasts against the practical plan.
+    if include_ideal:
+        ideal_mix = ideal_asset_class_mix_pct(response)
+        if ideal_mix is not None:
+            pack["ideal_asset_class_mix_pct"] = {
+                cls: round(value) for cls, value in ideal_mix.items()
+            }
 
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
