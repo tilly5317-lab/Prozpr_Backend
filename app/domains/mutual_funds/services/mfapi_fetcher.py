@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -29,7 +30,13 @@ logger = logging.getLogger(__name__)
 
 MFAPI_BASE = "https://api.mfapi.in"
 MFAPI_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
-MFAPI_MAX_RETRIES = 3
+# api.mfapi.in 502s a large share of requests in bursts that outlast a short
+# ladder, so retries are worth spanning ~15s rather than ~3s. The failures are
+# not sticky per scheme code — the same URL that 502s twice serves fine on the
+# next attempt — so retrying is what actually recovers them.
+MFAPI_MAX_RETRIES = 5
+MFAPI_BACKOFF_BASE = 1.0
+MFAPI_BACKOFF_CAP = 8.0
 MFAPI_CONCURRENCY = 12
 
 
@@ -102,6 +109,14 @@ def _coerce_isin(value: object) -> Optional[str]:
     return s
 
 
+def _is_retryable(exc: Exception) -> bool:
+    """5xx / 429 / network / bad-JSON are worth another go; other 4xx never are."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status >= 500 or status == 429
+    return isinstance(exc, (httpx.HTTPError, ValueError))
+
+
 async def _request_json(client: httpx.AsyncClient, url: str) -> object:
     """GET JSON with retry+backoff for transient HTTP/network/parsing failures."""
     last_exc: Optional[Exception] = None
@@ -116,9 +131,13 @@ async def _request_json(client: httpx.AsyncClient, url: str) -> object:
             return resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             last_exc = exc
-            if attempt == MFAPI_MAX_RETRIES:
+            if not _is_retryable(exc) or attempt == MFAPI_MAX_RETRIES:
                 break
-            await asyncio.sleep(2 ** (attempt - 1))
+            # Jitter matters here: without it every request in a concurrent
+            # batch retries in lockstep and lands back inside the same upstream
+            # outage window it just failed against.
+            delay = min(MFAPI_BACKOFF_CAP, MFAPI_BACKOFF_BASE * 2 ** (attempt - 1))
+            await asyncio.sleep(delay * random.uniform(0.5, 1.0))
     raise MfapiFetchError(
         f"mfapi.in request failed for {url}: {last_exc}"
     ) from last_exc
@@ -243,7 +262,11 @@ async def fetch_scheme_details_batch(
             try:
                 detail = await fetch_scheme_detail(client, code)
             except MfapiFetchError as exc:
-                logger.warning("mfapi fetch failed for %s: %s", code, exc)
+                # DEBUG, not WARNING: this fires for a double-digit share of
+                # requests against mfapi.in and buried ~10K lines a week. The
+                # per-batch count is logged by the ingest service and the
+                # scheduler logs the codes still stale after its retry sweep.
+                logger.debug("mfapi fetch failed for %s: %s", code, exc)
                 failed.append(code)
                 return
             except Exception as exc:
