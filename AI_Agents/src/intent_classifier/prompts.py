@@ -266,9 +266,16 @@ A message is a **follow-up** when:
 - It asks a clarifying or deepening question on the same subject
 - It would be meaningless or ambiguous without the conversation history
 - It continues the same decision-making flow (e.g. narrowing down fund choices after an allocation discussion)
-- It expresses a personal preference about the prior allocation
-  ("I can take more risk", "I want more equity", "this feels too safe")
-  — these continue the same decision flow.
+- It expresses a personal preference or constraint about the plan already
+  under discussion. While a rebalancing plan or a new-money deployment is the
+  active intent, this includes changing exposure to ANY asset class ("I can
+  take more risk", "I want more equity", "this feels too safe", "make it safer",
+  "add some gold", "more debt"), tilting toward or restricting fund categories
+  ("lean toward mid cap", "only large and mid cap", "no sectoral funds", "skip
+  the lock-in ones"), or naming a specific FUND to use, avoid, or hold ("use
+  Nippon Small Cap instead", "don't sell my HDFC fund", "why not put it all in
+  Quant Small Cap"). These adjust the active plan — keep the active intent; they
+  are NOT a fresh asset_allocation design and NOT stock_advice.
 
 A message is a **new topic** when:
 - It introduces a clearly different subject area
@@ -308,7 +315,7 @@ Handling missing inputs:
 
 - If the question could fit two intents, pick the **primary** one based on what the customer most likely wants as an outcome.
 - The clearest distinction: portfolio_query = "tell me what I have", asset_allocation = "tell me what I should do with MY money/portfolio", general_market_query = "tell me about the market (including whether a segment looks attractive)".
-- If conversation history is provided, use it to resolve ambiguous follow-up questions (e.g. "what about gold?" after a asset allocation discussion → asset_allocation).
+- If conversation history is provided, resolve ambiguous follow-ups to the ACTIVE thread's intent rather than to a fixed intent per keyword: "what about gold?" → asset_allocation after an allocation discussion, but → rebalancing while a rebalancing plan is being adjusted, or → additional_investment while new money is being deployed.
 
 ### Routing edge cases
 
@@ -324,12 +331,19 @@ These cases are easy to misclassify. Apply these rules explicitly:
 2. **Stock-pick asks stay in `stock_advice`, even if extreme.** A request to buy/sell a specific stock or to concentrate the portfolio into a single stock is `stock_advice`. Do NOT escalate to `out_of_scope` on the basis that the suggestion seems imprudent — the stock_advice canned redirect is the appropriate response.
    - "Allocate everything to one stock — go all-in on Tesla." → `stock_advice`
    - "Should I buy 50 shares of HDFCBANK?" → `stock_advice`
+   - A specific mutual fund or ETF is NOT a stock: naming or concentrating into
+     one ("put it all in Quant Small Cap", "use the Parag Parikh fund") is never
+     `stock_advice` — funds are in scope. While a plan is the active intent
+     (rebalancing / additional_investment) such a fund ask is a preference on
+     that plan (keep the active intent); otherwise it is `mutual_fund_query`.
 
 3. **Compound questions: pick the substantive financial part.** When a message pairs a financial question with off-topic content, classify by the financial part. Only return `out_of_scope` if the entire message is off-topic.
    - "Should I rebalance and what's the weather?" → `rebalancing` (the rebalancing question is substantive; weather is noise).
    - "What's my allocation? Also tell me a joke." → `portfolio_query`.
 
 4. **Identity / chat-summary / security questions → `out_of_scope`** with the appropriate subreason (see §8). The general chat layer will tailor the reply by subreason; the classifier's job is just to flag them correctly.
+
+5. **A DIRECTIVE to set the exposure of an ACTIVE plan → keep that plan's intent.** While rebalancing or a new-money deployment is the active intent, the customer setting a different exposure for the plan just produced keeps the active intent. This covers BOTH an imperative to change exposure — "make it safer", "more conservative", "more aggressive", "push my equity up", "crank up the equity", "dial down the risk" — AND a STATEMENT of the target they want for that plan: a specific percentage ("I want 95% equity", "take me to 90% equity"), an absolute ("I want 100% equity in my portfolio", "keep me all in equity", "no debt"), or a split ("make it 80/20"). The anaphoric "it"/"my" is that active plan, and naming a different target FOR IT is an ADJUSTMENT to the plan — NOT a rejection of it, and NOT a from-scratch target redesign; framing like "in my portfolio" or a round "100%" does not make it `asset_allocation`. This holds EVEN when the customer justifies it with their age or risk appetite — "I'm 28 and want to be aggressive, push my equity up" is a directive to tilt the active plan, NOT a request to redesign their profile. Only a QUESTION about what the target SHOULD be — "should I be more aggressive given my age?", "what mix is right for me?" — is `asset_allocation`.
 
 ### Output format
 

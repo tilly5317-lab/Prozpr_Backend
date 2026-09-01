@@ -40,8 +40,27 @@ from app.domains.rebalancing.services.asset_class_breakdown import (
     target_asset_class_mix,
     target_mix_from_rows,
 )
+from app.domains.rebalancing.services.saved_plan_service import (
+    committed_run_filter,
+    save_plan,
+    select_current_run_id,
+)
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
+
+# Shared eager-load set for the full run detail (get_run + get_current). Load-
+# bearing: _build_asset_class_breakdown reads fund_rows for the per-fund
+# look-through — do not prune, or the Current-vs-Target bars silently break.
+_DETAIL_LOADS = (
+    selectinload(RebalancingRun.totals),
+    selectinload(RebalancingRun.subgroup_summaries),
+    selectinload(RebalancingRun.trades),
+    selectinload(RebalancingRun.fund_rows),
+    selectinload(RebalancingRun.warnings),
+    selectinload(RebalancingRun.portfolio)
+    .selectinload(Portfolio.holdings)
+    .selectinload(PortfolioHolding.fund_metadata),
+)
 
 
 @router.get("/", response_model=list[RebalancingRunListItem])
@@ -51,7 +70,7 @@ async def list_runs(
 ):
     stmt = (
         select(RebalancingRun)
-        .where(RebalancingRun.user_id == current_user.id)
+        .where(RebalancingRun.user_id == current_user.id, committed_run_filter())
         .order_by(RebalancingRun.created_at.desc())
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -111,6 +130,41 @@ async def get_readiness(
     )
 
 
+@router.get("/current", response_model=RebalancingRunDetailResponse)
+async def get_current(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """The customer's committed plan (``origin='saved'``) if any, else the
+    latest run by ``created_at``.
+
+    Declared BEFORE ``/{run_id}`` so the literal ``current`` isn't parsed as a
+    run UUID (mirrors ``/readiness``).
+    """
+    run_id = await select_current_run_id(db, user_id=current_user.id)
+    if run_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No rebalancing plan yet"
+        )
+    run = (
+        await db.execute(
+            select(RebalancingRun)
+            .where(
+                RebalancingRun.id == run_id,
+                RebalancingRun.user_id == current_user.id,
+            )
+            .options(*_DETAIL_LOADS)
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
+        )
+    resp = RebalancingRunDetailResponse.model_validate(run)
+    resp.asset_class_breakdown = _build_asset_class_breakdown(run)
+    return resp
+
+
 @router.get("/{run_id}", response_model=RebalancingRunDetailResponse)
 async def get_run(
     run_id: uuid.UUID,
@@ -123,17 +177,7 @@ async def get_run(
             RebalancingRun.id == run_id,
             RebalancingRun.user_id == current_user.id,
         )
-        .options(
-            selectinload(RebalancingRun.totals),
-            selectinload(RebalancingRun.subgroup_summaries),
-            selectinload(RebalancingRun.trades),
-            # Needed by _build_asset_class_breakdown for the per-fund look-through.
-            selectinload(RebalancingRun.fund_rows),
-            selectinload(RebalancingRun.warnings),
-            selectinload(RebalancingRun.portfolio)
-            .selectinload(Portfolio.holdings)
-            .selectinload(PortfolioHolding.fund_metadata),
-        )
+        .options(*_DETAIL_LOADS)
     )
     run = (await db.execute(stmt)).scalar_one_or_none()
     if run is None:
@@ -212,6 +256,25 @@ async def update_status(
         )
 
     run.status = RebalancingRunStatus(payload.status)
+    await db.commit()
+    await db.refresh(run)
+    return RebalancingRunListItem.model_validate(run)
+
+
+@router.post("/{run_id}/save", response_model=RebalancingRunListItem)
+async def save_run_as_plan(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Mark a run as the customer's committed plan (idempotent). Demotes any
+    prior saved run so exactly one stays committed. Owns its commit, mirroring
+    ``update_status``."""
+    run = await save_plan(db, user_id=current_user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
+        )
     await db.commit()
     await db.refresh(run)
     return RebalancingRunListItem.model_validate(run)

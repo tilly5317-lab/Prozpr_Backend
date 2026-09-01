@@ -31,12 +31,26 @@ from app.domains.ai_engine.answer_formatter import (
     format_relay_or_canned,
     format_with_telemetry,
 )
+from app.domains.rebalancing.services.saved_plan_service import ORIGIN_CANDIDATE
+from app.domains.rebalancing.services.rebalancing_persist_service import (
+    persist_rebalancing_recommendation,
+)
+from app.domains.chat.services.ai_module_telemetry import record_ai_module_run
 from app.domains.rebalancing.services.rebal_engine.formatter import (
     build_fallback_rebal_brief,
 )
 from app.domains.rebalancing.services.rebal_engine.overrides import (
     _REBAL_ALLOWED_OVERRIDE_KEYS,
     with_chat_overrides,
+)
+
+from app.core.observability import capture_preference_unserved
+from app.domains.mutual_funds.services.fund_ranking_lookup import (
+    ranking_by_isin,
+    resolve_ranked_fund,
+)
+from app.domains.mutual_funds.services.investment_preferences import (
+    normalize_tilt,
 )
 
 ensure_ai_agents_path()
@@ -65,11 +79,90 @@ class RebalanceAction(BaseModel):
         description=(
             "For counterfactual_explore. Allowed keys: effective_tax_rate, "
             "stcg_offset_budget_inr, carryforward_st_loss_inr, "
-            "carryforward_lt_loss_inr, additional_cash_inr."
+            "carryforward_lt_loss_inr, additional_cash_inr, asset_class_tilt, "
+            "pure_equity_only, market_cap_tilt. Never emit asset_class_tilt, "
+            "pure_equity_only or market_cap_tilt yourself — set the tilt_* / "
+            "scope_only_asset_classes / market_cap fields instead; the app "
+            "builds them."
         ),
     )
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
+    scope_only_asset_classes: Optional[list[Literal["equity", "debt", "others"]]] = Field(
+        default=None,
+        description=(
+            "For counterfactual_explore. 'Only equity funds' → ['equity']; "
+            "'no gold' → ['equity', 'debt']. Asset-class level only — fund "
+            "categories like 'large cap' belong in allowed_categories."
+        ),
+    )
+    tilt_asset_class: Optional[Literal["equity", "debt", "others"]] = Field(
+        default=None,
+        description=(
+            "For counterfactual_explore. The asset class whose exposure the "
+            "customer wants changed ('increase my equity exposure' → 'equity')."
+        ),
+    )
+    tilt_delta_pp: Optional[float] = Field(
+        default=None,
+        description=(
+            "Relative change in percentage points, ONLY when the customer "
+            "states one ('by 10 percent' → 10, 'reduce by 5' → -5). NEVER "
+            "invent a number — leave unset when none was said."
+        ),
+    )
+    tilt_target_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Absolute target percent, ONLY when the customer states one "
+            "('take equity to 70%' → 70). NEVER invent a number."
+        ),
+    )
+    market_cap: Optional[Literal["large", "mid", "small"]] = Field(
+        default=None,
+        description=(
+            "The market-cap sleeve the customer wants MORE of ('more small cap', "
+            "'tilt to midcaps', 'small-cap heavy'). large/mid/small only."
+        ),
+    )
+    market_cap_heavy: Optional[bool] = Field(
+        default=False,
+        description="True for a 'heavy/mostly/lots of' qualifier ('small-cap heavy'); else False.",
+    )
+    excluded_categories: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "For consolidate. Categories to EXCLUDE from new buys — the "
+            "customer's words verbatim ('no ELSS', 'nothing with a lock-in' → "
+            "['elss'])."
+        ),
+    )
+    category_weights: Optional[dict[str, float]] = Field(
+        default=None,
+        description=(
+            "For consolidate. Weight new buys toward a NON-cap fund category "
+            "('more value funds', 'at least 30% in banking funds'): {customer's "
+            "category words: requested percent of buys 0-100}. A stated percent → "
+            "that number; NO stated percent → 0 (sentinel: the app applies its "
+            "documented default step and discloses it). Large/mid/small CAP asks "
+            "use the market_cap field instead, NOT this."
+        ),
+    )
+    named_fund: Optional[str] = Field(
+        default=None,
+        description=(
+            "A specific scheme the customer names ('use Parag Parikh Flexi "
+            "Cap', 'why not Quant Small Cap?') — the fund words verbatim."
+        ),
+    )
+    named_fund_intent: Optional[Literal["include", "why_not"]] = Field(
+        default=None,
+        description=(
+            "With named_fund: 'use/include/switch to X' → include; "
+            "'why not X / why didn't you pick X' → why_not. Both ride on "
+            "mode narrate."
+        ),
+    )
     target_fund_count: Optional[int] = Field(
         default=None,
         description=(
@@ -90,9 +183,9 @@ class RebalanceAction(BaseModel):
 _INVALID_OVERRIDE_TEMPLATE = (
     "I can only run 'what if' scenarios on a small set of inputs from chat "
     "right now (tax rate, STCG offset budget, carry-forward losses, additional "
-    "cash to deploy). Other changes — like deferring the rebalance — aren't "
-    "supported yet. If you'd like a 'what if' on the supported inputs, just "
-    "say so."
+    "cash to deploy, or your equity/debt/gold exposure). Other changes — like "
+    "deferring the rebalance — aren't supported yet. If you'd like a 'what if' "
+    "on the supported inputs, just say so."
 )
 
 
@@ -127,8 +220,42 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
     carryforward_st_loss_inr:  number ≥ 0 (₹ — short-term carryforward losses)
     carryforward_lt_loss_inr:  number ≥ 0 (₹ — long-term carryforward losses)
     additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
+    asset_class_tilt:          number map — INTERNAL, never emit it yourself; for exposure asks fill the tilt_* / scope_only_asset_classes FIELDS below and the app builds this key
+    pure_equity_only:          true — INTERNAL, never emit yourself; the app sets it for an "only/all/100% equity" ask
+    market_cap_tilt:           number map — INTERNAL, never emit it yourself; for large/mid/small-cap asks fill the market_cap / market_cap_heavy FIELDS below and the app builds this key
   Multiple keys are allowed in one action ("what if my tax rate were 20%
   AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
+  EXPOSURE ASKS are ALWAYS counterfactual_explore — any request to change how
+  much equity/debt/gold they hold ("increase my equity", "take equity to 70%",
+  "only/all equity", "make it 100% equity", "add some gold"), even mid-
+  conversation and even alongside risk-score talk. NEVER instead clarify about
+  their risk score, redirect to Profile, or call it a goal/profile conflict —
+  the tilt covers it. Fill tilt_asset_class (equity / debt / others — gold and
+  "safer" map here too): "make it safer / more conservative / less risky /
+  reduce risk" → tilt_asset_class="debt"; "make it aggressive / riskier / more
+  growth" → tilt_asset_class="equity"; "add gold / more gold" →
+  tilt_asset_class="others". Set tilt_delta_pp for a stated relative number OR
+  tilt_target_pct for a stated absolute one ("100%" → 100) — never invent one,
+  leave unset if none given (the app applies a documented step). "Only/all
+  <asset class>" → scope_only_asset_classes. A "which funds to switch?" tacked
+  on is still the tilt (the app returns the trades). A follow-up that ADJUSTS a
+  prior hypothetical is STILL an exposure tilt — "add gold to that" →
+  tilt_asset_class="others"; "now make it safer" → tilt_asset_class="debt"; "a
+  bit more equity than that" → tilt_asset_class="equity". Recompute it; NEVER
+  reply that you "can't adjust the plan on the fly" or "can only show what's
+  already computed" — you CAN, via the tilt.
+  MARKET-CAP ASKS (large/mid/small cap) are counterfactual_explore too — set
+  `market_cap` to the sleeve they want MORE of and `market_cap_heavy` for a
+  "heavy/mostly/lots of" qualifier. These re-run the plan toward that cap.
+  - "more small cap" / "tilt to small caps"   -> market_cap="small"
+  - "make it small-cap heavy" / "mostly small"-> market_cap="small", market_cap_heavy=true
+  - "increase mid caps"                        -> market_cap="mid"
+  A market-cap ask MAY co-occur with an asset-class ask ("only equity, more small cap")
+  and with a fund-count ask ("more small cap, max 4 funds") — set ALL the fields; do
+  not drop any.
+  For a large/mid/small-cap ask use `market_cap` — do NOT ALSO fill `category_weights`
+  for large/mid/small cap (the market-cap tilt supersedes that legacy buy-shuffle for
+  caps). `category_weights` remains only for non-cap category weighting.
 - "compute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they want us to DO something to the plan but have not given the
@@ -143,8 +270,20 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   we already asked; if they answered, use it, and if they didn't, answer anyway
   with what we have.
 - "consolidate" — they want FEWER new-buy funds, or the new money restricted
-  to specific fund categories. This reshapes only the BUY side of the plan
-  (sells and tax are untouched). Two optional fields:
+  to / weighted toward / kept out of specific fund categories. This reshapes
+  only the BUY side of the plan (sells and tax are untouched). Optional fields:
+    category_weights: dict — weight new buys toward a NON-cap fund category
+      ("more value funds", "at least 30% in banking funds") →
+      {customer's words: percent 0-100}. A stated percent → that number; NO
+      stated percent → 0 (sentinel — the app applies its documented default
+      step and discloses it). Category words verbatim, never internal keys. For
+      large/mid/small CAP asks use `market_cap` (counterfactual_explore), not this.
+    excluded_categories: list[str] — "no ELSS", "nothing with a lock-in",
+      "skip sectoral funds" → the words verbatim (["elss"], ["sectoral"]).
+  CONTRADICTION: if the same turn excludes a category AND asks for more of it
+  (or scopes to an asset class that excludes a requested category — "only debt
+  funds but more mid cap"), emit clarify instead, naming the conflict in
+  clarification_question.
     target_fund_count: int — "reduce my trades", "fewer funds", "keep it to 5
       funds" → the max number of NEW-BUY funds. If they say a number, set it.
       "exactly N funds for my whole portfolio" is NOT supported, but still emit
@@ -163,7 +302,14 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
 - "redirect" — they want something we can't do from chat (lock specific funds,
   edit holdings, hypothetical "what if" with override inputs OUTSIDE the
   allow-list above — e.g. "what if I delayed by 3 months" — those aren't
-  supported yet). Set `redirect_reason` to a short description.
+  supported yet). Also concepts we don't rank funds in at all (ESG,
+  international/overseas themes). Set `redirect_reason` to a short description.
+  (An equity/debt/gold exposure change is NEVER redirect — see EXPOSURE ASKS.)
+
+NAMED FUNDS: when the customer names a specific scheme, set named_fund (their
+words verbatim) + named_fund_intent — "use/switch to X" → include, "why not X /
+why didn't you pick X" → why_not — and emit mode narrate for BOTH intents (the
+app answers from the ranking data; inclusion gets an honest "coming later").
 
 Examples:
 
@@ -180,30 +326,48 @@ educate (asking what a term or mechanism MEANS in general):
 - "what's STCG vs LTCG?"                    → educate
 - "why does tax matter for rebalancing?"    → educate
 
-counterfactual_explore (hypothetical with at least one concrete value):
-- "what if my tax rate were 20%?"           → counterfactual_explore,
-                                              overrides={effective_tax_rate: 20}
-- "what if I had ₹50K in carry-forward
-  short-term losses?"                       → counterfactual_explore, overrides=
-                                              {carryforward_st_loss_inr: 50000}
-- "what if I had ₹2L more to deploy?"       → counterfactual_explore,
-                                              overrides={additional_cash_inr: 200000}
-- "save with 20% tax rate"                  → counterfactual_explore,
-                                              overrides={effective_tax_rate: 20}
-                                              (commit-shaped — still emit explore)
-- "what if my tax were 20% AND I had ₹50K
-  in short-term losses?"                    → counterfactual_explore, overrides=
-                                              {effective_tax_rate: 20,
-                                               carryforward_st_loss_inr: 50000}
+counterfactual_explore (a value to test, or an exposure change — all
+counterfactual_explore; commit-shaped "save with…" still counts):
+- "what if my tax rate were 20%?"           → overrides={effective_tax_rate: 20}
+- "what if I had ₹2L more to deploy?"       → overrides={additional_cash_inr: 200000}
+- "tax 20% AND ₹50K short-term losses"      → overrides={effective_tax_rate: 20,
+                                              carryforward_st_loss_inr: 50000}
+- "increase my equity by 10 percent"        → tilt_asset_class="equity", tilt_delta_pp=10
+- "take my equity exposure to 70%"          → tilt_asset_class="equity", tilt_target_pct=70
+- "increase my equity exposure"             → tilt_asset_class="equity" (no number set)
+- "only equity funds" / "all equity, no
+  debt" / "make it 100% equity"             → scope_only_asset_classes=["equity"]
+- "keep 100% equity, tell me which funds
+  to switch — I accept the risk"            → scope_only_asset_classes=["equity"]
+                                              (NOT consolidate; do NOT clarify risk score)
+- "just make it safer"                      → tilt_asset_class="debt" (no number)
+- "add a little gold as well"               → tilt_asset_class="others" (no number)
 
-consolidate (fewer buys, or buys restricted to categories):
-- "reduce my trades, it's too many"         → consolidate, both fields null
-                                              (no count given — handler asks once)
-- "consolidate into 5 funds"                → consolidate, target_fund_count=5
-- "only invest in largecap and midcap"      → consolidate,
-                                              allowed_categories=["large cap","mid cap"]
-- (we just asked "how many funds?") "5"     → consolidate, target_fund_count=5
-                                              (history-fill — do not re-ask)
+consolidate (all mode consolidate — fewer buys, or buys restricted/reweighted/
+excluded by category):
+- "reduce my trades, too many"              → both fields null (handler asks once)
+- "consolidate into 5 funds"                → target_fund_count=5
+- (we just asked how many) "5"              → target_fund_count=5 (history-fill, don't re-ask)
+- "only invest in largecap and midcap"      → allowed_categories=["large cap","mid cap"]
+- "more value funds" / "at least 30% in
+  banking funds"                            → category_weights={"value fund": 0}
+                                              (NON-cap only; no percent → sentinel 0;
+                                              "30% banking" → {..:30}. Large/mid/small
+                                              cap → market_cap, NOT this.)
+- "nothing with a lock-in"                  → excluded_categories=["elss"]
+- "no sectoral funds"                       → excluded_categories=["sectoral"]
+- "only equity, more mid cap, max 4 funds"  → scope_only_asset_classes=["equity"],
+                                              market_cap="mid", target_fund_count=4
+                                              (market_cap makes this
+                                              counterfactual_explore; set ALL fields)
+
+named funds (mode narrate for both intents):
+- "use Parag Parikh Flexi Cap instead"      → narrate, named_fund="Parag
+                                              Parikh Flexi Cap",
+                                              named_fund_intent="include"
+- "why didn't you pick Quant Small Cap?"    → narrate, named_fund="Quant
+                                              Small Cap",
+                                              named_fund_intent="why_not"
 
 compute:
 - "rebalance my portfolio"                  → compute
@@ -212,16 +376,22 @@ compute:
 redirect (out of scope, or override outside the allow-list):
 - "what if I delayed by 3 months?"          → redirect, "delay rebalance by N months"
 - "don't sell my HDFC Top 100"              → redirect, "lock specific holdings"
+- "only ESG funds please"                   → redirect, "we don't rank ESG funds"
 
-clarify (an action we can take, missing only its value):
+clarify (an action we can take, missing only its value — or a contradiction):
 - "I want to reduce tax"                    → clarify, "Your effective tax rate
                                               is X% — would 20% feel right?"
+- "only debt funds but add more mid cap"    → clarify, "Mid cap is equity, so
+                                              debt-only would exclude it —
+                                              which matters more?"
 
 NOT clarify — these are questions about the plan, so narrate:
 - "why is there a discrepancy?"             → narrate
 - "my plan shows 83% equity, not 95%"       → narrate
 - "no no, not today's picture — the target" → narrate
 - "I'm trying to understand this"           → narrate
+- "how many trades is that now?"            → narrate (answer the count from the
+                                              plan; do NOT re-run consolidate)
 """
 
 _REBAL_FORMATTER_BODY = """You are answering a customer's question about a
@@ -245,14 +415,17 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     "shorter manager tenures") — ground the "why" in LOGIC_REFERENCE when present.
   trade_count: int — number of distinct buy/sell trades in the recommendation
 
-  current_asset_class_mix_pct / _inr / _indian — {equity, debt, others}: what the
+  current_asset_class_mix_pct / _indian — {equity, debt, others}: what the
     customer holds TODAY, before any of these trades.
-  target_asset_class_mix_pct / _inr / _indian — {equity, debt, others}: what they
+  target_asset_class_mix_pct / _indian — {equity, debt, others}: what they
     will hold AFTER this plan's trades execute. This is the plan's target mix and
     it is the SAME number the Invest page shows on its Current-vs-Target bars.
 
   ideal_asset_class_mix_pct — {equity, debt, others}: the split their goals and
-    risk profile alone call for, ignoring what they currently hold. Optional.
+    risk profile alone call for, ignoring what they currently hold. Present ONLY on
+    the first plan-presentation answer; ABSENT on every follow-up. When absent, the
+    ideal does not exist for this turn — never mention, quote, or infer one; contrast
+    only against target_* (the recommended/practical plan).
 
   These three are different questions and must never be swapped:
     "what do I hold now?"              → current_*
@@ -262,26 +435,56 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   The ideal and the target legitimately differ: the ideal is the destination on
   paper, the target is what THIS plan can reach given what they already hold and
-  what it is willing to trade. If the customer asks why the two differ, say that
-  plainly and quote both numbers. Ground any further explanation in ``warnings``
-  or ``goal_buckets`` — do NOT invent lock-ins, untradeable holdings or staged
-  journeys that nothing in CUSTOMER_RECORD supports.
+  what it is willing to trade (chiefly, it avoids short-term capital-gains tax by
+  selling only long-held units, and keeps holdings still worth owning). ONLY when
+  ideal_asset_class_mix_pct is present (the first answer) AND the target sits well
+  away from it on equity (more than ~5 points),
+  PROACTIVELY bridge the two in ONE sentence — quote both and frame the target as
+  a STEP TOWARD the ideal, not a rival number, naming the reason it stops short
+  from the tax figures / ``warnings`` (e.g. "your long-term ideal is ~40% equity;
+  from today's 95% this plan moves you to 74% — a big step, held back from a full
+  move mainly to avoid short-term-gains tax"). The allocation view may have just
+  shown the customer the ideal, so a bare target reads as a contradiction. Ground
+  the "why partway" in the tax figures / ``warnings`` — do NOT invent lock-ins,
+  untradeable holdings or staged journeys that nothing in CUSTOMER_RECORD supports.
 
   When the customer says a number from their plan disagrees with yours, they are
   almost certainly reading their own screen correctly. Quote target_* and
   reconcile against it. If a block you need is absent, say you don't have that
   figure — never substitute one of the other two.
 
+  NEVER state an asset-class mix or percentage that is not present verbatim in
+  CUSTOMER_RECORD. Do not average two mixes, do not interpolate a "middle
+  ground", and never invent a compromise split (e.g. "we could trim to
+  65/28/7") — if the exact figure is not in the facts, do not give one. Bucket-
+  level splits (goal_buckets.planned_split_pct) are PER-BUCKET, never the whole
+  portfolio — never present a bucket's equity % as the overall mix.
+
+  Rupee amounts follow the same rule as percentages: state ONLY a ₹ amount that
+  appears verbatim as an ``*_indian`` field (a total, a per-bucket / per-fund
+  amount, or a group_flows subtotal). NEVER sum, average, or otherwise compute a
+  rupee figure of your own — summing several bucket buys into one "group" total in
+  prose is exactly what fabricated crore-scale numbers. Need a group total? use
+  group_flows; if it isn't there, don't state one.
+
   buckets: list of one entry per (sub_category) the customer holds or trades.
-    Fields per bucket:
-      sub_category    — SEBI category name, e.g. "Large Cap Fund", "Liquid Fund".
-                        THIS is the customer-facing label; copy verbatim.
-      asset_subgroup  — internal engine grouping (e.g. "low_beta_equities").
-                        DO NOT surface this to the customer; it's context only.
-      current_inr / current_indian       — present holding in this sub_category
-      buy_inr     / buy_indian           — amount being bought
-      sell_inr    / sell_indian          — amount being sold (always non-negative)
-      planned_final_inr / planned_final_indian — current + buy − sell
+    Fields per bucket (amounts are pre-formatted _indian strings — cite verbatim):
+      sub_category         — SEBI category name, e.g. "Large Cap Fund", "Liquid
+                             Fund". THIS is the customer-facing label; copy verbatim.
+      current_indian       — present holding in this sub_category
+      buy_indian           — amount being bought
+      sell_indian          — amount being sold (always non-negative)
+      planned_final_indian — current + buy − sell
+
+  group_flows: the customer-facing rollup by group — buckets grouped into a handful
+    of labels (e.g. "Multi-asset & hybrid funds", "US & international equity",
+    "Small-cap equity", "Debt funds"), largest holding first. Fields per entry:
+    group, current_indian, buy_indian, sell_indian, planned_final_indian. This is
+    BOTH the plan TABLE (see below) and the pre-computed group subtotal: when you
+    describe WHERE money moves at a group level ("into multi-asset funds", "trimming
+    small caps"), cite THESE _indian figures verbatim — never add up the underlying
+    buckets/funds yourself. A "sell X out of Y held" line MUST take Y from the same
+    group's current_indian (never a single fund/category's held).
 
   warnings: list of short human-readable strings (up to 5)
 
@@ -292,64 +495,86 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     or attribute a view to any fund house — and it NEVER overrides the computed
     numbers; the trades stand on their own. Ignore it for purely factual questions.
 
-  fund_actions: list of per-fund actions for the customer's specific funds
-    (top 30 by exposure; if more, ``more_holdings_count`` carries the
-    overflow count for "and N other smaller holdings"). Each entry:
-      fund_name        — the customer-facing scheme name (e.g. "HDFC Top 100").
-                         Cite this verbatim when answering fund-specific
-                         questions ("why are you trimming HDFC Top 100?",
-                         "what funds will I hold after this?").
-      sub_category     — SEBI category for context (e.g. "Large Cap Fund").
-      asset_subgroup   — internal engine grouping; do NOT surface.
-      current_inr / current_indian       — present holding in this fund
-      buy_inr     / buy_indian           — amount being bought into this fund
-      sell_inr    / sell_indian          — amount being sold from this fund
-      planned_final_inr / planned_final_indian — current + buy − sell
-    When the customer asks about a specific fund or specific trades, name
-    the fund(s). When showing a "what will I hold after?" view, list funds
-    with planned_final > 0, biggest first. For category-level questions,
-    prefer the aggregated ``buckets`` field — fund-level detail is only
-    needed when the question is fund-specific.
+  fund_actions: per-fund actions — every fund WITH a trade first (never cut), then
+    held-as-is rows, capped at 30 (more_holdings_count carries any overflow for
+    "and N smaller holdings"). Each: fund_name (customer-facing scheme name, cite
+    verbatim), sub_category, and current/buy/sell/planned_final as pre-formatted
+    _indian amounts (planned_final = current + buy − sell).
+    On any turn that PRESENTS A PLAN (compute, counterfactual_explore, consolidate)
+    always include a fund-level trade list: if the plan has FEWER THAN 10 trades
+    (see trade_count) show the FULL list — every buy and every sell by fund_name +
+    _indian amount; otherwise show the largest ~5 buys and ~5 sells. So the
+    customer sees concrete funds, not only categories. For a "what will I hold
+    after?" view, list planned_final > 0, biggest first. For narrate/educate, fund
+    detail only when the question is fund-specific.
+    ALSO on any turn that PRESENTS A PLAN (compute, counterfactual_explore,
+    consolidate), you MUST render an actual markdown GROUP table (with | pipes) —
+    this is REQUIRED, not optional, and it REPLACES a prose group-by-group
+    walkthrough (do not also narrate each group's numbers in a paragraph). Exactly
+    THREE numeric columns so it fits a phone: Current | Net change | Final. One row
+    per `group_flows` entry (NOT one per SEBI sub_category — that table is too long
+    to read), copying the `_indian` amounts verbatim (Current=current_indian, Net
+    change=net_change_indian, Final=planned_final_indian), header bold, numbers
+    right-aligned, and a bold totals row. Shape:
+      | Group | Current | Net change | Final |
+      |---|---:|---:|---:|
+      | **Multi-asset & hybrid funds** | ₹24.34 lakh | +₹2.42 crore | ₹2.67 crore |
+      | ... one row per group_flows entry ... |
+      | **Total** | ₹6.29 crore | — | ₹6.29 crore |
+    In the totals row COPY total_portfolio_indian for Current AND Final (a rebalance
+    preserves the corpus, so Net change is "—" / ₹0 unless direct_stock_sale is
+    present) — do NOT re-add the columns yourself. Then the fund-level trade list,
+    which gives the specific funds behind the groups. Any commentary about where
+    money moves is ONE short lead-in sentence, not a per-group paragraph — the table
+    carries the numbers. When a market-cap tilt moved a shared subgroup, add ONE
+    light line (e.g. "this also nudges your flexi/multi-cap funds in the same
+    bucket") — do not imply pin-point precision.
 
-  constraint_impact: optional — present ONLY on a consolidate turn (the
-    customer asked for fewer funds or category-restricted buys). Fields:
-      target_mix_pct: {equity, debt, others} — the ideal target mix.
-      unconstrained_mix_pct / constrained_mix_pct — the plan's asset-class mix
-        before vs after applying their constraint.
-      largest_deviations: [[label, delta_pct], ...] — biggest asset-class moves
-        vs target (may all be ~0 for an intra-equity ask like "only largecap").
-      buy_mix_by_category: {unconstrained: {cat: pct}, constrained: {cat: pct}}
-        — how the NEW-BUY money splits across fund categories, before vs after.
-        This ALWAYS moves when the constraint bites; use it when the
-        asset-class deltas are flat.
-      risk_profile: the customer's risk profile label (may be null).
-      defaulted_fund_count: int — present ONLY when WE picked the fund count
-        because the customer never gave one. Open by saying so plainly and
-        invite the correction: "you didn't say a number, so I've spread the new
-        money across 5 funds — say the word and I'll make it 3." Never present
-        this number as something they chose.
+  constraint_impact: optional — on a consolidate OR equity-tilt/scope turn. Fields:
+      recommended_mix_pct / requested_mix_pct: {equity, debt, others} — the
+        recommended plan vs the plan reshaped to the customer's request. On a
+        tilt/scope turn these two are the ONLY asset-class figures you may cite
+        for the contrast — verbatim, never a third number. requested_mix_pct is
+        where that plan LANDS (may fall short of a round 100% — give the real
+        figure, don't round to what they asked).
+      tilt_note: directive string — when present, FOLLOW IT EXACTLY.
+      buy_changes_vs_recommended: [{fund, recommended_indian, requested_indian,
+        change_indian}] — on a tilt turn, the per-fund buy DIFFERENCE from the
+        recommended plan (biggest first). Show change_indian ("+₹2.5 lakh into
+        X") rather than the absolute requested buys.
+      target_mix_pct: the ideal target mix. unconstrained_mix_pct /
+        constrained_mix_pct: plan mix before vs after the constraint.
+        largest_deviations [[label, delta_pct],...]: biggest moves vs target (may
+        be ~0 for an intra-equity ask). buy_mix_by_category {unconstrained,
+        constrained}: new-buy split by category — use it when asset-class deltas
+        are flat. risk_profile: label (may be null).
+      defaulted_fund_count: int — present ONLY when WE picked the count. Own it:
+        "you didn't say a number, so I spread it across 5 funds — say the word for 3."
+      applied_preferences: optional dict recording what the tilt/count actually did.
+        Disclosure keys the reply MUST surface when present:
+          fund_count_bumped_to: int — the customer asked for fewer new-buy funds
+            than the plan's protected floor allows, so the count was bumped UP to
+            this. Own it: "I couldn't go below N funds without dropping a category
+            you're invested in."
+          market_cap_unavailable: str — the customer asked for more of a market-cap
+            sleeve they hold nothing in; state it plainly ("you hold no small-cap
+            funds today, so I couldn't tilt toward more of them") and still answer
+            the rest of the ask.
+      recommended_cap_mix_pct / requested_cap_mix_pct: {large, mid, small} — present
+        on a MARKET-CAP tilt turn. On those turns the asset-class mix barely moves,
+        so lead the contrast with THIS large/mid/small split (per tilt_note), citing
+        both verbatim — never a third number.
 
-  goal_buckets: optional list — present when the rebalancing was driven by the
-    customer's goals. One entry per bucket the customer has goals in:
-      bucket             — "emergency" / "short_term" / "medium_term" / "long_term"
-      horizon_label      — customer-friendly label, e.g. "Long-term (> 5 yrs)".
-                           Use this verbatim instead of the raw bucket key.
-      goals: list of {name, horizon_months, amount_needed_inr,
-                      amount_needed_indian, priority}. Priority is
-                      "non_negotiable" or "negotiable" — phrase as
-                      "must-meet" / "flexible" rather than the raw label.
-      total_goal_amount_indian / allocated_amount_indian — pre-formatted ₹.
-      planned_split_pct  — {equity, debt, others} % the AA engine targeted for
-                           this bucket based on the goals' horizons. THIS is
-                           why each bucket has the equity/debt mix it does.
-
-  When goal_buckets is present and it makes the answer clearer, tie trades
-  back to the bucket and its goal(s): e.g. "we're trimming equity in your
-  short-term bucket because your house-down-payment goal is ~18 months away,
-  so the engine targets ~30% equity / 70% debt there." Do NOT enumerate every
-  bucket on every turn — only surface the bucket(s) the customer's question
-  touches. If goal_buckets is absent, answer purely from the trade/asset-class
-  facts as before.
+  goal_buckets: optional list (present when goals drove the rebalance). Per bucket:
+      horizon_label (use verbatim, e.g. "Long-term (> 5 yrs)"); goals [{name,
+      horizon_months, amount_needed_indian, priority}] — priority "non_negotiable"/
+      "negotiable" → say "must-meet"/"flexible"; total_goal_amount_indian /
+      allocated_amount_indian; planned_split_pct {equity,debt,others} the engine
+      targeted for THIS bucket (why each bucket's mix is what it is).
+    When it clarifies the answer, tie trades to the bucket/goal ("trimming equity
+    in your short-term bucket — the house goal is ~18 months away"). Don't
+    enumerate every bucket; only the one(s) the question touches. Absent → answer
+    from the trade/asset-class facts.
 
 ACTION_MODE tells you the situation. Per-mode behavior:
 
@@ -359,7 +584,9 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                tax_impact_indian if non-zero), the 1-2 biggest moves at
                sub_category level, the resulting target_asset_class_mix_indian
                (state it as where the plan lands them, and contrast with
-               current_asset_class_mix_indian when the shift is the point), and
+               current_asset_class_mix_indian when the shift is the point), a
+               short fund-level trade list (the largest few buys and sells by
+               fund_name + amount, from fund_actions), and
                any warning that meaningfully shapes the picture. Lead with the
                headline unless the customer's question is specifically about
                tax or a specific fund — then lead with that. If trade_count is
@@ -379,10 +606,27 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                English definition, then anchor it in at least one specific
                from CUSTOMER_RECORD (a sub_category, a trade, a tax/exit-load
                amount). Length: 4-7 sentences.
-  counterfactual_explore — hypothetical-only result. Make clear this is a
-               hypothetical for comparison, not the saved recommendation;
-               reference the saved recommendation as the baseline but
-               don't reprint it in full. Length: 6-10 sentences.
+  counterfactual_explore — a hypothetical plan the customer ASKED FOR (e.g. a
+               higher-equity tilt, "only equity", "make it 100% equity").
+               COMPLY FIRST: lead with the plan they requested — the biggest
+               buys/sells it makes and where its asset-class mix LANDS — framed
+               as a hypothetical for comparison, not the saved plan. When
+               constraint_impact carries recommended_mix_pct / requested_mix_pct,
+               state the contrast using ONLY those two figures ("your
+               recommended plan is X% equity; the version you asked for lands at
+               Y%") and follow tilt_note. Then add ONE grounded caution about
+               the deviation. Do NOT lecture, do NOT refuse, do NOT push back
+               with clarifying questions, and NEVER offer an intermediate
+               "compromise" mix (e.g. "we could trim to 65/28/7") — that number
+               is not in the facts and must never appear. For the funds, when
+               constraint_impact carries buy_changes_vs_recommended, show the
+               DIFFERENCE your tilt makes vs the recommended plan — e.g. "vs our
+               recommendation it puts +₹2.5 lakh into ICICI Large Cap and −₹3
+               lakh into the arbitrage fund" — NOT the requested plan's absolute
+               buys; the change is what the customer wants to see. If a plain
+               tax/cash counterfactual (no tilt, no buy_changes), fall back to a
+               short absolute buy/sell list from fund_actions and reference the
+               saved recommendation as baseline. Length: 6-10 sentences.
   consolidate — the customer asked for fewer new-buy funds and/or buys
                restricted to categories; CUSTOMER_RECORD reflects the reshaped
                buys and carries constraint_impact. FIRST confirm you did
@@ -406,6 +650,17 @@ _REDIRECT_TEMPLATE = (
     "the relevant inputs — I'll regenerate the rebalancing plan automatically."
 )
 
+# Honest decline for "don't sell / lock this fund" — Profile can't pin a holding
+# out of the rebalance, so pointing there would mislead. Sell-side locks are a
+# planned feature, not yet available.
+_LOCK_NOT_SUPPORTED = (
+    "I can't hold a specific fund out of the rebalance from chat yet — the plan "
+    "trims and adds across your whole portfolio as one set of trades, and pinning "
+    "one fund to keep isn't something I can do here right now. It's on our list "
+    "to support. What I can do is walk you through *why* a fund is being sold, if "
+    "that would help you decide."
+)
+
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific fund, action (sell/swap), "
     "or constraint?"
@@ -426,6 +681,11 @@ _CONSOLIDATE_CLARIFY = (
 # reply still carried no number ("as few as possible", "you decide"). Doing the
 # work with a stated default beats asking the same question twice.
 _DEFAULT_CONSOLIDATE_FUND_COUNT = 5
+
+# "More value funds" with no stated percent -> raise that (non-cap) category to
+# this share of the total buy budget (spec 2026-08-24 defaults table; always
+# disclosed). Large/mid/small cap asks route to market_cap, not category_weights.
+_DEFAULT_WEIGHT_STEP = 0.10
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +716,10 @@ async def _format_or_fallback_rebal(
             constraint_impact=constraint_impact,
             is_rerun=is_rerun,
             fund_house_view=fund_house_view,
+            # Ship the goal-based ideal ONLY on the plan-presentation (compute) turn,
+            # so it reconciles with the allocation tab. Follow-ups/tilts contrast
+            # against the recommended plan only — never the ideal (baseline shift).
+            include_ideal=(action_mode == "compute"),
         ),
         body_prompt=_REBAL_FORMATTER_BODY,
         module_name="rebalancing",
@@ -589,6 +853,26 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         logger.warning("detect_rebal_action failed (%s); falling back to narrate", exc)
         action = RebalanceAction(mode="narrate")
 
+    return await _handle_action(ctx, action, last_run)
+
+
+async def _handle_action(
+    ctx: TurnContext,
+    action: RebalanceAction,
+    last_run: AgentRunRecord,
+) -> ChatHandlerResult:
+    """Dispatch one detected follow-up action (mode ladder extracted from
+    ``handle``; preference routing added by the 2026-08-24 spec)."""
+    if action.named_fund:
+        return await _handle_named_fund(ctx, action)
+
+    # Honor an extracted equity-exposure tilt/scope REGARDLESS of the mode label
+    # the detector attached. Conversational "100% equity" asks sometimes get
+    # labelled consolidate / clarify / redirect (and scope_only was then silently
+    # dropped); the extracted fields are authoritative — always comply-and-caution.
+    if action.tilt_asset_class or action.scope_only_asset_classes or action.market_cap:
+        return await _handle_preference_counterfactual(ctx, action)
+
     if action.mode == "clarify":
         # Ask at most ONCE in a row. A customer disputing a number ("that's not
         # what my plan says") reads as "a direction without a value" to the
@@ -614,11 +898,21 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             )
 
     if action.mode == "redirect":
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="redirect",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
         reason = action.redirect_reason or "change your trades"
+        # A "don't sell / lock / keep this fund" ask can't be sent to Profile —
+        # answer it honestly instead of the misleading Profile pointer.
+        if any(w in reason.lower() for w in ("lock", "keep", "hold", "don't sell", "not sell")):
+            message = _LOCK_NOT_SUPPORTED
+        else:
+            message = _REDIRECT_TEMPLATE.format(reason=reason)
         text = await format_relay_or_canned(
             ctx=ctx,
             module_name="rebalancing",
-            message=_REDIRECT_TEMPLATE.format(reason=reason),
+            message=message,
         )
         return ChatHandlerResult(
             text=text,
@@ -707,12 +1001,384 @@ def _validate_overrides(overrides: dict[str, Any]) -> bool:
     return all(k in _REBAL_ALLOWED_OVERRIDE_KEYS for k in overrides.keys())
 
 
+def _current_target_mix_pct(response) -> dict[str, float]:
+    """Asset-class mix of the recommended plan's targets (tilt baseline)."""
+    from app.domains.rebalancing.services.rebal_engine.constraint_impact import (
+        _planned_mix_pct,
+    )
+
+    return _planned_mix_pct(response)
+
+
+def _current_market_cap_mix_pct(response) -> dict[str, float]:
+    """Beta-sleeve split (large/mid/small %) of the plan's targets — the market-cap
+    tilt baseline. Buckets the three equity beta subgroups by their post-rebalance
+    holding (the subgroup-level counterpart of _planned_mix_pct)."""
+    sub_of_cap = {"low_beta_equities": "large",
+                  "medium_beta_equities": "mid",
+                  "high_beta_equities": "small"}
+    amt = {"large": 0.0, "mid": 0.0, "small": 0.0}
+    for sg in getattr(response, "subgroups", []) or []:
+        cap = sub_of_cap.get(getattr(sg, "asset_subgroup", None))
+        if cap:
+            amt[cap] += float(getattr(sg, "suggested_final_holding_inr", 0) or 0)
+    total = sum(amt.values())
+    if total <= 0:
+        return {c: 0.0 for c in amt}
+    return {c: v * 100.0 / total for c, v in amt.items()}
+
+
+def _buys_by_fund(response) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for r in getattr(response, "rows", []) or []:
+        name = getattr(r, "recommended_fund", None)
+        buy = float(getattr(r, "pass1_buy_amount", 0) or 0)
+        if name and buy > 0:
+            out[name] = out.get(name, 0.0) + buy
+    return out
+
+
+def _buy_changes_vs_recommended(recommended, requested, *, top: int = 6) -> list[dict]:
+    """Per-fund buy change from the recommended plan to the requested plan —
+    the DIFFERENCE the tilt makes, which is what the customer wants to see (not
+    the requested plan's absolute buys). Biggest moves first, pre-formatted."""
+    from common import format_inr_indian  # noqa: E402  (bare import via path hook)
+
+    rec, req = _buys_by_fund(recommended), _buys_by_fund(requested)
+    rows = []
+    for name in set(rec) | set(req):
+        delta = req.get(name, 0.0) - rec.get(name, 0.0)
+        if abs(delta) < 1000:  # ignore rounding noise
+            continue
+        rows.append({
+            "fund": name,
+            "recommended_indian": format_inr_indian(rec.get(name, 0.0)),
+            "requested_indian": format_inr_indian(req.get(name, 0.0)),
+            "change_indian": ("+" if delta > 0 else "−") + (format_inr_indian(abs(delta)) or "₹0"),
+            "_abs": abs(delta),
+        })
+    rows.sort(key=lambda x: x.pop("_abs"), reverse=True)
+    return rows[:top]
+
+
+async def _degraded_or_none(ctx: TurnContext, outcome) -> ChatHandlerResult | None:
+    """Shared blocking/None-response exits for the two-run preference path."""
+    if outcome.blocking_message is not None:
+        text = await _blocking_text(ctx, outcome.blocking_message)
+        return ChatHandlerResult(
+            text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        )
+    if outcome.response is None:
+        return ChatHandlerResult(
+            text=_NARRATE_DEGRADED_FALLBACK,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+    return None
+
+
+async def _handle_preference_counterfactual(
+    ctx: TurnContext, action: RebalanceAction
+) -> ChatHandlerResult:
+    """Two-run comply-and-caution for exposure preferences (spec 2026-08-24).
+
+    Run 1 = recommended plan. Run 2 = requested plan (tilt/scope applied).
+    Deviation between the two is the caution lens. Stateless: persist=False.
+    Magnitude defaults are policy, recorded in ``applied_preferences``.
+    """
+    baseline = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=False,
+        chat_ctx=ctx,
+    )
+    early = await _degraded_or_none(ctx, baseline)
+    if early is not None:
+        return early
+
+    from app.domains.mutual_funds.services.investment_preferences import (
+        normalize_market_cap_tilt,
+    )
+    from Rebalancing.consolidation import (  # type: ignore[import-not-found]
+        ConsolidationConstraints,
+        constraints_active,
+        reshape_response,
+    )
+
+    # ONE merged override dict: allow-listed tax/cash carry alongside the tilts.
+    overrides: dict[str, Any] = {
+        k: v for k, v in (action.overrides or {}).items()
+        if k in _REBAL_ALLOWED_OVERRIDE_KEYS
+    }
+    applied: dict[str, Any] = {}
+
+    # asset-class tilt (math unchanged; now writes into the shared `overrides`)
+    current_mix = _current_target_mix_pct(baseline.response)
+    tilt = normalize_tilt(
+        current_mix,
+        scope_only=action.scope_only_asset_classes,
+        tilt_asset_class=action.tilt_asset_class,
+        tilt_delta_pp=action.tilt_delta_pp,
+        tilt_target_pct=action.tilt_target_pct,
+    )
+    if tilt.mix_pct is not None:
+        overrides["asset_class_tilt"] = tilt.mix_pct
+        applied["tilt"] = {
+            "source": "default_step" if tilt.default_step_applied
+            else "customer_number"
+        }
+        # Explicit "only/all/100% equity" (mix ≈ 100% equity) → drop hybrid funds
+        # so the plan is genuinely all-equity, not ~85% after the look-through.
+        if tilt.mix_pct.get("equity", 0.0) >= 99.0:
+            overrides["pure_equity_only"] = True
+            applied["tilt"]["pure_equity"] = True
+
+        requested_classes = list(action.scope_only_asset_classes or [])
+        if action.tilt_asset_class:
+            requested_classes.append(action.tilt_asset_class)
+        absent = [c for c in requested_classes if current_mix.get(c, 0.0) < 0.5]
+        if absent:
+            applied["shortfall_note"] = (
+                f"no {', '.join(absent)} holdings exist to scale — the request "
+                "was spread over the classes present in the plan"
+            )
+
+    # market-cap tilt (large/mid/small beta sleeve); zero-current -> ask, don't drop.
+    if action.market_cap:
+        mc = normalize_market_cap_tilt(
+            _current_market_cap_mix_pct(baseline.response),
+            cap=action.market_cap,
+            heavy=bool(action.market_cap_heavy),
+        )
+        if mc.zero_current:
+            # No holdings in that cap to scale up. If an asset-class tilt was ALSO
+            # expressed ("only equity, more small cap"), we must NOT drop it — run
+            # the requested plan with the asset-class tilt and just disclose that
+            # the cap couldn't be increased. Only when the cap is the SOLE ask do
+            # we bare-return and ask how much.
+            if "asset_class_tilt" in overrides:
+                applied["market_cap_unavailable"] = (
+                    f"no {action.market_cap}-cap holdings to increase"
+                )
+            else:
+                text = await format_relay_or_canned(
+                    ctx=ctx,
+                    module_name="rebalancing",
+                    message=(
+                        f"You don't hold any {action.market_cap}-cap funds today, so "
+                        f"I can't tilt toward more of them — how much would you like "
+                        f"in {action.market_cap} cap?"
+                    ),
+                    action_mode="gather",
+                )
+                return ChatHandlerResult(
+                    text=text, snapshot_id=None, rebalancing_recommendation_id=None
+                )
+        elif mc.mix_pct is not None:
+            overrides["market_cap_tilt"] = mc.mix_pct
+            applied["market_cap"] = {
+                "source": "default_step" if mc.default_step_applied
+                else "customer_number"
+            }
+
+    # No tilt expressed at all -> plain tax/cash counterfactual (carries the
+    # merged overrides). Reached only when the guard routed us here but neither
+    # tilt materialised (e.g. tilt_asset_class set yet normalize_tilt returned None).
+    if "asset_class_tilt" not in overrides and "market_cap_tilt" not in overrides:
+        return await _counterfactual_explore(ctx, overrides)
+
+    # Compose the subgroup-aware fund count on the requested plan (the tilt handler
+    # never read target_fund_count before). A count reshape touches only the BUY
+    # side; sells/tax are untouched. A count below the protected floor bumps up.
+    count_c = ConsolidationConstraints(target_fund_count=action.target_fund_count)
+    count_active = constraints_active(count_c)
+
+    # Persist the requested (tilted) plan as a CANDIDATE so the customer can Save
+    # it. It stays firewalled out of the committed/current reads until saved — a
+    # tilt they merely view never becomes their plan (see saved_plan_service).
+    #
+    # FW-1: when a count trim applies, the customer SEES the reshaped (<=N-fund)
+    # plan, so Save must commit THAT plan — not the un-consolidated one. We
+    # therefore run the requested plan WITHOUT persisting, reshape it, and persist
+    # the RESHAPED response ourselves as the candidate, so the returned
+    # recommendation_id points at exactly what the customer saw. With no count trim
+    # there is no divergence, so the plain persist-inside-compute path stands.
+    requested_run = await compute_rebalancing_result(
+        user=ctx.user_ctx,
+        user_question=ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        persist=not count_active,
+        origin=None if count_active else ORIGIN_CANDIDATE,
+        force_fresh_allocation=("additional_cash_inr" in overrides),
+        chat_ctx=with_chat_overrides(ctx, overrides),
+    )
+    early = await _degraded_or_none(ctx, requested_run)
+    if early is not None:
+        return early
+
+    requested_response = requested_run.response
+    requested_rec_id = requested_run.recommendation_id
+    if count_active:
+        reshaped, err = reshape_response(requested_response, count_c)
+        if err is None:
+            requested_response = reshaped
+            applied["fund_count"] = action.target_fund_count
+            bumped = getattr(
+                getattr(reshaped, "totals", None), "funds_to_buy_count", None
+            )
+            if (action.target_fund_count and bumped
+                    and bumped > action.target_fund_count):
+                applied["fund_count_bumped_to"] = bumped
+        # Persist the RESHAPED response (what the customer sees) as the candidate,
+        # replicating compute_rebalancing_result's persist call with the SAME run
+        # context so the saved row's totals (funds_to_buy_count), fund rows, and
+        # trades all reflect the reshaped buys. request is left unset to match the
+        # compute-path call, which also omits it.
+        requested_rec_id = await persist_rebalancing_recommendation(
+            ctx.db,
+            ctx.effective_user_id,
+            requested_response,
+            source_allocation_run_id=requested_run.source_allocation_id,
+            chat_session_id=ctx.session_id,
+            used_cached_allocation=requested_run.used_cached_allocation,
+            user_question=ctx.user_question,
+            origin=ORIGIN_CANDIDATE,
+        )
+        # FW-1b: the persist=True path inside compute also writes a ChatAiModuleRun
+        # telemetry row; since we ran the requested plan with persist=False, mirror
+        # that write here with the RESHAPED response so a follow-up detector/narrate
+        # reads the reshaped plan from last_agent_runs["rebalancing"] — not the
+        # stale pre-tilt plan. input_payload is unavailable in the handler (the
+        # engine request isn't returned) → None, as it isn't read on the follow-up
+        # path. Best-effort: a telemetry failure must never break the turn.
+        try:
+            await record_ai_module_run(
+                ctx.db,
+                user_id=ctx.effective_user_id,
+                session_id=ctx.session_id,
+                module="rebalancing",
+                reason="full_pipeline_run",
+                intent_detected="rebalancing",
+                spine_mode=None,
+                input_payload=None,
+                output_payload={
+                    "rebalancing_response": requested_response.model_dump(mode="json"),
+                    "goal_buckets": requested_run.goal_buckets,
+                    "correlation_ids": {
+                        "recommendation_id": str(requested_rec_id),
+                        "source_allocation_id": (
+                            str(requested_run.source_allocation_id)
+                            if requested_run.source_allocation_id
+                            else None
+                        ),
+                    },
+                },
+                emit_standard_log=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "rebal_tilt_ai_module_telemetry skipped (non-fatal): %s", exc
+            )
+
+    # LEAN impact: on a tilt turn the caution is requested-vs-RECOMMENDED, never
+    # vs the ideal mix. We deliberately do NOT build the consolidate lenses
+    # (target/ideal, largest_deviations) — "N points from ideal" made every tilt
+    # look catastrophic when the recommended plan is itself far from ideal.
+    recommended = {k: round(v, 1) for k, v in current_mix.items()}
+    requested = {
+        k: round(v, 1)
+        for k, v in _current_target_mix_pct(requested_response).items()
+    }
+    impact = {
+        "applied_preferences": applied,
+        "recommended_mix_pct": recommended,
+        "requested_mix_pct": requested,
+        "buy_changes_vs_recommended": _buy_changes_vs_recommended(
+            baseline.response, requested_response
+        ),
+        "risk_profile": getattr(ctx.user_ctx, "risk_profile", None),
+        "tilt_note": (
+            "Contrast the requested plan ONLY against the recommended plan — "
+            f"recommended is {recommended}, requested is {requested} "
+            "(equity/debt/others %); quote these verbatim. Do NOT compare to the "
+            "customer's 'ideal' mix or say the plan is 'N points above/below "
+            "ideal' — the recommended plan is the baseline, not the ideal, and an "
+            "ideal comparison makes every tilt look extreme. State the move as the "
+            "gap between these two (e.g. '10 points more equity than we "
+            "recommend'). For the funds, show the CHANGE your tilt makes, not the "
+            "requested plan's absolute buys: use buy_changes_vs_recommended (each "
+            "entry has fund, recommended_indian, requested_indian, change_indian) "
+            "— e.g. 'vs our recommendation this puts change_indian into <fund>' — "
+            "so the customer sees exactly what moved. Tax belongs to the requested "
+            "plan; its sells may differ. Never blend the two mixes."
+        ),
+    }
+    # FW-2: a PURE market-cap tilt holds the equity total fixed, so the
+    # recommended-vs-requested ASSET-CLASS mix above is identical and leading with
+    # it shows a zero-gap non-move. Add the large/mid/small CAP split (the real
+    # change) and steer the formatter to contrast THAT instead.
+    if action.market_cap:
+        rec_cap = {
+            k: round(v, 1)
+            for k, v in _current_market_cap_mix_pct(baseline.response).items()
+        }
+        req_cap = {
+            k: round(v, 1)
+            for k, v in _current_market_cap_mix_pct(requested_response).items()
+        }
+        impact["recommended_cap_mix_pct"] = rec_cap
+        impact["requested_cap_mix_pct"] = req_cap
+        impact["tilt_note"] += (
+            " This is a MARKET-CAP tilt: the equity total is held fixed, so the "
+            "asset-class mix above barely moves — do NOT lead with it. Lead the "
+            "contrast with the large/mid/small-cap split, the real change: "
+            f"recommended cap mix is {rec_cap}, requested is {req_cap} "
+            "(large/mid/small %); quote these verbatim and frame the move as the "
+            "shift between them."
+        )
+    # Rebuild the templated brief from the RESHAPED plan — requested_run.formatted_text
+    # narrates the pre-reshape buys. Guarded like the narrate path so a degraded
+    # response never surfaces an empty message.
+    try:
+        requested_brief = build_fallback_rebal_brief(
+            requested_response, used_cached_allocation=False
+        )
+    except (AttributeError, TypeError, ValueError):
+        requested_brief = _NARRATE_DEGRADED_FALLBACK
+    text = await _format_or_fallback_rebal(
+        ctx=ctx,
+        response=requested_response,
+        fallback_brief=requested_brief,
+        action_mode="counterfactual_explore",
+        # No goal_buckets on a tilt turn: the per-bucket equity splits
+        # (e.g. "49% in the medium-term bucket") get mixed with the overall
+        # comparison and confuse the customer. The contrast here is the whole-
+        # portfolio recommended vs requested mix, carried in constraint_impact.
+        goal_buckets=None,
+        constraint_impact=impact,
+    )
+    return ChatHandlerResult(
+        text=text,
+        snapshot_id=None,
+        rebalancing_recommendation_id=requested_rec_id,
+    )
+
+
 async def _counterfactual_explore(
     ctx: TurnContext,
     overrides: dict[str, Any],
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="invalid_override",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
         text = await format_relay_or_canned(
             ctx=ctx,
             module_name="rebalancing",
@@ -787,10 +1453,15 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
     )
 
     # Canonicalise the customer's category words via the shared resolver.
+    applied_prefs: dict[str, Any] = {}
     allowed: tuple[str, ...] | None = None
     if action.allowed_categories:
         resolved, unresolved = resolve_categories(action.allowed_categories)
         if unresolved and not resolved:
+            capture_preference_unserved(
+                flow="rebalancing", failure_class="category_unranked",
+                session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+            )
             return ChatHandlerResult(
                 text=(
                     f"I couldn't match {', '.join(unresolved)} to a fund category "
@@ -802,9 +1473,70 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
             )
         allowed = tuple(resolved) if resolved else None
 
+    excluded: tuple[str, ...] | None = None
+    if action.excluded_categories:
+        resolved_ex, unresolved_ex = resolve_categories(action.excluded_categories)
+        if unresolved_ex and not resolved_ex:
+            capture_preference_unserved(
+                flow="rebalancing", failure_class="category_unranked",
+                session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+            )
+            return ChatHandlerResult(
+                text=(
+                    f"I couldn't match {', '.join(unresolved_ex)} to a fund "
+                    "category we invest in, so I haven't excluded anything. "
+                    "Which category did you mean?"
+                ),
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
+        excluded = tuple(resolved_ex) if resolved_ex else None
+        if excluded:
+            applied_prefs["excluded_categories"] = list(excluded)
+
+    weights: dict[str, float] | None = None
+    if action.category_weights:
+        # Resolve one word at a time so each pct stays attached to its word.
+        weights = {}
+        weight_default_used = False
+        unresolved_w: list[str] = []
+        for word, pct in action.category_weights.items():
+            canon_list, _ = resolve_categories([word])
+            if not canon_list:
+                unresolved_w.append(word)
+                continue
+            canon = canon_list[0]
+            if pct and pct > 0:
+                weights[canon] = float(pct) / 100.0
+            else:
+                # Detector's no-number sentinel (0) -> documented default step.
+                weights[canon] = _DEFAULT_WEIGHT_STEP
+                weight_default_used = True
+        if not weights:
+            capture_preference_unserved(
+                flow="rebalancing", failure_class="category_unranked",
+                session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+            )
+            return ChatHandlerResult(
+                text=(
+                    f"I couldn't match {', '.join(unresolved_w)} to a "
+                    "fund category we rank, so I haven't reweighted anything. "
+                    "Which category did you mean?"
+                ),
+                snapshot_id=None,
+                rebalancing_recommendation_id=None,
+            )
+        applied_prefs["category_weights_pct"] = {
+            k: round(v * 100, 1) for k, v in weights.items()
+        }
+        if weight_default_used:
+            applied_prefs["weight_default_applied"] = True
+
     constraints = ConsolidationConstraints(
         target_fund_count=action.target_fund_count,
         allowed_categories=allowed,
+        excluded_categories=excluded,
+        category_weight_targets=weights,
     )
 
     # Incomplete ask ("fewer funds", no count/category) → ask ONCE. If we already
@@ -861,12 +1593,31 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
 
     reshaped, err = reshape_response(outcome.response, constraints)
     if err == "category_not_in_plan":
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="category_not_in_plan",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
         cats = ", ".join(action.allowed_categories or [])
         return ChatHandlerResult(
             text=(
                 f"Your current plan doesn't buy into {cats}, so there's nothing "
                 "there to redirect the new money into. Want to see the plan as it "
                 "stands, or pick a different category?"
+            ),
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+    if err == "weight_category_not_in_plan":
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="category_not_in_plan",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
+        cats = ", ".join((weights or {}).keys())
+        return ChatHandlerResult(
+            text=(
+                f"Your current plan has no buys in {cats}, so there's no "
+                "position there to increase. Want me to show the plan as it "
+                "stands, or restrict the new money to that category instead?"
             ),
             snapshot_id=None,
             rebalancing_recommendation_id=None,
@@ -881,6 +1632,15 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
     # read "5 funds" as something they asked for and never correct it.
     if defaulted_fund_count:
         impact["defaulted_fund_count"] = _DEFAULT_CONSOLIDATE_FUND_COUNT
+    # Same disclosure duty for a count bumped by protected weight categories.
+    if action.target_fund_count is not None:
+        actual = getattr(
+            getattr(reshaped, "totals", None), "funds_to_buy_count", None
+        )
+        if actual is not None and actual > action.target_fund_count:
+            impact["count_bumped_to"] = actual
+    if applied_prefs:
+        impact["applied_preferences"] = applied_prefs
     # Fallback brief must reflect the RESHAPED plan, not the original — else a
     # formatter failure would show the un-consolidated trades (grounding bug).
     try:
@@ -899,6 +1659,86 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
     )
     return ChatHandlerResult(
         text=text, snapshot_id=None, rebalancing_recommendation_id=None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Named-fund replies (spec 2026-08-24 — answers from ranking data, no engine run)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_named_fund(
+    ctx: TurnContext, action: RebalanceAction
+) -> ChatHandlerResult:
+    """Answer 'use fund X' / 'why not fund X?' from the ranking CSV.
+
+    Inclusion is deferred to Phase 2 (input-builder seam) — the reply is
+    honest about it and the ask is measured. Why-not answers quote the CSV's
+    own selection/rejection reasons. Unknown/ambiguous never guesses a fund.
+    """
+    res = resolve_ranked_fund(action.named_fund or "")
+    intent = action.named_fund_intent or "why_not"
+
+    async def _relay(message: str) -> ChatHandlerResult:
+        text = await format_relay_or_canned(
+            ctx=ctx, module_name="rebalancing", message=message
+        )
+        return ChatHandlerResult(
+            text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        )
+
+    if intent == "include":
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="named_include_deferred",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
+        if res.status == "recommended":
+            return await _relay(
+                f"Swapping a specific fund into the plan from chat isn't "
+                f"supported yet — it's coming. For what it's worth, "
+                f"{res.fund_name} IS on our recommended list "
+                f"({res.sub_category}), so when it lands this will be easy. "
+                f"For now the plan stands as computed."
+            )
+        if res.status == "rejected":
+            return await _relay(
+                f"Swapping a specific fund into the plan isn't supported from "
+                f"chat yet. Also worth knowing: we evaluated {res.fund_name} "
+                f"and didn't pick it — {res.rejection_text}"
+            )
+        return await _relay(
+            "Swapping a specific fund into the plan isn't supported from chat "
+            "yet — and I couldn't match that name to a fund we rank, so I'd "
+            "rather not guess. The current plan stands."
+        )
+
+    # why_not
+    if res.status == "rejected":
+        return await _relay(
+            f"We did evaluate {res.fund_name} ({res.sub_category}) and chose "
+            f"not to recommend it: {res.rejection_text}"
+        )
+    if res.status == "recommended":
+        row = ranking_by_isin(res.isin) if res.isin else None
+        reason = (row.selection_reason if row else "") or "it ranks well in its category"
+        return await _relay(
+            f"Actually, {res.fund_name} IS on our recommended list "
+            f"({res.sub_category}) — {reason}"
+        )
+    if res.status == "ambiguous":
+        options = "; ".join(res.candidates)
+        return await _relay(
+            f"That name matches more than one fund we track ({options}) — "
+            f"which one did you mean?"
+        )
+    capture_preference_unserved(
+        flow="rebalancing", failure_class="fund_unknown",
+        session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+    )
+    return await _relay(
+        "I couldn't match that name to a fund in our ranking universe, so I "
+        "can't speak to it honestly — we only comment on funds we've "
+        "actually evaluated."
     )
 
 
@@ -954,7 +1794,7 @@ def _classifier_digest(facts: dict[str, Any]) -> dict[str, Any]:
     return {
         "has_recommendation": bool(fund_actions or buckets),
         "trade_count": facts.get("trade_count"),
-        "has_sells": any((fa.get("sell_inr") or 0) > 0 for fa in fund_actions),
+        "has_sells": any((fa.get("sell_indian") or "₹0") != "₹0" for fa in fund_actions),
         "sub_categories": list(
             dict.fromkeys(b.get("sub_category") for b in buckets if b.get("sub_category"))
         ),

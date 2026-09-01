@@ -12,6 +12,9 @@ from collections import defaultdict
 from decimal import Decimal
 
 # Documented cross-agent import per spec §B.1 / §C.3.
+from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]
+    SUBGROUP_TO_ASSET_CLASS,
+)
 from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
     PracticalAllocationOutput,
     run_practical_allocation,
@@ -205,14 +208,162 @@ def _assign_subgroup_targets(
     return out
 
 
+def _apply_asset_class_tilt(rows, tilt, *, pure_equity=False):
+    """Scale each asset class's subgroup rows to hit the requested mix.
+
+    Within-class proportions are preserved (every bucket field scales by the
+    same factor). A requested class with zero current total cannot be created
+    from nothing — its share is re-spread over the present classes so the
+    grand total is preserved exactly.
+
+    ``pure_equity`` (set only on an explicit "only/all/100% equity" ask): the
+    ``multi_asset`` subgroup is a hybrid (65/25/10 look-through), so it is
+    DROPPED here rather than counted as equity, and its budget flows to the
+    genuinely-pure equity subgroups — giving a true ~100% equity plan.
+    """
+    if not tilt:
+        return rows
+    grand = sum(r.total for r in rows)
+    if grand <= 0:
+        return rows
+    excluded = {"multi_asset"} if pure_equity else set()
+    current: dict[str, float] = {}
+    for r in rows:
+        if r.subgroup in excluded:
+            continue
+        cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
+        current[cls] = current.get(cls, 0.0) + r.total
+    present = {c: p for c, p in tilt.items() if current.get(c, 0.0) > 0}
+    present_share = sum(present.values())
+    if present_share <= 0:
+        return rows
+    factors = {
+        c: (grand * (p / present_share)) / current[c] for c, p in present.items()
+    }
+    out = []
+    for r in rows:
+        if r.subgroup in excluded:
+            out.append(r.model_copy(update={
+                "emergency": 0.0, "short_term": 0.0, "medium_term": 0.0,
+                "long_term": 0.0, "total": 0.0,
+            }))
+            continue
+        cls = SUBGROUP_TO_ASSET_CLASS.get(r.subgroup, "others")
+        f = factors.get(cls)
+        if f is None:
+            out.append(r)
+            continue
+        out.append(r.model_copy(update={
+            "emergency": r.emergency * f, "short_term": r.short_term * f,
+            "medium_term": r.medium_term * f, "long_term": r.long_term * f,
+            "total": r.total * f,
+        }))
+    return out
+
+
+# The engine's equity beta subgroup -> its market-cap bucket.
+_SUBGROUP_MARKET_CAP = {
+    "low_beta_equities": "large",
+    "medium_beta_equities": "mid",
+    "high_beta_equities": "small",
+}
+
+
+def _cap_to_subgroup() -> dict[str, str]:
+    return {cap: sg for sg, cap in _SUBGROUP_MARKET_CAP.items()}
+
+
+def _seeded_beta_row(row, target, template):
+    """Give ``row`` an absolute ``target`` total, keeping bucket proportions.
+
+    A row that already holds value keeps its own bucket split (scaled to the new
+    total); an empty or synthesised row seeds its buckets from ``template`` (any
+    present beta line) so a created large/small bucket looks like real equity.
+    """
+    if row.total > 0:
+        f = target / row.total
+        return row.model_copy(update={
+            "emergency": row.emergency * f, "short_term": row.short_term * f,
+            "medium_term": row.medium_term * f, "long_term": row.long_term * f,
+            "total": target,
+        })
+    if template is not None and template.total > 0:
+        g = target / template.total
+        return row.model_copy(update={
+            "emergency": template.emergency * g, "short_term": template.short_term * g,
+            "medium_term": template.medium_term * g, "long_term": template.long_term * g,
+            "total": target,
+        })
+    return row.model_copy(update={
+        "emergency": 0.0, "short_term": 0.0, "medium_term": 0.0,
+        "long_term": target, "total": target,
+    })
+
+
+def _apply_market_cap_tilt(rows, mix):
+    """Split the equity beta sleeve across large/mid/small to hit ``mix`` — an
+    absolute {large,mid,small} split — holding the combined sleeve total fixed.
+
+    Unlike ``_apply_asset_class_tilt``, a requested cap with no present subgroup is
+    CREATED, not re-spread: the practical allocator emits only ``medium_beta_equities``
+    as its domestic-beta line, so "small-cap heavy" must synthesise the missing
+    low/high beta targets for the engine to buy toward (spec 2026-08-30 interpretation
+    A). Non-beta rows are untouched.
+    """
+    if not mix:
+        return rows
+    sleeve_total = sum(r.total for r in rows if r.subgroup in _SUBGROUP_MARKET_CAP)
+    if sleeve_total <= 0:
+        return rows
+    weight_sum = sum(mix.values())
+    if weight_sum <= 0:
+        return rows
+    cap_to_subgroup = _cap_to_subgroup()
+    target_by_cap = {
+        cap: sleeve_total * (w / weight_sum)
+        for cap, w in mix.items() if cap in cap_to_subgroup
+    }
+    template = next(
+        (r for r in rows if r.subgroup in _SUBGROUP_MARKET_CAP and r.total > 0), None
+    )
+    present = {r.subgroup for r in rows if r.subgroup in _SUBGROUP_MARKET_CAP}
+    out = []
+    for r in rows:
+        cap = _SUBGROUP_MARKET_CAP.get(r.subgroup)
+        if cap is None or cap not in target_by_cap:
+            out.append(r)  # non-beta, or a beta cap the mix did not name
+            continue
+        out.append(_seeded_beta_row(r, target_by_cap[cap], template))
+    for cap, target in target_by_cap.items():
+        sg = cap_to_subgroup[cap]
+        if sg not in present:
+            out.append(_seeded_beta_row(
+                template.model_copy(update={"subgroup": sg}), target, template
+            ))
+    return out
+
+
 def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeResponse:
     # 1. Practical allocation (holdings-aware; consumes ELSS + non-MF scalars).
     practical = run_practical_allocation(request.practical_allocation_input)
 
     # 2. Split per-subgroup MF targets across ranked rows: held funds inside the
     #    rank band reserve what they hold, the residual goes to the best rank.
+    #    A customer asset-class tilt reshapes only this targets view; the
+    #    response's practical_allocation stays engine-recommended (the
+    #    comply-and-caution baseline).
+    practical_for_targets = practical
+    if request.asset_class_tilt or request.market_cap_tilt:
+        tilted = practical.aggregated_subgroups
+        if request.asset_class_tilt:
+            tilted = _apply_asset_class_tilt(
+                tilted, request.asset_class_tilt, pure_equity=request.pure_equity_only,
+            )
+        if request.market_cap_tilt:
+            tilted = _apply_market_cap_tilt(tilted, request.market_cap_tilt)
+        practical_for_targets = practical.model_copy(update={"aggregated_subgroups": tilted})
     rows_with_targets = _assign_subgroup_targets(
-        request.rows, practical, request.rounding_step
+        request.rows, practical_for_targets, request.rounding_step
     )
 
     # 3. Six-step rebalancing engine (interface unchanged).

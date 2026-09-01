@@ -245,6 +245,53 @@ def _asset_class_mix_from_buckets(
     }
 
 
+# asset_subgroup -> customer-facing group label for the group_flows subtotals.
+# Covers every subgroup in SUBGROUP_TO_ASSET_CLASS (+ ELSS, near_debt); anything
+# unmapped falls back to "Other funds" so a raw internal subgroup name never leaks
+# to the customer (the formatter is forbidden from surfacing asset_subgroup).
+_SUBGROUP_FLOW_LABEL: dict[str, str] = {
+    "low_beta_equities": "Large-cap equity",
+    "medium_beta_equities": "Mid-cap equity",
+    "high_beta_equities": "Small-cap equity",
+    "value_equities": "Value & contra equity",
+    "dividend_equities": "Dividend equity",
+    "sector_equities": "Sectoral & thematic equity",
+    "us_equities": "US & international equity",
+    "multi_asset": "Multi-asset & hybrid funds",
+    "tax_efficient_equities": "ELSS (tax-saving)",
+    "short_debt": "Debt funds",
+    "near_debt": "Debt funds",
+    "arbitrage": "Arbitrage & income funds",
+    "arbitrage_plus_income": "Arbitrage & income funds",
+    "gold_commodities": "Gold & commodities",
+    "silver_commodities": "Gold & commodities",
+    "china_equities": "China & EM equity",
+    "others_fofs": "Other funds",
+    "others": "Other funds",
+}
+
+# Keys stripped from the OUTPUT list rows. The *_inr floats are redundant with the
+# pre-formatted *_indian strings the formatter cites (it never does math), and
+# asset_subgroup is internal — the prompt already forbids surfacing it. Both are
+# still read DURING construction (asset-class rollup, group_flows, sorting); they
+# are removed only from the final rows to keep the pack lean.
+_ROW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "asset_subgroup")
+_GROUP_FLOW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "net_change_inr")
+
+
+def _slim_row(row: dict[str, Any], drop: tuple[str, ...]) -> dict[str, Any]:
+    return {k: v for k, v in row.items() if k not in drop}
+
+
+def _signed_indian(value: float) -> str:
+    """Pre-formatted net change with an explicit sign (matches change_indian)."""
+    if value > 0:
+        return "+" + format_inr_indian(value)
+    if value < 0:
+        return "−" + format_inr_indian(abs(value))
+    return format_inr_indian(0)
+
+
 def build_rebal_facts_pack(
     response: "RebalancingComputeResponse",
     *,
@@ -252,6 +299,7 @@ def build_rebal_facts_pack(
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
     fund_house_view: Optional[str] = None,
+    include_ideal: bool = True,
 ) -> dict[str, Any]:
     """Curated facts the LLM may cite. Customer-tellable only — no ISIN.
 
@@ -297,39 +345,49 @@ def build_rebal_facts_pack(
         # always agree. Ship BOTH — with only the current mix present, the
         # formatter answered "what is the plan moving me toward?" by citing it.
         "current_asset_class_mix_pct":    {"equity": <float>, "debt": <float>, "others": <float>},
-        "current_asset_class_mix_inr":    {"equity": <float>, "debt": <float>, "others": <float>},
         "current_asset_class_mix_indian": {"equity": <str>,   "debt": <str>,   "others": <str>},
         "target_asset_class_mix_pct":     {"equity": <float>, "debt": <float>, "others": <float>},
-        "target_asset_class_mix_inr":     {"equity": <float>, "debt": <float>, "others": <float>},
         "target_asset_class_mix_indian":  {"equity": <str>,   "debt": <str>,   "others": <str>},
 
-        # Per (asset_subgroup, sub_category) bucket — sub_category is the
-        # SEBI label (e.g., "Large Cap Fund") and is the customer-facing name.
-        # asset_subgroup is internal engine context; do not surface it to the
-        # customer.
+        # One bucket per sub_category — the SEBI label (e.g., "Large Cap Fund"),
+        # the customer-facing name. Output rows carry only the pre-formatted
+        # *_indian amounts; the *_inr floats and the internal asset_subgroup are
+        # dropped from the row (both are used only DURING pack construction).
         "buckets": [{
             "sub_category": <str>,                                       # e.g. "Large Cap Fund"
-            "asset_subgroup": <str>,                                     # engine context
-            "current_inr":        <float>, "current_indian":        <str>,
-            "buy_inr":            <float>, "buy_indian":            <str>,
-            "sell_inr":           <float>, "sell_indian":           <str>,
-            "planned_final_inr":  <float>, "planned_final_indian":  <str>,
+            "current_indian": <str>, "buy_indian": <str>,
+            "sell_indian":    <str>, "planned_final_indian": <str>,
+        }, ...],
+
+        # Group-level rollup, one per customer-facing group label (buckets rolled up
+        # by asset_subgroup), largest holding first. It is BOTH the customer-facing
+        # Current->Buy->Sell->Planned table (a ~9-row replacement for the ~16-row
+        # per-SEBI-category table) AND the pre-computed subtotal the formatter cites
+        # verbatim for "where the money goes" (so it never sums buckets in prose —
+        # that arithmetic hallucinated crore figures). Each group carries its own
+        # held total, so "sell X out of Y held" pairs correctly at the group level.
+        "group_flows": [{
+            "group": <str>,                                       # e.g. "Multi-asset & hybrid funds"
+            "current_indian": <str>,
+            "buy_indian": <str>, "sell_indian": <str>,
+            "net_change_indian": <str>,                           # signed, "+₹2.42 crore" / "−₹1.75 crore"
+            "planned_final_indian": <str>,
         }, ...],
 
         "warnings": [<short_string>, ...],   # human-readable, <= 5 entries
 
-        # Per-fund actions (top FUND_ACTIONS_LIMIT by exposure). Lets the LLM
-        # narrate fund-specific questions ("why are you trimming HDFC Top 100?").
-        # No ISINs — fund_name is customer-tellable, ISIN isn't.
+        # Per-fund actions: every fund with a trade first (so none is ever cut),
+        # then held-as-is rows by exposure, capped at FUND_ACTIONS_LIMIT. Lets the
+        # LLM narrate fund-specific questions ("why are you trimming HDFC Top 100?").
+        # No ISINs — fund_name is customer-tellable, ISIN isn't. Output rows carry
+        # only *_indian amounts (the *_inr floats and internal asset_subgroup are
+        # dropped from the row; both used only during construction).
         "fund_actions": [{
-            "fund_name":          <str>,                                     # e.g. "HDFC Top 100"
-            "sub_category":       <str>,                                     # SEBI category
-            "asset_subgroup":     <str>,                                     # engine grouping (context only)
-            "current_inr":        <float>, "current_indian":        <str>,
-            "buy_inr":            <float>, "buy_indian":            <str>,
-            "sell_inr":           <float>, "sell_indian":           <str>,
-            "planned_final_inr":  <float>, "planned_final_indian":  <str>,
-            "reason":             <str>,                                     # selection_reason for buys, joined rejection reasons for sells; "" otherwise
+            "fund_name":      <str>,                                         # e.g. "HDFC Top 100"
+            "sub_category":   <str>,                                         # SEBI category
+            "current_indian": <str>, "buy_indian": <str>,
+            "sell_indian":    <str>, "planned_final_indian": <str>,
+            "reason":         <str>,                                         # selection_reason for buys, joined rejection reasons for sells; "" otherwise
         }, ...],
         # Number of additional smaller holdings beyond fund_actions cap
         # (only present when truncated).
@@ -453,6 +511,43 @@ def build_rebal_facts_pack(
         bucket["planned_final_indian"] = format_inr_indian(bucket["planned_final_inr"])
         buckets.append(bucket)
 
+    # Group-level buy/sell subtotals (one per customer-facing group label),
+    # aggregated FROM `buckets` so a group total is exactly the sum of the rows the
+    # LLM already sees. The formatter cites these verbatim for "where the money
+    # goes" summaries instead of summing bucket amounts in prose — the LLM's mental
+    # arithmetic on a multi-bucket group produced crore-scale hallucinations
+    # ("multi-asset funds — ₹10.37 crore" against a ₹1.48 crore total buy).
+    # current/planned_final carried too so the group is the customer-facing TABLE
+    # (Current -> Buy -> Sell -> Planned, one row per group instead of ~16 SEBI
+    # rows), and so the group holds its OWN held total — a "sell X out of Y held"
+    # line then pairs the group sell with the GROUP's held, not a single category's.
+    _z = lambda: {"current_inr": 0.0, "buy_inr": 0.0, "sell_inr": 0.0, "planned_final_inr": 0.0}  # noqa: E731
+    group_acc: dict[str, dict[str, float]] = {}
+    for bucket in buckets:
+        label = _SUBGROUP_FLOW_LABEL.get(bucket["asset_subgroup"], "Other funds")
+        g = group_acc.setdefault(label, _z())
+        for k in ("current_inr", "buy_inr", "sell_inr", "planned_final_inr"):
+            g[k] += bucket[k]
+    group_flows = [
+        {
+            "group": label,
+            "current_inr": v["current_inr"], "current_indian": format_inr_indian(v["current_inr"]),
+            "buy_inr": v["buy_inr"], "buy_indian": format_inr_indian(v["buy_inr"]),
+            "sell_inr": v["sell_inr"], "sell_indian": format_inr_indian(v["sell_inr"]),
+            # net_change = buy - sell (= planned - current), pre-signed for the table's
+            # middle column so the LLM never computes or signs it.
+            "net_change_inr": v["buy_inr"] - v["sell_inr"],
+            "net_change_indian": _signed_indian(v["buy_inr"] - v["sell_inr"]),
+            "planned_final_inr": v["planned_final_inr"],
+            "planned_final_indian": format_inr_indian(v["planned_final_inr"]),
+        }
+        for label, v in sorted(
+            group_acc.items(),
+            key=lambda kv: -max(kv[1]["current_inr"], kv[1]["planned_final_inr"]),
+        )
+        if v["current_inr"] > 0 or v["buy_inr"] > 0 or v["sell_inr"] > 0
+    ]
+
     # Asset-class mix, CURRENT and TARGET. Both go through the shared rollup that
     # builds the Invest-page bars. The target is the post-trade mix (per-bucket
     # planned_final = current + buy - sell) and keeps the multi_asset sleeve at
@@ -496,9 +591,15 @@ def build_rebal_facts_pack(
             existing["sell_inr"] += fr["sell_inr"]
             existing["planned_final_inr"] += fr["planned_final_inr"]
 
+    # Funds WITH a trade sort ahead of held-as-is rows (then by exposure), so the
+    # cap can only ever drop zero-trade holdings — every buy/sell survives, which
+    # lets the formatter show the full trade list on a small plan (< 10 trades).
     fund_actions_all = sorted(
         fund_by_name.values(),
-        key=lambda f: -max(f["current_inr"], f["planned_final_inr"]),
+        key=lambda f: (
+            0 if (f["buy_inr"] > 0 or f["sell_inr"] > 0) else 1,
+            -max(f["current_inr"], f["planned_final_inr"]),
+        ),
     )
     fund_actions = fund_actions_all[:FUND_ACTIONS_LIMIT]
     for fa in fund_actions:
@@ -555,14 +656,13 @@ def build_rebal_facts_pack(
             )
         ),
         "current_asset_class_mix_pct": asset_class_pct,
-        "current_asset_class_mix_inr": asset_class_inr,
         "current_asset_class_mix_indian": asset_class_indian,
         "target_asset_class_mix_pct": target_class_pct,
-        "target_asset_class_mix_inr": target_class_inr,
         "target_asset_class_mix_indian": target_class_indian,
-        "buckets": buckets,
+        "buckets": [_slim_row(b, _ROW_DROP) for b in buckets],
+        "group_flows": [_slim_row(g, _GROUP_FLOW_DROP) for g in group_flows],
         "warnings": warnings,
-        "fund_actions": fund_actions,
+        "fund_actions": [_slim_row(f, _ROW_DROP) for f in fund_actions],
     }
     # Direct-stock proceeds. Step4 funds MF buys with these
     # (`excess_direct_stocks_inr`), but they are NOT part of `total_sell_inr`,
@@ -581,13 +681,17 @@ def build_rebal_facts_pack(
         pack["direct_stock_sale_inr"] = _excess_stocks
         pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
 
-    # The ideal (goals + risk) split, so "why is my target 83% and not 72%?" can
-    # be answered from facts instead of from whatever the customer said earlier.
-    ideal_mix = ideal_asset_class_mix_pct(response)
-    if ideal_mix is not None:
-        pack["ideal_asset_class_mix_pct"] = {
-            cls: round(value) for cls, value in ideal_mix.items()
-        }
+    # The ideal (goals + risk) split, shipped ONLY on the first/compute answer
+    # (include_ideal) so it can reconcile chat with the allocation tab. It is
+    # withheld from follow-up/tilt turns: comparing a tilt against the ideal shifts
+    # the baseline away from the recommended plan the customer was just shown and
+    # reads as a contradiction — chat always contrasts against the practical plan.
+    if include_ideal:
+        ideal_mix = ideal_asset_class_mix_pct(response)
+        if ideal_mix is not None:
+            pack["ideal_asset_class_mix_pct"] = {
+                cls: round(value) for cls, value in ideal_mix.items()
+            }
 
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
@@ -682,6 +786,7 @@ async def compute_rebalancing_result(
     acting_user_id: uuid.UUID,
     chat_session_id: Optional[uuid.UUID],
     persist: bool = True,
+    origin: Optional[str] = None,
     force_fresh_allocation: bool = False,
     chat_ctx: "TurnContext | None" = None,
     progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
@@ -844,6 +949,7 @@ async def compute_rebalancing_result(
             source_allocation_run_id=source_allocation_id,
             used_cached_allocation=used_cache,
             user_question=user_question,
+            origin=origin,
         )
 
         try:

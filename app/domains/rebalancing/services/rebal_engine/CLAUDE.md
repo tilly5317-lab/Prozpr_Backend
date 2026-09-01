@@ -6,7 +6,7 @@ Cache-first orchestration → engine inputs → trade list → chat markdown. Re
 - `service.py` — orchestrator entry: cache-first allocation lookup, runs the engine, persists **only when `persist=True`** (the default). `chat.py`'s `counterfactual_explore` path passes `persist=False`, so a hypothetical writes no `RebalancingRun` row and no `record_ai_module_run` telemetry, returning `recommendation_id=None` — otherwise the what-if would top the newest-first run list and become the `last_agent_runs["rebalancing"]` that follow-up turns describe (`service.py:679,831`; `chat.py:723`).
 - `input_builder.py` — materialises the engine request from `TurnContext` + allocation + DB.
 - `formatter.py` — sectioned chat markdown.
-- `fund_rank.py` — static fund-rank CSV loader (`get_fund_ranking`, `get_rejection_reasons`).
+- `fund_rank.py` — static fund-rank CSV loader: `get_fund_ranking` (recommended, rank ≥ 1), `get_all_rows` (recommended AND evaluated-but-rejected, rank-blank → 0; the only view that exposes rejected rows), `get_rejection_reasons`.
 - `holdings_ledger.py` — FIFO remaining-lot ledger built from transactions.
 - `cached_allocation.py` — lightweight view over the allocation subgroup JSON.
 - `overrides.py` — per-turn chat override allow-list.
@@ -18,6 +18,7 @@ Cache-first orchestration → engine inputs → trade list → chat markdown. Re
 
 ## Gotchas & invariants
 - **There is no `recompute` action mode any more.** A re-run is `action_mode="compute"` carrying `is_rerun: true` in the facts pack; the formatter body then opens by acknowledging the re-run and leads with what changed instead of introducing the plan. Detector prompts that still map "rebalance my portfolio" / "redo with my latest holdings" to a separate recompute mode are stale — the union is `ActionMode` in `ai_engine/answer_formatter/formatter.py` (`chat.py`).
+- **Named-fund replies never run the engine.** `_handle_named_fund` answers "why not fund X?" straight from the ranking CSV's own selection/rejection reason; "use fund X" (include) is deliberately deferred to Phase 2's input-builder seam, so the reply says so plainly and does NOT swap the fund into the plan (`chat.py`).
 - **Prices off CSVs, not the DB.** NAV and fund metadata are read from `latest_nav_active.csv` / `mf_subgroup_mapped.csv` under `MF_Logics/Mututal_Funds_data_extraction/` — the *only* NAV/metadata path the engine uses (`_disk_cache.py`, `_NAV_CSV`/`_META_CSV`). Known prod-migration debt; do not assume `mf_nav_history`.
 - **Import `chat` lazily.** It is deliberately not re-exported from `__init__.py` — eager import triggers a circular import via `chat_core.turn_context` (`__init__.py`).
 - **FIFO redemption sign.** CAS stores redemption units as negative; use the magnitude, or the `while remaining > 0` loop never runs and sold lots stay on the books (`holdings_ledger.py`).

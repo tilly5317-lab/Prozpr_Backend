@@ -527,8 +527,9 @@ class HandleRoutingTests(unittest.TestCase):
         self.assertEqual(relay.call_args.kwargs["module_name"], "rebalancing")
         engine.assert_not_called()
 
-    def test_redirect_routes_template_through_relay(self):
-        action = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+    def test_redirect_non_lock_uses_profile_template(self):
+        action = mod.RebalanceAction(
+            mode="redirect", redirect_reason="delay rebalance by N months")
         relay = AsyncMock(return_value="RELAYED")
         with (
             patch.object(
@@ -543,7 +544,22 @@ class HandleRoutingTests(unittest.TestCase):
         kwargs = relay.call_args.kwargs
         self.assertEqual(kwargs["module_name"], "rebalancing")
         self.assertIn("Profile", kwargs["message"])
-        self.assertIn("lock fund Y", kwargs["message"])
+        self.assertIn("delay rebalance", kwargs["message"])
+
+    def test_redirect_lock_holding_is_honest_not_profile(self):
+        # "don't sell / lock fund X" can't go to Profile — answer honestly.
+        action = mod.RebalanceAction(mode="redirect", redirect_reason="lock fund Y")
+        relay = AsyncMock(return_value="RELAYED")
+        with (
+            patch.object(
+                mod, "_detect_rebal_action", new=AsyncMock(return_value=action)
+            ),
+            patch.object(mod, "format_relay_or_canned", new=relay),
+        ):
+            asyncio.run(mod.handle(_ctx("don't sell my fund Y", last_run=_agent_run())))
+        msg = relay.call_args.kwargs["message"]
+        self.assertNotIn("Profile", msg)
+        self.assertIn("can't hold a specific fund", msg.lower().replace("’", "'"))
 
     def test_followup_compute_re_runs_engine(self):
         action = mod.RebalanceAction(mode="compute")
@@ -654,6 +670,32 @@ class LastActionModeTests(unittest.TestCase):
         # manager and blows up — the same shape as a schema/driver failure. The
         # turn must continue (asking once more is the safe direction).
         self.assertIsNone(asyncio.run(mod._last_action_mode(_ctx("anything"))))
+
+
+def test_current_market_cap_mix_pct_buckets_beta_subgroups():
+    class SG:
+        def __init__(self, asset_subgroup, final):
+            self.asset_subgroup = asset_subgroup
+            self.suggested_final_holding_inr = final   # the REAL SubgroupSummary field
+
+    class Resp:
+        subgroups = [SG("low_beta_equities", 300), SG("medium_beta_equities", 200),
+                     SG("high_beta_equities", 100), SG("short_debt", 999)]
+
+    mix = mod._current_market_cap_mix_pct(Resp())
+    assert round(mix["large"], 1) == 50.0   # 300/600
+    assert round(mix["mid"], 1) == 33.3
+    assert round(mix["small"], 1) == 16.7
+
+
+def test_formatter_body_requires_group_table():
+    # The plan table is now the compact GROUP table (one row per group_flows entry),
+    # NOT the ~16-row per-SEBI-sub_category table (too long for a customer to read).
+    from app.domains.rebalancing.services.rebal_engine.chat import _REBAL_FORMATTER_BODY
+    body = " ".join(_REBAL_FORMATTER_BODY.lower().split())  # collapse newlines/indent
+    assert "group table" in body
+    assert "one row per `group_flows` entry" in body
+    assert "not one per sebi sub_category" in body
 
 
 if __name__ == "__main__":

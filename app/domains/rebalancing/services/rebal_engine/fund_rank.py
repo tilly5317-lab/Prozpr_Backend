@@ -114,6 +114,35 @@ def get_fund_ranking() -> dict[str, list[FundRankRow]]:
 
 
 @cache
+def get_all_rows() -> list[FundRankRow]:
+    """Every CSV row: recommended AND evaluated-but-rejected (rank-blank rows
+    carry ``rank=0``); force-exit rows are excluded. Same cache/reload contract
+    as ``get_fund_ranking``.
+    """
+    if not _CSV_PATH.is_file():
+        return []
+    out: list[FundRankRow] = []
+    with open(_CSV_PATH, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            rank_raw = (row.get("rank") or "").strip()
+            rank_int = int(rank_raw) if rank_raw else 0
+            if rank_int == FORCE_EXIT_RANK:
+                continue
+            out.append(
+                FundRankRow(
+                    asset_subgroup=row["asset_subgroup"],
+                    sub_category=row["sub_category"],
+                    rank=rank_int,
+                    isin=row["isin"],
+                    fund_name=row["recommended_fund"],
+                    selection_reason=(row.get("selection_reason") or "").strip(),
+                    scheme_code=(row.get("scheme_code") or "").strip(),
+                )
+            )
+    return out
+
+
+@cache
 def get_force_exit_isins() -> set[str]:
     """Return the set of ISINs flagged as force-exit in the ranking CSV
     (rank == ``FORCE_EXIT_RANK``). Held funds matching these will be

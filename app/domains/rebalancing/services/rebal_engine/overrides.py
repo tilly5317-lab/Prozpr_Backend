@@ -28,6 +28,9 @@ _REBAL_ALLOWED_OVERRIDE_KEYS = frozenset(
         "carryforward_st_loss_inr",
         "carryforward_lt_loss_inr",
         "additional_cash_inr",  # cross-module: also in AA's allow-list (corpus adjustment)
+        "asset_class_tilt",  # dict {class: absolute pct} — spec 2026-08-24 investment preferences
+        "pure_equity_only",  # bool — drop hybrids from equity on an "only/100% equity" ask
+        "market_cap_tilt",  # dict {large,mid,small: abs pct of beta sleeve} — spec 2026-08-30
     }
 )
 

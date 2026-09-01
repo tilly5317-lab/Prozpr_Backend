@@ -327,14 +327,13 @@ def test_fund_actions_includes_one_entry_per_fund():
 
     icici = actions[0]
     assert icici["sub_category"] == "Large Cap Fund"
-    assert icici["current_inr"] == 800_000
-    assert icici["buy_inr"] == 50_000
-    assert icici["sell_inr"] == 0
-    assert icici["planned_final_inr"] == 850_000
-    # _indian sibling present for every amount (general invariant covered by
-    # test_facts_pack_has_indian_siblings_for_every_inr_field).
-    assert icici["current_indian"]
-    assert icici["planned_final_indian"]
+    # Output rows carry only the pre-formatted _indian amounts (the _inr floats are
+    # dropped from the row; they exist only during pack construction).
+    assert icici["current_indian"] == "₹8 lakh"
+    assert icici["buy_indian"] == "₹50,000"
+    assert icici["sell_indian"] == "₹0"
+    assert icici["planned_final_indian"] == "₹8.5 lakh"
+    assert "current_inr" not in icici and "asset_subgroup" not in icici
 
 
 def test_fund_actions_caps_at_limit_and_signals_overflow():

@@ -167,3 +167,4 @@ docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
 /wealth_agent.db
 /wealth_agent.db.bak-*
 /wealth_agent.db.before-restore-*
+/app/core/tests
