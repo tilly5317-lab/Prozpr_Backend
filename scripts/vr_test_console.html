@@ -732,15 +732,20 @@ $("btnSweep").onclick = async () => {
                    `<td class="n">${t.fields}</td><td>${tag("idle","…")}</td><td class="w"></td>`;
     tbody.appendChild(tr);
 
-    const r = await api(`/vr/probe?table=${encodeURIComponent(t.name)}`);
+    // /vr/probe was removed as redundant; the per-table live route answers
+    // the same question with output=count.
+    const r = await api(`/vr/live/${encodeURIComponent(t.name)}?output=count`);
     let kind, label, detail;
-    if (r.ok && r.body && r.body.reachable === false) {
-      if (r.body.vendor_refused_table) { kind="warn"; label="refused by VR"; }
-      else { kind="bad"; label="blocked"; }
-      detail = r.body.error || "";
-    } else if (r.ok) {
+    if (r.ok) {
       kind = "ok"; label = "ok";
-      detail = `rows in VR's default 48h window: ${r.body?.rows_in_default_window ?? "—"}`;
+      detail = `rows in VR's default 48h window: ${r.body?.count ?? "—"}`;
+    } else if (r.status === 502) {
+      // The backend relays VR's own verdict in the detail string.
+      const msg = (r.body && r.body.detail) || "";
+      const refused = /vendor_refused=True/i.test(msg);
+      kind = refused ? "warn" : "bad";
+      label = refused ? "refused by VR" : "blocked";
+      detail = msg;
     } else {
       const e = readError(r);
       kind = e.kind === "warn" ? "error" : "bad"; label = e.label;
@@ -797,7 +802,7 @@ $("btnInspect").onclick = async () => {
   if (!name) return;
   const btn = $("btnInspect"); btn.disabled = true;
   busy("out-inspect", `fetching ${name}…`);
-  const r = await api(`/vr/probe?table=${encodeURIComponent(name)}`);
+  const r = await api(`/vr/live/${encodeURIComponent(name)}?output=count`);
   btn.disabled = false;
   if (!r.ok) return showError("out-inspect", "inspect", r);
 

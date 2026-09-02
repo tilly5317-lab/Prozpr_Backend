@@ -17,14 +17,14 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
-from app.domains.vr_data.client import VrClient, VrError
+from app.domains.vr_data.client import VrClient
 from app.domains.vr_data.schema import SYNC_STATE, VR_SCHEMA
 from app.domains.vr_data.services import backfill_service, crosswalk_service
 from app.domains.vr_data.services.sync_service import (
@@ -34,7 +34,11 @@ from app.domains.vr_data.services.sync_service import (
 )
 from app.domains.vr_data.specs import all_specs, spec
 
-router = APIRouter(prefix="/vr", tags=["VR Data"])
+# Hidden from Swagger: everything on this router operates OUR mirror (sync,
+# crosswalk, schema state) rather than calling Value Research, and mixing the
+# two made the docs harder to use. The routes still work exactly as before —
+# the ops console calls them — they simply do not clutter /docs.
+router = APIRouter(prefix="/vr", tags=["VR Ops"], include_in_schema=False)
 
 #: Field-filter names we will forward to VR. VR's filter syntax is
 #: ``FIELDNAME``, ``FIELDNAME-GREATER-THAN``, ``FIELDNAME-LESS-THAN``; anything
@@ -121,226 +125,6 @@ async def vr_status(
         "enabled_tables": len(tables),
         "rate_limit_per_hour": settings.get_vr_rate_limit_per_hour(),
         "tables": tables,
-    }
-
-
-@router.get("/describe")
-async def vr_describe(
-    _: CurrentUser = Depends(get_current_user),
-) -> dict[str, Any]:
-    """VR's own list of the tables this key is entitled to, diffed against ours.
-
-    One upstream request, and it settles the scope question empirically:
-    ``entitled_not_declared`` is what the contract gives us that we have not
-    modelled, and ``declared_not_entitled`` is what we have modelled but cannot
-    actually fetch — the list to raise with the vendor.
-    """
-    async with VrClient() as client:
-        if not client.configured:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "VR_API_KEY is not set"
-            )
-        try:
-            payload = await client.describe()
-        except VrError as exc:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"{exc} (vendor_refused={getattr(exc, 'reached_vr', None)})",
-            ) from None
-
-    entitled = _table_names_from_describe(payload)
-    declared = set(all_specs())
-    return {
-        "entitled_count": len(entitled),
-        "declared_count": len(declared),
-        "entitled_not_declared": sorted(entitled - declared),
-        "declared_not_entitled": sorted(declared - entitled),
-        "both": sorted(declared & entitled),
-        "raw": payload if len(str(payload)) < 20_000 else "(truncated)",
-    }
-
-
-def _table_names_from_describe(payload: Any) -> set[str]:
-    """Pull table names out of /describe without assuming its exact shape.
-
-    We have never seen a live response, so this walks the structure for
-    plausible name fields rather than indexing a key that may not exist.
-    """
-    names: set[str] = set()
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for key in ("table", "table_name", "name", "tablename"):
-                value = node.get(key)
-                if isinstance(value, str) and value:
-                    names.add(value.strip())
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-        elif isinstance(node, str) and node.strip():
-            names.add(node.strip())
-
-    if isinstance(payload, dict):
-        for key in ("tables", "data", "result"):
-            if key in payload:
-                walk(payload[key])
-                break
-        else:
-            walk(payload)
-    else:
-        walk(payload)
-    return names
-
-
-@router.get("/probe")
-async def vr_probe(
-    table: str = Query(..., description="VR table name to test"),
-    _: CurrentUser = Depends(get_current_user),
-) -> dict[str, Any]:
-    """One cheap live call — ``output=count`` — to prove connectivity.
-
-    Uses count rather than data so a probe costs one request and returns no
-    rows. This is the route to hit first from the whitelisted backend: a
-    Cloudflare-shaped 403 here means the key or the source IP is wrong, and a
-    VR-shaped 403 means the table is outside our contract.
-    """
-    try:
-        spec(table)
-    except KeyError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
-
-    async with VrClient() as client:
-        if not client.configured:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "VR_API_KEY is not set"
-            )
-        try:
-            count = await client.count(table)
-        except VrError as exc:
-            return {
-                "table": table,
-                "reachable": False,
-                "error": str(exc),
-                "vendor_refused_table": getattr(exc, "reached_vr", None),
-            }
-    return {
-        "table": table,
-        "reachable": True,
-        "rows_in_default_window": count,
-        "note": "Default window with no changed-after is VR's last 48 hours.",
-    }
-
-
-@router.get("/raw/{table}")
-async def vr_raw(
-    request: Request,
-    table: str,
-    output: str = Query("data", pattern="^(data|count)$"),
-    changed_after: Optional[str] = Query(
-        None,
-        description="YYYY-MM-DD or YYYY-MM-DD-HH-MM (IST). Max 90 days old; "
-        "omit both window params and VR returns the last 48 hours.",
-    ),
-    changed_before: Optional[str] = Query(
-        None, description="Only valid with changed_after; caps the result at 7 days."
-    ),
-    sort: Optional[str] = Query(None, description="Field name, '-' prefix to reverse."),
-    max_rows: int = Query(
-        25, ge=1, le=500, description="Truncate the response for readability."
-    ),
-    _: CurrentUser = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Read one page of a VR table **live**, to inspect real responses.
-
-    A thin, read-only passthrough. It exists because ``/probe`` returns only a
-    count, so there was no way to see an actual VR row without shell access to
-    the backend — and the backend is the only address VR allows.
-
-    Any query parameter not named above is forwarded to VR as a field filter
-    (VR's syntax is ``FIELDNAME=value``, ``FIELDNAME-GREATER-THAN=value``,
-    ``FIELDNAME-LESS-THAN=value``), so ``?plan_id=16014`` works here exactly as
-    it does against VR.
-
-    Deliberately constrained:
-
-    * **Allowlisted** to tables in our registry, so the path cannot be used to
-      reach an arbitrary upstream URL.
-    * **Read-only** — writes nothing, and touches no application table.
-    * **Truncated** by ``max_rows``; ``row_count`` reports what VR actually
-      sent, so truncation is never mistaken for a small result.
-    * Shares the account-wide request budget, so heavy use here starves the
-      sync. VR's own guidance is to serve users from our mirror and never from
-      their API — this is an operator tool, not a read path.
-    """
-    try:
-        spec_ = spec(table)
-    except KeyError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
-
-    reserved = {
-        "output",
-        "changed_after",
-        "changed_before",
-        "sort",
-        "max_rows",
-    }
-    filters: dict[str, str] = {}
-    for key, value in request.query_params.items():
-        if key in reserved:
-            continue
-        if not _SAFE_PARAM.match(key):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, f"unsupported filter name: {key!r}"
-            )
-        filters[key] = value
-
-    after = _parse_window(changed_after, "changed_after")
-    before = _parse_window(changed_before, "changed_before")
-
-    async with VrClient() as client:
-        if not client.configured:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "VR_API_KEY is not set"
-            )
-        try:
-            if output == "count":
-                return {
-                    "table": table,
-                    "output": "count",
-                    "count": await client.count(table, changed_after=after),
-                }
-            page = await client.fetch_page(
-                table,
-                changed_after=after,
-                changed_before=before,
-                sort=sort,
-                filters=filters or None,
-            )
-        except VrError as exc:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"{exc} (vendor_refused={getattr(exc, 'reached_vr', None)})",
-            ) from None
-
-    declared = set(spec_.columns)
-    returned = set(page.rows[0]) if page.rows else set()
-    return {
-        "table": table,
-        "tier": spec_.tier,
-        "row_count": len(page.rows),
-        "returned_rows": min(len(page.rows), max_rows),
-        "has_more_pages": bool(page.next_url),
-        "fields_declared": len(declared),
-        "fields_returned": len(returned),
-        # The two lists that matter when comparing a live response to the
-        # registry: what we would silently drop, and what we expected but VR
-        # did not send.
-        "unknown_fields": sorted(returned - declared),
-        "missing_fields": sorted(declared - returned),
-        "filters_applied": filters,
-        "rows": page.rows[:max_rows],
     }
 
 

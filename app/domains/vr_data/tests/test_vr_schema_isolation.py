@@ -222,15 +222,36 @@ def test_ids_are_never_typed_as_integers():
 # ---------------------------------------------------------------------------
 
 
-def test_every_declared_table_gets_both_read_routes():
+def test_every_declared_table_gets_a_live_route():
     """The API surface is generated, so a new spec must not need new code."""
     from app.domains.vr_data.routers.vr_tables_router import router
 
     paths = {r.path for r in router.routes}
     for name in all_specs():
         assert f"/vr/live/{name}" in paths, f"{name} has no live route"
-        assert f"/vr/db/{name}" in paths, f"{name} has no mirror route"
-    assert len(paths) == 2 * len(all_specs())
+    # The router also carries /vr/describe, which is a VR endpoint rather than
+    # a table read.
+    assert paths == {f"/vr/live/{n}" for n in all_specs()} | {"/vr/describe"}
+
+
+def test_documented_routes_are_value_research_only():
+    """Swagger stays about VR's API, not our mirror's plumbing.
+
+    Everything that operates the mirror — sync, crosswalk, schema state — is
+    hidden from the schema; the one exception is ``/vr/describe``, which is a
+    real Value Research endpoint.
+    """
+    from app.domains.vr_data.routers.vr_admin_router import router as admin
+    from app.domains.vr_data.routers.vr_tables_router import router as tables
+
+    documented = {
+        r.path for r in admin.routes if getattr(r, "include_in_schema", True)
+    } | {r.path for r in tables.routes if getattr(r, "include_in_schema", True)}
+
+    assert "/vr/describe" in documented
+    assert all(
+        p.startswith("/vr/live/") or p == "/vr/describe" for p in documented
+    ), sorted(p for p in documented if not p.startswith("/vr/live/"))
 
 
 def test_no_write_routes_exist_for_vendor_tables():
@@ -256,3 +277,37 @@ def test_scheme_link_is_the_only_writable_vr_table():
         if set(getattr(r, "methods", set())) & {"PUT", "PATCH", "DELETE"}
     }
     assert writable == {"/vr/crosswalk/link"}
+
+
+def test_every_parameter_is_optional():
+    """Nothing should be compulsory — a bare call must be a valid call.
+
+    VR itself defaults to "rows changed in the last 48 hours" when no window is
+    sent, so an endpoint with a required parameter would be inventing a
+    constraint the vendor does not have.
+    """
+    from fastapi import Request
+
+    from app.domains.vr_data.routers.vr_tables_router import _make_live_endpoint
+
+    for spec in all_specs().values():
+        sig = _make_live_endpoint(spec).__signature__
+        for name, param in sig.parameters.items():
+            if param.annotation is Request or name == "_user":
+                continue
+            assert param.default is not param.empty, f"{spec.name}.{name} is required"
+
+
+def test_filters_offered_are_specific_to_each_table():
+    """A table only advertises filters whose column it actually has."""
+    from app.domains.vr_data.routers.vr_tables_router import _identity_params
+
+    specs = all_specs()
+    assert set(_identity_params(specs["nav"])) == {"fund"}
+    assert set(_identity_params(specs["fund_returns_annual"])) == {"fund", "year"}
+    # A master keyed on nothing we filter by offers no identity filters at all.
+    assert _identity_params(specs["countries"]) == {}
+    # And every offered filter maps to a real column of that table.
+    for name, spec in specs.items():
+        for param, (column, _help) in _identity_params(spec).items():
+            assert column in spec.columns, f"{name}.{param} -> {column}"
