@@ -72,53 +72,21 @@ _TAGS = {
 #: Business-meaningful filters, each mapped to the VR column that implements
 #: it. A table offers only the ones whose column it actually has — so ``fund``
 #: appears on the 22 tables keyed by plan_id and never on ``countries``.
-#: ``(query name, candidate VR columns, help text, example)``. The example is
-#: only filled in where a real value is known: ``16014`` is the plan_id from
-#: Value Research's own Postman collection. Everywhere else the help text says
-#: which endpoint hands you a valid id, rather than inventing one that looks
-#: real and 404s.
-_IDENTITY_FILTERS: tuple[tuple[str, tuple[str, ...], str, Optional[str]], ...] = (
-    (
-        "fund",
-        ("plan_id",),
-        "One fund only. Get a plan_id from `GET /vr/funds`.",
-        "16014",
-    ),
-    (
-        "amc",
-        ("amc_id", "fund_amc_id"),
-        "One AMC only. Get an amc_id from `GET /vr/amcs`.",
-        None,
-    ),
-    (
-        "isin",
-        ("isin_code", "isin", "asset_isin"),
-        "One ISIN (12 characters, starts `INF` for Indian mutual funds).",
-        None,
-    ),
+_IDENTITY_FILTERS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("fund", ("plan_id",), "One fund only — a Value Research plan_id, e.g. 16014."),
+    ("amc", ("amc_id", "fund_amc_id"), "One AMC only — a Value Research amc_id."),
+    ("isin", ("isin_code", "isin", "asset_isin"), "One ISIN, e.g. INF090I01JR0."),
     (
         "category",
         ("sebi_category_id", "category_id", "vr_category_id"),
-        "One category only. Get an id from `GET /vr/categories`.",
-        None,
+        "One category only — a category id.",
     ),
-    ("subplan", ("subplan_id", "subplan_code"), "One sub-plan only.", None),
-    (
-        "security",
-        ("security_id",),
-        "One underlying security only. Security ids appear in "
-        "`GET /vr/live/fund_holdings_details`.",
-        None,
-    ),
-    ("rta", ("rta_code",), "One RTA code only, e.g. CAMS or KFIN.", None),
-    ("year", ("year",), "One calendar year.", "2024"),
-    ("status", ("status",), "One fund status code. Decoded by `fund_status`.", None),
-    (
-        "source_table",
-        ("table_name",),
-        "Deletions for one source table only, e.g. `nav`.",
-        "nav",
-    ),
+    ("subplan", ("subplan_id", "subplan_code"), "One sub-plan only."),
+    ("security", ("security_id",), "One underlying security only."),
+    ("rta", ("rta_code",), "One RTA code only."),
+    ("year", ("year",), "One calendar year, e.g. 2024."),
+    ("status", ("status",), "One fund status code only."),
+    ("source_table", ("table_name",), "Deletions for one source table only."),
 )
 
 #: How far back to ask VR for changed rows. VR serves change windows rather
@@ -133,18 +101,14 @@ _WINDOWS: dict[str, Optional[int]] = {
 ChangedIn = Literal["last_48_hours", "last_7_days", "last_30_days", "last_90_days"]
 
 
-def _identity_params(spec: VrTableSpec) -> dict[str, tuple[str, str, Optional[str]]]:
-    """``{query name: (vr column, help text, example)}`` for this table."""
-    available: dict[str, tuple[str, str, Optional[str]]] = {}
+def _identity_params(spec: VrTableSpec) -> dict[str, tuple[str, str]]:
+    """``{query name: (vr column, help text)}`` for the filters this table has."""
+    available: dict[str, tuple[str, str]] = {}
     columns = set(spec.columns)
-    for name, candidates, help_text, example in _IDENTITY_FILTERS:
+    for name, candidates, help_text in _IDENTITY_FILTERS:
         for column in candidates:
             if column in columns:
-                available[name] = (
-                    column,
-                    f"{help_text} (filters `{column}`)",
-                    example,
-                )
+                available[name] = (column, f"{help_text} (filters `{column}`)")
                 break
     return available
 
@@ -188,36 +152,12 @@ def _field_doc(spec: VrTableSpec) -> str:
             else ""
         ),
     ]
-    # A concrete, runnable example beats a list of parameter names. Built from
-    # the filters this table actually has, so it is never a copy-paste that 400s.
-    examples = [f"`GET /vr/live/{spec.name}` — rows changed in the last 48 hours"]
-    if "fund" in identity:
-        examples.append(
-            f"`GET /vr/live/{spec.name}?fund=16014` — one fund "
-            "(get a plan_id from `/vr/funds`)"
-        )
-    if "amc" in identity:
-        examples.append(
-            f"`GET /vr/live/{spec.name}?amc=<amc_id>` — one AMC "
-            "(get an id from `/vr/amcs`)"
-        )
-    if "year" in identity:
-        examples.append(f"`GET /vr/live/{spec.name}?year=2024` — one calendar year")
-    examples.append(
-        f"`GET /vr/live/{spec.name}?changed_in=last_90_days&limit=100` — "
-        "the widest window this endpoint allows"
-    )
-    examples.append(
-        f"`GET /vr/live/{spec.name}?count_only=true` — how many rows, without them"
-    )
-    lines += ["", "**Try it**", ""] + [f"- {e}" for e in examples]
-
     if identity:
         lines += [
             "",
-            "**Filters:** "
+            "**Narrow it down with:** "
             + ", ".join(f"`{n}`" for n in identity)
-            + ". Any other field name in the table below also works as a filter.",
+            + ". Any other VR field name also works as a filter.",
         ]
     else:
         lines += [
@@ -254,7 +194,7 @@ def _make_live_endpoint(spec: VrTableSpec) -> Callable:
         newest_first: bool = kw["newest_first"]
 
         filters: dict[str, str] = {}
-        for param, (column, _help, _eg) in identity.items():
+        for param, (column, _help) in identity.items():
             value = kw.get(param)
             if value not in (None, ""):
                 filters[column] = str(value)
@@ -315,15 +255,12 @@ def _make_live_endpoint(spec: VrTableSpec) -> Callable:
     # FastAPI reads __signature__, which is what lets the parameter list be
     # built per table instead of being one fixed set for all 35.
     params = [Parameter("request", Parameter.KEYWORD_ONLY, annotation=Request)]
-    for name, (_column, help_text, example) in identity.items():
-        # `examples=` (plural) — the singular `example=` is deprecated and emits
-        # one warning per parameter, which is 28 lines of noise on every import.
-        extra = {"examples": [example]} if example else {}
+    for name, (_column, help_text) in identity.items():
         params.append(
             Parameter(
                 name,
                 Parameter.KEYWORD_ONLY,
-                default=Query(None, description=help_text, **extra),
+                default=Query(None, description=help_text),
                 annotation=Optional[str],
             )
         )
