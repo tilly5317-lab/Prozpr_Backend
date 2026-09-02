@@ -202,3 +202,52 @@ def test_chunk_size_stays_under_the_asyncpg_parameter_ceiling():
     for width in (4, 26, 84, 200):
         assert _chunk_size(width) * width <= 32_000
         assert _chunk_size(width) >= 1
+
+
+# ---------------------------------------------------------------------------
+# passthrough guardrails
+# ---------------------------------------------------------------------------
+
+
+def test_window_parser_accepts_vrs_two_documented_formats():
+    from datetime import date as _date
+
+    from app.domains.vr_data.routers.vr_admin_router import _parse_window
+
+    assert _parse_window("2026-09-02", "changed_after") == _date(2026, 9, 2)
+    assert _parse_window("2026-09-02-14-30", "changed_after") == datetime(
+        2026, 9, 2, 14, 30
+    )
+    assert _parse_window(None, "changed_after") is None
+    assert _parse_window("   ", "changed_after") is None
+
+
+def test_window_parser_rejects_a_typo_locally():
+    """A bad window must 400, not spend one of the 500/hour requests."""
+    from fastapi import HTTPException
+
+    from app.domains.vr_data.routers.vr_admin_router import _parse_window
+
+    with pytest.raises(HTTPException) as exc:
+        _parse_window("02/09/2026", "changed_after")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "name,allowed",
+    [
+        ("plan_id", True),
+        ("as_on_date-GREATER-THAN", True),
+        ("nav-LESS-THAN", True),
+        ("", False),
+        ("1bad", False),
+        ("drop table", False),
+        ("../../etc/passwd", False),
+        ("a" * 80, False),
+    ],
+)
+def test_passthrough_only_forwards_filter_shaped_params(name, allowed):
+    """Anything not shaped like a VR field filter is rejected, not proxied."""
+    from app.domains.vr_data.routers.vr_admin_router import _SAFE_PARAM
+
+    assert bool(_SAFE_PARAM.match(name)) is allowed
