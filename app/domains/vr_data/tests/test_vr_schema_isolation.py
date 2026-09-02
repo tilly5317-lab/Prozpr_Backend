@@ -215,3 +215,44 @@ def test_ids_are_never_typed_as_integers():
         for column in spec.columns:
             if column.endswith("_id") or column.endswith("_code"):
                 assert infer_column_type(column) == "text", column
+
+
+# ---------------------------------------------------------------------------
+# per-table API surface
+# ---------------------------------------------------------------------------
+
+
+def test_every_declared_table_gets_both_read_routes():
+    """The API surface is generated, so a new spec must not need new code."""
+    from app.domains.vr_data.routers.vr_tables_router import router
+
+    paths = {r.path for r in router.routes}
+    for name in all_specs():
+        assert f"/vr/live/{name}" in paths, f"{name} has no live route"
+        assert f"/vr/db/{name}" in paths, f"{name} has no mirror route"
+    assert len(paths) == 2 * len(all_specs())
+
+
+def test_no_write_routes_exist_for_vendor_tables():
+    """A write to a mirror is erased by the next sync, so it must not be offered.
+
+    ``sync_service`` upserts on Value Research's own primary key: a row inserted
+    or edited locally is overwritten on the next run, and a deleted row comes
+    back. The only writable table is ``vr.scheme_link``, which is ours and lives
+    on a different router.
+    """
+    from app.domains.vr_data.routers.vr_tables_router import router
+
+    for route in router.routes:
+        assert set(getattr(route, "methods", set())) <= {"GET", "HEAD"}, route.path
+
+
+def test_scheme_link_is_the_only_writable_vr_table():
+    from app.domains.vr_data.routers.vr_admin_router import router as admin
+
+    writable = {
+        r.path
+        for r in admin.routes
+        if set(getattr(r, "methods", set())) & {"PUT", "PATCH", "DELETE"}
+    }
+    assert writable == {"/vr/crosswalk/link"}
