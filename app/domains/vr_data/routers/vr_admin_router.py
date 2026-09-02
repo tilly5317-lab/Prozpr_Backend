@@ -26,7 +26,7 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_current_user
 from app.domains.vr_data.client import VrClient
 from app.domains.vr_data.schema import SYNC_STATE, VR_SCHEMA
-from app.domains.vr_data.services import backfill_service, crosswalk_service
+from app.domains.vr_data.services import crosswalk_service
 from app.domains.vr_data.services.sync_service import (
     enabled_specs,
     run_cycle,
@@ -285,15 +285,3 @@ async def crosswalk_link_delete(
     )
     await db.commit()
     return {"plan_id": plan_id.strip(), "deleted": result.rowcount or 0}
-
-
-@router.get("/backfill/budget")
-async def backfill_budget(
-    table: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Bulk requests left for this table today. VR allows two, and they do not
-    refund — check before starting a historical load."""
-    remaining = await backfill_service.budget_remaining(db, table)
-    return {"table": table, "remaining_today": remaining, "daily_cap": 2}
