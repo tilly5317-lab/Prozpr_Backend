@@ -1,0 +1,2399 @@
+{
+ "amcs": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "A unique identifier assigned to each Asset Management Company (AMC) in the database. This ID links the AMC to other related tables. It remains constant for a particular AMC.",
+    "name": "amc_id"
+   },
+   {
+    "description": "The complete registered name of the Asset Management Company.This is the official name used in regulatory filings and disclosures.",
+    "name": "amc_full_name"
+   },
+   {
+    "description": "Specifies the type of ownership of the AMC, such as Private Sector, Public Sector, Joint Venture, or Bank-sponsored. This helps classify AMCs based on their ownership structure.",
+    "name": "owner_type"
+   },
+   {
+    "description": "The Chief Investment Officer (CIO) of the AMC. The CIO is responsible for overseeing the investment strategy, portfolio management, and investment decision-making process across the AMC’s funds.",
+    "name": "cio"
+   },
+   {
+    "description": "The Investor Relations Officer responsible for handling investor queries, complaints, and communication between the AMC and investors. This role ensures transparency and regulatory compliance in investor communications.",
+    "name": "investors_relations_officer"
+   },
+   {
+    "description": "A short or commonly used name of the AMC used for easy reference in reports, dashboards, or systems",
+    "name": "amc_short_name"
+   },
+   {
+    "description": "The Chief Executive Officer (CEO) of the AMC who manages the overall operations, strategy, and business activities of the company.",
+    "name": "ceo"
+   },
+   {
+    "description": "The name of the trustee company or trustee entity responsible for supervising the AMC and ensuring that the mutual fund operations comply with regulatory guidelines.",
+    "name": "management_trustee"
+   },
+   {
+    "description": "The date on which the AMC started its operations or was registered to manage mutual funds.",
+    "name": "start_date"
+   },
+   {
+    "description": "The official website URL of the AMC where investors can access fund information, disclosures, reports, and updates.",
+    "name": "website"
+   },
+   {
+    "description": "The primary address line of the AMC’s registered or corporate office.",
+    "name": "address1"
+   },
+   {
+    "description": "The second line of the address, usually containing additional location details such as building name, floor number, or locality.",
+    "name": "address2"
+   },
+   {
+    "description": "The third line of the address used for further address details if required.",
+    "name": "address3"
+   },
+   {
+    "description": "The city where the AMC’s office is located",
+    "name": "city"
+   },
+   {
+    "description": "The postal PIN code corresponding to the AMC’s address.",
+    "name": "pin"
+   },
+   {
+    "description": "The contact phone number of the AMC office or investor support desk.",
+    "name": "phone"
+   },
+   {
+    "description": "The fax number used by the AMC for official communications (if applicable).",
+    "name": "fax"
+   },
+   {
+    "description": "The official email address used by the AMC for investor communication or general queries.",
+    "name": "email"
+   },
+   {
+    "description": "A flag (Yes/No) indicating whether the AMC is excluded from active datasets or reporting",
+    "name": "is_excluded"
+   }
+  ],
+  "description": "This table provides a list of all mutual fund AMCs (Asset Management Companies), including those that are currently active as well as inactive.",
+  "update_frequency": null
+ },
+ "cat_avg_return_latest_share_class": {
+  "category": "benchmark",
+  "columns": [
+   {
+    "description": "Unique identifier representing a mutual fund category",
+    "name": "category_id"
+   },
+   {
+    "description": "Return generated over the last 1 trading day",
+    "name": "ret_1day"
+   },
+   {
+    "description": "Return generated over the last 1 month",
+    "name": "ret_1month"
+   },
+   {
+    "description": "Return generated over the last 1 week",
+    "name": "ret_1week"
+   },
+   {
+    "description": "Return generated over the last 3 months",
+    "name": "ret_3month"
+   },
+   {
+    "description": "Return generated over the last 6 months",
+    "name": "ret_6month"
+   },
+   {
+    "description": "Return generated over the last 9 months",
+    "name": "ret_9month"
+   },
+   {
+    "description": "Total return generated from the fund’s launch date until the return_date",
+    "name": "ret_since_launch"
+   },
+   {
+    "description": "Return generated from the start of the current calendar year until the return_date",
+    "name": "ret_ytd"
+   },
+   {
+    "description": "Date on which the performance values are calculated.",
+    "name": "return_date"
+   },
+   {
+    "description": "Category type",
+    "name": "type_id"
+   },
+   {
+    "description": "Specific share class or plan used for calculating performance",
+    "name": "performance_share_class"
+   },
+   {
+    "description": "Return generated over the last 10 years",
+    "name": "ret_10Yr"
+   },
+   {
+    "description": "Return generated over the last 15 years",
+    "name": "ret_15yr"
+   },
+   {
+    "description": "Return generated over the last 1 year",
+    "name": "ret_1Yr"
+   },
+   {
+    "description": "Return generated over the last 20 years",
+    "name": "ret_20yr"
+   },
+   {
+    "description": "Return generated over the last 2 years",
+    "name": "ret_2Yr"
+   },
+   {
+    "description": "Return generated over the last 3 years",
+    "name": "ret_3Yr"
+   },
+   {
+    "description": "Return generated over the last 4 years",
+    "name": "ret_4Yr"
+   },
+   {
+    "description": "Return generated over the last 5 years",
+    "name": "ret_5Yr"
+   }
+  ],
+  "description": "This table contains the returns of categories calculated on a daily basis.",
+  "update_frequency": null
+ },
+ "colour_code": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific risk color",
+    "name": "colour_id"
+   },
+   {
+    "description": "Name of the risk level",
+    "name": "colour_name"
+   },
+   {
+    "description": "Textual description of the investment risk level",
+    "name": "risk"
+   }
+  ],
+  "description": "This master table contains the riskometer details assigned to mutual funds by Asset Management Companies (AMCs).",
+  "update_frequency": null
+ },
+ "companies": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a company",
+    "name": "company_id"
+   },
+   {
+    "description": "Code of the country where the company is registered or primarily operates",
+    "name": "country_code"
+   },
+   {
+    "description": "Official registered name of the company",
+    "name": "full_name"
+   },
+   {
+    "description": "Code representing the industry sector to which the company belongs",
+    "name": "industry_code"
+   },
+   {
+    "description": "Commonly used abbreviated or shorter name of the company",
+    "name": "short_name"
+   },
+   {
+    "description": "Identifier of the corporate group to which the company belongs",
+    "name": "entity_group_id"
+   }
+  ],
+  "description": "This table acts as the master table containing details of all companies.",
+  "update_frequency": null
+ },
+ "composition": {
+  "category": "holdings",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The date for which the AUM values are reported. All asset values correspond to this specific date.",
+    "name": "as_on_date"
+   },
+   {
+    "description": "Total percentage of AUM invested in commodity-related instruments, such as gold ETFs, silver ETFs",
+    "name": "commodities"
+   },
+   {
+    "description": "Total percentage of AUM invested in fixed income instruments, including government securities, treasury bills, corporate bonds, debentures, money market instruments, etc",
+    "name": "debt"
+   },
+   {
+    "description": "Total percentage of AUM invested in equity shares and equity-related instruments, excluding hedged equity exposure",
+    "name": "equity"
+   },
+   {
+    "description": "Percentage of equity exposure that is hedged using derivatives (commonly used in arbitrage or hedged equity strategies).",
+    "name": "hedged_equity"
+   },
+   {
+    "description": "Total percentage of AUM invested in cash",
+    "name": "others"
+   },
+   {
+    "description": "Percentage of cash excluding derivatives in the portfolio",
+    "name": "others_excluding_derivatives"
+   },
+   {
+    "description": "Percentage of AUM invested in real estate assets",
+    "name": "realestate"
+   }
+  ],
+  "description": "This table contains the percentage-wise portfolio allocation of mutual funds.",
+  "update_frequency": null
+ },
+ "countries": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "Abbreviated or commonly used short name of the country",
+    "name": "short_name"
+   },
+   {
+    "description": "The official or complete name of the country",
+    "name": "full_name"
+   },
+   {
+    "description": "The standard country code defined by ISO (International Organization for Standardization), usually based on the ISO-3166 standard. This code is used for consistent identification of countries across systems and datasets (e.g., IN for India, US for United States)",
+    "name": "iso_country_code"
+   }
+  ],
+  "description": "This master table contains the list and details of countries.",
+  "update_frequency": null
+ },
+ "credit_rating_score": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "The credit rating assigned to a security or instrument by a rating agency. It indicates the creditworthiness and risk level associated with the instrument",
+    "name": "rating"
+   },
+   {
+    "description": "A unique identifier for the rating used internally in the database. This field is typically used to link with the rating master table for detailed rating information",
+    "name": "rating_id"
+   }
+  ],
+  "description": "This master table contains the list of securities ratings.",
+  "update_frequency": null
+ },
+ "deleted_logs": {
+  "category": "meta",
+  "columns": [
+   {
+    "description": "Unique identifier for each deletion log record",
+    "name": "log_id"
+   },
+   {
+    "description": "Name of the table from which the record was deleted",
+    "name": "table_name"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key1"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value1"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key2"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value2"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key3"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value3"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key4"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value4"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key5"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value5"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key6"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value6"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key7"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value7"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key8"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value8"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key9"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value9"
+   },
+   {
+    "description": "Field names (columns) that form the key attributes used to identify the deleted record",
+    "name": "key10"
+   },
+   {
+    "description": "Corresponding values of the key fields for the deleted record",
+    "name": "value10"
+   },
+   {
+    "description": "Timestamp indicating when the record was deleted from the source table",
+    "name": "deleted_ts"
+   },
+   {
+    "description": "Timestamp indicating when the deletion log record was last updated or recorded in the system",
+    "name": "modified_ts"
+   }
+  ],
+  "description": "This table maintains a record of all deleted data entries along with their associated details for tracking and audit purposes",
+  "update_frequency": "Irregular"
+ },
+ "entity_companies": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "Unique Entity id",
+    "name": "entity_id"
+   },
+   {
+    "description": "Full legal name of the entity company.",
+    "name": "company"
+   },
+   {
+    "description": "Abbreviated or commonly used name of the company",
+    "name": "short_name"
+   },
+   {
+    "description": "Official website URL of the company",
+    "name": "website"
+   },
+   {
+    "description": "Standard country code representing the country of incorporation or operation of the company",
+    "name": "country_code"
+   },
+   {
+    "description": "Industry classification code assigned as per AMFI standards",
+    "name": "amfi_industry_code"
+   },
+   {
+    "description": "Legal Entity Identifier (LEI), a unique global identifier assigned to the company for regulatory and financial transactions",
+    "name": "lei_number"
+   }
+  ],
+  "description": "This is the master table for entity companies",
+  "update_frequency": "Irregular"
+ },
+ "fund_basic_details": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Basic/fund family name",
+    "name": "basic_name"
+   },
+   {
+    "description": "Short name for the fund/scheme",
+    "name": "short_name"
+   },
+   {
+    "description": "Name of the mutual fund plan (e.g., Growth, IDCW)",
+    "name": "plan_name"
+   },
+   {
+    "description": "Shortened basic/fund family name",
+    "name": "basic_short_name"
+   },
+   {
+    "description": "Full scheme name",
+    "name": "scheme_name"
+   },
+   {
+    "description": "Full name of the fund",
+    "name": "fund_name"
+   },
+   {
+    "description": "Unique numeric identifier of the fund",
+    "name": "fund_id"
+   },
+   {
+    "description": "Face value of one unit of the fund",
+    "name": "face_value"
+   },
+   {
+    "description": "Redemption Note",
+    "name": "redemption_note"
+   },
+   {
+    "description": "Maximum equity allocation percentages",
+    "name": "equity_max"
+   },
+   {
+    "description": "Minimum equity allocation percentages",
+    "name": "equity_min"
+   },
+   {
+    "description": "Maximum allocation in debt instruments",
+    "name": "debt_max"
+   },
+   {
+    "description": "Minimum allocation in debt instruments",
+    "name": "debt_min"
+   },
+   {
+    "description": "Maximum allocation in money market instruments",
+    "name": "money_mkt_max"
+   },
+   {
+    "description": "Minimum allocation in money market instruments",
+    "name": "money_mkt_min"
+   },
+   {
+    "description": "Minimum allocation in Commodities instruments",
+    "name": "comm_min"
+   },
+   {
+    "description": "Maximum allocation in Commodities instruments",
+    "name": "comm_max"
+   },
+   {
+    "description": "Minimum allocation in equity derivatives",
+    "name": "equity_derivatives_min"
+   },
+   {
+    "description": "Maximum allocation in equity derivatives",
+    "name": "equity_derivatives_max"
+   },
+   {
+    "description": "Minimum allocation in REITs/InvITs",
+    "name": "reit_invit_min"
+   },
+   {
+    "description": "Maximum allocation in REITs/InvITs",
+    "name": "reit_invit_max"
+   },
+   {
+    "description": "Issue Open Date",
+    "name": "issue_open"
+   },
+   {
+    "description": "Issue Stated Close Date",
+    "name": "issue_stated_close"
+   },
+   {
+    "description": "Issue Actual Close Date",
+    "name": "issue_actual_close"
+   },
+   {
+    "description": "Date of allotment for the scheme",
+    "name": "allottment_date"
+   },
+   {
+    "description": "Redemption Date",
+    "name": "late_redemption"
+   },
+   {
+    "description": "Start date for resale units",
+    "name": "resale_start_date"
+   },
+   {
+    "description": "Transfer Agent",
+    "name": "transfer_agent"
+   },
+   {
+    "description": "Transfer Agent short name",
+    "name": "transfer_agent_short_name"
+   },
+   {
+    "description": "Transfer Agent email",
+    "name": "transfer_agent_email"
+   },
+   {
+    "description": "Scheme Objective Text",
+    "name": "objective_text"
+   },
+   {
+    "description": "AMFI-assigned code for the fund",
+    "name": "amfi_code"
+   },
+   {
+    "description": "NSDL-assigned code (for ETFs or dematerialized unit)",
+    "name": "nsdl_code"
+   },
+   {
+    "description": "Indicates if the fund has dividend option",
+    "name": "is_dividend"
+   },
+   {
+    "description": "Unique identifier assigned to the auditor entity in the database. This code is used for internal reference and linking with related records.",
+    "name": "auditor_code"
+   },
+   {
+    "description": "Unique identifier assigned to the custodian entity in the database. This code is used for internal reference and linking with related records",
+    "name": "custodian_code"
+   },
+   {
+    "description": "Indicates if the fund is a direct plan",
+    "name": "is_direct_plan"
+   },
+   {
+    "description": "Unique regular plan identifier",
+    "name": "reg_plan_id"
+   },
+   {
+    "description": "Current status of the fund",
+    "name": "status"
+   },
+   {
+    "description": "Frequency of dividend payouts",
+    "name": "dividend_periodicity"
+   },
+   {
+    "description": "Indicates if it is an ETF fund",
+    "name": "is_etf_fund"
+   },
+   {
+    "description": "Whether fund has a lock-in period",
+    "name": "lock_in"
+   },
+   {
+    "description": "Lock-in period in days",
+    "name": "lock_in_period_days"
+   },
+   {
+    "description": "Variant scheme",
+    "name": "variant"
+   },
+   {
+    "description": "Variant fund identifier",
+    "name": "variant_fund_id"
+   },
+   {
+    "description": "Indicates if it is an RGESS plan (Rajiv Gandhi Equity Saving Scheme)",
+    "name": "is_rgess_plan"
+   },
+   {
+    "description": "Fund’s stated annual expense ratio",
+    "name": "stated_annual_expense"
+   },
+   {
+    "description": "Indicates if it is a Fund of Funds",
+    "name": "is_fof"
+   },
+   {
+    "description": "Last trading date for ETF units",
+    "name": "last_etf_trade_date"
+   },
+   {
+    "description": "Indicates if it is an index fund",
+    "name": "is_index_fund"
+   },
+   {
+    "description": "Interest rate risk profile of the fund",
+    "name": "interest_risk_name"
+   },
+   {
+    "description": "Credit risk profile of the fund",
+    "name": "credit_risk_name"
+   },
+   {
+    "description": "Risk classification of the fund",
+    "name": "potential_risk_class"
+   },
+   {
+    "description": "Indicates if it is a retirement fund",
+    "name": "is_retirement_fund"
+   },
+   {
+    "description": "Indicates if it is an interval fund",
+    "name": "is_interval_fund"
+   },
+   {
+    "description": "Description of the fund’s investment objective",
+    "name": "fund_objective_description"
+   },
+   {
+    "description": "Indicates if instant redemption is available",
+    "name": "instant_redemption_facility"
+   },
+   {
+    "description": "Unique identifier assigned to a specific risk color",
+    "name": "riskometer_id"
+   },
+   {
+    "description": "Textual description of the investment risk level",
+    "name": "riskometer_details"
+   },
+   {
+    "description": "A unique identifier assigned to each Asset Management Company (AMC) in the database. This ID links the AMC to other related tables. It remains constant for a particular AMC.",
+    "name": "amc_id"
+   },
+   {
+    "description": "Detail of AMC",
+    "name": "amc_details"
+   },
+   {
+    "description": "Unique category ID as per VR",
+    "name": "vr_category_id"
+   },
+   {
+    "description": "Category name as per VR",
+    "name": "vr_category_name"
+   },
+   {
+    "description": "Primary category id as per VR",
+    "name": "vr_primary_category_id"
+   },
+   {
+    "description": "Primary category name as per VR",
+    "name": "vr_primary_category_name"
+   },
+   {
+    "description": "A unique identifier assigned to each category defined by the Securities and Exchange Board of India",
+    "name": "sebi_category_id"
+   },
+   {
+    "description": "Represents the SEBI sub-category (scheme-level classification) defined by the Securities and Exchange Board of India.",
+    "name": "sebi_category_name"
+   },
+   {
+    "description": "A unique identifier for the broad (parent) category under which the SEBI sub-category falls",
+    "name": "sebi_primary_category_id"
+   },
+   {
+    "description": "Represents the broad SEBI category",
+    "name": "sebi_primary_category_name"
+   },
+   {
+    "description": "Identifier for the fund type",
+    "name": "type_id"
+   },
+   {
+    "description": "The descriptive name of the fund type",
+    "name": "type_name"
+   },
+   {
+    "description": "Unique benchmark details of the fund",
+    "name": "benchmark_details"
+   },
+   {
+    "description": "All details of Unique fund manager",
+    "name": "fund_manager_details"
+   },
+   {
+    "description": "Load Text",
+    "name": "load_note"
+   },
+   {
+    "description": "Load information for funds in numeric",
+    "name": "fund_load_cdsc_details"
+   },
+   {
+    "description": "Latest Expense Ratio",
+    "name": "latest_expense_ratio"
+   },
+   {
+    "description": "Latest portfolio Turnover ratio",
+    "name": "latest_turnover_ratio"
+   },
+   {
+    "description": "Latest AUM",
+    "name": "latest_aum"
+   },
+   {
+    "description": "A unique identifier assigned to each category defined by the Securities and Exchange Board of India",
+    "name": "sebi_sub_category_id"
+   },
+   {
+    "description": "Represents the SEBI sub-category (scheme-level classification) defined by the Securities and Exchange Board of India.",
+    "name": "sebi_sub_category_name"
+   },
+   {
+    "description": "AUM (₹ Cr) of Asset Management Companies (AMCs)",
+    "name": "amc_aum"
+   },
+   {
+    "description": "Represents whether the plan is Growth or IDCW",
+    "name": "plan_type"
+   }
+  ],
+  "description": "This table serves as the primary repository of fundamental fund information, capturing core attributes and essential details for each fund. It includes identification data, classification parameters, and key characteristics that define the fund’s structure and category",
+  "update_frequency": null
+ },
+ "fund_categories": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier representing a mutual fund category",
+    "name": "category_id"
+   },
+   {
+    "description": "Unique identifier assigned to the primary category used for higher-level classification",
+    "name": "primary_category_id"
+   },
+   {
+    "description": "The name of the category under the corresponding primary category",
+    "name": "category_name"
+   },
+   {
+    "description": "Indicates whether the category is currently active or inactive in the system.",
+    "name": "is_active"
+   },
+   {
+    "description": "The name of the primary category under which the category is grouped",
+    "name": "primary_category_name"
+   }
+  ],
+  "description": "This table serves as the master reference containing details of VR categories",
+  "update_frequency": null
+ },
+ "fund_dividends": {
+  "category": "actions",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Corporate Dividend in Rs.",
+    "name": "corp_div_in_rs"
+   },
+   {
+    "description": "Corporate Dividend Percentage",
+    "name": "corp_dividend"
+   },
+   {
+    "description": "The date on which the dividend is declared or distributed by the fund",
+    "name": "div_date"
+   },
+   {
+    "description": "Indicates whether the dividend amount is subject to tax adjustment as per applicable tax regulations",
+    "name": "is_tax_adjustable"
+   },
+   {
+    "description": "The dividend declared as a percentage",
+    "name": "percentage"
+   },
+   {
+    "description": "The dividend amount expressed as rupees per unit",
+    "name": "percentage_rs_per_unit"
+   },
+   {
+    "description": "The record date set by the fund to determine eligible investors who will receive the dividend",
+    "name": "record_date"
+   }
+  ],
+  "description": "This table provides information on dividends declared by funds",
+  "update_frequency": null
+ },
+ "fund_holdings_aggregate_debt": {
+  "category": "holdings",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "Date",
+    "name": "as_on_date"
+   },
+   {
+    "description": "Instrument-wise breakup of debt holdings across funds, showing the allocation to different types of fixed-income instruments",
+    "name": "holdings_debtstated"
+   },
+   {
+    "description": "Holding maturity details, outlining the maturity profile of securities within the portfolio.",
+    "name": "holdings_maturity"
+   },
+   {
+    "description": "Ratings-wise breakup of holdings in the fund, showing the allocation across different credit rating categories",
+    "name": "holdings_rating"
+   }
+  ],
+  "description": "This table provides a summary of debt holdings, capturing key details of fixed-income instruments held within the portfolio.",
+  "update_frequency": "Monthly"
+ },
+ "fund_holdings_aggregate_equity": {
+  "category": "holdings",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "Date",
+    "name": "as_on_date"
+   },
+   {
+    "description": "Sector details, outlining the classification and allocation of investments across different sectors.",
+    "name": "sector_details"
+   }
+  ],
+  "description": "This table provides a summary of total equity holdings across sectors, highlighting the sector-wise allocation of investments",
+  "update_frequency": "Monthly"
+ },
+ "fund_holdings_details": {
+  "category": "holdings",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "Date",
+    "name": "as_on_date"
+   },
+   {
+    "description": "Short name of plan",
+    "name": "plan_short_name"
+   },
+   {
+    "description": "Basic name of plan",
+    "name": "plan_basic_name"
+   },
+   {
+    "description": "Unique identifier for the security",
+    "name": "security_id"
+   },
+   {
+    "description": "Security Full Name",
+    "name": "security_name"
+   },
+   {
+    "description": "Unique Identifier for the asset category/type",
+    "name": "asset_id"
+   },
+   {
+    "description": "Description of asset",
+    "name": "asset_description"
+   },
+   {
+    "description": "Market value of the holding for the given date",
+    "name": "asset_value"
+   },
+   {
+    "description": "Number of units/shares held in the security",
+    "name": "num_of_shares"
+   },
+   {
+    "description": "Percentage of total portfolio represented by this security",
+    "name": "asset_percentage"
+   },
+   {
+    "description": "Interest rate applicable for debt securities (if applicable)",
+    "name": "coupon_rate"
+   },
+   {
+    "description": "Maturity date of the security (applicable for debt instruments)",
+    "name": "maturity"
+   },
+   {
+    "description": "A unique identifier for the rating used internally in the database. This field is typically used to link with the rating master table for detailed rating information",
+    "name": "rating_id"
+   },
+   {
+    "description": "The credit rating assigned to a security or instrument by a rating agency. It indicates the creditworthiness and risk level associated with the instrument",
+    "name": "rating_name"
+   },
+   {
+    "description": "Capitalisation Rank",
+    "name": "sebi_cap_rank"
+   },
+   {
+    "description": "Indicates the broad asset class",
+    "name": "asset_class"
+   },
+   {
+    "description": "Asset ISIN",
+    "name": "asset_isin"
+   }
+  ],
+  "description": "This table contains detailed information on fund holdings, including the securities held within each fund and their respective allocations",
+  "update_frequency": "Monthly"
+ },
+ "fund_performance_details": {
+  "category": "performance",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "The date for which the NAV is applicable",
+    "name": "nav_date"
+   },
+   {
+    "description": "Net Asset Value",
+    "name": "nav"
+   },
+   {
+    "description": "SIP (Systematic Investment Plan) returns of funds across various time periods",
+    "name": "sip_returns"
+   },
+   {
+    "description": "Plan Stats Variables",
+    "name": "stats_variables"
+   },
+   {
+    "description": "Trailing Returns",
+    "name": "trailing_returns"
+   },
+   {
+    "description": "Adjusted NAV",
+    "name": "adjusted_nav"
+   },
+   {
+    "description": "52 Week High NAV",
+    "name": "high_52_week"
+   },
+   {
+    "description": "52 Week Low NAV",
+    "name": "low_52_week"
+   },
+   {
+    "description": "Latest Dividend Date",
+    "name": "latest_dividend_date"
+   },
+   {
+    "description": "Latest Dividend Rate",
+    "name": "latest_dividend"
+   },
+   {
+    "description": "Unique numeric identifier of the fund",
+    "name": "fund_id"
+   }
+  ],
+  "description": "This table presents fund performance based on returns, highlighting how the fund has performed across different time periods",
+  "update_frequency": "Daily"
+ },
+ "fund_plans": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Date of allotment for the scheme",
+    "name": "allottment_date"
+   },
+   {
+    "description": "AMFI-assigned code for the fund",
+    "name": "amfi_code"
+   },
+   {
+    "description": "Basic/fund family name",
+    "name": "basic_name"
+   },
+   {
+    "description": "Shortened basic/fund family name",
+    "name": "basic_short_name"
+   },
+   {
+    "description": "Maximum allocation in Commodities instruments",
+    "name": "comm_max"
+   },
+   {
+    "description": "Minimum allocation in Commodities instruments",
+    "name": "comm_min"
+   },
+   {
+    "description": "Credit risk profile of the fund",
+    "name": "credit_risk_name"
+   },
+   {
+    "description": "Maximum allocation in debt instruments",
+    "name": "debt_max"
+   },
+   {
+    "description": "Minimum allocation in debt instruments",
+    "name": "debt_min"
+   },
+   {
+    "description": "Frequency of dividend payouts",
+    "name": "dividend_periodicity"
+   },
+   {
+    "description": "Maximum allocation in equity derivatives",
+    "name": "equity_derivatives_max"
+   },
+   {
+    "description": "Minimum allocation in equity derivatives",
+    "name": "equity_derivatives_min"
+   },
+   {
+    "description": "Maximum equity allocation percentages",
+    "name": "equity_max"
+   },
+   {
+    "description": "Minimum equity allocation percentages",
+    "name": "equity_min"
+   },
+   {
+    "description": "Face value of one unit of the fund",
+    "name": "face_value"
+   },
+   {
+    "description": "Full name of the fund",
+    "name": "fund_name"
+   },
+   {
+    "description": "Description of the fund’s investment objective",
+    "name": "fund_objective_description"
+   },
+   {
+    "description": "Interest rate risk profile of the fund",
+    "name": "interest_risk_name"
+   },
+   {
+    "description": "Indicates if the fund is a direct plan",
+    "name": "is_direct_plan"
+   },
+   {
+    "description": "Indicates if the fund has dividend option",
+    "name": "is_dividend"
+   },
+   {
+    "description": "Indicates if it is an ETF fund",
+    "name": "is_etf_fund"
+   },
+   {
+    "description": "Indicates if it is a Fund of Funds",
+    "name": "is_fof"
+   },
+   {
+    "description": "Indicates if it is an index fund",
+    "name": "is_index_fund"
+   },
+   {
+    "description": "Indicates if it is an interval fund",
+    "name": "is_interval_fund"
+   },
+   {
+    "description": "Indicates if it is a retirement fund",
+    "name": "is_retirement_fund"
+   },
+   {
+    "description": "Indicates if it is an RGESS plan (Rajiv Gandhi Equity Saving Scheme)",
+    "name": "is_rgess_plan"
+   },
+   {
+    "description": "International Securities Identification Number of the fund",
+    "name": "isin_code"
+   },
+   {
+    "description": "Issue Actual Close Date",
+    "name": "issue_actual_close"
+   },
+   {
+    "description": "Issue Open Date",
+    "name": "issue_open"
+   },
+   {
+    "description": "Issue Stated Close Date",
+    "name": "issue_stated_close"
+   },
+   {
+    "description": "Last trading date for ETF units",
+    "name": "last_etf_trade_date"
+   },
+   {
+    "description": "Redemption Date",
+    "name": "late_redemption"
+   },
+   {
+    "description": "Whether fund has a lock-in period",
+    "name": "lock_in"
+   },
+   {
+    "description": "Lock-in period in days",
+    "name": "lock_in_period_days"
+   },
+   {
+    "description": "Maximum investment allowed",
+    "name": "max_inv_amount"
+   },
+   {
+    "description": "Minimum balance required in the account",
+    "name": "min_balance"
+   },
+   {
+    "description": "Minimum investment to start a new account",
+    "name": "min_initial_investment"
+   },
+   {
+    "description": "Minimum Investment Multiples",
+    "name": "min_investment_multiples"
+   },
+   {
+    "description": "Minimum additional investment",
+    "name": "min_subsequent_investment"
+   },
+   {
+    "description": "Minimum additional units",
+    "name": "min_subsequent_investment_unit"
+   },
+   {
+    "description": "Minimum units allowed for withdrawal",
+    "name": "min_widw_unit"
+   },
+   {
+    "description": "Minimum multiples for withdrawal",
+    "name": "min_withdrawal_multiple_amount"
+   },
+   {
+    "description": "Minimum withdrawal amount",
+    "name": "min_withdrawl_amount"
+   },
+   {
+    "description": "Indicates if minors can invest",
+    "name": "minor_investments_allowed"
+   },
+   {
+    "description": "Maximum allocation in money market instruments",
+    "name": "money_mkt_max"
+   },
+   {
+    "description": "Minimum allocation in money market instruments",
+    "name": "money_mkt_min"
+   },
+   {
+    "description": "Indicates if the fund is newly launched",
+    "name": "new_fund"
+   },
+   {
+    "description": "Scheme Objective Text",
+    "name": "objective_text"
+   },
+   {
+    "description": "Name of the plan",
+    "name": "plan_name"
+   },
+   {
+    "description": "Risk classification of the fund",
+    "name": "potential_risk_class"
+   },
+   {
+    "description": "Redemption Note",
+    "name": "redemption_note"
+   },
+   {
+    "description": "Maximum allocation in REITs/InvITs",
+    "name": "reit_invit_max"
+   },
+   {
+    "description": "Minimum allocation in REITs/InvITs",
+    "name": "reit_invit_min"
+   },
+   {
+    "description": "Start date for resale units",
+    "name": "resale_start_date"
+   },
+   {
+    "description": "RTA Code",
+    "name": "rta_code"
+   },
+   {
+    "description": "Full scheme name",
+    "name": "scheme_name"
+   },
+   {
+    "description": "Short name for the fund/scheme",
+    "name": "short_name"
+   },
+   {
+    "description": "Fund’s stated annual expense ratio",
+    "name": "stated_annual_expense"
+   },
+   {
+    "description": "Current status of the fund",
+    "name": "status"
+   },
+   {
+    "description": "Current transaction status",
+    "name": "transaction_status"
+   },
+   {
+    "description": "Unique AMC ID",
+    "name": "amc_id"
+   },
+   {
+    "description": "Category identifier",
+    "name": "category_id"
+   },
+   {
+    "description": "Identifier for the fund type",
+    "name": "type_id"
+   },
+   {
+    "description": "Indicates if SIP facility is available",
+    "name": "sip"
+   },
+   {
+    "description": "Notes related to SIP",
+    "name": "sip_note"
+   },
+   {
+    "description": "Indicates if SWP is available",
+    "name": "swp"
+   },
+   {
+    "description": "Minimum SWP amount",
+    "name": "min_swp_widw"
+   },
+   {
+    "description": "Indicates if STP is available",
+    "name": "stp"
+   },
+   {
+    "description": "Minimum SIP subsequent investment",
+    "name": "min_subsequent_sip_investment"
+   },
+   {
+    "description": "Transfer Agent",
+    "name": "transfer_agent"
+   },
+   {
+    "description": "Transfer Agent short name",
+    "name": "transfer_agent_short_name"
+   },
+   {
+    "description": "Transfer Agent email",
+    "name": "transfer_agent_email"
+   },
+   {
+    "description": "Unique Benchmark Code",
+    "name": "benchmark"
+   },
+   {
+    "description": "Unique Colour Id",
+    "name": "colour"
+   },
+   {
+    "description": "Unique identifier assigned to the auditor entity in the database. This code is used for internal reference and linking with related records.",
+    "name": "auditor_code"
+   },
+   {
+    "description": "Unique identifier assigned to the custodian entity in the database. This code is used for internal reference and linking with related records",
+    "name": "custodian_code"
+   },
+   {
+    "description": "Unique regular plan identifier",
+    "name": "reg_plan_id"
+   },
+   {
+    "description": "Variant scheme",
+    "name": "variant"
+   },
+   {
+    "description": "Variant fund identifier",
+    "name": "variant_fund_id"
+   },
+   {
+    "description": "Unique numeric identifier of the fund",
+    "name": "fund_id"
+   },
+   {
+    "description": "Indicates if instant redemption is available",
+    "name": "instant_redemption_facility"
+   },
+   {
+    "description": "NSDL-assigned code (for ETFs or dematerialized unit)",
+    "name": "nsdl_code"
+   }
+  ],
+  "description": "This table presents key information and attributes related to each mutual fund",
+  "update_frequency": null
+ },
+ "fund_rank_latest": {
+  "category": "ratings",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Rank based on 10-year performance",
+    "name": "rank_10year"
+   },
+   {
+    "description": "Rank based on 15-year performance",
+    "name": "rank_15year"
+   },
+   {
+    "description": "Rank based on 1-day performance",
+    "name": "rank_1day"
+   },
+   {
+    "description": "Rank based on 1-month performance",
+    "name": "rank_1month"
+   },
+   {
+    "description": "Rank based on 1-week performance",
+    "name": "rank_1week"
+   },
+   {
+    "description": "Rank based on 1-year performance",
+    "name": "rank_1year"
+   },
+   {
+    "description": "Rank based on 20-year performance",
+    "name": "rank_20year"
+   },
+   {
+    "description": "Rank based on 2-year performance",
+    "name": "rank_2year"
+   },
+   {
+    "description": "Rank based on 3-month performance",
+    "name": "rank_3month"
+   },
+   {
+    "description": "Rank based on 3-year performance",
+    "name": "rank_3year"
+   },
+   {
+    "description": "Rank based on 4-year performance",
+    "name": "rank_4year"
+   },
+   {
+    "description": "Rank based on 5-year performance",
+    "name": "rank_5year"
+   },
+   {
+    "description": "Rank based on 6-month performance",
+    "name": "rank_6month"
+   },
+   {
+    "description": "Rank based on 9-month performance",
+    "name": "rank_9month"
+   },
+   {
+    "description": "Rank based on year-to-date performance",
+    "name": "rank_ytd"
+   },
+   {
+    "description": "The date as of which these rankings are calculated",
+    "name": "return_date"
+   }
+  ],
+  "description": "This table stores the ranks assigned to funds across different time periods",
+  "update_frequency": null
+ },
+ "fund_return_latest": {
+  "category": "performance",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Return for 10 years",
+    "name": "ret_10year"
+   },
+   {
+    "description": "Return for 15 years",
+    "name": "ret_15year"
+   },
+   {
+    "description": "Return for 1 day",
+    "name": "ret_1day"
+   },
+   {
+    "description": "Return for 1 month",
+    "name": "ret_1month"
+   },
+   {
+    "description": "Return for 1 week",
+    "name": "ret_1week"
+   },
+   {
+    "description": "Return for 1 year",
+    "name": "ret_1year"
+   },
+   {
+    "description": "Return for 20 years",
+    "name": "ret_20year"
+   },
+   {
+    "description": "Return for 2 years",
+    "name": "ret_2year"
+   },
+   {
+    "description": "Return for 3 months",
+    "name": "ret_3month"
+   },
+   {
+    "description": "Return for 3 years",
+    "name": "ret_3year"
+   },
+   {
+    "description": "Return for 4 years",
+    "name": "ret_4year"
+   },
+   {
+    "description": "Return for 5 years",
+    "name": "ret_5year"
+   },
+   {
+    "description": "Return for 6 months",
+    "name": "ret_6month"
+   },
+   {
+    "description": "Return for 7 years",
+    "name": "ret_7year"
+   },
+   {
+    "description": "Return for 9 months",
+    "name": "ret_9month"
+   },
+   {
+    "description": "Return since inception of the fund",
+    "name": "ret_since_launch"
+   },
+   {
+    "description": "Year-to-date return",
+    "name": "ret_ytd"
+   },
+   {
+    "description": "The date as of which these returns are calculated",
+    "name": "return_date"
+   }
+  ],
+  "description": "The table includes fund returns across various time horizons. Returns are calculated daily and represented as absolute returns for periods of less than one year, and as CAGR for periods of one year and above",
+  "update_frequency": null
+ },
+ "fund_returns_annual": {
+  "category": "performance",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The fund’s return for the specified year",
+    "name": "returns"
+   },
+   {
+    "description": "The calendar year for which the return is reported",
+    "name": "year"
+   }
+  ],
+  "description": "This table contains the yearly returns of funds, calculated on an annual basis.",
+  "update_frequency": null
+ },
+ "fund_sip_returns": {
+  "category": "performance",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The date as of which the SIP returns are calculated",
+    "name": "as_on_date"
+   },
+   {
+    "description": "SIP return for 10 years",
+    "name": "r10year"
+   },
+   {
+    "description": "Value of investment for 10-year SIP period",
+    "name": "r10year_value"
+   },
+   {
+    "description": "SIP return for 15 years",
+    "name": "r15year"
+   },
+   {
+    "description": "Value of investment for 15-year SIP period",
+    "name": "r15year_value"
+   },
+   {
+    "description": "SIP return for 1 year",
+    "name": "r1year"
+   },
+   {
+    "description": "Value of investment for 1-year SIP period",
+    "name": "r1year_value"
+   },
+   {
+    "description": "SIP return for 20 years",
+    "name": "r20year"
+   },
+   {
+    "description": "Value of investment for 20-year SIP period",
+    "name": "r20year_value"
+   },
+   {
+    "description": "SIP return for 2 years",
+    "name": "r2year"
+   },
+   {
+    "description": "Value of investment for 2-year SIP period",
+    "name": "r2year_value"
+   },
+   {
+    "description": "SIP return for 3 months",
+    "name": "r3month"
+   },
+   {
+    "description": "Value of investment for 3-month SIP period",
+    "name": "r3month_value"
+   },
+   {
+    "description": "SIP return for 3 years",
+    "name": "r3year"
+   },
+   {
+    "description": "Value of investment for 3-year SIP period",
+    "name": "r3year_value"
+   },
+   {
+    "description": "SIP return for 4 years",
+    "name": "r4year"
+   },
+   {
+    "description": "Value of investment for 4-year SIP period",
+    "name": "r4year_value"
+   },
+   {
+    "description": "SIP return for 5 years",
+    "name": "r5year"
+   },
+   {
+    "description": "Value of investment for 5-year SIP period",
+    "name": "r5year_value"
+   },
+   {
+    "description": "SIP return for 6 months",
+    "name": "r6month"
+   },
+   {
+    "description": "Value of investment for 6-month SIP period",
+    "name": "r6month_value"
+   },
+   {
+    "description": "SIP return for 9 months",
+    "name": "r9month"
+   },
+   {
+    "description": "Value of investment for 9-month SIP period",
+    "name": "r9month_value"
+   },
+   {
+    "description": "SIP return since inception",
+    "name": "rsinceinception"
+   },
+   {
+    "description": "Value of investment since inception",
+    "name": "rsinceinception_value"
+   }
+  ],
+  "description": "This table contains SIP (Systematic Investment Plan) returns of funds across various time periods.",
+  "update_frequency": null
+ },
+ "fund_status": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "A short, standardized label representing the fund’s status.",
+    "name": "status_description"
+   },
+   {
+    "description": "A unique identifier assigned to each fund status",
+    "name": "status_id"
+   },
+   {
+    "description": "A detailed explanation of the fund status",
+    "name": "status_detail"
+   }
+  ],
+  "description": "This table serves as a master reference for the current status of mutual fund schemes",
+  "update_frequency": null
+ },
+ "fund_stylebox_sebi": {
+  "category": "risk",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The effective date for which the style box classification is calculated",
+    "name": "date"
+   },
+   {
+    "description": "Percentage of the fund’s portfolio invested in large-cap stocks (Top 100 companies as per SEBI)",
+    "name": "large_percentage"
+   },
+   {
+    "description": "Percentage allocation to mid-cap stocks (101st–250th companies)",
+    "name": "mid_percentage"
+   },
+   {
+    "description": "The weighted average P/B ratio of the fund’s portfolio",
+    "name": "pb"
+   },
+   {
+    "description": "The weighted average P/E ratio of the portfolio",
+    "name": "pe"
+   },
+   {
+    "description": "Represents the relative positioning or ranking of the fund within the style framework or peer group",
+    "name": "rank"
+   },
+   {
+    "description": "Percentage allocation to small-cap stocks (251st onwards)",
+    "name": "small_percentage"
+   },
+   {
+    "description": "Indicates the investment style classification of the fund",
+    "name": "style"
+   },
+   {
+    "description": "Represents the total market capitalization of the fund's portfolio as of the specified date, calculated by aggregating the market capitalization of all underlying holdings in the portfolio.",
+    "name": "market_cap"
+   }
+  ],
+  "description": "This table contains the style box details of mutual funds, derived using the SEBI-defined market capitalization classification of underlying stocks.It represents the fund’s allocation across market cap segments as per SEBI norms, helping in understanding the fund’s positioning within the regulatory framework.",
+  "update_frequency": null
+ },
+ "fund_transaction_details": {
+  "category": "transactions",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "Unique code representing a specific sub-category of the plan",
+    "name": "subplan_id"
+   },
+   {
+    "description": "Fund plan name",
+    "name": "plan_name"
+   },
+   {
+    "description": "Full Name of Subplan",
+    "name": "full_name"
+   },
+   {
+    "description": "International Securities Identification Number (ISIN) assigned to the fund or plan. It uniquely identifies the security for trading and settlement purposes",
+    "name": "isin_code"
+   },
+   {
+    "description": "Plan type",
+    "name": "plan_type"
+   },
+   {
+    "description": "RTA Code",
+    "name": "rta_code"
+   },
+   {
+    "description": "Transfer Agent Name",
+    "name": "rta_name"
+   },
+   {
+    "description": "Unique AMC ID",
+    "name": "fund_amc_id"
+   },
+   {
+    "description": "Fund Scheme ID",
+    "name": "fund_scheme_id"
+   },
+   {
+    "description": "Scheme purchase available",
+    "name": "scm_pur_available"
+   },
+   {
+    "description": "Scheme redemption available",
+    "name": "scm_red_available"
+   },
+   {
+    "description": "Scheme sip available",
+    "name": "scm_sip_available"
+   },
+   {
+    "description": "Scheme switch in available",
+    "name": "scm_switch_in_available"
+   },
+   {
+    "description": "Scheme switch out available",
+    "name": "scm_switch_out_available"
+   },
+   {
+    "description": "Scheme swp available",
+    "name": "scm_swp_available"
+   },
+   {
+    "description": "Scheme stp available",
+    "name": "scm_stp_available"
+   },
+   {
+    "description": "Latest SIP details",
+    "name": "latest_sip_details"
+   },
+   {
+    "description": "SIP/SWP/STP Minimum Investment Amount",
+    "name": "sip_stp_swp_min_amounts"
+   },
+   {
+    "description": "SIP/SWP/STP details",
+    "name": "sip_swp_stp_details"
+   },
+   {
+    "description": "Minimum investment to start a new account",
+    "name": "min_initial_investment"
+   },
+   {
+    "description": "Minimum additional investment",
+    "name": "min_subsequent_investment"
+   },
+   {
+    "description": "Minimum withdrawal amount",
+    "name": "min_withdrawl_amount"
+   },
+   {
+    "description": "Minimum SIP subsequent investment",
+    "name": "min_subsequent_sip_investment"
+   },
+   {
+    "description": "Minimum SWP amount",
+    "name": "min_swp_widw"
+   },
+   {
+    "description": "Minimum balance required in the account",
+    "name": "min_balance"
+   },
+   {
+    "description": "Minimum units allowed for withdrawal",
+    "name": "min_widw_unit"
+   },
+   {
+    "description": "Minimum additional units",
+    "name": "min_subsequent_investment_unit"
+   },
+   {
+    "description": "Minimum Investment Multiples",
+    "name": "min_investment_multiples"
+   },
+   {
+    "description": "Current transaction status",
+    "name": "transaction_status"
+   },
+   {
+    "description": "Maximum investment allowed",
+    "name": "max_inv_amount"
+   },
+   {
+    "description": "Minimum multiples for withdrawal",
+    "name": "min_withdrawal_multiple_amount"
+   },
+   {
+    "description": "Indicates if minors can invest",
+    "name": "minor_investments_allowed"
+   },
+   {
+    "description": "Unique numeric identifier of the fund",
+    "name": "fund_id"
+   }
+  ],
+  "description": "This table contains key fund-related details, covering essential information and attributes associated with each fund",
+  "update_frequency": "Irregular"
+ },
+ "funds_ratings": {
+  "category": "ratings",
+  "columns": [
+   {
+    "description": "Unique ID of Fund Plan",
+    "name": "plan_id"
+   },
+   {
+    "description": "Indicates the broad asset class of the fund",
+    "name": "asset_class"
+   },
+   {
+    "description": "Represents the fund category",
+    "name": "category"
+   },
+   {
+    "description": "Indicates the movement in rating compared to the previous period.",
+    "name": "change"
+   },
+   {
+    "description": "The current rating assigned to the fund based on VR methodology",
+    "name": "fund_rating"
+   },
+   {
+    "description": "The rating assigned in the previous period.",
+    "name": "previous_rating"
+   },
+   {
+    "description": "The effective date of the current rating",
+    "name": "rating_date"
+   },
+   {
+    "description": "A graded measure of the fund’s returns performance relative to peers",
+    "name": "return_grade"
+   },
+   {
+    "description": "A graded indicator of the fund’s risk level",
+    "name": "risk_grade"
+   },
+   {
+    "description": "AMFI Code",
+    "name": "Code"
+   },
+   {
+    "description": "The Registrar and Transfer Agent (RTA) code assigned to the fund",
+    "name": "rta_code"
+   },
+   {
+    "description": "The abbreviated name of the fund scheme",
+    "name": "short_name"
+   }
+  ],
+  "description": "This table contains the ratings assigned to mutual funds, calculated using the VR (Value Research) methodology.",
+  "update_frequency": null
+ },
+ "instrument": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "A short code or abbreviation for the instrument type",
+    "name": "abv"
+   },
+   {
+    "description": "Represents the broad asset class of the instrument",
+    "name": "asset_class"
+   },
+   {
+    "description": "A unique identifier assigned to each instrument",
+    "name": "asset_id"
+   },
+   {
+    "description": "A detailed description of the instrument",
+    "name": "description"
+   },
+   {
+    "description": "A reference identifier for the type of instrument",
+    "name": "instrument_type_id"
+   }
+  ],
+  "description": "This table serves as a master reference for financial instruments that can be part of a mutual fund’s portfolio",
+  "update_frequency": null
+ },
+ "nav": {
+  "category": "nav",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The NAV adjusted for corporate actions such as dividends, bonuses, or splits",
+    "name": "adjusted_nav"
+   },
+   {
+    "description": "Net Asset Value",
+    "name": "nav"
+   },
+   {
+    "description": "The date for which the NAV is applicable",
+    "name": "nav_date"
+   }
+  ],
+  "description": "This table contains the Net Asset Values (NAVs) of mutual funds for different dates",
+  "update_frequency": null
+ },
+ "rta_codes": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "The effective date for which the RTA information is applicable",
+    "name": "as_on_date"
+   },
+   {
+    "description": "A unique identifier for the Asset Management Company (AMC).",
+    "name": "fund_amc_id"
+   },
+   {
+    "description": "A unique identifier for the mutual fund scheme",
+    "name": "fund_scheme_id"
+   },
+   {
+    "description": "RTA Code",
+    "name": "rta_code"
+   },
+   {
+    "description": "Transfer Agent Name",
+    "name": "rta_name"
+   },
+   {
+    "description": "A unique identifier for the sub-plan of the scheme",
+    "name": "subplan_id"
+   },
+   {
+    "description": "The name of the sub-plan corresponding to the subplan_id",
+    "name": "subplan_name"
+   }
+  ],
+  "description": "This table contains the Registrar and Transfer Agent (RTA) codes associated with mutual funds",
+  "update_frequency": null
+ },
+ "schemes_rollingreturns": {
+  "category": "performance",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Category ID",
+    "name": "obj_code"
+   },
+   {
+    "description": "Rank based on 3-year return",
+    "name": "rank_1095_days"
+   },
+   {
+    "description": "Rank based on 14-day return",
+    "name": "rank_14_days"
+   },
+   {
+    "description": "Rank based on 180-day return",
+    "name": "rank_180_days"
+   },
+   {
+    "description": "Rank based on 5-year return",
+    "name": "rank_1825_days"
+   },
+   {
+    "description": "Rank based on 21-day return",
+    "name": "rank_21_days"
+   },
+   {
+    "description": "Rank based on 28-day return",
+    "name": "rank_28_days"
+   },
+   {
+    "description": "Rank based on 1-year return",
+    "name": "rank_365_days"
+   },
+   {
+    "description": "Rank based on 10-year return",
+    "name": "rank_3650_days"
+   },
+   {
+    "description": "Rank based on 7-day return",
+    "name": "rank_7_days"
+   },
+   {
+    "description": "Rank based on 2-year return",
+    "name": "rank_730_days"
+   },
+   {
+    "description": "Rank based on 90-day return",
+    "name": "rank_90_days"
+   },
+   {
+    "description": "3-year rolling return",
+    "name": "ret_1095_days"
+   },
+   {
+    "description": "14-day rolling return",
+    "name": "ret_14_days"
+   },
+   {
+    "description": "180-day rolling return",
+    "name": "ret_180_days"
+   },
+   {
+    "description": "5-year rolling return",
+    "name": "ret_1825_days"
+   },
+   {
+    "description": "21-day rolling return",
+    "name": "ret_21_days"
+   },
+   {
+    "description": "28-day rolling return",
+    "name": "ret_28_days"
+   },
+   {
+    "description": "1-year rolling return",
+    "name": "ret_365_days"
+   },
+   {
+    "description": "10-year rolling return",
+    "name": "ret_3650_days"
+   },
+   {
+    "description": "7-day rolling return",
+    "name": "ret_7_days"
+   },
+   {
+    "description": "2-year rolling return",
+    "name": "ret_730_days"
+   },
+   {
+    "description": "90-day rolling return",
+    "name": "ret_90_days"
+   },
+   {
+    "description": "The date as of which the rolling returns are calculated",
+    "name": "return_date"
+   },
+   {
+    "description": "Type Code of scheme",
+    "name": "type_code"
+   }
+  ],
+  "description": "This table contains the rolling returns of mutual funds calculated over different time periods",
+  "update_frequency": null
+ },
+ "sebi_categories": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Represents the SEBI sub-category (scheme-level classification) defined by the Securities and Exchange Board of India.",
+    "name": "category_name"
+   },
+   {
+    "description": "A unique identifier for the broad (parent) category under which the SEBI sub-category falls",
+    "name": "primary_category_id"
+   },
+   {
+    "description": "Represents the broad SEBI category",
+    "name": "primary_category_name"
+   },
+   {
+    "description": "A unique identifier assigned to each category defined by the Securities and Exchange Board of India",
+    "name": "sebi_category_id"
+   }
+  ],
+  "description": "This table stores the official mutual fund classification defined by the Securities and Exchange Board of India.",
+  "update_frequency": null
+ },
+ "securities": {
+  "category": "reference",
+  "columns": [
+   {
+    "description": "Unique identifier for the security",
+    "name": "security_id"
+   },
+   {
+    "description": "Unique code representing the type of security",
+    "name": "security_type_code"
+   },
+   {
+    "description": "ISO currency code in which the security is denominated",
+    "name": "base_currency_iso_code"
+   },
+   {
+    "description": "Description of the financial instrument type",
+    "name": "instrument_description"
+   },
+   {
+    "description": "Security ISIN",
+    "name": "isin"
+   },
+   {
+    "description": "Date from which the ISIN is effective or valid",
+    "name": "isin_as_of_date"
+   },
+   {
+    "description": "Complete name of the security",
+    "name": "full_name"
+   },
+   {
+    "description": "Abbreviated or commonly used name of the security",
+    "name": "short_name"
+   },
+   {
+    "description": "Effective date for the current security name",
+    "name": "name_as_of_date"
+   },
+   {
+    "description": "Series of the instrument",
+    "name": "series"
+   },
+   {
+    "description": "Interest rate applicable (for debt instruments)",
+    "name": "coupon_rate"
+   },
+   {
+    "description": "Identifier linking to maturity master/reference table",
+    "name": "maturity_id"
+   },
+   {
+    "description": "Maturity date of the instrument (for debt securities)",
+    "name": "maturity"
+   },
+   {
+    "description": "Broad classification (e.g., Equity, Debt, Hybrid, Cash)",
+    "name": "asset_class"
+   },
+   {
+    "description": "Additional details or notes about the security",
+    "name": "description"
+   },
+   {
+    "description": "Unique Entity id",
+    "name": "entity_id"
+   }
+  ],
+  "description": "This table serves as the master reference for all securities across asset classes",
+  "update_frequency": null
+ },
+ "sip_swp_stp_details": {
+  "category": "transactions",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Name of the mutual fund plan (e.g., Growth, IDCW)",
+    "name": "plan_name"
+   },
+   {
+    "description": "Allowed dates in a month when SIP can be registered (e.g., 1st, 5th, 10th, etc.)",
+    "name": "sip_dates"
+   },
+   {
+    "description": "Frequency of investment",
+    "name": "sip_frequency"
+   },
+   {
+    "description": "SIP amount must be in multiples of this value (e.g., ₹500 multiples)",
+    "name": "sip_in_multiples_of"
+   },
+   {
+    "description": "Maximum amount allowed per SIP installment.",
+    "name": "sip_max_inv_amount"
+   },
+   {
+    "description": "Minimum number of SIP installments required",
+    "name": "sip_min_installments"
+   },
+   {
+    "description": "Minimum amount required per SIP installment.",
+    "name": "sip_min_inv_amount"
+   },
+   {
+    "description": "Allowed dates for executing STP transfers",
+    "name": "stp_dates"
+   },
+   {
+    "description": "Frequency of transfer (e.g., Daily, Weekly, Monthly)",
+    "name": "stp_frequency"
+   },
+   {
+    "description": "Transfer amount must be in multiples of this value",
+    "name": "stp_in_multiples_of"
+   },
+   {
+    "description": "Minimum number of STP installments required",
+    "name": "stp_min_installments"
+   },
+   {
+    "description": "Minimum amount per STP transfer",
+    "name": "stp_min_inv_amount"
+   },
+   {
+    "description": "Allowed dates for withdrawals",
+    "name": "swp_dates"
+   },
+   {
+    "description": "Frequency of withdrawal (e.g., Monthly, Quarterly)",
+    "name": "swp_frequency"
+   },
+   {
+    "description": "Withdrawal amount must be in multiples of this value",
+    "name": "swp_in_multiples_of"
+   },
+   {
+    "description": "Minimum number of withdrawals required",
+    "name": "swp_min_installments"
+   },
+   {
+    "description": "Minimum withdrawal amount per installment.",
+    "name": "swp_min_inv_amount"
+   }
+  ],
+  "description": "This table provides details related to systematic transactions for the fund,",
+  "update_frequency": null
+ },
+ "stats_variables": {
+  "category": "risk",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Alpha of scheme",
+    "name": "alpha"
+   },
+   {
+    "description": "Alpha stated of scheme",
+    "name": "alpha_stated"
+   },
+   {
+    "description": "Date as of which the risk metrics are calculated",
+    "name": "as_on_date"
+   },
+   {
+    "description": "Beta of scheme",
+    "name": "beta"
+   },
+   {
+    "description": "Beta stated of scheme",
+    "name": "beta_stated"
+   },
+   {
+    "description": "Information Ratio of scheme",
+    "name": "information_ratio"
+   },
+   {
+    "description": "Mean of scheme",
+    "name": "mean"
+   },
+   {
+    "description": "Date when the fund’s rating or evaluation was assigned/updated",
+    "name": "rating_date"
+   },
+   {
+    "description": "R Square stated of scheme",
+    "name": "rsquare_stated"
+   },
+   {
+    "description": "R Square of scheme",
+    "name": "rsquared"
+   },
+   {
+    "description": "Sharp Ratio of scheme",
+    "name": "sharpe_ratio"
+   },
+   {
+    "description": "Sortino Ratio of scheme",
+    "name": "sortino_ratio"
+   },
+   {
+    "description": "Standard Deviation of scheme",
+    "name": "standard_deviation"
+   },
+   {
+    "description": "Treynor of the scheme",
+    "name": "treynor"
+   },
+   {
+    "description": "Stated Treynor of the scheme",
+    "name": "treynor_stated"
+   }
+  ],
+  "description": "This table captures various risk parameters and indicators used to assess the risk profile of the fund",
+  "update_frequency": null
+ },
+ "subplan_isin": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "International Securities Identification Number (ISIN) assigned to the fund or plan. It uniquely identifies the security for trading and settlement purposes",
+    "name": "isin_code"
+   },
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Code representing a specific sub-category of the plan (e.g., Direct/Regular, Growth/IDCW variants)",
+    "name": "subplan_code"
+   }
+  ],
+  "description": "This table maps each fund/plan to its corresponding ISIN",
+  "update_frequency": null
+ },
+ "subplans": {
+  "category": "fund-info",
+  "columns": [
+   {
+    "description": "Unique identifier assigned to a specific mutual fund plan in the database",
+    "name": "plan_id"
+   },
+   {
+    "description": "Complete descriptive name of the sub-plan, combining all attributes (e.g., Direct Plan – Growth Option).",
+    "name": "subplan_full_name"
+   },
+   {
+    "description": "Unique code representing a specific sub-category of the plan",
+    "name": "subplan_id"
+   },
+   {
+    "description": "Short name of the sub-plan",
+    "name": "subplan_name"
+   }
+  ],
+  "description": "This table provides details of all sub-plans associated with a scheme.",
+  "update_frequency": null
+ }
+}

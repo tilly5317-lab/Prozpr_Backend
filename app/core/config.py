@@ -689,6 +689,71 @@ class Settings:
         """CAS statement import is inert (503s) unless the API key is set."""
         return bool(Settings.get_casparser_api_key())
 
+    # ── Value Research (valueresearchapi.in): mutual-fund reference data ──
+    @staticmethod
+    def get_vr_base_url() -> str:
+        return (
+            (_getenv("VR_API_BASE_URL") or "https://valueresearchapi.in")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_vr_api_key() -> str | None:
+        """Value Research API key, sent as the ``API_KEY`` **request header**.
+
+        Never a query parameter — it would land in access logs. VR also
+        whitelists by source IP (our backend, 13.234.33.230), so a key alone
+        does not grant access from a laptop: requests from anywhere else are
+        stopped by Cloudflare before VR sees them.
+        """
+        v = (_getenv("VR_API_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def vr_enabled() -> bool:
+        """VR reads return empty rather than erroring when no key is set."""
+        return bool(Settings.get_vr_api_key())
+
+    @staticmethod
+    def vr_sync_enabled() -> bool:
+        """Scheduled VR mirror refresh. Defaults **off**, unlike the mfapi and
+        benchmark schedulers — a vendor pull should begin because someone
+        decided to, not because a deploy happened."""
+        raw = (_getenv("VR_SYNC_ENABLED") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def get_vr_sync_tiers() -> tuple[str, ...]:
+        """Which spec tiers the sync fetches (``VR_SYNC_TIERS``, comma-separated).
+
+        Defaults to the CFO's list plus the masters it cannot be read without:
+        ``core,additional,support``. ``optional`` and ``candidate`` are declared
+        in the registry but never fetched unless named here, so widening the
+        contract is a config change and narrowing it cannot orphan code.
+        """
+        from app.domains.vr_data.specs import DEFAULT_ENABLED_TIERS
+
+        raw = (_getenv("VR_SYNC_TIERS") or "").strip()
+        if not raw:
+            return DEFAULT_ENABLED_TIERS
+        valid = {"core", "additional", "optional", "support", "candidate"}
+        chosen = tuple(
+            t for t in (p.strip().lower() for p in raw.split(",")) if t in valid
+        )
+        return chosen or DEFAULT_ENABLED_TIERS
+
+    @staticmethod
+    def get_vr_rate_limit_per_hour() -> int:
+        """Local ceiling on VR requests/hour. VR's documented limit is 500 and
+        it is account-wide, so the default leaves headroom for ad-hoc ops calls
+        rather than spending the whole budget on scheduled syncs."""
+        raw = (_getenv("VR_RATE_LIMIT_PER_HOUR") or "").strip()
+        try:
+            return max(1, int(raw)) if raw else 400
+        except ValueError:
+            return 400
+
     @staticmethod
     def get_casparser_multipart_max_bytes() -> int:
         """Largest CAS PDF sent to casparser as a multipart upload. Their edge

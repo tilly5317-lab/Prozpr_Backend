@@ -145,6 +145,7 @@ def _start_schedulers() -> None:
     - mfapi.in NAV polling (``MFAPI_SCHEDULER_ENABLED``)
     - thrice-daily benchmark EOD refresh (``BENCHMARK_SCHEDULER_ENABLED``)
     - daily DPDP erasure purge + retention pass (``PRIVACY_SCHEDULER_ENABLED``)
+    - Value Research mirror refresh (``VR_SYNC_ENABLED``, default **off**)
     """
     if not get_settings().mfapi_scheduler_enabled():
         logger.info("mfapi scheduler disabled (MFAPI_SCHEDULER_ENABLED is false)")
@@ -176,6 +177,15 @@ def _start_schedulers() -> None:
         except Exception as exc:
             logger.warning("privacy scheduler failed to start: %s", exc)
 
+    # Imported lazily: the VR domain builds 33 Core Tables at import time, and
+    # a process that never enables the mirror should not pay for that.
+    try:
+        from app.domains.vr_data.scheduler import start_vr_scheduler
+
+        start_vr_scheduler()
+    except Exception as exc:
+        logger.warning("vr scheduler failed to start: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # shutdown
@@ -194,6 +204,12 @@ async def _shutdown() -> None:
         await shutdown_privacy_scheduler()
     except Exception:  # pragma: no cover - shutdown must not raise
         logger.warning("privacy scheduler shutdown failed.", exc_info=True)
+    try:
+        from app.domains.vr_data.scheduler import shutdown_vr_scheduler
+
+        await shutdown_vr_scheduler()
+    except Exception:  # pragma: no cover - shutdown must not raise
+        logger.warning("vr scheduler shutdown failed.", exc_info=True)
     # Flush buffered LLM events before the process goes away, or the last turns'
     # traces are lost.
     shutdown_posthog()
