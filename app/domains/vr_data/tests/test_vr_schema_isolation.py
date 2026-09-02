@@ -309,7 +309,7 @@ def test_filters_offered_are_specific_to_each_table():
     assert _identity_params(specs["countries"]) == {}
     # And every offered filter maps to a real column of that table.
     for name, spec in specs.items():
-        for param, (column, _help) in _identity_params(spec).items():
+        for param, (column, _help, _example) in _identity_params(spec).items():
             assert column in spec.columns, f"{name}.{param} -> {column}"
 
 
@@ -332,3 +332,46 @@ def test_browse_sections_reference_real_tables_and_sort_fields():
         assert "plan_id" in specs[table].columns, f"{section}: {table} has no plan_id"
 
     assert set(_DEFAULT_SECTIONS) <= set(_SECTIONS)
+
+
+def test_json_query_rejects_a_filter_the_table_does_not_have():
+    """`year` on `nav` must 400 with the valid filters named, not be forwarded
+    to VR and come back mysteriously empty."""
+    from app.domains.vr_data.routers.vr_query_router import VrQuery
+    from app.domains.vr_data.routers.vr_tables_router import _identity_params
+
+    specs = all_specs()
+    assert "year" not in _identity_params(specs["nav"])
+    assert "year" in _identity_params(specs["fund_returns_annual"])
+    # The model itself accepts the field; the endpoint is what validates it
+    # against the chosen table, so both must stay in step.
+    q = VrQuery(table="nav", year="2024")
+    assert q.year == "2024"
+
+
+def test_json_query_examples_all_name_real_tables_and_filters():
+    """Swagger's examples must be copy-paste runnable, not decorative."""
+    from app.domains.vr_data.routers.vr_query_router import VrQuery
+    from app.domains.vr_data.routers.vr_tables_router import _identity_params
+
+    specs = all_specs()
+    examples = VrQuery.model_config["json_schema_extra"]["examples"]
+    assert examples
+    for ex in examples:
+        table = ex["table"]
+        assert table in specs, f"example names unknown table {table}"
+        offered = set(_identity_params(specs[table]))
+        for key in ex:
+            if key in {
+                "table",
+                "changed_in",
+                "sort_by",
+                "newest_first",
+                "limit",
+                "count_only",
+                "filters",
+            }:
+                continue
+            assert key in offered, f"{table} does not accept {key}"
+        if ex.get("sort_by"):
+            assert ex["sort_by"] in specs[table].columns
