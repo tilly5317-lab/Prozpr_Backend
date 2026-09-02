@@ -28,6 +28,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **practical_asset_allocation/** — holdings-aware allocation (variant of `asset_allocation`); first step of the rebalancing flow
   - **general_chat/** — Anthropic-backed fallback chat (web-search research + composed reply) when no specialist owns the intent
   - **support/** — in-app issue reports: logs to the Google Sheet register (+ optional screenshot/email)
+  - **vr_data/** — Value Research vendor-data mirror in its own `vr` Postgres schema (no FKs into the app schema); spec-driven sync, `plan_id`↔`scheme_code` crosswalk, additive read API. See `domains/vr_data/CLAUDE.md`.
 - **routers/** — thin top-level package: `health.py`, `tags.py` (OpenAPI tags), and the aggregator `__init__.py` exposing `all_routers` for `main.py`. Every other route lives under `domains/*/routers/`.
 
 ## Files at this level
