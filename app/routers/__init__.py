@@ -43,6 +43,7 @@ from app.domains.execution.routers.fp_router import router as fp_router
 from app.domains.privacy.routers.privacy_router import router as privacy_router
 from app.domains.vr_data.routers import router as vr_router
 from app.domains.vr_data.routers import tables_router as vr_tables_router
+from app.domains.vr_data.routers import browse_router as vr_browse_router
 
 all_routers = [
     health_router,
@@ -72,5 +73,6 @@ all_routers = [
     fp_router,
     privacy_router,
     vr_router,
+    vr_browse_router,
     vr_tables_router,
 ]
