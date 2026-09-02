@@ -5,11 +5,15 @@ gates access by source IP at Cloudflare, so from anywhere else every request
 returns a Cloudflare challenge page and the results say nothing about our key
 or our contract.
 
-    ssh <backend>
-    cd ~/Prozpr_Backend && source .venv/bin/activate
-    VR_API_KEY=... python -m scripts.vr_smoke_test                # every declared table
-    VR_API_KEY=... python -m scripts.vr_smoke_test --tier core    # just the CFO's eight
-    VR_API_KEY=... python -m scripts.vr_smoke_test --sample nav   # one row, to see shapes
+Use the app's interpreter, not the system one: PM2 runs ``venv/bin/uvicorn``
+(``ecosystem.config.cjs``), and the box's ``python3`` has none of the
+dependencies. ``VR_API_KEY`` is read from the backend ``.env``, so it does not
+need repeating on the command line once it is set there.
+
+    cd ~/Prozpr_Backend
+    venv/bin/python -m scripts.vr_smoke_test --describe        # what our key covers
+    venv/bin/python -m scripts.vr_smoke_test --tier core       # the eight requested
+    venv/bin/python -m scripts.vr_smoke_test --sample nav      # one page, to see shapes
 
 What it does **not** do: write to the database, fetch more than one page, or
 issue a single bulk request. Each table costs one ``output=count`` call — the
@@ -39,12 +43,24 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.domains.vr_data.client import (  # noqa: E402
-    VrAccessError,
-    VrClient,
-    VrError,
-)
-from app.domains.vr_data.specs import all_specs  # noqa: E402
+try:
+    from app.domains.vr_data.client import (  # noqa: E402
+        VrAccessError,
+        VrClient,
+        VrError,
+    )
+    from app.domains.vr_data.specs import all_specs  # noqa: E402
+except ModuleNotFoundError as _exc:  # pragma: no cover - interpreter guard
+    # On the deploy box `python3` is the system interpreter with none of the
+    # app's dependencies; PM2 runs `venv/bin/uvicorn`. Say so.
+    for _candidate in ("venv/bin/python", ".venv/bin/python", ".venv/Scripts/python.exe"):
+        if (BACKEND_ROOT / _candidate).exists():
+            sys.exit(
+                f"{_exc.name!r} is not installed for {sys.executable}.\n"
+                "This is the app's interpreter, not the system one - re-run as:\n\n"
+                f"    {_candidate} -m scripts.vr_smoke_test {' '.join(sys.argv[1:])}\n"
+            )
+    raise
 
 OK = "ok"
 REFUSED = "refused-by-vr"

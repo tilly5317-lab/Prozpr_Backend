@@ -26,12 +26,38 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.domains.vr_data.schema import (  # noqa: E402
-    CONTROL_TABLES,
-    MIRROR_TABLES,
-    create_schema_sql,
-)
-from app.domains.vr_data.specs import all_specs  # noqa: E402
+
+def _fail_on_wrong_interpreter(exc: ModuleNotFoundError) -> None:
+    """Explain the venv, rather than leaving a bare ModuleNotFoundError.
+
+    On the deploy box ``python3`` is the system interpreter and has none of the
+    app's dependencies — PM2 runs ``venv/bin/uvicorn`` (see
+    ``ecosystem.config.cjs``), so ops commands need ``venv/bin/python`` too.
+    Hitting this as a raw traceback reads like a broken script rather than the
+    wrong interpreter, which costs a confusing few minutes every time.
+    """
+    for candidate in ("venv/bin/python", ".venv/bin/python", ".venv/Scripts/python.exe"):
+        if (BACKEND_ROOT / candidate).exists():
+            sys.exit(
+                f"{exc.name!r} is not installed for {sys.executable}.\n"
+                f"This is the app's interpreter, not the system one - re-run as:\n\n"
+                f"    {candidate} -m scripts.vr_bootstrap {' '.join(sys.argv[1:])}\n"
+            )
+    sys.exit(
+        f"{exc.name!r} is not installed for {sys.executable}, and no virtualenv "
+        f"was found under {BACKEND_ROOT}. Activate the app's environment first."
+    )
+
+
+try:
+    from app.domains.vr_data.schema import (  # noqa: E402
+        CONTROL_TABLES,
+        MIRROR_TABLES,
+        create_schema_sql,
+    )
+    from app.domains.vr_data.specs import all_specs  # noqa: E402
+except ModuleNotFoundError as exc:  # pragma: no cover - interpreter guard
+    _fail_on_wrong_interpreter(exc)
 
 SQL_PATH = BACKEND_ROOT / "migrations" / "sql" / "vr_schema.sql"
 

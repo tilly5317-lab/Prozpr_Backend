@@ -13,9 +13,11 @@ one is configured, not what it is.
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +35,32 @@ from app.domains.vr_data.services.sync_service import (
 from app.domains.vr_data.specs import all_specs, spec
 
 router = APIRouter(prefix="/vr", tags=["VR Data"])
+
+#: Field-filter names we will forward to VR. VR's filter syntax is
+#: ``FIELDNAME``, ``FIELDNAME-GREATER-THAN``, ``FIELDNAME-LESS-THAN``; anything
+#: outside this shape is rejected rather than passed upstream.
+_SAFE_PARAM = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+
+
+def _parse_window(raw: Optional[str], field: str):
+    """Accept VR's two documented window formats, reject anything else.
+
+    Parsed here rather than forwarded as a string so a typo fails with a clear
+    400 instead of spending one of the 500/hour requests to have VR reject it.
+    """
+    if raw is None or not raw.strip():
+        return None
+    value = raw.strip()
+    for fmt, kind in (("%Y-%m-%d-%H-%M", "datetime"), ("%Y-%m-%d", "date")):
+        try:
+            parsed = datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+        return parsed if kind == "datetime" else parsed.date()
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        f"{field} must be YYYY-MM-DD or YYYY-MM-DD-HH-MM (IST); got {value!r}",
+    )
 
 
 async def _schema_exists(db: AsyncSession) -> bool:
@@ -202,6 +230,117 @@ async def vr_probe(
         "reachable": True,
         "rows_in_default_window": count,
         "note": "Default window with no changed-after is VR's last 48 hours.",
+    }
+
+
+@router.get("/raw/{table}")
+async def vr_raw(
+    request: Request,
+    table: str,
+    output: str = Query("data", pattern="^(data|count)$"),
+    changed_after: Optional[str] = Query(
+        None,
+        description="YYYY-MM-DD or YYYY-MM-DD-HH-MM (IST). Max 90 days old; "
+        "omit both window params and VR returns the last 48 hours.",
+    ),
+    changed_before: Optional[str] = Query(
+        None, description="Only valid with changed_after; caps the result at 7 days."
+    ),
+    sort: Optional[str] = Query(None, description="Field name, '-' prefix to reverse."),
+    max_rows: int = Query(
+        25, ge=1, le=500, description="Truncate the response for readability."
+    ),
+    _: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Read one page of a VR table **live**, to inspect real responses.
+
+    A thin, read-only passthrough. It exists because ``/probe`` returns only a
+    count, so there was no way to see an actual VR row without shell access to
+    the backend — and the backend is the only address VR allows.
+
+    Any query parameter not named above is forwarded to VR as a field filter
+    (VR's syntax is ``FIELDNAME=value``, ``FIELDNAME-GREATER-THAN=value``,
+    ``FIELDNAME-LESS-THAN=value``), so ``?plan_id=16014`` works here exactly as
+    it does against VR.
+
+    Deliberately constrained:
+
+    * **Allowlisted** to tables in our registry, so the path cannot be used to
+      reach an arbitrary upstream URL.
+    * **Read-only** — writes nothing, and touches no application table.
+    * **Truncated** by ``max_rows``; ``row_count`` reports what VR actually
+      sent, so truncation is never mistaken for a small result.
+    * Shares the account-wide request budget, so heavy use here starves the
+      sync. VR's own guidance is to serve users from our mirror and never from
+      their API — this is an operator tool, not a read path.
+    """
+    try:
+        spec_ = spec(table)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+
+    reserved = {
+        "output",
+        "changed_after",
+        "changed_before",
+        "sort",
+        "max_rows",
+    }
+    filters: dict[str, str] = {}
+    for key, value in request.query_params.items():
+        if key in reserved:
+            continue
+        if not _SAFE_PARAM.match(key):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"unsupported filter name: {key!r}"
+            )
+        filters[key] = value
+
+    after = _parse_window(changed_after, "changed_after")
+    before = _parse_window(changed_before, "changed_before")
+
+    async with VrClient() as client:
+        if not client.configured:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "VR_API_KEY is not set"
+            )
+        try:
+            if output == "count":
+                return {
+                    "table": table,
+                    "output": "count",
+                    "count": await client.count(table, changed_after=after),
+                }
+            page = await client.fetch_page(
+                table,
+                changed_after=after,
+                changed_before=before,
+                sort=sort,
+                filters=filters or None,
+            )
+        except VrError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"{exc} (vendor_refused={getattr(exc, 'reached_vr', None)})",
+            ) from None
+
+    declared = set(spec_.columns)
+    returned = set(page.rows[0]) if page.rows else set()
+    return {
+        "table": table,
+        "tier": spec_.tier,
+        "row_count": len(page.rows),
+        "returned_rows": min(len(page.rows), max_rows),
+        "has_more_pages": bool(page.next_url),
+        "fields_declared": len(declared),
+        "fields_returned": len(returned),
+        # The two lists that matter when comparing a live response to the
+        # registry: what we would silently drop, and what we expected but VR
+        # did not send.
+        "unknown_fields": sorted(returned - declared),
+        "missing_fields": sorted(declared - returned),
+        "filters_applied": filters,
+        "rows": page.rows[:max_rows],
     }
 
 
