@@ -311,3 +311,24 @@ def test_filters_offered_are_specific_to_each_table():
     for name, spec in specs.items():
         for param, (column, _help) in _identity_params(spec).items():
             assert column in spec.columns, f"{name}.{param} -> {column}"
+
+
+def test_browse_sections_reference_real_tables_and_sort_fields():
+    """Every section of /vr/fund/{plan_id} must name a table we declare, and
+    sort on a field that table actually has — a typo here would surface only as
+    a 502 from VR at runtime."""
+    from app.domains.vr_data.routers.vr_browse_router import (
+        _DEFAULT_SECTIONS,
+        _SECTIONS,
+    )
+
+    specs = all_specs()
+    for section, (table, sort) in _SECTIONS.items():
+        assert table in specs, f"{section} -> unknown table {table}"
+        if sort:
+            field = sort.lstrip("-")
+            assert field in specs[table].columns, f"{section}: {table} has no {field}"
+        # Every section filters on plan_id, so the table must carry it.
+        assert "plan_id" in specs[table].columns, f"{section}: {table} has no plan_id"
+
+    assert set(_DEFAULT_SECTIONS) <= set(_SECTIONS)
