@@ -454,6 +454,55 @@ async def crosswalk_unresolved(
     return {"count": len(rows), "schemes": rows}
 
 
+@router.put("/crosswalk/link", tags=["VR Crosswalk (editable)"])
+async def crosswalk_link_upsert(
+    plan_id: str = Query(..., description="Value Research plan_id"),
+    scheme_code: str = Query(..., description="Our mf_fund_metadata.scheme_code"),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Pin one plan_id → scheme_code mapping by hand. Survives every rebuild.
+
+    This is the **only** writable table in the `vr` schema, and the only place
+    CRUD is meaningful here. `vr.scheme_link` is ours, not the vendor's: the
+    automatic pass matches on ISIN then AMFI code and deliberately never on
+    scheme name, so a plan it cannot resolve is simply absent. A manual link
+    fills that gap and is preserved by `match_method='manual'` when the
+    crosswalk is rebuilt.
+
+    Every other `vr.*` table is a mirror upserted on Value Research's own key —
+    a row written there is overwritten by the next sync, and a row deleted
+    there comes back, so those have no write routes on purpose.
+    """
+    await crosswalk_service.link_manually(
+        db, plan_id=plan_id.strip(), scheme_code=scheme_code.strip()
+    )
+    return {
+        "plan_id": plan_id.strip(),
+        "scheme_code": scheme_code.strip(),
+        "match_method": "manual",
+        "note": "Preserved on crosswalk rebuild.",
+    }
+
+
+@router.delete("/crosswalk/link", tags=["VR Crosswalk (editable)"])
+async def crosswalk_link_delete(
+    plan_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Remove one mapping. The next rebuild may re-derive it automatically."""
+    from sqlalchemy import delete as sql_delete
+
+    from app.domains.vr_data.schema import SCHEME_LINK
+
+    result = await db.execute(
+        sql_delete(SCHEME_LINK).where(SCHEME_LINK.c.plan_id == plan_id.strip())
+    )
+    await db.commit()
+    return {"plan_id": plan_id.strip(), "deleted": result.rowcount or 0}
+
+
 @router.get("/backfill/budget")
 async def backfill_budget(
     table: str = Query(...),
