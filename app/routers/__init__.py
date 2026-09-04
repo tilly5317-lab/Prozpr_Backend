@@ -35,6 +35,7 @@ from app.domains.ingestion.routers.cas_uploads_router import (
     router as cas_uploads_router,
 )
 from app.domains.ingestion.routers.mf_ingest_router import router as mf_ingest_router
+from app.domains.ingestion.routers.mfc_cas_router import router as mfc_cas_router
 from app.domains.cashflow.routers.cashflow_router import router as cashflow_router
 from app.domains.ai_engine.routers import router as ai_modules_router
 from app.domains.support.routers.support_router import router as support_router
@@ -66,6 +67,7 @@ all_routers = [
     simbanks_router,
     mf_data_router,
     mf_ingest_router,
+    mfc_cas_router,
     cas_uploads_router,
     cashflow_router,
     ai_modules_router,

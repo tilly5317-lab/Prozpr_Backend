@@ -38,6 +38,13 @@ OPENAPI_TAG_METADATA: list[dict[str, Any]] = [
     },
     {"name": "MF Ingest", "description": "Mutual fund reference data ingestion."},
     {
+        "name": "MF Central CAS",
+        "description": (
+            "Consent-based CAS fetched directly from MF Central (CAMS + KFintech), "
+            "replacing the generate-download-upload PDF round-trip."
+        ),
+    },
+    {
         "name": "AI — Intent classifier",
         "description": "Direct intent classification endpoint.",
     },

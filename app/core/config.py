@@ -689,6 +689,165 @@ class Settings:
         """CAS statement import is inert (503s) unless the API key is set."""
         return bool(Settings.get_casparser_api_key())
 
+    # ── MF Central (mfcentral.com): consent-based CAS straight from the RTAs ──
+    # The replacement for the casparser.in PDF round-trip: the investor consents
+    # inside MFC's own OTP UI, downloads a QR, and we exchange that QR for the
+    # full transaction ledger as JSON. Nine settings, because MFC issues nine
+    # distinct secrets — see `mfc_crypto` for why the two AES keys differ.
+    @staticmethod
+    def get_mfc_api_base_url() -> str:
+        """Services host for the client APIs (token, newCasRequest, validateQRCode)."""
+        return (
+            (_getenv("MFC_API_BASE_URL") or "https://uatservices.mfcentral.com")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_mfc_redirect_base_url() -> str:
+        """Host serving MFC's investor-facing consent UI (``/api/auth/start``).
+
+        A DIFFERENT host from the API base — UAT splits them across
+        ``uatservices.`` and ``mfc-cas-uat.``, and pointing the redirect at the
+        services host yields a 404 the investor sees, not one we can catch.
+        """
+        return (
+            (_getenv("MFC_REDIRECT_BASE_URL") or "https://mfc-cas-uat.mfcentral.com")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_mfc_origin_header() -> str:
+        """``Origin`` MFC expects on the client APIs; theirs, not ours."""
+        return (
+            (_getenv("MFC_ORIGIN") or "https://uatapp.mfcentral.com")
+            .strip()
+            .rstrip("/")
+        )
+
+    @staticmethod
+    def get_mfc_client_id() -> str | None:
+        v = (_getenv("MFC_CLIENT_ID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_client_secret() -> str | None:
+        v = (_getenv("MFC_CLIENT_SECRET") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_username() -> str | None:
+        v = (_getenv("MFC_USERNAME") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_password() -> str | None:
+        v = (_getenv("MFC_PASSWORD") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_encryption_key() -> str | None:
+        """Shared secret for the API envelope. Hashed to 32 bytes before use."""
+        v = (_getenv("MFC_ENCRYPTION_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_iv() -> str | None:
+        """The CONSTANT initialisation vector MFC issues for the API envelope."""
+        v = (_getenv("MFC_IV") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_url_encryption_key() -> str | None:
+        """Exactly 32 characters, used RAW (not hashed) for the redirect URL.
+
+        The value below is the one printed in MFC's integration guide, which is
+        shared across UAT tenants; production issues a private one.
+        """
+        v = (_getenv("MFC_URL_ENCRYPTION_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_private_key() -> str | None:
+        """Our RSA private key (PEM or base64 DER) for signing requests."""
+        v = (_getenv("MFC_PRIVATE_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_public_key() -> str | None:
+        """MFC's RSA public key, for verifying their response signatures."""
+        v = (_getenv("MFC_PUBLIC_KEY") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_signature_kid() -> str | None:
+        """Optional ``kid`` header on our detached JWS; MFC's samples carry one."""
+        v = (_getenv("MFC_SIGNATURE_KID") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_mfc_signature_mode() -> str:
+        """``detached`` (RFC 7797, matches MFC's wire capture) or ``jwt`` (the
+        integration guide's compact-JWT shape). See `mfc_crypto`."""
+        raw = (_getenv("MFC_SIGNATURE_MODE") or "detached").strip().lower()
+        return raw if raw in {"detached", "jwt"} else "detached"
+
+    @staticmethod
+    def get_mfc_crypto_mode() -> str:
+        """``local`` signs and encrypts in-process; ``remote`` delegates to MFC's
+        own ``/api/test/{encrypt,generateSignature,decrypt}`` helpers.
+
+        Remote mode exists for the first hours of a UAT integration, when it is
+        genuinely unclear whether a rejection is our key derivation or our
+        payload: it removes our crypto from the equation entirely. It costs
+        three extra round-trips per call and ships the plaintext payload to MFC
+        before the transport-level encryption exists, so it is not a production
+        mode and the client refuses it outside UAT hosts.
+        """
+        raw = (_getenv("MFC_CRYPTO_MODE") or "local").strip().lower()
+        return raw if raw in {"local", "remote"} else "local"
+
+    @staticmethod
+    def get_mfc_redirect_url() -> str:
+        """Where MFC sends the investor once the QR is downloaded — a FRONTEND
+        route, since the browser lands there, not the API."""
+        return (
+            _getenv("MFC_REDIRECT_URL") or "http://localhost:8080/mfc-cas/callback"
+        ).strip()
+
+    @staticmethod
+    def get_mfc_verify_response_signature() -> bool:
+        """Reject responses whose signature does not verify.
+
+        Defaults **off**: during UAT wiring MFC has been observed returning a
+        signature over a differently-normalised body, and a hard failure there
+        hides the decrypted payload that would explain it. Turn on for
+        production, where an unverified response is a reason to stop.
+        """
+        raw = (_getenv("MFC_VERIFY_RESPONSE_SIGNATURE") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def mfc_enabled() -> bool:
+        """The MFC CAS flow 503s unless the full credential set is present.
+
+        All-or-nothing on purpose: a half-configured tenant fails at the third
+        API call with an opaque 401 instead of at the first, cheapest check.
+        """
+        return all(
+            (
+                Settings.get_mfc_client_id(),
+                Settings.get_mfc_client_secret(),
+                Settings.get_mfc_username(),
+                Settings.get_mfc_password(),
+                Settings.get_mfc_encryption_key(),
+                Settings.get_mfc_iv(),
+                Settings.get_mfc_url_encryption_key(),
+                Settings.get_mfc_private_key(),
+            )
+        )
+
     # ── Value Research (valueresearchapi.in): mutual-fund reference data ──
     @staticmethod
     def get_vr_base_url() -> str:

@@ -577,9 +577,54 @@ async def apply_postgres_schema_patches() -> None:
                 "WHERE cas_upload_id IS NULL"
             )
         )
+        # MF Central CAS consent requests. A new table rather than a column
+        # patch, but it belongs here for the same reason as the rest: the DB is
+        # stamped at a lost Alembic revision, so `alembic upgrade` is not the
+        # route new schema takes on this deployment.
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS mfc_cas_requests (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    client_ref_no VARCHAR(30) NOT NULL UNIQUE,
+                    req_id VARCHAR(64),
+                    otp_ref VARCHAR(128),
+                    pan VARCHAR(20),
+                    mobile VARCHAR(20),
+                    email VARCHAR(320),
+                    from_date VARCHAR(20),
+                    to_date VARCHAR(20),
+                    status VARCHAR(20) NOT NULL DEFAULT 'initiated',
+                    cas_variant VARCHAR(20),
+                    error TEXT,
+                    folios INTEGER,
+                    schemes INTEGER,
+                    transactions INTEGER,
+                    total_value_inr NUMERIC(18, 2),
+                    cas_upload_id UUID,
+                    mf_aa_import_id UUID,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    completed_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mfc_cas_requests_user_created "
+                "ON mfc_cas_requests (user_id, created_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mfc_cas_requests_req_id "
+                "ON mfc_cas_requests (req_id)"
+            )
+        )
 
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps, mfc_cas_requests)"
     )
 
 

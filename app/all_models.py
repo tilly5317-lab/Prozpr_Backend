@@ -41,6 +41,7 @@ from app.domains.portfolio.models import (  # noqa: F401
 )
 from app.domains.ingestion.models import (  # noqa: F401
     cas_upload,
+    mfc_cas_request,
 )
 from app.domains.mutual_funds.models import (  # noqa: F401
     enums as mf_enums,

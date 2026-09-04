@@ -889,7 +889,7 @@ async def _archive_statement_pdf(
     db: AsyncSession,
     user_id: uuid.UUID,
     *,
-    file_bytes: bytes,
+    file_bytes: Optional[bytes],
     source_filename: Optional[str],
     parsed: dict[str, Any],
     schemes: int,
@@ -900,8 +900,13 @@ async def _archive_statement_pdf(
     Returns the ``user_cas_documents`` id so the snapshot can point at its PDF,
     or None when archiving is disabled or failed. The row rides the caller's
     final commit; an S3 failure only logs (the import itself must never fail
-    because archival did)."""
-    if not stage_enabled():
+    because archival did).
+
+    ``file_bytes`` is None for statements fetched over MF Central: there is no
+    document, so there is nothing to archive and no row to add. The "My CAS
+    statements" list is a list of FILES, and inventing an entry for a statement
+    the user could never re-download would be worse than an absent one."""
+    if file_bytes is None or not stage_enabled():
         return None
     try:
         doc_id = uuid.uuid4()
@@ -988,6 +993,40 @@ async def ingest_cams_pdf(
 
     parsed = await _parse_cas_via_api(file_bytes, source_filename, password)
 
+    return await ingest_parsed_cas(
+        db,
+        user_id,
+        parsed=parsed,
+        content_sha256=content_sha256,
+        source_filename=source_filename,
+        file_bytes=file_bytes,
+    )
+
+
+async def ingest_parsed_cas(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    parsed: dict[str, Any],
+    content_sha256: str,
+    source_filename: Optional[str] = None,
+    file_bytes: Optional[bytes] = None,
+) -> CamsIngestResult:
+    """Land an already-parsed CAS as a new snapshot, whatever produced it.
+
+    Split out of :func:`ingest_cams_pdf` when MF Central became a second source
+    of statements. Everything from the validity gates down is source-agnostic —
+    a CAS is a CAS once it is in the legacy dict shape — and duplicating this
+    for the MFC path would have meant two places to keep the snapshot
+    invariants right.
+
+    ``file_bytes`` is optional because MFC delivers JSON, not a PDF: there is
+    nothing to archive, and the "My CAS statements" list simply gains no row.
+    ``content_sha256`` still has to be supplied (over whatever the source's
+    canonical bytes are) — it is the dedupe key, and the snapshot's identity.
+    """
+    versioning = versioning_enabled()
+
     # Reject statement variants we can't build a real portfolio from — before any
     # DB write and before a snapshot is minted, so a bad file leaves no trace and
     # the live statement keeps serving the app:
@@ -1030,7 +1069,7 @@ async def ingest_cams_pdf(
         user_id,
         content_sha256=content_sha256,
         source_filename=source_filename,
-        file_size_bytes=len(file_bytes),
+        file_size_bytes=(len(file_bytes) if file_bytes is not None else None),
     )
     # Commit the header on its own so a failure below is RECORDED (status
     # 'failed') rather than rolled back into nothing — and so the live snapshot,
@@ -1087,7 +1126,7 @@ async def _persist_parsed_cas(
     user_id: uuid.UUID,
     *,
     parsed: dict[str, Any],
-    file_bytes: bytes,
+    file_bytes: Optional[bytes],
     source_filename: Optional[str],
     snapshot,
 ) -> CamsIngestResult:

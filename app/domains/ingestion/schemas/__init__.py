@@ -17,6 +17,16 @@ from app.domains.ingestion.schemas.finvu import (
     FinvuPortfolioSyncRequest,
     FinvuPortfolioSyncResponse,
 )
+from app.domains.ingestion.schemas.mfc_cas import (
+    MfcConfigResponse,
+    MfcImportResponse,
+    MfcIngestSummary,
+    MfcRequestItem,
+    MfcRequestListResponse,
+    MfcStartRequest,
+    MfcStartResponse,
+    MfcValidateQrRequest,
+)
 from app.domains.ingestion.schemas.mf_aa import (
     MfAaNormalizeOneResponse,
     MfAaNormalizePendingRequest,
@@ -37,4 +47,12 @@ __all__ = [
     "MfAaNormalizeOneResponse",
     "MfAaNormalizePendingRequest",
     "MfAaNormalizePendingResponse",
+    "MfcConfigResponse",
+    "MfcImportResponse",
+    "MfcIngestSummary",
+    "MfcRequestItem",
+    "MfcRequestListResponse",
+    "MfcStartRequest",
+    "MfcStartResponse",
+    "MfcValidateQrRequest",
 ]
