@@ -511,3 +511,150 @@ def test_display_of_a_detailed_payload_lists_every_ledger_row():
     assert display["investor"]["name"] == "JQLVAAIJNJSI"
     assert display["investor"]["mobile"] == "+917874806606"
     assert "HOWRAH" in (display["investor"]["address"] or "")
+
+
+# --------------------------------------------------------------------------- mock gate
+
+
+class _Env:
+    """Set/clear env vars around one assertion, restoring whatever was there."""
+
+    def __init__(self, **values: str | None) -> None:
+        self._values = values
+        self._saved: dict[str, str | None] = {}
+
+    def __enter__(self) -> None:
+        import os
+
+        for key, value in self._values.items():
+            self._saved[key] = os.environ.get(key)
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def __exit__(self, *exc: object) -> None:
+        import os
+
+        for key, value in self._saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_mock_is_on_for_a_developer_with_no_credentials():
+    from app.core.config import Settings
+
+    with _Env(MFC_MOCK_ENABLED=None, MFC_CLIENT_ID=None):
+        assert Settings.mfc_mock_enabled() is True
+        # ...and that is what makes the flow usable at all locally.
+        assert Settings.mfc_enabled() is True
+        assert "/mfc-mock" in Settings.get_mfc_api_base_url()
+
+
+def test_real_credentials_always_beat_the_mock():
+    """A configured tenant must never be silently served sample data."""
+    from app.core.config import Settings
+
+    with _Env(MFC_MOCK_ENABLED=None, MFC_CLIENT_ID="a-real-tenant-id"):
+        assert Settings.mfc_mock_enabled() is False
+        assert Settings.get_mfc_client_id() == "a-real-tenant-id"
+        assert "mfcentral.com" in Settings.get_mfc_api_base_url()
+
+
+def test_mock_cannot_turn_itself_on_in_production():
+    """DEPLOY_ENV=production is a hard stop even with no credentials set —
+    a production box must 503 rather than mount a fake registrar."""
+    from app.core.config import Settings
+
+    original = Settings.DEPLOY_ENV
+    try:
+        Settings.DEPLOY_ENV = "production"
+        with _Env(MFC_MOCK_ENABLED=None, MFC_CLIENT_ID=None):
+            assert Settings.mfc_mock_enabled() is False
+            assert Settings.mfc_enabled() is False
+    finally:
+        Settings.DEPLOY_ENV = original
+
+
+def test_mock_can_be_forced_off_without_credentials():
+    from app.core.config import Settings
+
+    with _Env(MFC_MOCK_ENABLED="false", MFC_CLIENT_ID=None):
+        assert Settings.mfc_mock_enabled() is False
+        assert Settings.mfc_enabled() is False
+
+
+def test_mock_credentials_resolve_as_a_complete_set():
+    """Half-real, half-mock is the failure this guards: it authenticates and
+    then dies at decrypt with an error that points nowhere useful."""
+    from app.core.config import Settings
+
+    with _Env(MFC_MOCK_ENABLED="true", MFC_CLIENT_ID=None):
+        assert Settings.get_mfc_client_id()
+        assert Settings.get_mfc_client_secret()
+        assert Settings.get_mfc_username()
+        assert Settings.get_mfc_password()
+        assert Settings.get_mfc_encryption_key()
+        assert Settings.get_mfc_iv()
+        assert len(Settings.get_mfc_url_encryption_key() or "") == 32
+        assert "BEGIN" in (Settings.get_mfc_private_key() or "")
+        assert "BEGIN" in (Settings.get_mfc_public_key() or "")
+
+
+def test_mock_constants_match_the_ones_config_falls_back_to():
+    """config.py duplicates these rather than importing the dev module (which
+    pulls in FastAPI and mints a key file). Drift would make the mock reject our
+    own requests with a bare 401."""
+    from app.core import config
+    from app.domains.ingestion.dev import mfc_mock
+
+    assert config._MFC_MOCK_CLIENT_ID == mfc_mock.MOCK_CLIENT_ID
+    assert config._MFC_MOCK_CLIENT_SECRET == mfc_mock.MOCK_CLIENT_SECRET
+    assert config._MFC_MOCK_USERNAME == mfc_mock.MOCK_USERNAME
+    assert config._MFC_MOCK_PASSWORD == mfc_mock.MOCK_PASSWORD
+    assert config._MFC_MOCK_ENCRYPTION_KEY == mfc_mock.MOCK_ENCRYPTION_KEY
+    assert config._MFC_MOCK_IV == mfc_mock.MOCK_IV
+    assert config._MFC_MOCK_URL_KEY == mfc_mock.MOCK_URL_KEY
+
+
+def test_mock_qr_round_trips_its_variant():
+    """The QR has to survive being written to disk by a browser and uploaded
+    back, so the marker rides after IEND where image decoders stop reading."""
+    import base64
+
+    from app.domains.ingestion.dev import mfc_mock
+
+    for variant in ("summary", "detailed"):
+        blob = mfc_mock.qr_bytes("3100001", variant)
+        encoded = base64.b64encode(blob).decode()
+        assert mfc_mock.variant_from_qr(encoded) == variant
+    # An unrelated image still works, so the flow can be walked with a hand-made
+    # file; something too small to be an image does not.
+    assert mfc_mock.variant_from_qr(base64.b64encode(b"x" * 500).decode()) == "detailed"
+    assert mfc_mock.variant_from_qr(base64.b64encode(b"x").decode()) is None
+
+
+def test_mock_pages_render_with_no_leftover_placeholders():
+    """These carry CSS and JavaScript, so they use __TOKEN__ substitution rather
+    than str.format, which chokes on every brace in a stylesheet."""
+    from app.domains.ingestion.dev import mfc_mock
+
+    consent = mfc_mock._render(
+        mfc_mock._CONSENT_PAGE,
+        REQ_ID="3100001",
+        PAYLOAD='{"reqId": "3100001"}',
+        DETAILED_QR="data:image/png;base64,AAAA",
+        SUMMARY_QR="data:image/png;base64,BBBB",
+        REDIRECT_URL="http://localhost:8080/mfc-cas/callback",
+    )
+    assert "__REQ_ID__" not in consent and "__REDIRECT_URL__" not in consent
+    assert "data:image/png;base64,AAAA" in consent
+    # The stylesheet's braces survive untouched.
+    assert "border-radius: 14px" in consent
+
+    index = mfc_mock._render(
+        mfc_mock._INDEX_PAGE, API_BASE="a", REDIRECT_BASE="b", KEY_FILE="c"
+    )
+    assert "__API_BASE__" not in index

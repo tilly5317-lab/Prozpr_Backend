@@ -189,6 +189,21 @@ def _parse_cors_origins_env() -> tuple[list[str], bool]:
 
 _CORS_ORIGINS, _CORS_ALLOW_ANY_ORIGIN = _parse_cors_origins_env()
 
+# MF Central mock credentials. Duplicated from
+# ``app/domains/ingestion/dev/mfc_mock.py`` rather than imported: that module
+# pulls in FastAPI and mints an RSA key file on first touch, and config.py is
+# imported by everything including tooling that must not do either. They are
+# fixed strings, not secrets — the mock only ever serves sample data — and the
+# mock's own module-level constants are the ones that would fail loudly first
+# if these drifted, since it authenticates against them.
+_MFC_MOCK_CLIENT_ID = "prozpr-mock-client"
+_MFC_MOCK_CLIENT_SECRET = "prozpr-mock-secret"
+_MFC_MOCK_USERNAME = "prozpr-mock-user"
+_MFC_MOCK_PASSWORD = "prozpr-mock-password"
+_MFC_MOCK_ENCRYPTION_KEY = "prozpr-mock-encryption-key"
+_MFC_MOCK_IV = "1234567890123456"
+_MFC_MOCK_URL_KEY = "odLZvcdVAhq+Re8UstN8u928xRQTE6ym"
+
 
 class Settings:
     PROJECT_NAME: str = "Ask PI API"
@@ -694,14 +709,55 @@ class Settings:
     # inside MFC's own OTP UI, downloads a QR, and we exchange that QR for the
     # full transaction ledger as JSON. Nine settings, because MFC issues nine
     # distinct secrets — see `mfc_crypto` for why the two AES keys differ.
+    #
+    # Until MFC issues those (they only do so after an LOI is signed), a local
+    # mock mounted at /mfc-mock stands in and every getter below falls back to
+    # its fixed values — see `mfc_mock_enabled`.
+    @staticmethod
+    def mfc_mock_enabled() -> bool:
+        """Serve MF Central from the in-app mock at ``/mfc-mock``.
+
+        Defaults ON for a developer and cannot be on anywhere else: it requires
+        BOTH that no real ``MFC_CLIENT_ID`` is configured AND that this is not a
+        production deployment. That pairing is deliberate — a real tenant's
+        credentials always win, and a box stamped ``DEPLOY_ENV=production``
+        never mounts a fake registrar even if someone forgets the credentials.
+
+        ``MFC_MOCK_ENABLED=false`` forces it off (the flow then 503s, which is
+        the honest state of an unconfigured server); ``=true`` forces it on for
+        a staging box that deliberately wants the sample data.
+        """
+        raw = (_getenv("MFC_MOCK_ENABLED") or "").strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        if Settings.DEPLOY_ENV.strip().lower() in {"production", "prod"}:
+            return False
+        return not (_getenv("MFC_CLIENT_ID") or "").strip()
+
+    @staticmethod
+    def get_mfc_mock_origin() -> str:
+        """Origin the mock is reachable on — this server's own.
+
+        Two consumers with different needs: our HTTP client calls it over
+        loopback, and the investor's BROWSER opens the consent page on it, so it
+        has to be an address a browser can resolve. ``localhost`` satisfies both;
+        override when uvicorn is not on 8000.
+        """
+        return (
+            (_getenv("MFC_MOCK_ORIGIN") or "http://localhost:8000").strip().rstrip("/")
+        )
+
     @staticmethod
     def get_mfc_api_base_url() -> str:
         """Services host for the client APIs (token, newCasRequest, validateQRCode)."""
-        return (
-            (_getenv("MFC_API_BASE_URL") or "https://uatservices.mfcentral.com")
-            .strip()
-            .rstrip("/")
-        )
+        explicit = (_getenv("MFC_API_BASE_URL") or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        if Settings.mfc_mock_enabled():
+            return f"{Settings.get_mfc_mock_origin()}/mfc-mock"
+        return "https://uatservices.mfcentral.com"
 
     @staticmethod
     def get_mfc_redirect_base_url() -> str:
@@ -711,52 +767,64 @@ class Settings:
         ``uatservices.`` and ``mfc-cas-uat.``, and pointing the redirect at the
         services host yields a 404 the investor sees, not one we can catch.
         """
-        return (
-            (_getenv("MFC_REDIRECT_BASE_URL") or "https://mfc-cas-uat.mfcentral.com")
-            .strip()
-            .rstrip("/")
-        )
+        explicit = (_getenv("MFC_REDIRECT_BASE_URL") or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        if Settings.mfc_mock_enabled():
+            return f"{Settings.get_mfc_mock_origin()}/mfc-mock"
+        return "https://mfc-cas-uat.mfcentral.com"
 
     @staticmethod
     def get_mfc_origin_header() -> str:
         """``Origin`` MFC expects on the client APIs; theirs, not ours."""
-        return (
-            (_getenv("MFC_ORIGIN") or "https://uatapp.mfcentral.com")
-            .strip()
-            .rstrip("/")
-        )
+        explicit = (_getenv("MFC_ORIGIN") or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        if Settings.mfc_mock_enabled():
+            return Settings.get_mfc_mock_origin()
+        return "https://uatapp.mfcentral.com"
+
+    @staticmethod
+    def _mfc_credential(name: str, mock_value: str | None) -> str | None:
+        """One MFC secret: the environment's, else the mock's, else nothing.
+
+        Every credential resolves through here so the mock is on or off as a
+        SET. A per-getter fallback would let a half-real, half-mock combination
+        exist — real client id against mock signing keys — which authenticates
+        and then fails at decrypt with an error pointing nowhere useful.
+        """
+        value = (_getenv(name) or "").strip()
+        if value:
+            return value
+        if Settings.mfc_mock_enabled():
+            return mock_value
+        return None
 
     @staticmethod
     def get_mfc_client_id() -> str | None:
-        v = (_getenv("MFC_CLIENT_ID") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_CLIENT_ID", _MFC_MOCK_CLIENT_ID)
 
     @staticmethod
     def get_mfc_client_secret() -> str | None:
-        v = (_getenv("MFC_CLIENT_SECRET") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_CLIENT_SECRET", _MFC_MOCK_CLIENT_SECRET)
 
     @staticmethod
     def get_mfc_username() -> str | None:
-        v = (_getenv("MFC_USERNAME") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_USERNAME", _MFC_MOCK_USERNAME)
 
     @staticmethod
     def get_mfc_password() -> str | None:
-        v = (_getenv("MFC_PASSWORD") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_PASSWORD", _MFC_MOCK_PASSWORD)
 
     @staticmethod
     def get_mfc_encryption_key() -> str | None:
         """Shared secret for the API envelope. Hashed to 32 bytes before use."""
-        v = (_getenv("MFC_ENCRYPTION_KEY") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_ENCRYPTION_KEY", _MFC_MOCK_ENCRYPTION_KEY)
 
     @staticmethod
     def get_mfc_iv() -> str | None:
         """The CONSTANT initialisation vector MFC issues for the API envelope."""
-        v = (_getenv("MFC_IV") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_IV", _MFC_MOCK_IV)
 
     @staticmethod
     def get_mfc_url_encryption_key() -> str | None:
@@ -765,20 +833,36 @@ class Settings:
         The value below is the one printed in MFC's integration guide, which is
         shared across UAT tenants; production issues a private one.
         """
-        v = (_getenv("MFC_URL_ENCRYPTION_KEY") or "").strip()
-        return v or None
+        return Settings._mfc_credential("MFC_URL_ENCRYPTION_KEY", _MFC_MOCK_URL_KEY)
 
     @staticmethod
     def get_mfc_private_key() -> str | None:
-        """Our RSA private key (PEM or base64 DER) for signing requests."""
-        v = (_getenv("MFC_PRIVATE_KEY") or "").strip()
-        return v or None
+        """Our RSA private key (PEM or base64 DER) for signing requests.
+
+        Under the mock this is the locally minted pair, imported lazily so that
+        reading settings never pulls in the dev module (or writes a key file) on
+        a server where the mock is off.
+        """
+        value = (_getenv("MFC_PRIVATE_KEY") or "").strip()
+        if value:
+            return value
+        if Settings.mfc_mock_enabled():
+            from app.domains.ingestion.dev.mfc_mock import keys
+
+            return keys()[0]
+        return None
 
     @staticmethod
     def get_mfc_public_key() -> str | None:
         """MFC's RSA public key, for verifying their response signatures."""
-        v = (_getenv("MFC_PUBLIC_KEY") or "").strip()
-        return v or None
+        value = (_getenv("MFC_PUBLIC_KEY") or "").strip()
+        if value:
+            return value
+        if Settings.mfc_mock_enabled():
+            from app.domains.ingestion.dev.mfc_mock import keys
+
+            return keys()[1]
+        return None
 
     @staticmethod
     def get_mfc_signature_kid() -> str | None:

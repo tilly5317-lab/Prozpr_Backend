@@ -106,9 +106,15 @@ async def mfc_config(current_user: CurrentUser = Depends(get_effective_user)):
     the PDF upload without a failed request in between.
     """
     base_url = Settings.get_mfc_api_base_url()
+    if Settings.mfc_mock_enabled():
+        environment = "mock"
+    elif "uat" in base_url or "sit" in base_url:
+        environment = "uat"
+    else:
+        environment = "production"
     return MfcConfigResponse(
         enabled=Settings.mfc_enabled(),
-        environment=("uat" if "uat" in base_url or "sit" in base_url else "production"),
+        environment=environment,
         redirect_url=Settings.get_mfc_redirect_url(),
         mfc_origin=Settings.get_mfc_redirect_base_url(),
         integration_mode="popup",

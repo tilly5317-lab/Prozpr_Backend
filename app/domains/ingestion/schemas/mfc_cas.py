@@ -38,7 +38,10 @@ class MfcConfigResponse(BaseModel):
 
     enabled: bool
     environment: str = Field(
-        description="uat | production, inferred from the base URL."
+        description=(
+            "mock | uat | production. 'mock' means the in-app stand-in is "
+            "serving MF Central, so the data is sample data."
+        )
     )
     redirect_url: Optional[str] = Field(
         default=None,

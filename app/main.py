@@ -35,7 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.all_models  # noqa: F401
 
 from app.core.cas_scope import install_cas_scope_listeners
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.observability import otel_request_hook, otel_response_hook
 from app.core.lifespan import lifespan
@@ -145,6 +145,30 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 for router in all_routers:
     app.include_router(router, prefix=settings.API_V1_PREFIX)
+
+# ---------------------------------------------------------------------------
+# 4b. MF Central mock — DEV ONLY, mounted OUTSIDE the API prefix.
+#
+# MFC issues credentials only after an LOI is signed, so until then this stands
+# in for them and the flow is testable with nothing but `uvicorn main:app`.
+# Mounted rather than run as a second process so the backend talks to it over
+# real HTTP through the real client — a stubbed transport would exercise none of
+# the envelope, retry or token-cache code that is most likely to be wrong.
+#
+# `mfc_mock_enabled()` requires BOTH no real MFC_CLIENT_ID and a non-production
+# DEPLOY_ENV, so this cannot appear on a configured or production server. Being
+# outside API_V1_PREFIX also keeps it out of the OTel/PostHog pipelines, which
+# only observe served API paths.
+# ---------------------------------------------------------------------------
+if Settings.mfc_mock_enabled():
+    from app.domains.ingestion.dev.mfc_mock import router as mfc_mock_router
+
+    app.include_router(mfc_mock_router, prefix="/mfc-mock")
+    logging.getLogger(__name__).warning(
+        "MF Central MOCK is mounted at /mfc-mock (no MFC_CLIENT_ID configured). "
+        "Sample data only — set the MFC_* credentials, or MFC_MOCK_ENABLED=false, "
+        "to turn it off."
+    )
 
 # ---------------------------------------------------------------------------
 # 5. Exception handlers — translate well-known errors into stable JSON.
