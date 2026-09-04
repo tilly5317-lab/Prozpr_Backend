@@ -46,6 +46,12 @@ async def load_user_for_ai(db: AsyncSession, user_id: uuid.UUID) -> User | None:
             # user's "cash & assets" synchronously without a lazy load (which
             # raises MissingGreenlet under the async engine).
             selectinload(User.other_investments),
+            # Standing preferences row (S1 spec §4.3). Eager-loaded so the PAA
+            # input builder's single preference load point
+            # (build_practical_allocation_input_for_user) can read
+            # user.saved_investment_preference synchronously without a lazy
+            # load (MissingGreenlet under the async engine, same as above).
+            selectinload(User.saved_investment_preference),
         )
         .where(User.id == user_id)
     )

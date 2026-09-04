@@ -105,6 +105,13 @@ class AssetAllocationRun(CasScoped, Base):
     input_payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
     )
+    # FK to the immutable preference row that shaped this run (2026-09-04
+    # restructure); NULL = computed with no preference.
+    saved_investment_preference_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("saved_investment_preferences.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     client_age: Mapped[int] = mapped_column(Integer, nullable=False)
     client_occupation: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
