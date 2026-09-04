@@ -107,6 +107,10 @@ class MfcStartResult:
     pan_masked: str
     from_date: str
     to_date: str
+    # Where MFC will send the consent OTP, masked. The investor needs to know
+    # which inbox or handset to watch, and it is frequently NOT the one they
+    # signed in with — the contact registered with the fund houses wins.
+    otp_destination: str
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,25 @@ def _new_client_ref_no() -> str:
 
 def _mask_pan(pan: str) -> str:
     return f"{pan[:5]}****{pan[9:]}" if len(pan) >= 10 else "****"
+
+
+def _mask_contact(mobile: Optional[str], email: Optional[str]) -> str:
+    """A phrase naming where the OTP lands, without reprinting the contact.
+
+    "your registered contact" is the honest fallback and not a placeholder: the
+    caller may have supplied neither, in which case MFC uses whatever it holds
+    against the PAN and we genuinely do not know.
+    """
+    if mobile:
+        digits = re.sub(r"\D", "", mobile)
+        return (
+            f"your mobile ending {digits[-4:]}" if len(digits) >= 4 else "your mobile"
+        )
+    if email:
+        name, _, domain = email.partition("@")
+        head = name[:2] if len(name) > 2 else name[:1]
+        return f"{head}{'*' * max(1, len(name) - len(head))}@{domain}"
+    return "your registered contact"
 
 
 def _normalize_qr(qr_code: str) -> str:
@@ -349,6 +372,7 @@ async def start_cas_request(
         pan_masked=_mask_pan(resolved_pan),
         from_date=_LEDGER_FROM_DATE,
         to_date=window_to,
+        otp_destination=_mask_contact(contact_mobile, contact_email),
     )
 
 

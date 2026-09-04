@@ -159,9 +159,6 @@ async def start_mfc_cas(
         raise _flow_error(exc) from exc
 
     _start_last_called[current_user.id] = now
-    destination = (
-        "your mobile" if result.req_id and payload.mobile else "your registered contact"
-    )
     return MfcStartResponse(
         request_id=result.request_id,
         client_ref_no=result.client_ref_no,
@@ -171,10 +168,11 @@ async def start_mfc_cas(
         pan_masked=result.pan_masked,
         from_date=result.from_date,
         to_date=result.to_date,
+        otp_destination=result.otp_destination,
         message=(
             f"MF Central is ready for PAN {result.pan_masked}. Continue to their "
-            f"site, enter the OTP sent to {destination}, choose the DETAILED "
-            "statement, and download the QR code."
+            f"site, enter the OTP sent to {result.otp_destination}, choose the "
+            "DETAILED statement, and download the QR code."
         ),
     )
 

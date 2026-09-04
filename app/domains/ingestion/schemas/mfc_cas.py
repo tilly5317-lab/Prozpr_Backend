@@ -122,6 +122,9 @@ class MfcStartResponse(BaseModel):
     pan_masked: str
     from_date: str
     to_date: str
+    otp_destination: str = Field(
+        description="Masked contact MFC sends the consent OTP to."
+    )
     message: str
 
 

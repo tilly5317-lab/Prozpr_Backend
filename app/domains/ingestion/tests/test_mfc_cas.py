@@ -658,3 +658,20 @@ def test_mock_pages_render_with_no_leftover_placeholders():
         mfc_mock._INDEX_PAGE, API_BASE="a", REDIRECT_BASE="b", KEY_FILE="c"
     )
     assert "__API_BASE__" not in index
+
+
+# --------------------------------------------------------------------------- otp hint
+
+
+def test_otp_destination_names_where_the_code_lands():
+    """The investor has to know which handset or inbox to watch, and it is
+    frequently NOT the contact they signed in with."""
+    from app.domains.ingestion.services.mfc_cas_ingest import _mask_contact
+
+    assert _mask_contact("+919876501234", None) == "your mobile ending 1234"
+    assert _mask_contact("9876501234", None) == "your mobile ending 1234"
+    assert _mask_contact(None, "investor.name@fundhouse.com").endswith("@fundhouse.com")
+    assert "investor" not in _mask_contact(None, "investor.name@fundhouse.com")
+    # Neither supplied is a real case — MFC then uses whatever it holds against
+    # the PAN — so this must read as an answer, not a missing value.
+    assert _mask_contact(None, None) == "your registered contact"
