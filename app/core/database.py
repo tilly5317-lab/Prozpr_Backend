@@ -622,9 +622,70 @@ async def apply_postgres_schema_patches() -> None:
                 "ON mfc_cas_requests (req_id)"
             )
         )
+        # MF Central financial transactions — the outbound half. Same reason as
+        # the table above: this deployment's schema arrives here, not via
+        # `alembic upgrade`.
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS mfc_ft_orders (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    kind VARCHAR(20) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    client_ref_no VARCHAR(30) NOT NULL UNIQUE,
+                    req_id VARCHAR(64),
+                    otp_ref VARCHAR(128),
+                    user_trxn_no VARCHAR(64),
+                    amc VARCHAR(10),
+                    folio VARCHAR(40),
+                    isin VARCHAR(20),
+                    to_isin VARCHAR(20),
+                    scheme_name VARCHAR(255),
+                    amount NUMERIC(18, 2),
+                    units NUMERIC(18, 4),
+                    all_units BOOLEAN,
+                    frequency VARCHAR(10),
+                    start_date VARCHAR(20),
+                    end_date VARCHAR(20),
+                    installments INTEGER,
+                    pan VARCHAR(20),
+                    otp_channel VARCHAR(1),
+                    otp_destination VARCHAR(320),
+                    request_payload JSONB,
+                    response_payload JSONB,
+                    status_payload JSONB,
+                    error TEXT,
+                    rta_status VARCHAR(120),
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    consented_at TIMESTAMP WITH TIME ZONE,
+                    completed_at TIMESTAMP WITH TIME ZONE
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mfc_ft_orders_user_created "
+                "ON mfc_ft_orders (user_id, created_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mfc_ft_orders_status "
+                "ON mfc_ft_orders (status)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mfc_ft_orders_req_id "
+                "ON mfc_ft_orders (req_id)"
+            )
+        )
 
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps, mfc_cas_requests)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps, mfc_cas_requests, mfc_ft_orders)"
     )
 
 

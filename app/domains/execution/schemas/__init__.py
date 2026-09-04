@@ -12,8 +12,30 @@ from app.domains.execution.schemas.fp_schemas import (
     FpSipRequest,
     FpStatusResponse,
 )
+from app.domains.execution.schemas.mfc_ft_schemas import (
+    MfcBankInput,
+    MfcFtOrderItem,
+    MfcFtOrderListResponse,
+    MfcFtOrderRequest,
+    MfcFtOrderResponse,
+    MfcFtOtpRequest,
+    MfcFtPaymentRequest,
+    MfcFtStatusResponse,
+    MfcFtValidateResponse,
+    MfcMastersResponse,
+)
 
 __all__ = [
+    "MfcBankInput",
+    "MfcFtOrderItem",
+    "MfcFtOrderListResponse",
+    "MfcFtOrderRequest",
+    "MfcFtOrderResponse",
+    "MfcFtOtpRequest",
+    "MfcFtPaymentRequest",
+    "MfcFtStatusResponse",
+    "MfcFtValidateResponse",
+    "MfcMastersResponse",
     "FpAccountResponse",
     "FpKycRequest",
     "FpKycResponse",

@@ -38,6 +38,13 @@ OPENAPI_TAG_METADATA: list[dict[str, Any]] = [
     },
     {"name": "MF Ingest", "description": "Mutual fund reference data ingestion."},
     {
+        "name": "MF Central FT",
+        "description": (
+            "Financial transactions placed with MF Central: purchase, redeem, "
+            "switch, SIP/STP/SWP and SIP pause/cancel."
+        ),
+    },
+    {
         "name": "MF Central CAS",
         "description": (
             "Consent-based CAS fetched directly from MF Central (CAMS + KFintech), "

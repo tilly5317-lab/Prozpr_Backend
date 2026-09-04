@@ -161,9 +161,14 @@ for router in all_routers:
 # only observe served API paths.
 # ---------------------------------------------------------------------------
 if Settings.mfc_mock_enabled():
+    from app.domains.ingestion.dev.mfc_ft_mock import router as mfc_ft_mock_router
     from app.domains.ingestion.dev.mfc_mock import router as mfc_mock_router
 
+    # CAS first: it declares literal paths under /api/client/V1/, and the FT
+    # mock ends with a catch-all on the same prefix. FastAPI matches in
+    # declaration order, so reversing these would swallow newCasRequest.
     app.include_router(mfc_mock_router, prefix="/mfc-mock")
+    app.include_router(mfc_ft_mock_router, prefix="/mfc-mock")
     logging.getLogger(__name__).warning(
         "MF Central MOCK is mounted at /mfc-mock (no MFC_CLIENT_ID configured). "
         "Sample data only — set the MFC_* credentials, or MFC_MOCK_ENABLED=false, "
