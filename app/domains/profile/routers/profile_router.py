@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_effective_user
+from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.domains.profile.models import (
     AssetAllocationConstraint,
     EffectiveRiskAssessment,
@@ -35,6 +35,9 @@ from app.domains.profile.schemas import (
     FullProfileResponse,
     InvestmentConstraintResponse,
     InvestmentConstraintUpdate,
+    InvestmentPreferenceIntent,
+    InvestmentPreferencePreviewResponse,
+    InvestmentPreferenceResponse,
     InvestmentProfileResponse,
     InvestmentProfileUpdate,
     PersonalFinanceResponse,
@@ -711,3 +714,39 @@ async def get_review_preference(
             status_code=status.HTTP_404_NOT_FOUND, detail="Review preferences not found"
         )
     return ReviewPreferenceResponse.model_validate(pref)
+
+
+# Section 9 - Investment preferences (spec 2026-09-01-investment-preferences-s1-core)
+@router.get(
+    "/investment-preferences", response_model=InvestmentPreferenceResponse
+)
+async def get_investment_preferences(
+    db: AsyncSession = Depends(get_db),
+    user_ctx: User = Depends(get_ai_user_context),
+):
+    from app.domains.profile.services.preference_save_service import (
+        active_preference_row,
+        recommendation_block,
+    )
+
+    row = await active_preference_row(db, user_ctx.id)
+    rec = await recommendation_block(user_ctx, row)  # neutral only when a row exists
+    return InvestmentPreferenceResponse.from_row(row, recommendation=rec)
+
+
+@router.put(
+    "/investment-preferences", response_model=InvestmentPreferencePreviewResponse
+)
+async def put_investment_preferences(
+    payload: InvestmentPreferenceIntent,
+    db: AsyncSession = Depends(get_db),
+    user_ctx: User = Depends(get_ai_user_context),
+):
+    from app.domains.profile.services.preference_save_service import preview_or_save
+
+    return await preview_or_save(
+        db,
+        user_ctx,
+        payload.model_dump(exclude_unset=True, exclude={"confirm"}),
+        confirm=payload.confirm,
+    )

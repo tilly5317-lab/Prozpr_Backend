@@ -284,6 +284,46 @@ def capture_preference_unserved(
         pass
 
 
+def capture_preference_saved(
+    *,
+    fields_set: list[str],
+    applied_defaults: dict,
+    shortfall: bool,
+    distinct_id: object | None,
+) -> None:
+    """A customer confirmed a saved investment preference (spec §4.6)."""
+    client = _posthog_client
+    if client is None:
+        return
+    try:
+        client.capture(
+            "preference_saved",
+            distinct_id=str(distinct_id) if distinct_id else "backend",
+            properties={
+                "fields_set": fields_set,
+                "applied_defaults": applied_defaults,
+                "shortfall": shortfall,
+            },
+        )
+    except Exception:  # pragma: no cover - reporting must never raise
+        pass
+
+
+def capture_preference_cleared(*, distinct_id: object | None) -> None:
+    """A customer cleared their saved investment preference (spec §4.6)."""
+    client = _posthog_client
+    if client is None:
+        return
+    try:
+        client.capture(
+            "preference_cleared",
+            distinct_id=str(distinct_id) if distinct_id else "backend",
+            properties={},
+        )
+    except Exception:  # pragma: no cover
+        pass
+
+
 def capture_job_completed(
     *,
     job: str,
