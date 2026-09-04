@@ -37,6 +37,9 @@ from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
 )
+from app.domains.profile.services.preference_tagging import (
+    active_preference_id,
+)
 
 ensure_ai_agents_path()
 
@@ -105,6 +108,19 @@ async def persist_rebalancing_recommendation(
         carryforward_lt_loss_inr=_to_decimal(cf_lt),
         knob_snapshot=knob.model_dump(mode="json"),
         request_input=request.model_dump(mode="json") if request else None,
+        # Derived from the RESPONSE, not the request — callers routinely omit
+        # `request`, and practical_allocation.human_override_applied is set
+        # exactly when the run consumed a preference.
+        saved_investment_preference_id=await active_preference_id(
+            db,
+            user_id,
+            applied=(
+                getattr(
+                    response.practical_allocation, "human_override_applied", None
+                )
+                is not None
+            ),
+        ),
         used_cached_allocation=used_cached_allocation,
         user_question=user_question,
         origin=origin,

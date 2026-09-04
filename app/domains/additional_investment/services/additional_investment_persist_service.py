@@ -49,6 +49,7 @@ async def persist_additional_investment_recommendation(
     user_question: Optional[str] = None,
     request: Optional[AdditionalInvestmentInput] = None,
     request_extras: Optional[dict[str, Any]] = None,
+    saved_investment_preference_id: Optional[uuid.UUID] = None,
 ) -> uuid.UUID:
     """Write the engine output and return the new ``AdditionalInvestmentRun`` id.
 
@@ -91,6 +92,7 @@ async def persist_additional_investment_recommendation(
         undeployed_inr=output.undeployed_inr,
         user_question=user_question,
         request_input=request_input,
+        saved_investment_preference_id=saved_investment_preference_id,
     )
     db.add(run)
     await db.flush()  # assign run.id before parenting children

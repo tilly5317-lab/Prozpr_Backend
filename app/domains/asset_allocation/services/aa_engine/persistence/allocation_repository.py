@@ -93,6 +93,7 @@ async def save_asset_allocation_from_engine_output(
     input_payload: dict[str, Any],
     engine_result: Any,
     financial_goal_ids_by_name: dict[str, uuid.UUID] | None = None,
+    saved_investment_preference_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Persist one engine run. Returns the new ``asset_allocation_runs.id``.
 
@@ -115,6 +116,7 @@ async def save_asset_allocation_from_engine_output(
         spine_mode=spine_mode,
         user_question=user_question,
         input_payload=input_payload,
+        saved_investment_preference_id=saved_investment_preference_id,
     )
     summary = doc.get("client_summary") or {}
     breakdown = doc.get("asset_class_breakdown") or {}

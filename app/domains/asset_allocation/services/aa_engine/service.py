@@ -574,6 +574,21 @@ async def compute_allocation_result(
             save_asset_allocation_from_engine_output,
         )
 
+        from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
+            load_human_override_for_user,
+        )
+        from practical_asset_allocation.human_override import apply_human_override
+        from app.domains.profile.services.preference_tagging import (
+            preference_id_for,
+        )
+
+        _prefs = load_human_override_for_user(user)
+        if _prefs is not None:
+            output, _ = apply_human_override(
+                output, _prefs, alloc_input.multi_asset_composition
+            )
+        _applied_pref_id = preference_id_for(user, applied=_prefs is not None)
+
         reb_id, snap_id = await persist_goal_allocation_recommendation(
             db,
             acting_user_id,
@@ -600,6 +615,7 @@ async def compute_allocation_result(
                 input_payload=alloc_input.model_dump(mode="json"),
                 engine_result=output,
                 financial_goal_ids_by_name=goal_id_map,
+                saved_investment_preference_id=_applied_pref_id,
             )
             trace_line(f"persisted: asset_allocation_run_id={aa_run_id}")
         except Exception:

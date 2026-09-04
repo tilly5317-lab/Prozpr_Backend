@@ -51,6 +51,9 @@ from app.domains.profile.services.personal_finance_write_service import (
 from app.domains.additional_investment.services.additional_investment_persist_service import (
     persist_additional_investment_recommendation,
 )
+from app.domains.profile.services.preference_tagging import (
+    preference_id_for,
+)
 from app.domains.rebalancing.services.rebalancing_read_service import (
     latest_buy_trades_by_subgroup,
 )
@@ -396,12 +399,17 @@ async def compute_additional_investment_result(
         # but never denies the user the recommendation. Flush only — the caller
         # (chat router / create service) owns the commit.
         try:
+            saved_pref_id = preference_id_for(
+                user,
+                applied=paa_outcome.result.human_override_applied is not None,
+            )
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
                 user_id=acting_user_id,
                 output=paa_outcome.result,
                 chat_session_id=chat_session_id,
                 user_question=user_question,
+                saved_investment_preference_id=saved_pref_id,
             )
             run_id = await persist_additional_investment_recommendation(
                 db,
@@ -412,6 +420,7 @@ async def compute_additional_investment_result(
                 user_question=user_question,
                 request=inp,
                 request_extras=request_extras,
+                saved_investment_preference_id=saved_pref_id,
             )
 
             if cadence is Cadence.SIP_MONTHLY:

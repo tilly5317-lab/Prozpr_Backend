@@ -7,6 +7,7 @@ warnings so the UI gets one round-trip per run.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -41,10 +42,14 @@ from app.domains.rebalancing.services.asset_class_breakdown import (
     target_mix_from_rows,
 )
 from app.domains.rebalancing.services.saved_plan_service import (
+    ORIGIN_SAVED,
     committed_run_filter,
+    is_run_fresh,
     save_plan,
     select_current_run_id,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
 
@@ -140,6 +145,20 @@ async def get_current(
 
     Declared BEFORE ``/{run_id}`` so the literal ``current`` isn't parsed as a
     run UUID (mirrors ``/readiness``).
+
+    Self-healing freshness (S1 spec §4.5, Task 12): there is no stored stale
+    flag anywhere — a plan is fresh iff it points at the user's latest
+    ``asset_allocation_runs`` row. The eager refresh on preference save
+    (``preference_save_service._eager_refresh``) normally keeps this true; if
+    that refresh failed or was skipped, recompute once here before serving a
+    stale plan to the portfolio page.
+
+    Candidate→commit firewall: a committed plan
+    (``origin='saved'``) is INTENTIONALLY sticky — a GET must never replace,
+    demote, or outrank it. The backstop therefore applies only to the
+    uncommitted-current case (``origin`` is ``None``/plain); a stale saved
+    plan is served as-is. Re-saving (picking a fresh run and hitting Save) is
+    the customer's action, not this read's.
     """
     run_id = await select_current_run_id(db, user_id=current_user.id)
     if run_id is None:
@@ -160,9 +179,76 @@ async def get_current(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
         )
+
+    if run.origin != ORIGIN_SAVED and not await is_run_fresh(db, run):
+        run = await _refresh_stale_current(db, current_user.id) or run
+
     resp = RebalancingRunDetailResponse.model_validate(run)
     resp.asset_class_breakdown = _build_asset_class_breakdown(run)
     return resp
+
+
+async def _refresh_stale_current(
+    db: AsyncSession, user_id: uuid.UUID
+) -> RebalancingRun | None:
+    """Single, no-loop recompute backstop for a stale current plan.
+
+    Caller-gated: only invoked when the served run is NOT the customer's
+    committed plan (``origin != 'saved'``) — a committed plan is
+    intentionally sticky, and this backstop self-heals the uncommitted-
+    current view only; re-saving is the customer's action, never this read's.
+
+    ``origin=None`` on the recompute call — this never auto-commits a plan as
+    the customer's saved choice, it only brings the "latest computed" run in
+    line with the latest allocation so ``select_current_run_id`` can pick it
+    up. The whole body (user load, recompute, commit, re-select) is one
+    degrade-to-stale guard: any failure here — missing user, blocked compute,
+    engine error, or a re-select gone wrong — logs loudly and returns
+    ``None``, and the caller falls back to serving the original stale run
+    rather than 500ing the read.
+    """
+    try:
+        from app.domains.identity.services.user_context_loader import (
+            load_user_for_ai,
+        )
+        from app.domains.rebalancing.services.rebal_engine.service import (
+            compute_rebalancing_result,
+        )
+
+        user_ctx = await load_user_for_ai(db, user_id)
+        if user_ctx is None:
+            return None
+
+        await compute_rebalancing_result(
+            user_ctx,
+            "portfolio page freshness refresh",
+            db=db,
+            acting_user_id=user_id,
+            chat_session_id=None,
+            persist=True,
+            origin=None,
+        )
+        await db.commit()
+
+        new_run_id = await select_current_run_id(db, user_id=user_id)
+        if new_run_id is None:
+            return None
+        return (
+            await db.execute(
+                select(RebalancingRun)
+                .where(
+                    RebalancingRun.id == new_run_id,
+                    RebalancingRun.user_id == user_id,
+                )
+                .options(*_DETAIL_LOADS)
+            )
+        ).scalar_one_or_none()
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "current-plan freshness recompute failed for user_id=%s", user_id
+        )
+        return None
 
 
 @router.get("/{run_id}", response_model=RebalancingRunDetailResponse)

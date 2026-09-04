@@ -24,6 +24,9 @@ from app.domains.practical_asset_allocation.services.paa_engine.service import (
 from app.domains.practical_asset_allocation.services.practical_allocation_persist_service import (
     persist_practical_allocation_run,
 )
+from app.domains.profile.services.preference_tagging import (
+    preference_id_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,10 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
                 output=outcome.result,
                 chat_session_id=ctx.session_id,
                 user_question=ctx.user_question,
+                saved_investment_preference_id=preference_id_for(
+                    ctx.user_ctx,
+                    applied=outcome.result.human_override_applied is not None,
+                ),
             )
         except Exception:
             logger.exception(
