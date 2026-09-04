@@ -52,6 +52,11 @@ from asset_allocation_pydantic.tables import (
     SUBGROUP_TO_ASSET_CLASS,
 )
 from asset_allocation_pydantic.utils import round_to_100
+from practical_asset_allocation.human_override import (
+    HumanOverrideApplied,
+    HumanOverridePreferences,
+    apply_human_override,
+)
 
 
 # Spec §B.5 step 4 — practical-side others-gate (stricter than upstream).
@@ -112,6 +117,11 @@ class PracticalAllocationInput(AllocationInput):
     max_non_mf_equity_pct_client_input: Optional[float] = Field(default=None)
     """Advisor override for the NFA-banded non-MF equity cap (Option A)."""
 
+    human_override: Optional[HumanOverridePreferences] = None
+    """Standing/one-off customer preference. None → the human_override step is
+    a strict no-op (golden-test guarantee). Loaded ONLY by the app-side PAA
+    input builder — engines never read the DB."""
+
 
 class CorpusBreakdown(BaseModel):
     """Practical-only block: how the customer's corpus splits across MF /
@@ -159,6 +169,7 @@ class PracticalAllocationOutput(BaseModel):
     all_amounts_in_multiples_of_100: bool
     asset_class_breakdown: AssetClassBreakdown
     corpus_breakdown: CorpusBreakdown
+    human_override_applied: Optional[HumanOverrideApplied] = None
 
 
 @dataclass
@@ -638,7 +649,13 @@ def run_practical_allocation(
             }
         )
 
-    return _build_output(inp, s1, s2, s3, s4_practical, s5)
+    built = _build_output(inp, s1, s2, s3, s4_practical, s5)
+    reshaped, applied = apply_human_override(
+        built, inp.human_override, inp.multi_asset_composition
+    )
+    if applied is None:
+        return built
+    return reshaped.model_copy(update={"human_override_applied": applied})
 
 
 def _practical_lt_result_to_dict(r: _PracticalLongTermResult) -> dict:
