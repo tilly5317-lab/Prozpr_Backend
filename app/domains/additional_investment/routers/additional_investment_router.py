@@ -8,16 +8,23 @@ there is no create/update route here — new plans are produced by chatting.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.core.progress import clear_progress, get_progress, set_progress
+from app.domains.additional_investment.models.additional_investment_run import (
+    AdditionalInvestmentRun,
+)
 from app.domains.additional_investment.schemas import (
     LumpsumCreateRequest,
     LumpsumPlanResponse,
+    PreferenceActivationResponse,
     SipCreateRequest,
     SipPlanResponse,
 )
@@ -142,3 +149,38 @@ async def create_lumpsum_plan(
         amount_inr=payload.amount_inr,
         action=payload.action,
     )
+
+
+@router.post(
+    "/{run_id}/save-preference", response_model=PreferenceActivationResponse
+)
+async def save_run_preference(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_ctx: User = Depends(get_ai_user_context),
+) -> PreferenceActivationResponse:
+    """Activate the candidate investment-preference row this run was computed under (Prozpr's AINV pill)."""
+    from app.domains.profile.services.preference_save_service import (
+        activate_candidate_for_run,
+    )
+
+    # user_ctx is loaded from the effective user (get_ai_user_context depends
+    # on get_effective_user), so scoping the run lookup by user_ctx.id keeps
+    # the lookup and the activation below on the SAME effective user -- an
+    # advisor/impersonation split can never mis-scope one against the other.
+    result = await db.execute(
+        select(AdditionalInvestmentRun).where(
+            AdditionalInvestmentRun.id == run_id,
+            AdditionalInvestmentRun.user_id == user_ctx.id,
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Additional-investment run not found",
+        )
+    activated = await activate_candidate_for_run(
+        db, user_ctx, run.saved_investment_preference_id
+    )
+    return PreferenceActivationResponse(activated=activated)

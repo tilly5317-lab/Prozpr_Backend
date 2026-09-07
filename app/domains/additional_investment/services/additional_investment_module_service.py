@@ -35,13 +35,9 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         # The run IS persisted (Plan 3b); we deliberately do NOT surface its id here.
         # ModuleOutput.persisted_run_id is renamed to `asset_allocation_run_id` by the
         # brain, so emitting an additional_investment_runs.id would mislabel it as an
-        # AA-run id. The id stays available on `payload` (ChatHandlerResult
-        # .additional_investment_run_id); it gets its own HTTP channel when the
-        # read/serve side (deferred Task 5/6) is built.
+        # AA-run id. The id surfaces instead via additional_investment_run_id below.
         persisted_run_id=None,
-        # The persisted run is served to the Invest page by
-        # additional_investment_read_service via GET /additional-investment/sip
-        # (id also on payload.additional_investment_run_id), NOT surfaced here.
+        additional_investment_run_id=result.additional_investment_run_id,
         chart_payloads=result.chart_payloads,  # forward hook: the ainv engine does not populate this yet
     )
 

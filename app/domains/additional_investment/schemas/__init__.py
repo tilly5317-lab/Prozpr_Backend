@@ -183,6 +183,12 @@ class LumpsumPlanResponse(BaseModel):
     headline_reason: Optional[str] = None
 
 
+class PreferenceActivationResponse(BaseModel):
+    """Result of activating the candidate investment-preference row a run was computed under."""
+
+    activated: bool
+
+
 __all__ = [
     "SipCreateRequest",
     "SipFundBuy",
@@ -191,4 +197,5 @@ __all__ = [
     "LumpsumAlignmentRow",
     "LumpsumFundBuy",
     "LumpsumPlanResponse",
+    "PreferenceActivationResponse",
 ]

@@ -24,6 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
+    from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
+        PracticalAllocationOutput,
+    )
 
 from app.domains.ai_engine.common import ensure_ai_agents_path, trace_line
 from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
@@ -106,6 +109,11 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # (both deficit-fill and legacy modes) — same amendment.
 AINV_ENGINE_VERSION = "ainv-3.2.0"
 
+# Sentinel: derive the preference FK from `preference_id_for` (existing
+# behaviour) unless the caller names the row that shaped the run (a chat
+# candidate, or None) — mirrors rebalancing_persist_service.DERIVE_PREFERENCE_ID.
+DERIVE_PREFERENCE_ID = object()
+
 
 @dataclass(frozen=True)
 class AdditionalInvestmentRunOutcome:
@@ -130,6 +138,10 @@ class AdditionalInvestmentRunOutcome:
     # deployed subgroup {subgroup, ideal_inr, current_inr, gap_inr, buy_inr}.
     # None on the SIP / legacy path.
     deficit_facts: "list[dict] | None" = None
+    # The practical (holdings-aware) allocation the run was built from —
+    # human_override_applied lives on it. Set on the SUCCESS path only; a
+    # blocking outcome carries no plan to read a preference off.
+    practical_result: "PracticalAllocationOutput | None" = None
 
 
 async def compute_additional_investment_result(
@@ -144,6 +156,7 @@ async def compute_additional_investment_result(
     chat_ctx: "TurnContext",
     persist: bool = False,
     focus_category: Optional[str] = None,
+    saved_investment_preference_id=DERIVE_PREFERENCE_ID,
     progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
 ) -> AdditionalInvestmentRunOutcome:
     """Prime allocation → build input → run the engine.
@@ -168,6 +181,10 @@ async def compute_additional_investment_result(
     customer sets in chat shows up on the Invest page AND in their goal plan.
     This is the single place that sync happens; both callers (chat handler and the
     Invest-page create service) get it, and both own the commit.
+
+    ``saved_investment_preference_id`` left at its default derives the FK from
+    the active row via ``preference_id_for``; passing a UUID or None (a chat
+    candidate row, or none) stamps that value verbatim on both persists.
     """
     trace_line("module: additional_investment — start")
 
@@ -399,10 +416,13 @@ async def compute_additional_investment_result(
         # but never denies the user the recommendation. Flush only — the caller
         # (chat router / create service) owns the commit.
         try:
-            saved_pref_id = preference_id_for(
-                user,
-                applied=paa_outcome.result.human_override_applied is not None,
-            )
+            if saved_investment_preference_id is DERIVE_PREFERENCE_ID:
+                saved_pref_id = preference_id_for(
+                    user,
+                    applied=paa_outcome.result.human_override_applied is not None,
+                )
+            else:
+                saved_pref_id = saved_investment_preference_id
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
                 user_id=acting_user_id,
@@ -447,4 +467,5 @@ async def compute_additional_investment_result(
         output=response,
         run_id=run_id,
         deficit_facts=deficit_facts,
+        practical_result=paa_outcome.result,
     )
