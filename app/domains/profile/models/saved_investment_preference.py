@@ -1,7 +1,8 @@
 """Standing customer investment preferences — the human_override source of truth.
 
 IMMUTABLE, VERSIONED rows: every save inserts a new row and deactivates the
-prior one; clear deactivates without deleting. Run
+prior one; a chat what-if inserts an INACTIVE candidate row (`activated_at`
+NULL) that a later save activates; clear deactivates without deleting. Run
 tables reference a row by FK (`saved_investment_preference_id`), so historical
 runs keep pointing at exactly the values that shaped them. At most one active
 row per user (partial unique index). The ONLY computation-time reader is the
@@ -22,7 +23,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, func, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,7 +64,20 @@ class SavedInvestmentPreference(Base):
     # and powers save idempotence; never read by the engine.
     customer_choices: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
+    # SAVE TELEMETRY, read back at confirm (never engine input): `applied_defaults`
+    # mirrors the resolver's applied-defaults dict, the same shape the screen
+    # path already sends to capture_preference_saved; `shortfall_reason` is the
+    # engine's own reason string. Migration DEFERRED/unapplied — human-owned.
+    applied_defaults: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    shortfall_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # NULL = never saved: a chat what-if the customer looked at but did not
+    # activate. Set on every activation (screen save or chat "yes, save it").
+    activated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
