@@ -100,9 +100,9 @@ class ModuleOutput:
       payload       — the agent's structured output (e.g. an Allocation, a
                       RebalancingPlan, a CashflowProjection). Used by later
                       modules in the sequence.
-      persisted_run_id / snapshot_id / rebalancing_recommendation_id —
-                      IDs of rows the module just wrote, surfaced back to the
-                      HTTP layer.
+      persisted_run_id / snapshot_id / rebalancing_recommendation_id /
+                      additional_investment_run_id — IDs of rows the module
+                      just wrote, surfaced back to the HTTP layer.
       chart_payloads — frontend-ready chart specs.
       side_effects  — free-form dict reserved for cross-turn gates (e.g.
                       ``{"awaiting_save": True}``).
@@ -113,6 +113,7 @@ class ModuleOutput:
     persisted_run_id: uuid.UUID | None = None
     snapshot_id: uuid.UUID | None = None
     rebalancing_recommendation_id: uuid.UUID | None = None
+    additional_investment_run_id: uuid.UUID | None = None
     chart_payloads: list[dict[str, Any]] | None = None
     side_effects: dict[str, Any] = field(default_factory=dict)
 

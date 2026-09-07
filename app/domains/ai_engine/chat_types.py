@@ -47,6 +47,7 @@ class ChatBrainResult:
     asset_allocation_run_id: uuid.UUID | None = None
     ideal_allocation_rebalancing_id: uuid.UUID | None = None
     ideal_allocation_snapshot_id: uuid.UUID | None = None
+    additional_investment_run_id: uuid.UUID | None = None
     chart_payloads: list[dict[str, Any]] | None = None
     # True when the turn was answered by the "no holdings imported yet" guard
     # (see ``ai_engine.portfolio_gate``) — the UI shows an add-CAMS CTA.

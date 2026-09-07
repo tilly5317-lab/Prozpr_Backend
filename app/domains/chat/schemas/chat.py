@@ -75,6 +75,10 @@ class ChatSendMessageResponse(BaseModel):
     # already declares/reads this exact name; today the backend just never sent it.
     ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
+    # The persisted additional-investment run the assistant just presented, so
+    # the client can offer "Save preference" → POST
+    # /additional-investment/{run_id}/save-preference.
+    additional_investment_run_id: Optional[uuid.UUID] = None
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False
