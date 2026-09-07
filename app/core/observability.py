@@ -287,7 +287,7 @@ def capture_preference_unserved(
 def capture_preference_saved(
     *,
     fields_set: list[str],
-    applied_defaults: dict,
+    applied_defaults: dict | None,
     shortfall: bool,
     distinct_id: object | None,
 ) -> None:

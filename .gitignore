@@ -171,3 +171,9 @@ docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
 
 # VR smoke-test output (contains vendor table names + row counts, not secrets)
 vr_smoke_report.json
+/AI_Agents/tests
+/AI_Agents/tests
+/app/domains/additional_investment/tests
+/app/domains/profile/tests
+/app/domains/rebalancing/tests
+/app/domains/rebalancing/tests
