@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import (
 
 import app.all_models  # noqa: F401  -- registers every model with Base.metadata
 from app.core.database import Base, get_db
-from app.core.dependencies import get_effective_user
+from app.core.dependencies import get_ai_user_context, get_effective_user
 from app.domains.rebalancing.models.rebalancing_run import RebalancingRun, TaxRegime
 from app.domains.rebalancing.routers.rebalancing_router import router
 
@@ -73,6 +73,9 @@ async def app_session():
 
     application.dependency_overrides[get_db] = _get_db
     application.dependency_overrides[get_effective_user] = lambda: SimpleNamespace(
+        id=USER_ID
+    )
+    application.dependency_overrides[get_ai_user_context] = lambda: SimpleNamespace(
         id=USER_ID
     )
     try:
@@ -226,3 +229,91 @@ async def test_stale_uncommitted_current_triggers_single_recompute(
         assert current.json()["source_allocation_run_id"] == str(newer.id)
 
     assert calls["n"] == 1, "exactly one recompute, no loop"
+
+
+# ---------------------------------------------------------------------------
+# S2b Task 2: saving a run also activates the candidate preference it was
+# computed under.
+# ---------------------------------------------------------------------------
+
+
+async def test_save_run_activates_its_candidate_preference(app_session, monkeypatch):
+    application, session = app_session
+    from app.domains.profile.models.saved_investment_preference import (
+        SavedInvestmentPreference,
+    )
+    from app.domains.profile.services import preference_save_service
+
+    row = SavedInvestmentPreference(user_id=USER_ID, is_active=False)
+    session.add(row)
+    await session.flush()
+    r = _run(T0, saved_investment_preference_id=row.id)
+    session.add(r)
+    await session.commit()
+
+    calls = []
+
+    async def _fake_confirm(db, user, candidate):
+        calls.append(candidate.id)
+        return SimpleNamespace(no_op=False)
+
+    monkeypatch.setattr(preference_save_service, "confirm_candidate", _fake_confirm)
+
+    async with await _client(application) as ac:
+        resp = await ac.post(f"/rebalancing/{r.id}/save")
+        assert resp.status_code == 200
+
+    assert calls == [row.id]
+
+
+async def test_save_run_without_candidate_touches_no_preference(app_session, monkeypatch):
+    application, session = app_session
+    from app.domains.profile.services import preference_save_service
+
+    r = _run(T0)
+    session.add(r)
+    await session.commit()
+
+    calls = []
+
+    async def _fake_confirm(db, user, candidate):
+        calls.append(candidate.id)
+        return SimpleNamespace(no_op=False)
+
+    monkeypatch.setattr(preference_save_service, "confirm_candidate", _fake_confirm)
+
+    async with await _client(application) as ac:
+        resp = await ac.post(f"/rebalancing/{r.id}/save")
+        assert resp.status_code == 200
+
+    assert calls == []
+
+
+async def test_save_run_returns_200_when_candidate_activation_raises(
+    app_session, monkeypatch
+):
+    """The plan is already committed by the time activation runs — a failure
+    there must not turn the save into an error response for the client."""
+    application, session = app_session
+    from app.domains.profile.models.saved_investment_preference import (
+        SavedInvestmentPreference,
+    )
+    from app.domains.profile.services import preference_save_service
+
+    row = SavedInvestmentPreference(user_id=USER_ID, is_active=False)
+    session.add(row)
+    await session.flush()
+    r = _run(T0, saved_investment_preference_id=row.id)
+    session.add(r)
+    await session.commit()
+
+    async def _raising_confirm(db, user, candidate):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(preference_save_service, "confirm_candidate", _raising_confirm)
+
+    async with await _client(application) as ac:
+        resp = await ac.post(f"/rebalancing/{r.id}/save")
+
+    assert resp.status_code == 200
+    assert resp.json()["origin"] == "saved"

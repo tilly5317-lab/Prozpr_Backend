@@ -104,4 +104,6 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #        liquidated to fund a rank-1 buy; the per-fund cap no longer forces a
 #        sell, only bounds deployment.
 # 1.6.0: human_override step in PAA (S1) — output-altering when a preference exists
-ENGINE_VERSION: str = "1.6.0"
+# 1.7.0: legacy per-turn sleeve tilt deleted (S2-R3) — preferences ride the PAA
+#        human_override step only.
+ENGINE_VERSION: str = "1.7.0"

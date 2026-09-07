@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_effective_user
+from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
@@ -352,15 +352,27 @@ async def save_run_as_plan(
     run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
+    user_ctx: User = Depends(get_ai_user_context),
 ):
     """Mark a run as the customer's committed plan (idempotent). Demotes any
     prior saved run so exactly one stays committed. Owns its commit, mirroring
-    ``update_status``."""
+    ``update_status``. Also activates the candidate preference the run was
+    computed under (S2b)."""
     run = await save_plan(db, user_id=current_user.id, run_id=run_id)
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
         )
     await db.commit()
+    from app.domains.profile.services.preference_save_service import (
+        activate_candidate_for_run,
+    )
+
+    try:
+        await activate_candidate_for_run(db, user_ctx, run.saved_investment_preference_id)
+    except Exception:
+        logger.exception(
+            "save plan: candidate preference activation failed for run_id=%s", run_id
+        )
     await db.refresh(run)
     return RebalancingRunListItem.model_validate(run)
