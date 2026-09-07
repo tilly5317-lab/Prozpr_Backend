@@ -95,6 +95,6 @@ class InvestmentPreferenceResponse(BaseModel):
             asset_class_target=row.asset_class_target,
             resolved_targets=row.resolved_targets,
             customer_choices=row.customer_choices,
-            saved_at=row.created_at,
+            saved_at=row.activated_at,
             recommendation=recommendation,
         )

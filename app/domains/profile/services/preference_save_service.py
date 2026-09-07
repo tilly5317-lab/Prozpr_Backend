@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -114,6 +115,20 @@ def _canonical_intent(intent: dict) -> dict:
     return {k: v for k, v in (intent or {}).items() if v not in (None, [], {})}
 
 
+def _follow_stored_arbitrage_key(intent: dict, stored_intent: dict) -> dict:
+    """The screen always says "arbitrage"; storage may hold the held twin.
+    Re-key the ask to whichever twin the stored intent already uses so an
+    unchanged re-send is a no-op (anti-ratchet)."""
+    subs = intent.get("subgroups") or {}
+    stored_subs = stored_intent.get("subgroups") or {}
+    for mine, theirs in (("arbitrage", "arbitrage_plus_income"), ("arbitrage_plus_income", "arbitrage")):
+        if mine in subs and theirs in stored_subs and mine not in stored_subs:
+            new_subs = {**subs}
+            new_subs[theirs] = new_subs.pop(mine)
+            return {**intent, "subgroups": new_subs}
+    return intent
+
+
 async def active_preference_row(db: AsyncSession, user_id) -> Optional[SavedInvestmentPreference]:
     stmt = select(SavedInvestmentPreference).where(
         SavedInvestmentPreference.user_id == user_id,
@@ -193,6 +208,44 @@ def _merge_field_level(
         asset_class_requested=asset_class,
         subgroup_emphasis=emphasis,
         applied_defaults=dict(resolved_changed.applied_defaults),
+    )
+
+
+async def _resolve_against_row(
+    db, user, intent: dict, row
+) -> tuple[ResolvedPreferences, dict, dict, dict]:
+    """Returns ``(resolved, changed, current_class_mix, intent)``; only facets
+    that differ from ``row`` re-resolve. The returned ``intent`` may have
+    ``subgroups["arbitrage"]`` re-keyed to ``arbitrage_plus_income`` when the
+    customer's current run holds that subgroup and not ``arbitrage``."""
+    stored_intent = _canonical_intent(getattr(row, "customer_choices", None) or {})
+    changed = _changed_intent(intent, stored_intent)
+    changed_subs = changed.get("subgroups") or {}
+    need_shares = any(token in _RELATIVE_TOKENS for token in changed_subs.values())
+    need_shares = need_shares or "arbitrage" in changed_subs
+    class_mix, subgroup_shares = await _current_mixes(
+        db, user, need_subgroup_shares=need_shares
+    )
+    if "arbitrage" in changed_subs and subgroup_shares.get(
+        "arbitrage_plus_income", 0.0
+    ) > subgroup_shares.get("arbitrage", 0.0):
+        # One customer word, two engine subgroups: the practical pipeline funds medium-term debt through arbitrage_plus_income.
+        new_changed_subs = dict(changed_subs)
+        new_changed_subs["arbitrage_plus_income"] = new_changed_subs.pop("arbitrage")
+        changed = {**changed, "subgroups": new_changed_subs}
+        intent_subs = dict(intent.get("subgroups") or {})
+        intent_subs["arbitrage_plus_income"] = intent_subs.pop("arbitrage")
+        intent = {**intent, "subgroups": intent_subs}
+    resolved_changed = resolve_saved_preferences(
+        changed,
+        current_class_mix_pct=class_mix,
+        current_subgroup_share_pct=subgroup_shares,
+    )
+    return (
+        _merge_field_level(intent, row, resolved_changed, changed),
+        changed,
+        class_mix,
+        intent,
     )
 
 
@@ -286,10 +339,7 @@ async def _run_preferred(user, prefs):
     Returns ``(result, blocking_message)`` — ``result`` is None exactly when
     the practical engine was blocked (e.g. zero corpus), in which case
     ``blocking_message`` carries the customer-facing reason."""
-    one_off = {
-        "asset_class_requested": prefs.asset_class_requested,
-        "subgroup_emphasis": prefs.subgroup_emphasis,
-    }
+    one_off = one_off_override(prefs)
     outcome = await compute_practical_allocation_result(
         user, "preferences preview", chat_ctx=_build_ctx(user, one_off=one_off)
     )
@@ -305,31 +355,11 @@ def _preferred_view(preferred) -> tuple[Optional[dict], Optional[str]]:
     return getattr(applied, "achieved", None), getattr(applied, "shortfall_reason", None)
 
 
-async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row):
-    from app.domains.asset_allocation.models.run import (
-        AssetAllocationRun,
-        AssetAllocationRunStatus,
-    )
-    from app.domains.asset_allocation.services.aa_engine.service import (
-        compute_allocation_result,
-    )
-
-    achieved, _ = _preferred_view(preferred_out)
-
-    # Immutable versioned rows: deactivate the prior row, insert a fresh one.
-    # Runs keep their FK to the old row — history stays truthful; "current"
-    # is the single is_active row.
-    if prior_row is not None:
-        prior_row.is_active = False
-        # Flush the deactivation before inserting: the partial unique index
-        # allows only ONE active row per user, and without ordering the
-        # INSERT can hit the index before the UPDATE lands.
-        await db.flush()
-
+def _new_row(user_id, intent, resolved, achieved, *, active: bool):
     requested = resolved.asset_class_requested or {}
     target = achieved or {}
-    row = SavedInvestmentPreference(
-        user_id=user.id,
+    return SavedInvestmentPreference(
+        user_id=user_id,
         equity_requested_pct=requested.get("equity"),
         debt_requested_pct=requested.get("debt"),
         others_requested_pct=requested.get("others"),
@@ -338,14 +368,20 @@ async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row)
         others_target_pct=target.get("others"),
         resolved_targets=resolved.subgroup_emphasis or None,
         customer_choices=intent,
+        applied_defaults=getattr(resolved, "applied_defaults", None) or None,
+        is_active=active,
+        activated_at=datetime.now(timezone.utc) if active else None,
     )
-    db.add(row)
 
-    # Without this refresh, the ideal-parity read inside compute_allocation_result
-    # (via load_human_override_for_user(user)) sees a stale relationship and
-    # persists an un-bent allocation.
-    await db.flush()
-    await db.refresh(user, ["saved_investment_preference"])
+
+async def _persist_preferred_allocation(db, user):
+    from app.domains.asset_allocation.models.run import (
+        AssetAllocationRun,
+        AssetAllocationRunStatus,
+    )
+    from app.domains.asset_allocation.services.aa_engine.service import (
+        compute_allocation_result,
+    )
 
     prior_stmt = (
         select(AssetAllocationRun.id)
@@ -370,6 +406,30 @@ async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row)
             new_run.status = AssetAllocationRunStatus.approved
             new_run.supersedes_id = prior_id
 
+
+async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row):
+    achieved, _ = _preferred_view(preferred_out)
+
+    # Immutable versioned rows: deactivate the prior row, insert a fresh one.
+    # Runs keep their FK to the old row — history stays truthful; "current"
+    # is the single is_active row.
+    if prior_row is not None:
+        prior_row.is_active = False
+        # Flush the deactivation before inserting: the partial unique index
+        # allows only ONE active row per user, and without ordering the
+        # INSERT can hit the index before the UPDATE lands.
+        await db.flush()
+
+    row = _new_row(user.id, intent, resolved, achieved, active=True)
+    db.add(row)
+
+    # Without this refresh, the ideal-parity read inside compute_allocation_result
+    # (via load_human_override_for_user(user)) sees a stale relationship and
+    # persists an un-bent allocation.
+    await db.flush()
+    await db.refresh(user, ["saved_investment_preference"])
+
+    await _persist_preferred_allocation(db, user)
     await db.commit()
 
 
@@ -500,6 +560,7 @@ async def preview_or_save(db, user, intent: dict, *, confirm: bool):
     intent = _canonical_intent(intent)
     row = await active_preference_row(db, user.id)
     stored_intent = _canonical_intent(getattr(row, "customer_choices", None) or {})
+    intent = _follow_stored_arbitrage_key(intent, stored_intent)
 
     if intent == stored_intent:
         return InvestmentPreferencePreviewResponse(no_op=True)
@@ -524,20 +585,7 @@ async def preview_or_save(db, user, intent: dict, *, confirm: bool):
             capture_preference_cleared(distinct_id=user_id)
         return InvestmentPreferencePreviewResponse(no_op=row is None)
 
-    changed = _changed_intent(intent, stored_intent)
-    need_shares = any(
-        token in _RELATIVE_TOKENS
-        for token in (changed.get("subgroups") or {}).values()
-    )
-    class_mix, subgroup_shares = await _current_mixes(
-        db, user, need_subgroup_shares=need_shares
-    )
-    resolved_changed = resolve_saved_preferences(
-        changed,
-        current_class_mix_pct=class_mix,
-        current_subgroup_share_pct=subgroup_shares,
-    )
-    resolved = _merge_field_level(intent, row, resolved_changed, changed)
+    resolved, changed, class_mix, intent = await _resolve_against_row(db, user, intent, row)
 
     preferred, blocking_message = await _run_preferred(user, resolved)
     if preferred is None:
@@ -591,4 +639,120 @@ async def preview_or_save(db, user, intent: dict, *, confirm: bool):
         preferred=achieved,
         deviation=deviation,
         shortfall=shortfall,
+    )
+
+
+async def resolve_one_off(db, user, chat_intent: dict, *, base_row=None):
+    """``base_row`` overrides the active saved row as the merge base. A class
+    facet in the ask replaces the base's — one class at a time; subgroups merge
+    per key. Returns ``(merged_intent, resolved, changed)``."""
+    row = base_row if base_row is not None else await active_preference_row(db, user.id)
+    stored = _canonical_intent(getattr(row, "customer_choices", None) or {})
+    ask = _canonical_intent(_route_sole_class_subgroups(chat_intent or {}))
+    ask = _follow_stored_arbitrage_key(ask, stored)
+    intent: dict = {}
+    asset_class = ask.get("asset_class", stored.get("asset_class"))
+    if asset_class:
+        intent["asset_class"] = asset_class
+    subgroups = {**(stored.get("subgroups") or {}), **(ask.get("subgroups") or {})}
+    if subgroups:
+        intent["subgroups"] = subgroups
+    resolved, changed, _, intent = await _resolve_against_row(db, user, intent, row)
+    return intent, resolved, changed
+
+
+def one_off_override(resolved: ResolvedPreferences) -> dict:
+    return {
+        "asset_class_requested": resolved.asset_class_requested,
+        "subgroup_emphasis": resolved.subgroup_emphasis,
+    }
+
+
+def fill_candidate_targets(
+    candidate, achieved: dict | None, shortfall_reason: str | None = None
+) -> None:
+    """Set a candidate row's target columns after the run that produced them
+    (AINV inserts the row before its engine run, so targets arrive later)."""
+    if achieved is None:
+        return
+    candidate.equity_target_pct = achieved.get("equity")
+    candidate.debt_target_pct = achieved.get("debt")
+    candidate.others_target_pct = achieved.get("others")
+    if shortfall_reason is not None:
+        candidate.shortfall_reason = shortfall_reason
+
+
+async def insert_candidate(db, user, intent, resolved, achieved, shortfall_reason=None):
+    """A seen-but-unsaved what-if as a real inactive row, so the run can FK it."""
+    row = _new_row(user.id, intent, resolved, achieved, active=False)
+    row.shortfall_reason = shortfall_reason
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def candidate_row(db, user_id, candidate_id):
+    """The user's preference row by id, in any state — the caller reads
+    ``is_active`` / ``activated_at`` to tell a live candidate from one that
+    was already saved or superseded."""
+    stmt = select(SavedInvestmentPreference).where(
+        SavedInvestmentPreference.id == candidate_id,
+        SavedInvestmentPreference.user_id == user_id,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def activate_candidate_for_run(db, user, preference_id) -> bool:
+    """'Save plan' saves the preference that shaped it: activate the run's
+    candidate row iff it is still a live candidate."""
+    if preference_id is None:
+        return False
+    row = await candidate_row(db, user.id, preference_id)
+    if row is None or row.is_active or row.activated_at is not None:
+        return False
+    result = await confirm_candidate(db, user, row)
+    return not result.no_op
+
+
+async def confirm_candidate(db, user, candidate):
+    """'Yes, save it': activate the candidate the customer already saw. No
+    re-resolution — the numbers they consented to are the row's."""
+    from app.domains.profile.schemas import InvestmentPreferencePreviewResponse
+
+    prior = await active_preference_row(db, user.id)
+    stored_intent = _canonical_intent(getattr(prior, "customer_choices", None) or {})
+    if candidate.is_active or _canonical_intent(candidate.customer_choices or {}) == stored_intent:
+        return InvestmentPreferencePreviewResponse(no_op=True)
+
+    if prior is not None:
+        prior.is_active = False
+        await db.flush()  # partial unique index: deactivate before activating
+    candidate.is_active = True
+    candidate.activated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.refresh(user, ["saved_investment_preference"])
+    await _persist_preferred_allocation(db, user)
+    await db.commit()
+
+    user_id = user.id
+    requested, target = candidate.asset_class_requested, candidate.asset_class_target
+    resolved_targets = candidate.resolved_targets  # captured before _eager_refresh:
+    # a mid-refresh rollback expires `candidate` (see _eager_refresh's own docstring).
+    stored_applied_defaults = getattr(candidate, "applied_defaults", None)
+    stored_shortfall_reason = getattr(candidate, "shortfall_reason", None)
+    await _eager_refresh(db, user)
+    fields_set = [
+        name for name, value in (
+            ("asset_class_requested", requested),
+            ("subgroup_emphasis", resolved_targets),
+        ) if value
+    ]
+    capture_preference_saved(
+        fields_set=fields_set,
+        applied_defaults=stored_applied_defaults or {},
+        shortfall=stored_shortfall_reason is not None,
+        distinct_id=user_id,
+    )
+    return InvestmentPreferencePreviewResponse(
+        preferred=target, no_op=False,
     )

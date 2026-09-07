@@ -4,8 +4,8 @@ A run that consumed a saved preference stores the FK of the IMMUTABLE
 preference row that shaped it (`saved_investment_preference_id`);
 NULL = computed with no preference. Rows are never mutated or deleted
 (clear/supersede just flips `is_active`), so the FK is a permanent,
-truthful snapshot — the values are one join away. A one-off chat override
-with no saved row persists NULL.
+truthful snapshot — the values are one join away. A chat what-if FKs its
+candidate row (the persist call names it explicitly).
 """
 
 from __future__ import annotations

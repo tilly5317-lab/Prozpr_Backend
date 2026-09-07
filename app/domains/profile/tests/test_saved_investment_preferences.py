@@ -65,6 +65,31 @@ async def test_round_trip_and_unique_per_user(session):
         await session.flush()
 
 
+def test_response_saved_at_reads_activated_at():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.domains.profile.schemas import InvestmentPreferenceResponse
+
+    when = datetime(2026, 9, 5, tzinfo=timezone.utc)
+    row = SimpleNamespace(
+        asset_class_requested=None, asset_class_target=None, resolved_targets=None,
+        customer_choices=None, created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        activated_at=when,
+    )
+    assert InvestmentPreferenceResponse.from_row(row).saved_at == when
+
+
+def test_migration_adds_activated_at_on_top_of_s1():
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[4]
+    path = repo / "alembic/versions/b7c1d2e3f4a5_add_activated_at_to_saved_investment_preferences.py"
+    src = path.read_text()
+    assert 'down_revision: Union[str, None] = "0ac0a4e4fc5f"' in src
+    assert '"activated_at"' in src and "DateTime(timezone=True)" in src
+
+
 class TestResolver:
     CUR = {"equity": 70.0, "debt": 25.0, "others": 5.0}
     BETA = {
@@ -757,6 +782,7 @@ class TestSaveService:
         assert row.asset_class_target["equity"] == 78.4
         assert row.asset_class_requested["equity"] == 80.0
         assert row.is_active is True
+        assert row.activated_at is not None
         assert refreshed, "changed confirm must trigger the eager refresh"
 
     async def test_second_save_inserts_new_row_and_deactivates_prior(self, session, monkeypatch):
@@ -920,6 +946,57 @@ class TestSaveService:
             "untouched 'more' must keep its stored 50, not re-resolve to 60"
         )
         assert row.resolved_targets["us_equities"] == 0.0
+
+    async def test_preview_arbitrage_ask_uses_held_subgroup(self, session, monkeypatch):
+        """A save flows the re-keyed subgroup through to storage: the
+        customer said "arbitrage" but holds arbitrage_plus_income."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        _fake_engine(monkeypatch, svc)
+        shares = {"arbitrage": 0.0, "arbitrage_plus_income": 40.0, "short_debt": 60.0}
+
+        async def _current_mixes(db, user, *, need_subgroup_shares):
+            return {"equity": 70.0, "debt": 25.0, "others": 5.0}, dict(shares)
+
+        monkeypatch.setattr(svc, "_current_mixes", _current_mixes)
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: _noop_coro())
+        user = await _make_user(session)
+        await svc.preview_or_save(
+            session, user, {"subgroups": {"arbitrage": "none"}}, confirm=True,
+        )
+        row = await _fetch_pref_row(session, user.id)
+        assert row.customer_choices == {"subgroups": {"arbitrage_plus_income": "none"}}
+
+    async def test_arbitrage_rekeyed_row_repuT_is_a_noop(self, session, monkeypatch):
+        """Anti-ratchet: the screen always sends "arbitrage", but re-sending
+        it against a row already re-keyed to arbitrage_plus_income must be a
+        no-op — not a re-resolve that ratchets the stored share upward."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        user = await _make_user_with_stored_intent(
+            session,
+            {"subgroups": {"arbitrage_plus_income": "more"}},
+            resolved_targets={"arbitrage_plus_income": 50.0},
+        )
+        shares = {"arbitrage": 0.0, "arbitrage_plus_income": 50.0}
+
+        async def _current_mixes(db, user, *, need_subgroup_shares):
+            return {"equity": 70.0, "debt": 25.0, "others": 5.0}, dict(shares)
+
+        resolve_calls = []
+        monkeypatch.setattr(svc, "_current_mixes", _current_mixes)
+        monkeypatch.setattr(
+            svc, "resolve_saved_preferences",
+            lambda *a, **k: resolve_calls.append(1),
+        )
+        resp = await svc.preview_or_save(
+            session, user, {"subgroups": {"arbitrage": "more"}}, confirm=True,
+        )
+        assert resp.no_op is True
+        assert resolve_calls == []
+        rows = await _fetch_all_rows(session, user.id)
+        assert len(rows) == 1
+        assert rows[0].resolved_targets == {"arbitrage_plus_income": 50.0}
 
     async def test_eager_refresh_rolls_back_before_logging_on_failure(self, session, monkeypatch):
         """F1: a mid-refresh failure must roll back FIRST, or the session's
@@ -1241,3 +1318,396 @@ class TestIsRunFresh:
         )
 
         assert await is_run_fresh(session, plan) is True
+
+
+class TestChatCandidates:
+    """S2: a chat what-if is a candidate preference row; save activates it."""
+
+    session = TestSaveService.session  # same sqlite schema (users + prefs + run tables)
+
+    def _mixes(self, monkeypatch, svc, class_mix=None):
+        class_mix = class_mix or {"equity": 70.0, "debt": 25.0, "others": 5.0}
+
+        async def _current_mixes(db, user, *, need_subgroup_shares):
+            return dict(class_mix), dict(svc._FALLBACK_SUBGROUP_SHARES)
+
+        monkeypatch.setattr(svc, "_current_mixes", _current_mixes)
+
+    async def test_resolve_one_off_without_saved_row(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        assert intent == {"asset_class": {"class": "equity", "direction": "more"}}
+        assert changed == intent
+        assert resolved.asset_class_requested["equity"] == 80.0
+        assert svc.one_off_override(resolved) == {
+            "asset_class_requested": resolved.asset_class_requested,
+            "subgroup_emphasis": {},
+        }
+
+    async def test_resolve_one_off_routes_gold_to_the_others_class(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"subgroups": {"gold_commodities": "more"}}
+        )
+        assert intent == {"asset_class": {"class": "others", "direction": "more"}}
+        assert resolved.asset_class_requested["others"] == 15.0
+
+    async def test_resolve_one_off_merges_over_saved_row_field_level(self, session, monkeypatch):
+        """'drop US' from a customer with a saved 'more equity' keeps the saved
+        facet AND reuses its stored resolved number (no re-bend)."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc, class_mix={"equity": 80.0, "debt": 15.0, "others": 5.0})
+        user = await _make_user_with_stored_intent(
+            session,
+            {"asset_class": {"class": "equity", "direction": "more"}},
+            equity_requested_pct=80.0, debt_requested_pct=15.0, others_requested_pct=5.0,
+        )
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"subgroups": {"us_equities": "none"}}
+        )
+        assert intent == {
+            "asset_class": {"class": "equity", "direction": "more"},
+            "subgroups": {"us_equities": "none"},
+        }
+        assert changed == {"subgroups": {"us_equities": "none"}}
+        assert resolved.asset_class_requested["equity"] == 80.0   # stored, not 90
+        assert resolved.subgroup_emphasis == {"us_equities": 0.0}
+
+    async def test_resolve_one_off_unchanged_ask_reports_no_change(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        stored = {"asset_class": {"class": "equity", "direction": "more"}}
+        user = await _make_user_with_stored_intent(
+            session, stored,
+            equity_requested_pct=80.0, debt_requested_pct=15.0, others_requested_pct=5.0,
+        )
+        intent, _, changed = await svc.resolve_one_off(session, user, stored)
+        assert intent == stored and changed == {}
+
+    async def test_resolve_one_off_class_ask_replaces_saved_class_facet(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc, class_mix={"equity": 80.0, "debt": 15.0, "others": 5.0})
+        user = await _make_user_with_stored_intent(
+            session,
+            {"asset_class": {"class": "equity", "direction": "more"}},
+            equity_requested_pct=80.0, debt_requested_pct=15.0, others_requested_pct=5.0,
+        )
+        intent, _, changed = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "debt", "direction": "more"}}
+        )
+        assert intent == {"asset_class": {"class": "debt", "direction": "more"}}
+        assert changed == {"asset_class": {"class": "debt", "direction": "more"}}
+
+    async def test_resolve_one_off_uses_candidate_base_row_when_given(self, session, monkeypatch):
+        """S2 ruling 15: a follow-up ask composes over the session's last live
+        candidate, so an UNSAVED '100% equity' survives 'and drop US funds'."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        first = {"asset_class": {"class": "equity", "direction": "target", "target_pct": 100.0}}
+        intent0, resolved0, _ = await svc.resolve_one_off(session, user, first)
+        row = await svc.insert_candidate(session, user, intent0, resolved0, achieved=None)
+
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"subgroups": {"us_equities": "none"}}, base_row=row
+        )
+        assert intent == {
+            "asset_class": {"class": "equity", "direction": "target", "target_pct": 100.0},
+            "subgroups": {"us_equities": "none"},
+        }
+        assert changed == {"subgroups": {"us_equities": "none"}}
+        assert resolved.asset_class_requested["equity"] == 100.0  # candidate's, not re-resolved
+        assert resolved.subgroup_emphasis == {"us_equities": 0.0}
+
+    async def test_arbitrage_ask_targets_the_held_subgroup(self, session, monkeypatch):
+        """A customer holding arbitrage_plus_income (not arbitrage) gets that
+        subgroup re-keyed and resolved, not the base fund they don't hold."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        shares = {"arbitrage": 0.0, "arbitrage_plus_income": 40.0, "short_debt": 60.0}
+
+        async def _current_mixes(db, user, *, need_subgroup_shares):
+            return {"equity": 70.0, "debt": 25.0, "others": 5.0}, dict(shares)
+
+        monkeypatch.setattr(svc, "_current_mixes", _current_mixes)
+        user = await _make_user(session)
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"subgroups": {"arbitrage": "more"}}
+        )
+        assert intent == {"subgroups": {"arbitrage_plus_income": "more"}}
+        assert changed == intent
+        assert resolved.subgroup_emphasis == {"arbitrage_plus_income": 50.0}
+
+    async def test_arbitrage_ask_stays_when_held(self, session, monkeypatch):
+        """Holding arbitrage itself (not arbitrage_plus_income) leaves the
+        ask targeting arbitrage — no re-key."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        shares = {"arbitrage": 40.0, "arbitrage_plus_income": 0.0}
+
+        async def _current_mixes(db, user, *, need_subgroup_shares):
+            return {"equity": 70.0, "debt": 25.0, "others": 5.0}, dict(shares)
+
+        monkeypatch.setattr(svc, "_current_mixes", _current_mixes)
+        user = await _make_user(session)
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"subgroups": {"arbitrage": "more"}}
+        )
+        assert intent == {"subgroups": {"arbitrage": "more"}}
+        assert changed == intent
+
+    async def test_resolve_one_off_follows_stored_arbitrage_key(self, session, monkeypatch):
+        """The stored row already holds arbitrage_plus_income; a fresh
+        "arbitrage" ask from the screen must follow that key, not create a
+        parallel "arbitrage" entry alongside it."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user_with_stored_intent(
+            session,
+            {"subgroups": {"arbitrage_plus_income": "more"}},
+            resolved_targets={"arbitrage_plus_income": 50.0},
+        )
+        intent, resolved, changed = await svc.resolve_one_off(
+            session, user, {"subgroups": {"arbitrage": "none"}}
+        )
+        assert intent == {"subgroups": {"arbitrage_plus_income": "none"}}
+        assert changed == {"subgroups": {"arbitrage_plus_income": "none"}}
+
+    async def test_insert_candidate_is_inactive_and_never_activated(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(
+            session, user, intent, resolved,
+            achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
+        )
+        assert row.id is not None
+        assert row.is_active is False and row.activated_at is None
+        assert row.customer_choices == intent
+        assert row.asset_class_requested["equity"] == 80.0
+        assert row.asset_class_target["equity"] == 78.0
+        assert await _fetch_pref_row(session, user.id) is None, "a candidate is not active"
+        assert await svc.candidate_row(session, user.id, row.id) is row
+        assert await svc.candidate_row(session, uuid.uuid4(), row.id) is None, "other user"
+        assert await svc.candidate_row(session, user.id, uuid.uuid4()) is None, "unknown id"
+
+    async def test_confirm_candidate_twice_is_a_noop_second_time(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        touched = []
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: touched.append(True) or _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: touched.append(True) or _noop_coro())
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        assert (await svc.confirm_candidate(session, user, row)).no_op is False
+        assert (await svc.confirm_candidate(session, user, row)).no_op is True
+        assert len(touched) == 2, "the second confirm must not persist or refresh again"
+
+    async def test_confirm_candidate_activates_without_reresolving(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        refreshed, resolves, persisted = [], [], []
+        monkeypatch.setattr(svc, "_eager_refresh",
+                            lambda *a, **k: refreshed.append(True) or _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation",
+                            lambda *a, **k: persisted.append(True) or _noop_coro())
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(
+            session, user, intent, resolved,
+            achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
+        )
+        monkeypatch.setattr(svc, "resolve_saved_preferences",
+                            lambda *a, **k: resolves.append(True))
+        resp = await svc.confirm_candidate(session, user, row)
+        assert resp.no_op is False
+        assert resp.preferred == {"equity": 78.0, "debt": 17.0, "others": 5.0}
+        active = await _fetch_pref_row(session, user.id)
+        assert active is not None and active.id == row.id
+        assert active.activated_at is not None
+        assert resolves == [], "the numbers the customer saw are the numbers saved"
+        assert persisted and refreshed
+        assert len(await _fetch_all_rows(session, user.id)) == 1, "no duplicate row"
+
+    async def test_confirm_candidate_deactivates_prior_active_row(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc, class_mix={"equity": 80.0, "debt": 15.0, "others": 5.0})
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: _noop_coro())
+        user = await _make_user_with_stored_intent(
+            session, {"asset_class": {"class": "equity", "direction": "more"}},
+            equity_requested_pct=80.0, debt_requested_pct=15.0, others_requested_pct=5.0,
+        )
+        prior = await _fetch_pref_row(session, user.id)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"subgroups": {"us_equities": "none"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        await svc.confirm_candidate(session, user, row)
+        rows = await _fetch_all_rows(session, user.id)
+        assert {r.id: r.is_active for r in rows} == {prior.id: False, row.id: True}
+
+    async def test_confirm_candidate_is_noop_when_it_matches_the_saved_intent(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        touched = []
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: touched.append(True) or _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: touched.append(True) or _noop_coro())
+        stored = {"asset_class": {"class": "equity", "direction": "more"}}
+        user = await _make_user_with_stored_intent(
+            session, stored,
+            equity_requested_pct=80.0, debt_requested_pct=15.0, others_requested_pct=5.0,
+        )
+        intent, resolved, _ = await svc.resolve_one_off(session, user, stored)
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        resp = await svc.confirm_candidate(session, user, row)
+        assert resp.no_op is True and touched == []
+        assert row.is_active is False and row.activated_at is None
+
+    async def test_confirm_candidate_emits_preference_saved(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        events = []
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: _noop_coro())
+        monkeypatch.setattr(svc, "capture_preference_saved", lambda **kw: events.append(kw))
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"subgroups": {"us_equities": "none"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        await svc.confirm_candidate(session, user, row)
+        assert events and events[0]["fields_set"] == ["subgroup_emphasis"]
+        # Token-only payload: the same four keys the screen save emits, no intent.
+        assert set(events[0]) == {"fields_set", "applied_defaults", "shortfall", "distinct_id"}
+
+    async def test_activate_candidate_for_run_activates_live_candidate_only(
+        self, session, monkeypatch
+    ):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: _noop_coro())
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+
+        assert await svc.activate_candidate_for_run(session, user, row.id) is True
+        active = await _fetch_pref_row(session, user.id)
+        assert active is not None and active.id == row.id
+
+        assert await svc.activate_candidate_for_run(session, user, row.id) is False
+        assert await svc.activate_candidate_for_run(session, user, None) is False
+        assert await svc.activate_candidate_for_run(session, user, uuid.uuid4()) is False
+
+    async def test_fill_candidate_targets_sets_targets(self, session, monkeypatch):
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        assert row.asset_class_target is None
+
+        svc.fill_candidate_targets(row, {"equity": 70.0, "debt": 25.0, "others": 5.0})
+        assert row.asset_class_target == {"equity": 70.0, "debt": 25.0, "others": 5.0}
+
+        svc.fill_candidate_targets(row, None)
+        assert row.asset_class_target == {"equity": 70.0, "debt": 25.0, "others": 5.0}
+
+    async def test_fill_candidate_targets_sets_shortfall_reason_without_clobbering(
+        self, session, monkeypatch
+    ):
+        """AINV inserts the candidate pre-run (no shortfall_reason yet) and
+        fills it in after the engine runs; a later no-reason call must not
+        wipe out the one already stored."""
+        from app.domains.profile.services import preference_save_service as svc
+
+        self._mixes(monkeypatch, svc)
+        user = await _make_user(session)
+        intent, resolved, _ = await svc.resolve_one_off(
+            session, user, {"asset_class": {"class": "equity", "direction": "more"}}
+        )
+        row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        assert row.shortfall_reason is None
+
+        svc.fill_candidate_targets(
+            row, {"equity": 70.0, "debt": 25.0, "others": 5.0},
+            shortfall_reason="immovable holdings limit the move",
+        )
+        assert row.shortfall_reason == "immovable holdings limit the move"
+
+        svc.fill_candidate_targets(row, {"equity": 70.0, "debt": 25.0, "others": 5.0})
+        assert row.shortfall_reason == "immovable holdings limit the move", (
+            "a later call with no shortfall_reason must not clobber the stored one"
+        )
+
+    async def test_confirm_candidate_relays_real_applied_defaults_and_shortfall(
+        self, session, monkeypatch
+    ):
+        """Task 2: confirm must send the REAL applied_defaults dict captured
+        at what-if time and a shortfall bool derived from the engine's own
+        shortfall_reason — never the numeric proxy (abs delta > 0.5 between
+        requested and target), which conflates "the engine explained a
+        shortfall" with "the saved numbers happen to differ slightly"."""
+        from app.domains.mutual_funds.services.investment_preferences import (
+            ResolvedPreferences,
+        )
+        from app.domains.profile.services import preference_save_service as svc
+
+        monkeypatch.setattr(svc, "_eager_refresh", lambda *a, **k: _noop_coro())
+        monkeypatch.setattr(svc, "_persist_preferred_allocation", lambda *a, **k: _noop_coro())
+        events = []
+        monkeypatch.setattr(svc, "capture_preference_saved", lambda **kw: events.append(kw))
+
+        user = await _make_user(session)
+        intent = {"asset_class": {"class": "equity", "direction": "more"}}
+        resolved = ResolvedPreferences(
+            asset_class_requested={"equity": 80.0, "debt": 15.0, "others": 5.0},
+            subgroup_emphasis={},
+            applied_defaults={"emergency_buffer_cut": True},
+        )
+        row = await svc.insert_candidate(
+            session, user, intent, resolved,
+            achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
+            shortfall_reason="immovable holdings limit the move",
+        )
+
+        resp = await svc.confirm_candidate(session, user, row)
+
+        assert resp.no_op is False
+        assert len(events) == 1
+        assert events[0]["applied_defaults"] == {"emergency_buffer_cut": True}
+        assert events[0]["shortfall"] is True

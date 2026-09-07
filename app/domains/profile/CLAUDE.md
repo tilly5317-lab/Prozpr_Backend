@@ -5,7 +5,7 @@
 - **models/** — per-section ORM (risk, tax, investment, investment + asset-allocation constraints, personal finance, other investments, current property, review preference, effective-risk assessment).
 - **schemas/** — per-section payloads + a `FullProfileResponse` aggregator.
 - **routers/** — one `/profile` router with per-section PATCH endpoints.
-- **services/** — `profile_finance.py` (household-finance scalar resolver) + `personal_finance_write_service.py` (its commit-free write counterpart, so a domain owning a *derived* view of a canonical field can update it without reaching into `personal_finance_profiles`) + `_effective_risk/` (calculation, inputs, merge, service).
+- **services/** — `profile_finance.py` (household-finance scalar resolver) + `personal_finance_write_service.py` (its commit-free write counterpart, so a domain owning a *derived* view of a canonical field can update it without reaching into `personal_finance_profiles`) + `_effective_risk/` (calculation, inputs, merge, service) + `preference_save_service.py` — the single investment-preference save path, serving both the screen via `preview_or_save` and chat via `resolve_one_off` / `insert_candidate` / `confirm_candidate` / `activate_candidate_for_run` (the pill-save entry, called by `rebalancing_router.save_run_as_plan`) + `preference_lexicon.py` — the word→facet table chat extraction maps `PreferenceAsk` entries through.
 
 ## Gotchas & invariants
 
