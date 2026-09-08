@@ -1250,7 +1250,8 @@ async def _handle_preference_what_if(
         constraint_impact=impact,
     )
     return ChatHandlerResult(
-        text=text, snapshot_id=None, rebalancing_recommendation_id=rec_id
+        text=text, snapshot_id=None, rebalancing_recommendation_id=rec_id,
+        has_candidate_preference=True,
     )
 
 

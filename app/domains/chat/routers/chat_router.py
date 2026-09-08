@@ -299,6 +299,7 @@ async def send_message(
         ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
         ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
         additional_investment_run_id=brain_result.additional_investment_run_id,
+        has_candidate_preference=brain_result.has_candidate_preference,
         portfolio_data_missing=brain_result.portfolio_data_missing,
         session_title=session.title,
     )
@@ -419,6 +420,7 @@ async def send_message_streaming(
                 ideal_allocation_rebalancing_id=brain_result.ideal_allocation_rebalancing_id,
                 ideal_allocation_snapshot_id=brain_result.ideal_allocation_snapshot_id,
                 additional_investment_run_id=brain_result.additional_investment_run_id,
+                has_candidate_preference=brain_result.has_candidate_preference,
                 portfolio_data_missing=brain_result.portfolio_data_missing,
                 session_title=session_title,
             ).model_dump(),

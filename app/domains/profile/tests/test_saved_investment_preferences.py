@@ -90,6 +90,17 @@ def test_migration_adds_activated_at_on_top_of_s1():
     assert '"activated_at"' in src and "DateTime(timezone=True)" in src
 
 
+def test_migration_adds_supersedes_id_on_top_of_head():
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[4]
+    path = repo / "alembic/versions/c9d3e5f7a1b2_add_supersedes_id_to_saved_investment_preferences.py"
+    src = path.read_text()
+    assert 'down_revision: Union[str, None] = "714ece63d9da"' in src
+    assert '"supersedes_id"' in src and "saved_investment_preferences.id" in src
+    assert 'ondelete="SET NULL"' in src
+
+
 class TestResolver:
     CUR = {"equity": 70.0, "debt": 25.0, "others": 5.0}
     BETA = {
@@ -801,6 +812,7 @@ class TestSaveService:
         )
         first = await _fetch_pref_row(session, user.id)
         first_id, first_equity = first.id, first.equity_requested_pct
+        assert first.supersedes_id is None, "a first save replaces nothing"
 
         await svc.preview_or_save(
             session, user,
@@ -812,8 +824,10 @@ class TestSaveService:
         active = [r for r in rows if r.is_active]
         assert len(active) == 1 and active[0].id != first_id
         assert active[0].equity_requested_pct == 90.0
+        assert active[0].supersedes_id == first_id, "lineage: new row points at the row it replaced"
         old_row = next(r for r in rows if r.id == first_id)
         assert old_row.is_active is False
+        assert old_row.supersedes_id is None, "the replaced row is not touched"
         assert old_row.equity_requested_pct == first_equity, "history must not mutate"
 
     async def test_clear_deactivates_row_keeps_history(self, session, monkeypatch):
@@ -1568,9 +1582,11 @@ class TestChatCandidates:
             session, user, {"subgroups": {"us_equities": "none"}}
         )
         row = await svc.insert_candidate(session, user, intent, resolved, achieved=None)
+        assert row.supersedes_id is None, "a candidate replaces nothing until activated"
         await svc.confirm_candidate(session, user, row)
         rows = await _fetch_all_rows(session, user.id)
         assert {r.id: r.is_active for r in rows} == {prior.id: False, row.id: True}
+        assert row.supersedes_id == prior.id, "activation records what the candidate replaced"
 
     async def test_confirm_candidate_is_noop_when_it_matches_the_saved_intent(self, session, monkeypatch):
         from app.domains.profile.services import preference_save_service as svc

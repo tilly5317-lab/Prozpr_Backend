@@ -943,10 +943,13 @@ async def _ordinary_deploy(
         category_ask=category_ask,
         preference=preference,
     )
-    return ChatHandlerResult(
-        text=text,
-        additional_investment_run_id=outcome.run_id,
-    )
+    # No candidate preference on an ordinary deploy, so surface NO run id: the
+    # "Save preference" pill (the field's only client) must appear ONLY on
+    # preference what-if turns (_handle_preference_what_if_ainv, which sets it).
+    # Deliberate divergence from ideal_allocation_rebalancing_id, which rides
+    # every rebalancing turn because "Save plan" is meaningful without a
+    # preference — "Save preference" is not.
+    return ChatHandlerResult(text=text)
 
 
 async def _handle_preference_what_if_ainv(
@@ -1096,10 +1099,12 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     ask ("25k SIP, mostly small cap") routes to the what-if handler. When the
     orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
     profile) the handler relays that gate text via ``format_relay_or_canned``
-    rather than formatting a BUY list. On the success path the persisted run id
-    (set by the orchestrator when persist=True) is surfaced on
-    ``ChatHandlerResult.additional_investment_run_id`` for the HTTP layer; the
-    persistence itself is owned by the orchestrator and the persist service.
+    rather than formatting a BUY list. Every success path persists a run (the
+    orchestrator owns persistence), but the run id is surfaced on
+    ``ChatHandlerResult.additional_investment_run_id`` ONLY for preference
+    what-if turns — the field's sole client is the chat "Save preference" pill,
+    which is meaningless without a candidate preference. An ordinary deploy
+    returns no run id (see ``_ordinary_deploy``).
     """
     amount, cadence, raw_category, preference_asks = await extract_deploy_request(
         ctx.user_question, ctx.conversation_history

@@ -160,6 +160,9 @@ async def test_what_if_persists_candidate_row_then_candidate_run_fk_to_it(spy):
     assert out["correlation_ids"]["candidate_preference_id"] == str(CANDIDATE_ID)
     assert out["correlation_ids"]["recommendation_id"] == "candidate-run-id"
     assert result.rebalancing_recommendation_id == "candidate-run-id"
+    # A what-if produced a savable candidate → the pill notes the preference is
+    # kept on save and shows "View preferences" (ordinary turns leave this False).
+    assert result.has_candidate_preference is True
 
 
 async def test_what_if_facts_carry_shortfall_and_the_save_offer(spy):

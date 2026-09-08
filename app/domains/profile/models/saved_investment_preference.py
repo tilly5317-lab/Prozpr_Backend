@@ -73,6 +73,16 @@ class SavedInvestmentPreference(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Lineage: the row this one REPLACED when it became active (same
+    # backward-pointer convention as `asset_allocation_runs.supersedes_id`).
+    # Written once, at activation; the replaced row is never touched. NULL =
+    # a first save, a clear-then-save, or a candidate not yet activated.
+    supersedes_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("saved_investment_preferences.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # NULL = never saved: a chat what-if the customer looked at but did not
     # activate. Set on every activation (screen save or chat "yes, save it").
     activated_at: Mapped[Optional[datetime]] = mapped_column(

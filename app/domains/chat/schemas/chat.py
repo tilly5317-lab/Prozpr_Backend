@@ -77,8 +77,13 @@ class ChatSendMessageResponse(BaseModel):
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
     # The persisted additional-investment run the assistant just presented, so
     # the client can offer "Save preference" → POST
-    # /additional-investment/{run_id}/save-preference.
+    # /additional-investment/{run_id}/save-preference. Sent ONLY on preference
+    # what-if turns (an ordinary deploy carries no candidate to save).
     additional_investment_run_id: Optional[uuid.UUID] = None
+    # True when this turn produced a savable candidate preference (a "what-if").
+    # The rebalancing pill uses it to note the preference is kept on save and to
+    # show the "View preferences" link only on what-if turns.
+    has_candidate_preference: bool = False
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False

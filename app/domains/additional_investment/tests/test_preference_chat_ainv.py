@@ -455,6 +455,20 @@ async def test_an_ordinary_turn_carries_no_preference_facts(spy, monkeypatch):
     assert "preference" not in spy["format"][0]["facts_pack"]
 
 
+async def test_an_ordinary_deploy_surfaces_no_run_id(spy, monkeypatch):
+    """The persisted run exists, but its id is NOT surfaced on an ordinary
+    deploy — the chat "Save preference" pill (the field's only client) must
+    appear ONLY on preference what-if turns."""
+    spy["state"]["run_ids"] = ["ordinary-run-id"]  # ordinary compute still persists a run
+    monkeypatch.setattr(
+        chat_mod, "extract_deploy_request",
+        AsyncMock(return_value=(25000.0, chat_mod.Cadence.SIP_MONTHLY, None, None)),
+    )
+    result = await chat_mod.handle(_ainv_ctx("start a 25k SIP"))
+    assert len(spy["compute"]) == 1  # ordinary path: a single compute, no baseline+requested pair
+    assert result.additional_investment_run_id is None
+
+
 async def test_a_db_less_turn_degrades_to_the_ordinary_deploy(spy):
     """No session → nowhere to write the candidate row the pill activates, so
     the what-if degrades to the plain deploy (mirrors rebalancing)."""

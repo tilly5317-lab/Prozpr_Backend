@@ -42,6 +42,11 @@ class ChatHandlerResult:
     rebalancing_run_id: uuid.UUID | None = None
     rebalancing_response: Any | None = None
     additional_investment_run_id: uuid.UUID | None = None
+    # True when this turn produced a savable CANDIDATE preference (a "what-if").
+    # The rebalancing pill uses it to note the preference is kept on save; AINV
+    # self-distinguishes via additional_investment_run_id (sent only on its
+    # what-if turns), so it does not read this.
+    has_candidate_preference: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
 
 

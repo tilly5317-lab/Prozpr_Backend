@@ -355,10 +355,11 @@ def _preferred_view(preferred) -> tuple[Optional[dict], Optional[str]]:
     return getattr(applied, "achieved", None), getattr(applied, "shortfall_reason", None)
 
 
-def _new_row(user_id, intent, resolved, achieved, *, active: bool):
+def _new_row(user_id, intent, resolved, achieved, *, active: bool, supersedes_id=None):
     requested = resolved.asset_class_requested or {}
     target = achieved or {}
     return SavedInvestmentPreference(
+        supersedes_id=supersedes_id,
         user_id=user_id,
         equity_requested_pct=requested.get("equity"),
         debt_requested_pct=requested.get("debt"),
@@ -420,7 +421,10 @@ async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row)
         # INSERT can hit the index before the UPDATE lands.
         await db.flush()
 
-    row = _new_row(user.id, intent, resolved, achieved, active=True)
+    row = _new_row(
+        user.id, intent, resolved, achieved, active=True,
+        supersedes_id=prior_row.id if prior_row is not None else None,
+    )
     db.add(row)
 
     # Without this refresh, the ideal-parity read inside compute_allocation_result
@@ -727,6 +731,7 @@ async def confirm_candidate(db, user, candidate):
     if prior is not None:
         prior.is_active = False
         await db.flush()  # partial unique index: deactivate before activating
+        candidate.supersedes_id = prior.id
     candidate.is_active = True
     candidate.activated_at = datetime.now(timezone.utc)
     await db.flush()
