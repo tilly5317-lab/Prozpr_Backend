@@ -51,7 +51,9 @@ BY_USER_ID: tuple[str, ...] = (
     "funds",
     "user_investment_lists",
     "portfolio_networth_jobs",
-    "user_portfolio_nav_history",
+    # NOT "user_portfolio_nav_history": one row per (user_id, recorded_date), so
+    # it is rebuilt in place rather than versioned. Adopting it is what hid a
+    # user's whole chart on their second statement.
     "asset_allocation_runs",
     "practical_asset_allocation_runs",
     "rebalancing_runs",

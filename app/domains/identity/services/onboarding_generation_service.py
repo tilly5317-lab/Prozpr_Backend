@@ -284,11 +284,21 @@ async def _step_networth(
                 message="Your net worth history is ready.",
             )
             return
-        nw_job = await nw.create_job(db, user_id)
-        task = asyncio.create_task(nw.run_networth_backfill(user_id, nw_job.id))
+        nw_job, nw_created = await nw.create_job(db, user_id)
+        # ``create_job`` may hand back a build already in flight (a CAS upload's
+        # auto-start, say). Watch that one rather than racing a second worker
+        # against the same job row.
+        task = (
+            asyncio.create_task(nw.run_networth_backfill(user_id, nw_job.id))
+            if nw_created
+            else None
+        )
         # The backfill marks its own job row failed on error; consume the task
         # result so a crash never surfaces as "exception was never retrieved".
-        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        if task is not None:
+            task.add_done_callback(
+                lambda t: t.exception() if not t.cancelled() else None
+            )
         watch_id = nw_job.id
 
     lo, hi = _NETWORTH_BAND

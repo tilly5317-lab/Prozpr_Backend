@@ -37,7 +37,10 @@ _ADOPT_BY_USER_ID: tuple[str, ...] = (
     "funds",
     "user_investment_lists",
     "portfolio_networth_jobs",
-    "user_portfolio_nav_history",
+    # NOT "user_portfolio_nav_history": the daily net-worth series is keyed
+    # (user_id, recorded_date) and is deliberately unscoped. Adopting it here is
+    # what used to hide a user's whole chart the moment they uploaded a second
+    # statement — see the model's docstring.
     "asset_allocation_runs",
     "practical_asset_allocation_runs",
     "rebalancing_runs",

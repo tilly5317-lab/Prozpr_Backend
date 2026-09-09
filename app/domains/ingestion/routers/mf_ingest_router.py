@@ -61,7 +61,6 @@ from app.domains.ingestion.services.cams_cas_ingest import (
 )
 from app.domains.portfolio.services.networth_history_service import (
     create_job,
-    has_running_job,
     run_networth_backfill,
 )
 from app.domains.profile.services._effective_risk import (
@@ -359,8 +358,8 @@ async def ingest_cams_statement_pdf(
     # never fail the upload because the background kickoff couldn't be queued.
     if result.status != "FAILED" and result.mf_transactions_inserted > 0:
         try:
-            if await has_running_job(db, current_user.id) is None:
-                job = await create_job(db, current_user.id)
+            job, created = await create_job(db, current_user.id)
+            if created:
                 background.add_task(run_networth_backfill, current_user.id, job.id)
         except Exception:  # noqa: BLE001
             logger.exception("could not auto-start net-worth backfill after CAS upload")

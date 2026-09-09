@@ -577,9 +577,69 @@ async def apply_postgres_schema_patches() -> None:
                 "WHERE cas_upload_id IS NULL"
             )
         )
+        # ── Net-worth series: single-flight builds ─────────────────────────
+        # One live build per user, enforced by the database. The application
+        # guard was a check-then-create race and it lost — one account ran three
+        # concurrent builds that then fought over the same rows. A partial unique
+        # index cannot be expressed on the model, so it lives here.
+        #
+        # Existing wedged rows have to go first or the index cannot be built: a
+        # job whose worker died mid-flight stays ``running`` forever (an
+        # in-process BackgroundTask is cancelled without ever reaching an
+        # ``except``), and eight of them were sitting in the table, the oldest
+        # five days old. Closing them out is a repair, not a migration, but the
+        # constraint below is what makes it stick.
+        await conn.execute(
+            text(
+                """
+                UPDATE portfolio_networth_jobs
+                   SET status = 'failed',
+                       finished_at = COALESCE(finished_at, now()),
+                       updated_at = now(),
+                       message = 'Build was interrupted. Tap to try again.'
+                 WHERE status IN ('pending', 'running')
+                   AND updated_at < now() - interval '20 minutes'
+                """
+            )
+        )
+        # Any residual duplicate (a build legitimately in flight during deploy)
+        # would abort startup, so the index is created inside a guard: worst case
+        # it is skipped and the next boot picks it up once the reaper has run.
+        await conn.execute(
+            text(
+                """
+                DO $$ BEGIN
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_networth_job_active
+                      ON portfolio_networth_jobs (user_id)
+                      WHERE status IN ('pending', 'running');
+                EXCEPTION
+                    WHEN unique_violation THEN NULL;
+                    WHEN undefined_table THEN NULL;
+                END $$;
+                """
+            )
+        )
+        # The daily net-worth series is keyed (user_id, recorded_date) and is NOT
+        # CAS-snapshot-scoped — see the model docstring. Rows adopted into a
+        # snapshot by an earlier release are invisible once that snapshot is
+        # superseded, which silently emptied the chart for every user who
+        # uploaded a second statement. Releasing the stamp makes them visible
+        # again; the column stays as provenance and the rebuild overwrites the
+        # values anyway.
+        await conn.execute(
+            text(
+                """
+                UPDATE user_portfolio_nav_history h
+                   SET cas_upload_id = NULL
+                  FROM cas_uploads u
+                 WHERE u.id = h.cas_upload_id
+                   AND u.status <> 'active'
+                """
+            )
+        )
 
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps, networth single-flight)"
     )
 
 
