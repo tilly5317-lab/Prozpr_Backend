@@ -68,7 +68,7 @@ from app.domains.portfolio.services.networth_history_service import (
     create_job,
     ensure_history_current_through_today,
     get_latest_job,
-    has_running_job,
+    reap_stale_jobs,
     run_networth_backfill,
 )
 from app.domains.portfolio.services.twr_service import compute_twr_series
@@ -439,6 +439,16 @@ async def networth_history_status(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Poll the one-time backfill job (status + % completion) for the dashboard CTA."""
+    # Close out a build whose worker died mid-flight before reporting on it. The
+    # poller is the one caller guaranteed to run while a user is actually looking at
+    # the chart, so this is where an abandoned job turns into a "Try again" instead
+    # of a progress bar that never moves. Cheap: one indexed UPDATE, and it matches
+    # nothing on the overwhelmingly common healthy path.
+    try:
+        await reap_stale_jobs(db, current_user.id)
+    except Exception:  # noqa: BLE001 — never fail the poll on the repair
+        await db.rollback()
+
     job = await get_latest_job(db, current_user.id)
     has_history = await _has_networth_history(db, current_user.id)
     return _job_status(job, has_history=has_history)
@@ -455,13 +465,18 @@ async def build_networth_history(
     Returns immediately; the client polls ``/networth-history/status`` for the %.
     Idempotent: if a build is already pending/running, the existing job is returned.
     """
-    running = await has_running_job(db, current_user.id)
-    if running is not None:
+    # ``create_job`` is the single-flight point: it reaps abandoned jobs, then either
+    # creates ours or hands back the live one (the DB decides, via a partial unique
+    # index). The pre-check here is only a fast path — relying on it alone is the race
+    # that let one account start three builds at once.
+    job, created = await create_job(db, current_user.id)
+    if not created:
+        # We joined a build already in flight — queueing a second worker for it is
+        # exactly the duplication the single-flight guard exists to prevent.
         return _job_status(
-            running, has_history=await _has_networth_history(db, current_user.id)
+            job, has_history=await _has_networth_history(db, current_user.id)
         )
 
-    job = await create_job(db, current_user.id)
     background.add_task(run_networth_backfill, current_user.id, job.id)
     return _job_status(job, has_history=False)
 
