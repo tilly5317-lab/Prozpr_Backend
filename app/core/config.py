@@ -901,6 +901,44 @@ class Settings:
         ).strip()
 
     @staticmethod
+    def get_mfc_integration_mode() -> str:
+        """Which of MFC's three consent delivery modes the frontend should use.
+
+        ``popup`` opens MFC in a second window; ``iframe`` embeds their page in
+        ours; ``redirect`` navigates away and comes back to
+        ``MFC_REDIRECT_URL``. MFC auto-detects all three at their end (they read
+        ``window.self !== window.top`` and ``window.opener``), so this is purely
+        our choice of container.
+
+        ``popup`` is the default and the intended one: MFC's consent page is
+        theirs, and keeping it in its own window keeps that obvious. ``iframe``
+        is built and supported (their frontend guide documents it) but is opt-in
+        — a customer whose CSP forbids third-party frames cannot use it, and a
+        WebView build cannot host a popup, which is why this is a server setting
+        rather than a frontend constant.
+        """
+        raw = (_getenv("MFC_INTEGRATION_MODE") or "popup").strip().lower()
+        return raw if raw in {"iframe", "popup", "redirect"} else "popup"
+
+    @staticmethod
+    def mfc_otp_capture() -> str:
+        """Who collects the consent OTP: ``"app"`` (us) or ``"mfc"`` (their page).
+
+        ``"app"`` only when the mock is serving MF Central. The live client API
+        has no OTP endpoint — their guide is explicit that their frontend owns
+        that step — so against real credentials this stays ``"mfc"`` and the
+        frontend simply does not render an OTP screen it could not honour.
+
+        ``MFC_OTP_CAPTURE=app`` forces it on for the day MFC ships such an API;
+        it is deliberately NOT the default, because a screen that accepts a code
+        and cannot check it is worse than no screen.
+        """
+        raw = (_getenv("MFC_OTP_CAPTURE") or "").strip().lower()
+        if raw in {"app", "mfc"}:
+            return raw
+        return "app" if Settings.mfc_mock_enabled() else "mfc"
+
+    @staticmethod
     def get_mfc_verify_response_signature() -> bool:
         """Reject responses whose signature does not verify.
 

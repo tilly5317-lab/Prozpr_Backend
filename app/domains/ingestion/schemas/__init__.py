@@ -26,6 +26,8 @@ from app.domains.ingestion.schemas.mfc_cas import (
     MfcStartRequest,
     MfcStartResponse,
     MfcValidateQrRequest,
+    MfcVerifyOtpRequest,
+    MfcVerifyOtpResponse,
 )
 from app.domains.ingestion.schemas.mf_aa import (
     MfAaNormalizeOneResponse,
@@ -55,4 +57,6 @@ __all__ = [
     "MfcStartRequest",
     "MfcStartResponse",
     "MfcValidateQrRequest",
+    "MfcVerifyOtpRequest",
+    "MfcVerifyOtpResponse",
 ]

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import zlib
 from pathlib import Path
 from typing import Any, Optional
@@ -446,6 +447,71 @@ router = APIRouter(tags=["MF Central (mock)"], include_in_schema=False)
 _requests_seen: dict[str, dict[str, Any]] = {}
 _counter = {"n": 3_100_000}
 
+# reqId -> the consent session's OTP state. This lives ENTIRELY inside the mock
+# consent site, mirroring where it lives at MFC: their hosted page issues the
+# OTP, checks it, and never exposes either operation on the client API we
+# integrate against. Nothing in `app/domains/ingestion/services/` may read this
+# — if it ever does, the flow has stopped being reproducible against the real
+# service, which hands us a redirect URL and tells us nothing more.
+_otp_sessions: dict[str, dict[str, Any]] = {}
+
+OTP_MAX_ATTEMPTS = 3
+
+
+# The mock's consent OTP. A fixed, memorable code beats a derived one for the
+# thing this is actually for — walking the flow repeatedly — so 123456 is the
+# default. MFC's real UAT rule is still one env var away, for rehearsing against
+# their sandbox: MFC_MOCK_OTP=uat.
+DEFAULT_MOCK_OTP = "123456"
+
+
+def otp_for_pan(pan: str) -> str:
+    """MFC's UAT OTP rule: ``00`` + the last four digits of the PAN (guide p.26).
+
+    Used only when ``MFC_MOCK_OTP=uat``. Kept because it is what the real UAT
+    environment issues, and losing it would mean rediscovering it from the PDF.
+    """
+    digits = "".join(ch for ch in pan if ch.isdigit())[-4:]
+    return f"00{digits}" if len(digits) == 4 else "000000"
+
+
+def mock_otp_code(pan: str = "") -> str:
+    """The code this mock will accept.
+
+    ``MFC_MOCK_OTP`` overrides: any 4-8 digit string, or the literal ``uat`` to
+    follow MFC's PAN-derived UAT rule.
+    """
+    import os
+
+    raw = (os.getenv("MFC_MOCK_OTP") or "").strip()
+    if raw.lower() == "uat":
+        return otp_for_pan(pan)
+    if raw.isdigit() and 4 <= len(raw) <= 8:
+        return raw
+    return DEFAULT_MOCK_OTP
+
+
+def _issue_otp(req_id: str, pan: str = "") -> str:
+    """Mint (or re-mint, on resend) the consent OTP for one request.
+
+    Derived, never random: a reload of the consent page must not invalidate the
+    code already on screen, and a resend has to produce something the investor
+    can still use.
+    """
+    known = _otp_sessions.get(req_id, {}).get("pan") or ""
+    resolved = pan or str(_requests_seen.get(req_id, {}).get("pan") or "") or known
+    code = mock_otp_code(resolved)
+    # The PAN is kept on the session so a RESEND re-derives the same code. It
+    # reaches us on newCasRequest and again in the redirect payload, but a
+    # resend carries only the reqId.
+    _otp_sessions[req_id] = {
+        "code": code,
+        "pan": resolved,
+        "attempts": 0,
+        "verified": False,
+    }
+    return code
+
 
 def _unwrap(body: dict[str, Any]) -> dict[str, Any]:
     """Verify our signature, then decrypt — MFC's order, so a bad signature is
@@ -537,6 +603,9 @@ async def new_cas_request(
     _counter["n"] += 1
     req_id = str(_counter["n"])
     _requests_seen[req_id] = payload
+    # The real service sends this by SMS or email the moment the request is
+    # registered — before the investor ever reaches the consent page.
+    _issue_otp(req_id, pan)
     return _wrap(
         {
             "reqId": int(req_id),
@@ -591,6 +660,14 @@ async def auth_start(data: str = ""):
         )
 
     req_id = str(decoded.get("reqId") or "")
+    session = _otp_sessions.get(req_id)
+    if session is None:
+        # The page can be reloaded long after newCasRequest, or opened against a
+        # reqId this process never issued (a --reload wiped the dict). Minting on
+        # demand keeps the flow walkable instead of dead-ending on a blank OTP.
+        _issue_otp(req_id, str(decoded.get("pan") or ""))
+        session = _otp_sessions[req_id]
+
     return HTMLResponse(
         _render(
             _CONSENT_PAGE,
@@ -599,8 +676,89 @@ async def auth_start(data: str = ""):
             DETAILED_QR=qr_data_url(req_id, "detailed"),
             SUMMARY_QR=qr_data_url(req_id, "summary"),
             REDIRECT_URL=str(decoded.get("redirectUrl") or ""),
+            OTP_DEST=_mask_destination(decoded),
+            OTP_HINT=str(session["code"]),
+            # When Prozpr's own screen already cleared the OTP, this page must
+            # not ask a second time — the real site would not, and a duplicate
+            # gate is the difference between rehearsing the flow and inventing
+            # a new one.
+            START_PANE="pane-variant" if session.get("verified") else "pane-otp",
         )
     )
+
+
+def _mask_destination(decoded: dict[str, Any]) -> str:
+    """How the real consent page names where it sent the OTP."""
+    mobile = str(decoded.get("mobile") or "").strip()
+    if mobile:
+        return f"xxxxxx{mobile[-4:]}" if len(mobile) >= 4 else mobile
+    email = str(decoded.get("email") or "").strip()
+    if email and "@" in email:
+        name, _, domain = email.partition("@")
+        return f"{name[:2]}xxx@{domain}"
+    return "your registered contact"
+
+
+# The consent site's OWN endpoints. Deliberately not under /api/client/V1/ —
+# these are not part of the API surface we integrate against, and no Prozpr code
+# may call them. They exist so the mock's OTP gate behaves like MFC's: a code
+# that can be wrong, retried a bounded number of times, and resent.
+
+
+@router.post("/api/auth/verify-otp")
+async def verify_otp(request: Request):
+    body = await request.json()
+    req_id = str(body.get("reqId") or "")
+    entered = re.sub(r"\D", "", str(body.get("otp") or ""))
+
+    session = _otp_sessions.get(req_id)
+    if session is None:
+        return JSONResponse(
+            {"status": "error", "message": "This request has expired. Start again."},
+            status_code=410,
+        )
+    if session["verified"]:
+        return {"status": "success", "remaining": 0}
+    if session["attempts"] >= OTP_MAX_ATTEMPTS:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": "Too many incorrect attempts. Request a new code.",
+                "remaining": 0,
+            },
+            status_code=429,
+        )
+
+    if entered != session["code"]:
+        session["attempts"] += 1
+        remaining = OTP_MAX_ATTEMPTS - session["attempts"]
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": (
+                    f"That code is not right. {remaining} attempt"
+                    f"{'' if remaining == 1 else 's'} left."
+                    if remaining
+                    else "That code is not right. Request a new one."
+                ),
+                "remaining": remaining,
+            },
+            status_code=400,
+        )
+
+    session["verified"] = True
+    session["attempts"] = 0
+    return {"status": "success", "remaining": OTP_MAX_ATTEMPTS}
+
+
+@router.post("/api/auth/resend-otp")
+async def resend_otp(request: Request):
+    body = await request.json()
+    req_id = str(body.get("reqId") or "")
+    code = _issue_otp(req_id)
+    # Echoed only because there is no SMS here. The real site returns nothing
+    # but an acknowledgement, which is why the frontend must never read it.
+    return {"status": "success", "mockCode": code}
 
 
 # MFC's own crypto helpers, so MFC_CRYPTO_MODE=remote can be exercised too.
@@ -664,9 +822,11 @@ def _render(template: str, **values: str) -> str:
 
 _STYLE = """
   body { font: 14px/1.6 system-ui, -apple-system, Segoe UI, sans-serif; margin: 0;
-         padding: 28px 16px; background: #f5f6f8; color: #16181d; }
+         padding: 20px 16px; background: #f5f6f8; color: #16181d; }
   .card { max-width: 540px; margin: 0 auto; background: #fff; border-radius: 14px;
-          padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.09); }
+          padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.09); }
+  details { margin-top: 16px; }
+  summary { font-size: 11px; color: #8b8f98; cursor: pointer; }
   h1 { font-size: 17px; margin: 0 0 4px; }
   p.sub { color: #6b7280; font-size: 12px; margin: 0 0 18px; }
   pre { background: #f2f3f5; border-radius: 8px; padding: 12px; font-size: 11px;
@@ -684,58 +844,218 @@ _STYLE = """
 
 _CONSENT_PAGE = (
     """<!doctype html>
-<html><head><meta charset="utf-8"><title>MF Central (mock) — consent</title>
+<html><head><meta charset="utf-8"><title>MF Central (mock) &mdash; consent</title>
 <style>"""
     + _STYLE
-    + """</style></head>
+    + """
+  .pane { display: none; }
+  .pane.on { display: block; }
+  .otp { width: 100%; box-sizing: border-box; padding: 12px; font-size: 20px;
+         letter-spacing: 8px; text-align: center; border: 1px solid #d6d9de;
+         border-radius: 10px; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .otp:focus { outline: 0; border-color: #16181d; }
+  .err { color: #b42318; font-size: 12px; margin: 8px 0 0; min-height: 16px; }
+  .hint { background: #fff8e6; border: 1px solid #f2dfae; border-radius: 8px;
+          padding: 10px 12px; font-size: 11px; color: #7a5c12; margin: 12px 0 0; }
+  .link { background: none; border: 0; color: #4b5057; font-size: 11px;
+          text-decoration: underline; cursor: pointer; padding: 8px 0 0;
+          font-family: inherit; }
+  .choice { display: block; border: 1px solid #d6d9de; border-radius: 10px;
+            padding: 12px; margin-top: 10px; cursor: pointer; }
+  .choice.sel { border-color: #16181d; background: #f7f8f9; }
+  .choice b { font-size: 13px; }
+  .choice span { display: block; font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .qrimg { display: block; margin: 14px auto 0; width: 132px; height: 132px;
+           image-rendering: pixelated; border: 1px solid #e6e8eb;
+           border-radius: 8px; background: #fff; }
+</style></head>
 <body><div class="card">
-  <h1>MF Central — consent (mock)</h1>
-  <p class="sub">Request __REQ_ID__. The real site asks for an OTP here; this
-  one doesn't, so the flow can be walked without a phone.</p>
+  <h1>MF Central &mdash; consent (mock)</h1>
+  <p class="sub">Request __REQ_ID__</p>
 
-  <p style="font-size:12px;color:#4b5057;margin:0 0 6px">
-    Your redirect payload, decrypted — the proof our URL cipher is right:
-  </p>
-  <pre>__PAYLOAD__</pre>
+  <!-- 1 ------------------------------------------------------------ OTP -->
+  <div class="pane" id="pane-otp">
+    <p style="font-size:13px;margin:0 0 14px">
+      Enter the 6-digit code sent to <strong>__OTP_DEST__</strong> to authorise
+      sharing your consolidated account statement.
+    </p>
+    <input class="otp" id="otp" inputmode="numeric" autocomplete="one-time-code"
+           maxlength="6" placeholder="------" aria-label="One-time password">
+    <p class="err" id="otp-err"></p>
+    <button class="dl primary" id="verify" type="button">Verify</button>
+    <button class="link" id="resend" type="button">Resend the code</button>
+    <p class="hint">
+      Mock only: no SMS is sent, so the code is
+      <strong id="hint-code">__OTP_HINT__</strong>. Wrong codes are rejected and
+      there are three attempts, because the real site behaves that way and the
+      app has to survive it.
+    </p>
+  </div>
 
-  <a class="dl primary" href="__DETAILED_QR__" download="mfc-cas-detailed.png">
-    Download QR — Detailed statement
-  </a>
-  <a class="dl secondary" href="__SUMMARY_QR__" download="mfc-cas-summary.png">
-    Download QR — Summary statement
-  </a>
-  <button class="dl secondary" id="done" type="button">
-    Done — return to Prozpr
-  </button>
+  <!-- 2 -------------------------------------------------------- variant -->
+  <div class="pane" id="pane-variant">
+    <p style="font-size:13px;margin:0 0 6px">Which statement do you want to share?</p>
+    <label class="choice sel" id="c-detailed">
+      <b>Detailed</b>
+      <span>Holdings and full transaction history. Required to build returns.</span>
+    </label>
+    <label class="choice" id="c-summary">
+      <b>Summary</b>
+      <span>Valuations only, no transactions. Prozpr rejects this on purpose.</span>
+    </label>
+    <button class="dl primary" id="to-download" type="button">Continue</button>
 
-  <p class="note">
-    Upload the downloaded PNG back in Prozpr. Detailed imports; Summary is
-    rejected on purpose, so both branches are visible.
-    <br><br>
-    Returns to <code>__REDIRECT_URL__</code>
-  </p>
+    <details>
+      <summary>Redirect payload, decrypted (proof our URL cipher is right)</summary>
+      <pre style="margin-top:8px">__PAYLOAD__</pre>
+    </details>
+  </div>
+
+  <!-- 3 ------------------------------------------------------- download -->
+  <div class="pane" id="pane-download">
+    <p style="font-size:13px;margin:0 0 2px">Your statement is ready.</p>
+    <p class="sub">Download the QR code &mdash; it is how the statement is handed
+    back, and it works once.</p>
+    <img class="qrimg" id="qr-preview" alt="">
+    <button class="dl primary" id="download" type="button">
+      Download QR code
+    </button>
+    <button class="dl secondary" id="done" type="button">
+      Done &mdash; return to Prozpr
+    </button>
+    <p class="note" id="dl-note">
+      Handed straight back to Prozpr, and also saved as
+      <code>cas-request-qr.png</code> so the download-and-find-it path stays
+      walkable.
+      <br><br>
+      Returns to <code>__REDIRECT_URL__</code>
+    </p>
+  </div>
 </div>
 <script>
+(function () {
+  var REQ_ID = '__REQ_ID__';
+  var QR = { detailed: '__DETAILED_QR__', summary: '__SUMMARY_QR__' };
+  var variant = 'detailed';
+
+  function show(id) {
+    ['pane-otp', 'pane-variant', 'pane-download'].forEach(function (p) {
+      document.getElementById(p).classList.toggle('on', p === id);
+    });
+  }
+  show('__START_PANE__');
+  function post(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (j) { return [r.ok, j]; });
+    });
+  }
+
+  var otp = document.getElementById('otp');
+  var err = document.getElementById('otp-err');
+
+  document.getElementById('verify').addEventListener('click', function () {
+    err.textContent = '';
+    post('verify-otp', { reqId: REQ_ID, otp: otp.value })
+      .then(function (res) {
+        if (res[0] && res[1].status === 'success') { show('pane-variant'); }
+        else { err.textContent = res[1].message || 'Could not verify that code.'; }
+      })
+      .catch(function () { err.textContent = 'Network error. Try again.'; });
+  });
+
+  otp.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { document.getElementById('verify').click(); }
+  });
+
+  document.getElementById('resend').addEventListener('click', function () {
+    err.textContent = '';
+    post('resend-otp', { reqId: REQ_ID }).then(function (res) {
+      document.getElementById('hint-code').textContent = res[1].mockCode || '';
+      otp.value = '';
+      otp.focus();
+    });
+  });
+
+  ['detailed', 'summary'].forEach(function (v) {
+    document.getElementById('c-' + v).addEventListener('click', function () {
+      variant = v;
+      document.getElementById('c-detailed').classList.toggle('sel', v === 'detailed');
+      document.getElementById('c-summary').classList.toggle('sel', v === 'summary');
+    });
+  });
+
+  document.getElementById('to-download').addEventListener('click', function () {
+    document.getElementById('qr-preview').src = QR[variant];
+    show('pane-download');
+  });
+
+  function dataUrlToBytes(url) {
+    var b64 = url.slice(url.indexOf(',') + 1);
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) { out[i] = bin.charCodeAt(i); }
+    return out;
+  }
+
+  document.getElementById('download').addEventListener('click', function () {
+    var url = QR[variant];
+    var b64 = url.slice(url.indexOf(',') + 1);
+
+    // 1. Hand the bytes straight to the host. This is MFC's OWN documented
+    //    message for hosts that cannot take a file download (their
+    //    platform-compatibility guide, "mfc-cas-download"); we post it to the
+    //    opener/parent as well, which is the one extension the real service
+    //    would need to make. A host that listens never touches the disk.
+    var msg = { type: 'mfc-cas-download',
+                data: { base64: b64, filename: 'cas-request-qr.png' } };
+    try {
+      if (window.opener) { window.opener.postMessage(msg, '*'); }
+      else if (window.parent !== window) { window.parent.postMessage(msg, '*'); }
+    } catch (e) { /* a host that isn't listening is not an error */ }
+
+    // 2. Still save the file, because that is what a browser does today and
+    //    the download-and-find-it path has to stay walkable. Blob, not data:.
+    try {
+      var blob = new Blob([dataUrlToBytes(url)], { type: 'image/png' });
+      var href = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = href;
+      a.download = 'cas-request-qr.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(href); }, 30000);
+    } catch (e) {
+      document.getElementById('dl-note').textContent =
+        'Download failed in this browser: ' + e;
+    }
+  });
+
   // Mirrors what MFC's real app posts back, so the popup and iframe paths are
   // exercised here too, not only the standalone redirect.
   document.getElementById('done').addEventListener('click', function () {
-    var reqId = document.title && '__REQ_ID__';
     var msg = { type: 'mfc-cas-complete',
-                data: { status: 'success', reqId: reqId, type: 'detailed' } };
+                data: { status: 'success', reqId: REQ_ID, type: variant } };
     if (window.opener) {
       window.opener.postMessage(msg, '*');
       window.close();
     } else if (window.parent !== window) {
       window.parent.postMessage(msg, '*');
     } else {
-      window.location.href = '__REDIRECT_URL__?status=success&reqId=' + reqId
-        + '&type=detailed';
+      window.location.href = '__REDIRECT_URL__?status=success&reqId=' + REQ_ID
+        + '&type=' + variant;
     }
   });
+})();
 </script>
 </body></html>
 """
 )
+
 
 _INDEX_PAGE = (
     """<!doctype html>

@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,6 +112,12 @@ class MfcStartResult:
     # which inbox or handset to watch, and it is frequently NOT the one they
     # signed in with — the contact registered with the fund houses wins.
     otp_destination: str
+    # The consent OTP itself, but ONLY when the mock is serving MF Central.
+    # No SMS exists in a local run, and the code moved out of sight the moment
+    # the app started collecting it before their page opens — leaving a screen
+    # asking for six digits nobody could obtain. Always None against real
+    # credentials, where the code reaches the investor's handset.
+    mock_otp: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -373,6 +380,7 @@ async def start_cas_request(
         from_date=_LEDGER_FROM_DATE,
         to_date=window_to,
         otp_destination=_mask_contact(contact_mobile, contact_email),
+        mock_otp=_mock_otp_for(resolved_pan),
     )
 
 
@@ -489,6 +497,81 @@ def _payload_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(body, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
+
+
+def _mock_otp_for(pan: str) -> Optional[str]:
+    """The mock's OTP, so the app can show it. None whenever MFC is real.
+
+    Imported lazily: the dev module must not be a hard dependency of a service
+    that runs in production.
+    """
+    if not Settings.mfc_mock_enabled():
+        return None
+    try:
+        from app.domains.ingestion.dev.mfc_mock import mock_otp_code
+
+        return mock_otp_code(pan)
+    except Exception:  # noqa: BLE001 — a missing hint must never fail /start.
+        return None
+
+
+async def verify_consent_otp(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    otp: str,
+    request_id: Optional[uuid.UUID] = None,
+    req_id: Optional[str] = None,
+) -> tuple[bool, str, Optional[int]]:
+    """Check the consent OTP for one request. Returns (ok, message, tries left).
+
+    **This can only work against the mock.** MF Central's client API is three
+    calls — token, newCasRequest, validateQRCode — and their integration guide
+    (p.12) states plainly that "All OTP verification and data selection is
+    handled by MFC's frontend. You do not need to call any additional APIs
+    during this step." There is nothing to submit a code to.
+
+    So this exists to let the app own the OTP screen wherever that is real, and
+    :func:`Settings.mfc_otp_capture` reports ``"app"`` only when the mock is
+    serving MFC. Against live credentials it reports ``"mfc"``, the frontend
+    never renders its OTP step, and their consent page collects the code as it
+    always has. Nothing here degrades into pretending a code was accepted.
+    """
+    if Settings.mfc_otp_capture() != "app":
+        raise MfcFlowError(
+            "MF Central verifies the OTP on their own page — enter it there.",
+            stage="otp",
+        )
+
+    row = await _load_request(db, user_id, request_id=request_id, req_id=req_id)
+
+    url = f"{Settings.get_mfc_redirect_base_url().rstrip('/')}/api/auth/verify-otp"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            response = await http.post(url, json={"reqId": row.req_id, "otp": otp})
+    except httpx.HTTPError as exc:
+        raise MfcFlowError(
+            f"Could not reach MF Central to check that code: {exc}",
+            stage="otp",
+            retryable=True,
+        ) from exc
+
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    if response.is_success and body.get("status") == "success":
+        return True, "Verified.", None
+
+    remaining = body.get("remaining")
+    return (
+        False,
+        str(body.get("message") or "That code was not accepted."),
+        int(remaining) if isinstance(remaining, int) else None,
+    )
 
 
 async def _load_request(

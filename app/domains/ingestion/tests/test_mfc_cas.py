@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -648,8 +649,13 @@ def test_mock_pages_render_with_no_leftover_placeholders():
         DETAILED_QR="data:image/png;base64,AAAA",
         SUMMARY_QR="data:image/png;base64,BBBB",
         REDIRECT_URL="http://localhost:8080/mfc-cas/callback",
+        OTP_DEST="xxxxxx1234",
+        OTP_HINT="123456",
+        START_PANE="pane-otp",
     )
-    assert "__REQ_ID__" not in consent and "__REDIRECT_URL__" not in consent
+    # Exhaustive, not a spot-check: naming two tokens is how this test stopped
+    # covering the page the last time it grew one.
+    assert not re.findall(r"__[A-Z_]+__", consent)
     assert "data:image/png;base64,AAAA" in consent
     # The stylesheet's braces survive untouched.
     assert "border-radius: 14px" in consent
@@ -675,3 +681,193 @@ def test_otp_destination_names_where_the_code_lands():
     # Neither supplied is a real case — MFC then uses whatever it holds against
     # the PAN — so this must read as an answer, not a missing value.
     assert _mask_contact(None, None) == "your registered contact"
+
+
+# --------------------------------------------------------------------------- consent site
+
+
+def test_consent_page_carries_an_otp_gate_and_the_real_filename():
+    """The mock stands in for MFC's hosted page, so it has to ask for the OTP.
+
+    Not decoration: it is the only place in a local run where the OTP exists at
+    all. MFC's client API has no OTP endpoint — the code is issued and checked
+    inside their consent site — so an OTP screen anywhere in Prozpr's own UI
+    would be a step that cannot survive the switch to live credentials.
+    """
+    from app.domains.ingestion.dev import mfc_mock
+
+    page = mfc_mock._render(
+        mfc_mock._CONSENT_PAGE,
+        REQ_ID="3100001",
+        PAYLOAD="{}",
+        DETAILED_QR="data:image/png;base64,AAAA",
+        SUMMARY_QR="data:image/png;base64,BBBB",
+        REDIRECT_URL="http://localhost:8080/mfc-cas/callback",
+        OTP_DEST="xxxxxx1234",
+        OTP_HINT="123456",
+        START_PANE="pane-otp",
+    )
+    assert 'id="otp"' in page and "verify-otp" in page
+    # Two ways back, and both must survive an edit here. The postMessage is the
+    # primary one — MFC's own documented `mfc-cas-download` shape, which needs
+    # no disk and no folder permission. The saved file is the fallback, and its
+    # name is what the Downloads scan prefers.
+    assert "'mfc-cas-download'" in page
+    assert "a.download = 'cas-request-qr.png'" in page
+    # A blob, never a data: URL — Chrome will navigate to a data: URI instead of
+    # downloading it in some window contexts, and then no file ever appears.
+    assert "URL.createObjectURL(blob)" in page
+    # The page is served at /mfc-mock/api/auth/start, so a BARE name is the
+    # sibling route. "../api/auth/verify-otp" climbed to /mfc-mock/api/ and then
+    # re-added api/auth, and every verify 404'd.
+    from urllib.parse import urljoin
+
+    assert "'verify-otp'" in page and "'resend-otp'" in page
+    base = "http://localhost:8000/mfc-mock/api/auth/start"
+    assert urljoin(base, "verify-otp").endswith("/mfc-mock/api/auth/verify-otp")
+
+
+def test_mock_otp_is_123456_unless_told_otherwise(monkeypatch):
+    """A fixed code, because the mock exists to be walked over and over.
+
+    MFC's real UAT rule (guide p.26: 00 + the PAN's last four digits) is kept
+    behind MFC_MOCK_OTP=uat for rehearsing against their sandbox.
+    """
+    from app.domains.ingestion.dev import mfc_mock
+
+    monkeypatch.delenv("MFC_MOCK_OTP", raising=False)
+    assert mfc_mock.mock_otp_code("ABCDE1234F") == "123456"
+    assert mfc_mock.mock_otp_code() == "123456"
+
+    monkeypatch.setenv("MFC_MOCK_OTP", "uat")
+    assert mfc_mock.mock_otp_code("ABCDE1234F") == "001234"
+    assert mfc_mock.otp_for_pan("AGVPN4690G") == "004690"
+    # No PAN at all still yields six digits, never an empty string the input
+    # would silently accept.
+    assert mfc_mock.otp_for_pan("") == "000000"
+
+    monkeypatch.setenv("MFC_MOCK_OTP", "999111")
+    assert mfc_mock.mock_otp_code("ABCDE1234F") == "999111"
+
+    # Junk falls back rather than locking the mock behind an unusable code.
+    monkeypatch.setenv("MFC_MOCK_OTP", "not-a-code")
+    assert mfc_mock.mock_otp_code("ABCDE1234F") == "123456"
+
+
+def test_otp_is_bounded_and_resettable(monkeypatch):
+    from app.domains.ingestion.dev import mfc_mock
+
+    monkeypatch.delenv("MFC_MOCK_OTP", raising=False)
+    code = mfc_mock._issue_otp("3100002", "ABCDE1234F")
+    session = mfc_mock._otp_sessions["3100002"]
+
+    for _ in range(mfc_mock.OTP_MAX_ATTEMPTS):
+        session["attempts"] += 1
+    assert session["attempts"] == mfc_mock.OTP_MAX_ATTEMPTS
+
+    # A resend clears the lockout, which is the only way out of it, and yields
+    # the SAME code — derived, not random, so reloading the consent page never
+    # invalidates what is already on screen.
+    assert mfc_mock._issue_otp("3100002", "ABCDE1234F") == code
+    assert mfc_mock._otp_sessions["3100002"]["attempts"] == 0
+    assert code == "123456"
+
+
+def test_new_cas_request_issues_the_otp_before_the_investor_arrives():
+    """MFC sends the code when the request is registered, not when the consent
+    page loads — so a session must exist the moment /start returns."""
+    import asyncio
+
+    from app.domains.ingestion.dev import mfc_mock
+
+    mfc_mock._otp_sessions.clear()
+    payload = {
+        "pan": "AGVPN4690G",
+        "mobile": "9550755111",
+        "clientRefNo": "ref-1",
+        "fromDate": "01-JAN-2000",
+        "toDate": "01-JAN-2026",
+    }
+    private_key, _ = mfc_mock.keys()
+    encrypted = mfc_crypto.encrypt_api_payload(
+        payload, shared_key=mfc_mock.MOCK_ENCRYPTION_KEY, iv=mfc_mock.MOCK_IV
+    )
+    body = {
+        "request": encrypted,
+        "signature": mfc_crypto.sign_detached_jws(encrypted, private_key_pem=private_key),
+    }
+
+    class _Req:
+        async def json(self):
+            return body
+
+    token = f"Bearer {'mock-access-token'}"
+    response = asyncio.run(
+        mfc_mock.new_cas_request(
+            _Req(), authorization=token, clientid=mfc_mock.MOCK_CLIENT_ID
+        )
+    )
+    decrypted = mfc_crypto.decrypt_api_payload(
+        json.loads(response.body.decode())["response"],
+        shared_key=mfc_mock.MOCK_ENCRYPTION_KEY,
+        iv=mfc_mock.MOCK_IV,
+    )
+    assert str(decrypted["reqId"]) in mfc_mock._otp_sessions
+
+
+def test_mask_destination_never_echoes_the_whole_contact():
+    from app.domains.ingestion.dev import mfc_mock
+
+    assert mfc_mock._mask_destination({"mobile": "9550755111"}) == "xxxxxx5111"
+    masked = mfc_mock._mask_destination({"email": "investor.name@fundhouse.com"})
+    assert masked.endswith("@fundhouse.com") and "investor.name" not in masked
+    assert mfc_mock._mask_destination({}) == "your registered contact"
+
+
+# --------------------------------------------------------------------------- integration mode
+
+
+def test_integration_mode_defaults_to_popup_and_rejects_junk(monkeypatch):
+    """MFC's consent page opens in its own window by default.
+
+    It is their page asking for an OTP; a separate window keeps that obvious.
+    `iframe` stays selectable — their guide documents and auto-detects it — but
+    is opt-in.
+    """
+    from app.core.config import Settings
+
+    monkeypatch.delenv("MFC_INTEGRATION_MODE", raising=False)
+    assert Settings.get_mfc_integration_mode() == "popup"
+
+    for value, expected in [
+        ("iframe", "iframe"),
+        ("REDIRECT", "redirect"),
+        (" popup ", "popup"),
+        ("webview", "popup"),
+        ("", "popup"),
+    ]:
+        monkeypatch.setenv("MFC_INTEGRATION_MODE", value)
+        assert Settings.get_mfc_integration_mode() == expected
+
+
+def test_otp_capture_is_app_only_where_a_code_can_actually_be_checked(monkeypatch):
+    """The frontend renders its OTP screen off this flag.
+
+    MFC's live API has no OTP endpoint (guide p.12), so real credentials must
+    report "mfc" and the screen must not appear — an OTP box that accepts a code
+    it cannot check is worse than no box.
+    """
+    from app.core.config import Settings
+
+    monkeypatch.delenv("MFC_OTP_CAPTURE", raising=False)
+    monkeypatch.delenv("MFC_CLIENT_ID", raising=False)
+    monkeypatch.setenv("DEPLOY_ENV", "development")
+    assert Settings.mfc_mock_enabled() is True
+    assert Settings.mfc_otp_capture() == "app"
+
+    monkeypatch.setenv("MFC_CLIENT_ID", "real-tenant")
+    assert Settings.mfc_otp_capture() == "mfc"
+
+    # The escape hatch for the day MFC ships one.
+    monkeypatch.setenv("MFC_OTP_CAPTURE", "app")
+    assert Settings.mfc_otp_capture() == "app"

@@ -54,6 +54,18 @@ class MfcConfigResponse(BaseModel):
     integration_mode: str = Field(
         default="popup", description="popup | iframe | redirect"
     )
+    otp_capture: str = Field(
+        default="mfc",
+        description=(
+            "Who collects the consent OTP. 'mfc' — their hosted consent page "
+            "does, which is the only thing the live client API supports "
+            "(integration guide p.12: 'All OTP verification ... is handled by "
+            "MFC's frontend'). 'app' — this server can verify a code itself, "
+            "which today means only the local mock. The frontend shows its own "
+            "OTP screen when and only when this says 'app', so no screen that "
+            "cannot work is ever rendered against live credentials."
+        ),
+    )
 
 
 class MfcStartRequest(BaseModel):
@@ -125,7 +137,44 @@ class MfcStartResponse(BaseModel):
     otp_destination: str = Field(
         description="Masked contact MFC sends the consent OTP to."
     )
+    mock_otp: Optional[str] = Field(
+        default=None,
+        description=(
+            "The consent OTP, present ONLY when the in-app mock is serving MF "
+            "Central. There is no SMS in a local run, so without this the OTP "
+            "screen asks for a code that cannot be obtained. Always null "
+            "against real credentials."
+        ),
+    )
     message: str
+
+
+class MfcVerifyOtpRequest(BaseModel):
+    """Submit the consent OTP through our own UI.
+
+    Only meaningful while ``otp_capture == "app"``. Either identifier resolves
+    to the caller's own request row; neither can reach another user's.
+    """
+
+    otp: str = Field(..., description="The code MF Central sent the investor.")
+    request_id: Optional[uuid.UUID] = Field(default=None)
+    req_id: Optional[str] = Field(default=None)
+
+    @field_validator("otp")
+    @classmethod
+    def _digits(cls, v: str) -> str:
+        digits = re.sub(r"\D", "", v or "")
+        if len(digits) < 4:
+            raise ValueError("Enter the code MF Central sent you.")
+        return digits
+
+
+class MfcVerifyOtpResponse(BaseModel):
+    verified: bool
+    message: str
+    attempts_left: Optional[int] = Field(
+        default=None, description="Remaining tries before a resend is required."
+    )
 
 
 class MfcValidateQrRequest(BaseModel):

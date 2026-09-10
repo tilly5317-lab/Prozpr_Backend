@@ -5,6 +5,7 @@ generate, download, and upload a password-protected CAS PDF.
 
     GET  /mfc-cas/config       is this server wired to MFC, and how to present it
     POST /mfc-cas/start        register the request, get the investor's redirect URL
+    POST /mfc-cas/verify-otp   check the consent OTP (only where we can — see below)
     POST /mfc-cas/validate-qr  redeem the downloaded QR -> statement -> portfolio
     GET  /mfc-cas/requests     the user's consent attempts and what came of them
 
@@ -12,6 +13,13 @@ The middle of the flow is not ours: the investor leaves for MFC's site, receives
 an OTP, chooses Summary or Detailed, and downloads a QR image. Nothing here can
 observe that, which is why ``/start`` returns and the flow resumes only when a
 QR arrives at ``/validate-qr``.
+
+``/verify-otp`` is the one qualified exception. MFC's live client API has no OTP
+endpoint — their guide (p.12) says their frontend owns that step — so the route
+works only where the code CAN be checked, which today means the local mock.
+``/config``'s ``otp_capture`` tells the frontend whether to render its own OTP
+screen at all, so nothing that cannot work is ever shown against live
+credentials.
 """
 
 from __future__ import annotations
@@ -37,12 +45,15 @@ from app.domains.ingestion.schemas import (
     MfcStartRequest,
     MfcStartResponse,
     MfcValidateQrRequest,
+    MfcVerifyOtpRequest,
+    MfcVerifyOtpResponse,
 )
 from app.domains.ingestion.services.mfc_cas_ingest import (
     MfcFlowError,
     import_from_qr,
     list_requests,
     start_cas_request,
+    verify_consent_otp,
 )
 from app.domains.portfolio.services.networth_history_service import (
     create_job,
@@ -117,7 +128,37 @@ async def mfc_config(current_user: CurrentUser = Depends(get_effective_user)):
         environment=environment,
         redirect_url=Settings.get_mfc_redirect_url(),
         mfc_origin=Settings.get_mfc_redirect_base_url(),
-        integration_mode="popup",
+        integration_mode=Settings.get_mfc_integration_mode(),
+        otp_capture=Settings.mfc_otp_capture(),
+    )
+
+
+@router.post("/verify-otp", response_model=MfcVerifyOtpResponse)
+async def verify_mfc_otp(
+    payload: MfcVerifyOtpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+):
+    """Check the consent OTP submitted through our own screen.
+
+    Available only while ``/config`` reports ``otp_capture == "app"`` — see
+    :func:`Settings.mfc_otp_capture`. A wrong code is a 200 with
+    ``verified: false``, not an error status: it is an expected answer the
+    screen renders inline, and a 4xx would read to the client as a broken call.
+    """
+    _require_enabled()
+    try:
+        verified, message, attempts_left = await verify_consent_otp(
+            db,
+            current_user.id,
+            otp=payload.otp,
+            request_id=payload.request_id,
+            req_id=payload.req_id,
+        )
+    except MfcFlowError as exc:
+        raise _flow_error(exc) from exc
+    return MfcVerifyOtpResponse(
+        verified=verified, message=message, attempts_left=attempts_left
     )
 
 
@@ -169,6 +210,7 @@ async def start_mfc_cas(
         from_date=result.from_date,
         to_date=result.to_date,
         otp_destination=result.otp_destination,
+        mock_otp=result.mock_otp,
         message=(
             f"MF Central is ready for PAN {result.pan_masked}. Continue to their "
             f"site, enter the OTP sent to {result.otp_destination}, choose the "
