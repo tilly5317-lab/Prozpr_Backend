@@ -3,7 +3,7 @@
 A CAS statement is a *complete* snapshot of a user's mutual-fund holdings, so a
 re-upload has to fully replace what the app shows. It used to do that by deleting:
 ``reset_user_financial_data`` ran 46 DELETEs across 44 tables on every upload, and
-every plan, projection and net-worth point ever computed went with it.
+every plan and projection ever computed went with it.
 
 Now each upload gets a row in ``cas_uploads`` and everything derived from it is
 stamped with that row's id (``CasScoped.cas_upload_id``). Nothing is deleted; the
@@ -93,8 +93,8 @@ def scoped_to(cas_upload_id: Optional[uuid.UUID]) -> Iterator[None]:
     """Run a block against one specific snapshot, restoring the previous scope after.
 
     The ingest uses this so that everything it reads while rebuilding (holdings
-    roll-up, latest-snapshot rebuild, net-worth history) sees the statement it is
-    currently importing and nothing from the one it is replacing.
+    roll-up, latest-snapshot rebuild) sees the statement it is currently
+    importing and nothing from the one it is replacing.
     """
     token = _ACTIVE_CAS_UPLOAD_ID.set(cas_upload_id)
     try:

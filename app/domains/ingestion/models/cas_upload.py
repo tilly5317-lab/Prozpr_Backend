@@ -8,8 +8,8 @@ Before this table existed, ``ingest_cams_pdf`` called
 :func:`~app.domains.ingestion.services.user_data_reset.reset_user_financial_data`
 on every upload — 46 DELETEs across 44 tables — so the statement archive survived
 but every figure ever computed from it did not. Nothing could be compared across
-statements: not allocation drift, not net-worth growth, and not whether the user
-ever executed the rebalancing plan we gave them.
+statements: not allocation drift, and not whether the user ever executed the
+rebalancing plan we gave them.
 
 THE INVARIANT: exactly one ``active`` upload per user, enforced by Postgres, not
 by application code::

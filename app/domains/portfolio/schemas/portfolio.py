@@ -97,43 +97,6 @@ class PortfolioHistoryResponse(BaseModel):
     total_value: float
 
 
-class PortfolioNavHistoryPoint(BaseModel):
-    """One daily row in the per-user portfolio-NAV time series."""
-
-    model_config = {"from_attributes": True}
-
-    recorded_date: date
-    total_value: float
-    total_invested: float
-    gain_percentage: float
-
-
-class PortfolioNavHistoryResponse(BaseModel):
-    horizon: str
-    points: list[PortfolioNavHistoryPoint]
-    total_invested: float
-    current_value: float
-    gain_percentage: float
-
-
-class NetworthJobStatusResponse(BaseModel):
-    """State of the one-time net-worth-history backfill job for the dashboard poller."""
-
-    model_config = {"from_attributes": True}
-
-    # ``status`` is one of: none | pending | running | success | failed.
-    status: str
-    phase: Optional[str] = None
-    progress_pct: float = 0
-    message: Optional[str] = None
-    history_from: Optional[date] = None
-    days_total: Optional[int] = None
-    # True when a real series already exists, so the UI can skip the CTA.
-    has_history: bool = False
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-
-
 class RecommendedPlanSnapshotResponse(BaseModel):
     """Latest persisted ideal allocation snapshot (``portfolio_allocation_snapshots``)."""
 
@@ -155,24 +118,61 @@ class RecommendedPlanResponse(BaseModel):
     latest_asset_allocation_run_id: Optional[uuid.UUID] = None
 
 
-class TwrPoint(BaseModel):
-    """One day of the TWR series. Both indices are growth-of-1 (1.0 at inception)."""
+class PortfolioNavHistoryPoint(BaseModel):
+    model_config = {"from_attributes": True}
 
+    recorded_date: date
+    total_value: float
+    total_invested: float
+    gain_percentage: float
+
+
+class PortfolioNavHistoryResponse(BaseModel):
+    horizon: str
+    points: list[PortfolioNavHistoryPoint]
+    total_invested: float = 0
+    current_value: float = 0
+    gain_percentage: float = 0
+    # Series metadata, straight off ``user_networth_series_state`` — one PK lookup,
+    # not the COUNT/MAX scans this endpoint used to run on every dashboard load.
+    as_of: Optional[date] = None
+    is_stale: bool = False
+    # Funds valued off a stated or stale NAV. Non-zero means the chart is real but
+    # provisional, and the UI should say so rather than present it as settled.
+    degraded_schemes: int = 0
+    ledger_complete: bool = True
+    # True when the series was downsampled for this horizon. Every point is still a
+    # real stored day; there are just fewer of them than there are days.
+    downsampled: bool = False
+
+
+class NetworthJobStatusResponse(BaseModel):
+    status: str  # none | pending | running | success | failed
+    phase: Optional[str] = None
+    progress_pct: float = 0
+    message: Optional[str] = None
+    history_from: Optional[date] = None
+    days_total: Optional[int] = None
+    has_history: bool = False
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    # What asked for this build: cas_upload | onboarding | daily | manual. The
+    # chart needs it to tell "your statement changed, so these numbers are about
+    # to" from "the nightly refresh is running" — only the former invalidates the
+    # series already on screen.
+    trigger: Optional[str] = None
+    # Degraded-data counters from the last build (stale prices, failed NAV fetches).
+    warnings: Optional[dict[str, Any]] = None
+
+
+class TwrPoint(BaseModel):
     date: date
     portfolio_index: float
-    nifty_index: Optional[float] = (
-        None  # Nifty 50 TRI normalized to inception; null if no baseline
-    )
+    nifty_index: Optional[float] = None
 
 
 class TwrSeriesResponse(BaseModel):
-    """Full daily TWR series since inception. Frontend rebases per range."""
-
     has_data: bool  # True only when there are >= 2 valued days (renderable)
     points: list[TwrPoint]
-    portfolio_xirr: Optional[float] = (
-        None  # since-inception money-weighted return (decimal, 0.11 == 11%); null if undefined
-    )
-    as_of_date: Optional[date] = (
-        None  # date the current value is priced at (latest NAV used for XIRR)
-    )
+    portfolio_xirr: Optional[float] = None
+    as_of_date: Optional[date] = None

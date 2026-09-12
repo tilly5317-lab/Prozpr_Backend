@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models import MfNavHistory
 from app.domains.portfolio.models.portfolio import Portfolio
+from app.domains.portfolio.services.networth.clock import ist_today
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,8 @@ async def revalue_primary_portfolio_at_latest_nav(
     if not holdings:
         return portfolio
 
-    today = date.today()
+    # IST, not the UTC box's calendar day - see services/networth/clock.py.
+    today = ist_today()
 
     # Resolve each held scheme's *latest* NAV. ``get_latest_nav_with_source_fallback``
     # reads local ``mf_nav_history`` and only reaches out to mfapi.in when the stored
@@ -158,13 +160,16 @@ async def revalue_primary_portfolio_at_latest_nav(
     # fallback when there are no priced holdings (e.g. transactions imported without a CAS
     # holdings snapshot), never to override a non-zero holdings total.
     if total_value <= 0:
-        from app.domains.portfolio.services.networth_history_service import (
+        from app.domains.portfolio.services.networth.asof import (
             compute_today_networth,
         )
 
         ledger = await compute_today_networth(db, user_id)
         if ledger is not None and ledger[0] > 0:
-            total_value, ledger_invested, _ = ledger
+            # The ledger path returns Decimals; the rest of this function is
+            # float arithmetic over ORM columns, so convert at the boundary.
+            total_value = float(ledger[0])
+            ledger_invested = float(ledger[1])
             if ledger_invested > 0:
                 total_invested = ledger_invested
 

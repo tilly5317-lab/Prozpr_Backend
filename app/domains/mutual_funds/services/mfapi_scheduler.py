@@ -8,8 +8,7 @@ Scheduled jobs:
    for the early runs, today for the late-evening run so same-day / late-publishing
    "bottleneck" funds get pulled). Processes stale schemes in small phases (bounded
    memory), inserts only NAV points newer than the per-scheme high-water mark, then
-   rebuilds ``user_mf_latest_snapshot``. Runs three times a day, each shortly before
-   a portfolio-value refresh, so the net-worth job revalues against fresh NAV.
+   rebuilds ``user_mf_latest_snapshot``. Runs three times a day.
 2. No periodic autofill — on-demand refresh when viewing a fund page handles
    one-off gaps; this job covers the full universe.
 
@@ -49,6 +48,12 @@ logger = logging.getLogger(__name__)
 
 MFAPI_LOCK_KEY = 7421100
 MFAPI_TIMEZONE = "Asia/Kolkata"
+
+# Net-worth refresh times. Each sits just after one of the NAV pulls above, so the
+# series is re-priced against NAV that is minutes old rather than hours.
+NETWORTH_DAILY_HOURS = "6,14,23"
+NETWORTH_DAILY_MINUTE = 0
+
 # Three runs a day, each just before a portfolio-value refresh (06:00 / 14:00 / 23:00).
 MFAPI_DAILY_HOURS = "0,13,22"
 MFAPI_DAILY_MINUTE = 5
@@ -302,6 +307,10 @@ def start_scheduler() -> Optional[Any]:
         )
         return None
 
+    from app.domains.portfolio.services.networth.daily import (
+        run_daily_networth_job,
+    )
+
     sched = AsyncIOScheduler(
         timezone=MFAPI_TIMEZONE,
         job_defaults={
@@ -324,25 +333,20 @@ def start_scheduler() -> Optional[Any]:
         misfire_grace_time=3600,
     )
 
-    # Refresh held-fund NAV and bring every user's net-worth series through today.
-    # Runs three times a day so late-publishing ("bottleneck") funds get picked up and
-    # the dashboard value/chart stay current (each run is after the morning NAV refresh
-    # or catches intraday/evening NAV publishes). Imported lazily to avoid a
-    # cross-domain import cycle at module load.
-    from app.domains.portfolio.services.networth_history_service import (
-        run_daily_networth_job,
-    )
-
+    # A SECOND, independent job on the same scheduler: the portfolio net-worth
+    # refresh. Staggered to land just after each NAV pull above (00:05/13:05/22:05)
+    # so net worth revalues against NAV that was fetched minutes earlier rather than
+    # eight hours earlier. Serialised across uvicorn workers by its own advisory lock.
     sched.add_job(
         run_daily_networth_job,
         trigger=CronTrigger(
-            hour="6,14,23",
-            minute=0,
+            hour=NETWORTH_DAILY_HOURS,
+            minute=NETWORTH_DAILY_MINUTE,
             second=0,
             timezone=MFAPI_TIMEZONE,
         ),
         id="portfolio_networth_daily",
-        name="Portfolio value refresh (06:00 / 14:00 / 23:00 IST)",
+        name="Portfolio net-worth refresh (06:00 / 14:00 / 23:00 IST)",
         replace_existing=True,
         misfire_grace_time=3600,
     )

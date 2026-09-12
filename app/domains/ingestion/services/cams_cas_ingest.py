@@ -949,8 +949,7 @@ async def ingest_cams_pdf(
     is stamped with that row's id, and the previous upload is marked superseded.
     Reads are scoped to the active snapshot (``app/core/cas_scope.py``), so the app
     shows exactly the newest statement while every earlier one stays queryable —
-    which is what makes allocation drift, net-worth history and plan-vs-actual
-    answerable at all.
+    which is what makes allocation drift and plan-vs-actual answerable at all.
 
     Three things happen before any of that, in this order, and all three matter:
 
@@ -1054,9 +1053,7 @@ async def ingest_cams_pdf(
     # The rest of THIS request has to see the statement we just imported, not the
     # one it authenticated against — the scope was resolved before this snapshot
     # existed. Without this, work the upload endpoint does after the ingest is
-    # stamped with, and read against, the statement this one replaced: the
-    # net-worth backfill job the router queues next would be written under the
-    # old snapshot and then be invisible to the progress endpoint polling for it.
+    # stamped with, and read against, the statement this one replaced.
     set_scope(snapshot.id)
     return result
 

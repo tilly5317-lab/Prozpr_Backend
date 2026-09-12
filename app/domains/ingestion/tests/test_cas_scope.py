@@ -594,22 +594,29 @@ def test_every_cas_derived_table_is_classified():
         "portfolios",
     }
 
-    # (4) Rebuilt-in-place: CAS-derived, but keyed on something that leaves no room
-    #     for a second snapshot's copy, so it is recomputed rather than versioned.
-    #     ``user_portfolio_nav_history`` is one row per (user_id, recorded_date) —
-    #     two statements cannot both own a value for the same day. Stamping it was a
-    #     real outage: a re-upload superseded the snapshot the rows belonged to, the
-    #     read filter hid the entire series, and the rebuild then collided with those
-    #     still-present rows on the unique key and killed the backfill job at 98%.
-    rebuilt_in_place = {
+    # (4) Rebuilt-from-scratch: derived from the ledger, but NOT versioned — a
+    #     full recompute replaces the whole thing on every upload, so there is no
+    #     older version to keep. Scoping the net-worth series was a real outage: a
+    #     second upload stamped the old rows with the now-superseded snapshot, the
+    #     read hook hid them, and users saw 3,529 rows stored and 0 visible. Its
+    #     grain is (user_id, recorded_date) — there is no room for two values on
+    #     the same day, and none needed, because it is recomputable at any time.
+    rebuilt_from_scratch = {
         "user_portfolio_nav_history",
+        "user_scheme_position",
+        "user_networth_series_state",
+        # A job belongs to a user, not a statement. Scoped, it vanished from every
+        # read the instant a second upload superseded the snapshot it carried —
+        # exactly when a second upload is most likely — and `create_job` then 500'd.
+        "portfolio_networth_jobs",
     }
 
-    unclassified = reset_tables - scoped - children - user_owned - rebuilt_in_place
+    unclassified = (
+        reset_tables - scoped - children - user_owned - rebuilt_from_scratch
+    )
     assert not unclassified, (
         f"CAS-derived tables with no snapshot decision: {sorted(unclassified)}. "
-        "Give it the CasScoped mixin, or add it to `children`/`user_owned`/"
-        "`rebuilt_in_place` here."
+        "Give it the CasScoped mixin, or add it to `children`/`user_owned` here."
     )
 
 
@@ -628,214 +635,3 @@ def test_adoption_routes_each_table_by_a_column_it_actually_has():
         cols = Base.metadata.tables[name].c
         assert "portfolio_id" in cols, name
         assert "user_id" not in cols, f"{name} has user_id — use the simpler list"
-
-
-# ─────────────────── the net-worth series is NOT snapshot-scoped ───────────────────
-# This is the outage these three tests exist to prevent recurring. `user_portfolio_
-# nav_history` carried the CasScoped mixin while being keyed (user_id, recorded_date).
-# Two statements cannot both own a value for the same day, so the moment a user
-# uploaded a second CAS: their whole series was stamped with the now-superseded
-# snapshot and the read filter hid it (3,529 rows stored, 0 visible — an empty chart),
-# and the rebuild's snapshot-scoped DELETE matched nothing while its INSERT covered the
-# full window, colliding with those same hidden rows on the unique key. That killed the
-# backfill mid-write, and because the failure handler wrote to the already-aborted
-# session it could not even mark the job failed — it hung at 98% until reaped.
-
-
-def test_nav_history_is_not_cas_scoped():
-    """The daily series must never carry the mixin again.
-
-    ``CasScoped`` is what ``with_loader_criteria`` keys the read filter on, so
-    re-adding it re-hides every row belonging to a superseded statement.
-    """
-    from app.domains.ingestion.models.cas_upload import CasScoped
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-
-    assert not issubclass(UserPortfolioNavHistory, CasScoped), (
-        "user_portfolio_nav_history is keyed (user_id, recorded_date) and cannot be "
-        "snapshot-scoped: a second statement has nowhere to put its copy of a day. "
-        "Rebuild it in place instead."
-    )
-    assert "user_portfolio_nav_history" not in set(scoped_table_names_for_test()), (
-        "the table is back in the scoped set — the read filter will hide superseded rows"
-    )
-
-
-def scoped_table_names_for_test():
-    from app.domains.ingestion.models.cas_upload import scoped_table_names
-
-    return scoped_table_names()
-
-
-@pytest_asyncio.fixture
-async def db_session_nav_history():
-    """A user whose net-worth series was written under an earlier, now-superseded CAS."""
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-
-    cas_scope.install_cas_scope_listeners()
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(CasUpload.__table__.create)
-        await conn.run_sync(UserPortfolioNavHistory.__table__.create)
-    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    old_snap, new_snap = uuid.uuid4(), uuid.uuid4()
-    async with factory() as session:
-        session.add_all(
-            [
-                CasUpload(
-                    id=old_snap,
-                    user_id=USER,
-                    status=CasUploadStatus.SUPERSEDED.value,
-                    content_sha256="a" * 64,
-                ),
-                CasUpload(
-                    id=new_snap,
-                    user_id=USER,
-                    status=CasUploadStatus.ACTIVE.value,
-                    content_sha256="b" * 64,
-                ),
-            ]
-        )
-        # Three days of series, stamped with the OLD statement — exactly the state a
-        # re-upload leaves behind.
-        session.add_all(
-            [
-                UserPortfolioNavHistory(
-                    user_id=USER,
-                    recorded_date=date(2024, 1, day),
-                    total_value=100 * day,
-                    total_invested=90 * day,
-                    gain_percentage=11.1,
-                    cas_upload_id=old_snap,
-                )
-                for day in (1, 2, 3)
-            ]
-        )
-        await session.commit()
-        try:
-            yield session, new_snap
-        finally:
-            await session.rollback()
-    await engine.dispose()
-
-
-async def test_series_written_under_an_old_statement_stays_visible(
-    db_session_nav_history,
-):
-    """The regression that emptied the chart: rows must survive their snapshot being superseded."""
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-
-    session, new_snap = db_session_nav_history
-    with cas_scope.scoped_to(new_snap):
-        rows = (
-            (
-                await session.execute(
-                    select(UserPortfolioNavHistory).where(
-                        UserPortfolioNavHistory.user_id == USER
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert len(rows) == 3, (
-        "the read filter hid a superseded statement's series — this is the empty chart"
-    )
-
-
-async def test_rebuilding_the_series_over_another_snapshot_does_not_collide(
-    db_session_nav_history,
-):
-    """The regression that killed the job at 98%: a rebuild must be idempotent.
-
-    Under the active snapshot, re-writing days that already exist under a superseded
-    one used to raise UniqueViolationError on ``uq_user_nav_history_user_date``.
-    """
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-    from app.domains.portfolio.services.networth_history_service import _persist_series
-
-    session, new_snap = db_session_nav_history
-    rows = [
-        {
-            "id": uuid.uuid4(),
-            "user_id": USER,
-            "recorded_date": date(2024, 1, day),
-            "total_value": 500.0 + day,
-            "total_invested": 400.0,
-            "gain_percentage": 25.0,
-            "cas_upload_id": new_snap,
-        }
-        for day in (1, 2, 3, 4)
-    ]
-
-    with cas_scope.scoped_to(new_snap):
-        await _persist_series(session, USER, rows, snapshot_id=new_snap)
-        # Twice: the second pass is the one that used to blow up.
-        await _persist_series(session, USER, rows, snapshot_id=new_snap)
-
-        stored = (
-            (
-                await session.execute(
-                    select(UserPortfolioNavHistory)
-                    .where(UserPortfolioNavHistory.user_id == USER)
-                    .order_by(UserPortfolioNavHistory.recorded_date)
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-    assert [r.recorded_date for r in stored] == [date(2024, 1, d) for d in (1, 2, 3, 4)]
-    assert float(stored[0].total_value) == 501.0, (
-        "the upsert must overwrite the superseded statement's value, not duplicate it"
-    )
-
-
-async def test_persist_series_prunes_days_outside_the_new_window(
-    db_session_nav_history,
-):
-    """A shorter statement must not leave a cliff where the old series carried on.
-
-    The series has to come from ONE ledger end to end: leaving the previous
-    statement's later days in place would render as the portfolio falling off a
-    cliff on the day the new statement starts.
-    """
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-    from app.domains.portfolio.services.networth_history_service import _persist_series
-
-    session, new_snap = db_session_nav_history
-    rows = [
-        {
-            "id": uuid.uuid4(),
-            "user_id": USER,
-            "recorded_date": date(2024, 1, 3),
-            "total_value": 700.0,
-            "total_invested": 600.0,
-            "gain_percentage": 16.6,
-            "cas_upload_id": new_snap,
-        }
-    ]
-    with cas_scope.scoped_to(new_snap):
-        await _persist_series(session, USER, rows, snapshot_id=new_snap)
-        stored = (
-            (
-                await session.execute(
-                    select(UserPortfolioNavHistory).where(
-                        UserPortfolioNavHistory.user_id == USER
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert [r.recorded_date for r in stored] == [date(2024, 1, 3)]

@@ -2,18 +2,15 @@
 
 The end-of-onboarding button used to be cosmetic (the loading page ran a fixed
 3.5s timer). This service makes it real: ``run_onboarding_generation`` is the
-BackgroundTasks entrypoint that
-
-1. recalculates the effective risk profile from the just-saved answers, and
-2. builds the user's daily net-worth NAV history (coordinating with — never
-   duplicating — the backfill the CAS upload may already have started).
+BackgroundTasks entrypoint that recalculates the effective risk profile from the
+just-saved answers.
 
 The goal/cashflow plan is deliberately NOT computed here — it runs later, when
 the user completes their detailed profile (product call 2026-07-29).
 
 Every step updates a polled ``onboarding_generation_jobs`` row (progress % +
 customer-facing message) that ``GET /onboarding/generate/status`` serves to the
-loading page. Step 2 is best-effort: a failure logs, the message moves on, and
+loading page. Steps are best-effort: a failure logs, the message moves on, and
 the job still succeeds — onboarding must never dead-end on a compute error,
 because every product surface can also compute lazily on first read.
 """
@@ -46,6 +43,31 @@ GENERATION_STEPS: tuple[tuple[str, str], ...] = (
 )
 
 
+def generation_steps(has_holdings: bool) -> tuple[tuple[str, str], ...]:
+    """The checklist this user's job will actually run.
+
+    CAMS is optional, so a user can finish onboarding with no transactions at all.
+    There is then no net-worth series to build — and showing "Building your day-by-day
+    net worth history" while nothing happens is a claim we cannot back. Drop the step
+    rather than narrate imaginary work.
+    """
+    if has_holdings:
+        return GENERATION_STEPS
+    return tuple(step for step in GENERATION_STEPS if step[0] != "networth")
+
+
+# Progress bands per phase (start %, end %). The net-worth build dominates because it
+# is the genuinely slow part (per-fund NAV fetches + the daily replay).
+_RISK_BAND = (2.0, 10.0)
+_NETWORTH_BAND = (12.0, 98.0)
+
+# The net-worth phase mirrors a ``portfolio_networth_jobs`` row — ours, or the one the
+# CAS upload already started. Cap the wait so a stuck build can never hang the loading
+# page forever; the portfolio chart has its own resume/retry UI.
+_NETWORTH_WAIT_TIMEOUT_S = 15 * 60
+_NETWORTH_POLL_S = 1.2
+
+
 async def has_mf_transactions(db: AsyncSession, user_id: uuid.UUID) -> bool:
     """True when the user has imported at least one mutual-fund transaction."""
     from app.domains.mutual_funds.models import MfTransaction
@@ -55,31 +77,6 @@ async def has_mf_transactions(db: AsyncSession, user_id: uuid.UUID) -> bool:
             select(MfTransaction.id).where(MfTransaction.user_id == user_id).limit(1)
         )
     ).first() is not None
-
-
-def generation_steps(has_holdings: bool) -> tuple[tuple[str, str], ...]:
-    """The checklist this user's job will actually run.
-
-    CAMS is optional, so a user can finish onboarding with no transactions at
-    all. There is then no net-worth series to build — and showing "Building your
-    day-by-day net worth history" while nothing happens is a claim we can't
-    back. Drop the step instead of narrating imaginary work.
-    """
-    if has_holdings:
-        return GENERATION_STEPS
-    return tuple(step for step in GENERATION_STEPS if step[0] != "networth")
-
-
-# Progress bands per phase (start %, end %). The net-worth build dominates
-# because it is the genuinely slow part (per-fund NAV fetches + daily replay).
-_RISK_BAND = (2.0, 10.0)
-_NETWORTH_BAND = (12.0, 98.0)
-
-# The net-worth phase mirrors a ``portfolio_networth_jobs`` row (ours or the one
-# the CAS upload auto-started). Cap the wait so a stuck build can never hang the
-# loading page forever — the portfolio chart has its own resume/retry UI.
-_NETWORTH_WAIT_TIMEOUT_S = 15 * 60
-_NETWORTH_POLL_S = 1.2
 
 
 def _now() -> datetime:
@@ -145,8 +142,8 @@ async def run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> No
     """Pin the user's CAS snapshot, then run every personalisation step.
 
     A BackgroundTasks callback carries no request scope of its own, so the
-    snapshot is resolved here — every read below (holdings, risk, net worth) must
-    see one statement, not all of them summed.
+    snapshot is resolved here — every read below (holdings, risk, net worth)
+    must see one statement, not all of them summed.
     """
     factory = _get_session_factory()
     async with factory() as scope_db:
@@ -164,12 +161,6 @@ async def _run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> N
     factory = _get_session_factory()
     async with factory() as db:
         try:
-            # No imported transactions (CAMS skipped) → there is no net-worth
-            # series to build, so that phase is skipped entirely rather than
-            # spun through for show. The status endpoint hides it too, from the
-            # same predicate.
-            has_holdings = await has_mf_transactions(db, user_id)
-
             await _update(
                 db,
                 job_id,
@@ -180,6 +171,11 @@ async def _run_onboarding_generation(user_id: uuid.UUID, job_id: uuid.UUID) -> N
                 message="Analysing your risk profile…",
             )
             await _step_risk(db, user_id)
+
+            # No imported transactions (CAMS skipped) means there is no net-worth
+            # series to build, so that phase is skipped entirely rather than spun
+            # through for show. The status endpoint hides it from the same predicate.
+            has_holdings = await has_mf_transactions(db, user_id)
             await _update(
                 db, job_id, progress_pct=_RISK_BAND[1] if has_holdings else 90.0
             )
@@ -238,113 +234,64 @@ async def _step_risk(db: AsyncSession, user_id: uuid.UUID) -> None:
 async def _step_networth(
     db: AsyncSession, user_id: uuid.UUID, job_id: uuid.UUID
 ) -> None:
-    """Ensure the daily net-worth series exists, mirroring real backfill progress.
+    """Ensure the daily net-worth series exists, mirroring the real build's progress.
 
-    Three cases: (a) the CAS upload's auto-backfill is still running — watch it;
-    (b) no series yet — start a backfill ourselves and watch that; (c) series
-    already built — cheap top-up through today and move on.
+    Three cases, and the first is the one that matters: the CAS upload a few screens
+    back has very likely ALREADY started this build. Starting a second one would be
+    refused by the single-flight index anyway, so we watch the existing job instead of
+    duplicating it — the loading page shows the real percentage of real work.
+
+    (a) a build is already running -> mirror it; (b) a series already exists -> nothing
+    to do; (c) neither -> start one and mirror that.
     """
-    from app.domains.portfolio.models.portfolio_networth_job import (
-        PortfolioNetworthJob,
-    )
-    from app.domains.portfolio.models.user_portfolio_nav_history import (
-        UserPortfolioNavHistory,
-    )
-    from app.domains.portfolio.services import networth_history_service as nw
-
-    watch_id: Optional[uuid.UUID] = None
-    running = await nw.has_running_job(db, user_id)
-    if running is not None:
-        watch_id = running.id
-    else:
-        has_rows = (
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(UserPortfolioNavHistory)
-                    .where(UserPortfolioNavHistory.user_id == user_id)
-                )
-            ).scalar_one()
-            or 0
-        ) > 0
-        if has_rows:
-            try:
-                await nw.ensure_history_current_through_today(
-                    db, user_id, allow_full_rebuild=False
-                )
-            except Exception:  # noqa: BLE001 — the chart read path self-heals too
-                await db.rollback()
-                logger.warning(
-                    "onboarding generation: net-worth top-up failed", exc_info=True
-                )
-            await _update(
-                db,
-                job_id,
-                progress_pct=_NETWORTH_BAND[1],
-                message="Your net worth history is ready.",
-            )
-            return
-        nw_job, nw_created = await nw.create_job(db, user_id)
-        # ``create_job`` may hand back a build already in flight (a CAS upload's
-        # auto-start, say). Watch that one rather than racing a second worker
-        # against the same job row.
-        task = (
-            asyncio.create_task(nw.run_networth_backfill(user_id, nw_job.id))
-            if nw_created
-            else None
-        )
-        # The backfill marks its own job row failed on error; consume the task
-        # result so a crash never surfaces as "exception was never retrieved".
-        if task is not None:
-            task.add_done_callback(
-                lambda t: t.exception() if not t.cancelled() else None
-            )
-        watch_id = nw_job.id
+    from app.domains.portfolio.services.networth import job as nw_job
+    from app.domains.portfolio.services.networth.builder import rebuild_user_networth
+    from app.domains.portfolio.services.networth.reader import get_series_state
 
     lo, hi = _NETWORTH_BAND
-    deadline = asyncio.get_event_loop().time() + _NETWORTH_WAIT_TIMEOUT_S
-    while True:
-        await asyncio.sleep(_NETWORTH_POLL_S)
-        # A dropped DB connection mid-poll (flaky network) must not kill the
-        # whole generation job — roll the session back and keep watching until
-        # the deadline; the pooled connection re-establishes on the next query.
+
+    job = await nw_job.has_running_job(db, user_id)
+    if job is None:
+        state = await get_series_state(db, user_id)
+        if state is not None and state.row_count:
+            await _update(db, job_id, progress_pct=hi)
+            return
         try:
-            row = (
-                await db.execute(
-                    select(
-                        PortfolioNetworthJob.status,
-                        PortfolioNetworthJob.progress_pct,
-                        PortfolioNetworthJob.message,
-                    ).where(PortfolioNetworthJob.id == watch_id)
+            job, created = await nw_job.create_job(
+                db, user_id, trigger="onboarding", supersede=False
+            )
+            if created:
+                task = asyncio.create_task(rebuild_user_networth(user_id, job.id))
+                # Consume the exception: the job row already records the failure, and
+                # onboarding must not dead-end on a compute error.
+                task.add_done_callback(
+                    lambda t: None if t.cancelled() else t.exception()
                 )
-            ).first()
-            if row is None:
-                break
-            nw_status, nw_pct, nw_msg = row
-            frac = min(max(float(nw_pct or 0) / 100.0, 0.0), 1.0)
-            await _update(
-                db,
-                job_id,
-                progress_pct=round(lo + frac * (hi - lo), 2),
-                message=nw_msg or "Building your day-by-day net worth history…",
-            )
-            if nw_status in ("success", "failed"):
-                if nw_status == "failed":
-                    # Non-fatal: the portfolio chart offers its own retry.
-                    logger.warning(
-                        "onboarding generation: net-worth backfill failed — continuing"
-                    )
-                break
-        except Exception:  # noqa: BLE001 — transient DB blip; retry until deadline
+        except Exception:  # noqa: BLE001 — onboarding never fails on this
             logger.warning(
-                "onboarding generation: net-worth poll blip — retrying", exc_info=True
+                "onboarding generation: could not start net-worth build", exc_info=True
             )
-            try:
-                await db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
-        if asyncio.get_event_loop().time() > deadline:
-            logger.warning(
-                "onboarding generation: net-worth wait timed out — continuing"
-            )
+            await _update(db, job_id, progress_pct=hi)
+            return
+
+    # Mirror the real job's progress into our own band. Bounded by a deadline so a
+    # stuck build can never hang the loading page forever — the portfolio chart has
+    # its own resume/retry UI, and the user is better served by reaching it.
+    deadline = _now().timestamp() + _NETWORTH_WAIT_TIMEOUT_S
+    while _now().timestamp() < deadline:
+        await asyncio.sleep(_NETWORTH_POLL_S)
+        try:
+            latest = await nw_job.get_latest_job(db, user_id)
+        except Exception:  # noqa: BLE001 — a DB blip must not end the wait
+            await db.rollback()
+            continue
+        if latest is None:
             break
+        pct = lo + (float(latest.progress_pct or 0) / 100.0) * (hi - lo)
+        await _update(
+            db, job_id, progress_pct=round(pct, 2), message=latest.message or None
+        )
+        if latest.status in ("success", "failed"):
+            break
+
+    await _update(db, job_id, progress_pct=hi)

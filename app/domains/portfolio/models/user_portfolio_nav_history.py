@@ -1,4 +1,4 @@
-"""Per-user daily portfolio NAV history.
+"""Per-user daily portfolio net-worth series.
 
 ONE ROW PER (user_id, recorded_date) — that grain is the whole contract, and it is
 why this table is deliberately **not** CAS-snapshot-scoped.
@@ -7,28 +7,25 @@ A net-worth series is a *derived roll-up of whatever is currently effective*, no
 artifact owned by one statement. Scoping it was a real outage: a re-upload stamped the
 old rows with the now-superseded snapshot, the read hook hid them, and users whose only
 sin was uploading a second CAS saw their entire chart vanish (3,529 rows stored, 0
-visible). The rebuild then deleted only the *new* snapshot's rows (none) and re-inserted
-the whole window, which collided with the still-present old rows on
-``uq_user_nav_history_user_date`` and killed the backfill job at 98%.
+visible). The two models cannot both be right — a snapshot-scoped table needs the
+snapshot in its key, and a per-day series has no room for two values on the same day.
+The series wins: it is fully recomputable from the ledger at any time, so there is
+nothing to version.
 
-The two models cannot both be right: a snapshot-scoped table needs the snapshot in its
-key, and a per-day series has no room for two values on the same day. The series wins —
-it is fully recomputable from the ledger at any time, so there is nothing to version.
+There is deliberately **no ``cas_upload_id`` column**. It survived one iteration as
+"provenance only" plus a startup repair that nulled it for superseded snapshots — a
+footgun with no reader. Provenance lives on ``user_networth_series_state`` instead.
 
-``cas_upload_id`` survives as PROVENANCE ONLY (which statement last rebuilt this row).
-It must never become a scope key again; see ``app/core/cas_scope.py``.
-
-Computed by ``app.domains.portfolio.services.networth_history_service`` from the real
-transaction ledger (units × that day's NAV). Used by the portfolio dashboard chart.
+Computed by ``app.domains.portfolio.services.networth`` from the real transaction
+ledger (units x that day's NAV). Read by the portfolio dashboard chart and the TWR tab.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +38,9 @@ class UserPortfolioNavHistory(Base):
         UniqueConstraint(
             "user_id", "recorded_date", name="uq_user_nav_history_user_date"
         ),
+        # Every read is "this user, this date window" — horizon slices and
+        # MAX(recorded_date) both go index-only on this.
+        Index("ix_nav_hist_user_date", "user_id", "recorded_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -53,15 +53,6 @@ class UserPortfolioNavHistory(Base):
         index=True,
     )
     recorded_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    # Provenance, NOT a scope key: the statement this row was last rebuilt from.
-    # Declared by hand rather than via the CasScoped mixin precisely so the
-    # read-filter and write-stamp hooks leave this table alone (see the module
-    # docstring). Nullable and unindexed-by-choice — nothing queries on it.
-    cas_upload_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("cas_uploads.id", ondelete="SET NULL"),
-        nullable=True,
-    )
     total_value: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     total_invested: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, server_default="0"

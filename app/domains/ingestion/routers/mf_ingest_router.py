@@ -55,13 +55,12 @@ from app.domains.mutual_funds.schemas.mfapi import (
     MfapiIngestResultSchema,
     MfapiRefreshRequest,
 )
+from app.domains.portfolio.services.networth.trigger import (
+    schedule_rebuild_after_cas,
+)
 from app.domains.ingestion.services.cams_cas_ingest import (
     CamsPdfParseError,
     ingest_cams_pdf,
-)
-from app.domains.portfolio.services.networth_history_service import (
-    create_job,
-    run_networth_backfill,
 )
 from app.domains.profile.services._effective_risk import (
     maybe_recalculate_effective_risk,
@@ -275,8 +274,8 @@ async def ingest_cams_statement_pdf(
     replace_existing: bool = Form(
         False,
         description=(
-            "When true, wipe all CAMS-derived data (transactions, MF holdings, allocations, "
-            "net-worth history) for the user before ingesting, so this statement fully "
+            "When true, wipe all CAMS-derived data (transactions, MF holdings, "
+            "allocations) for the user before ingesting, so this statement fully "
             "replaces the old one. Default false appends/merges incrementally."
         ),
     ),
@@ -352,17 +351,15 @@ async def ingest_cams_statement_pdf(
         )
     await db.commit()
 
-    # Auto-build the real net-worth history (NAV fetch + daily series) so the
-    # dashboard chart populates without the user tapping "Fetch Net Worth History".
-    # Idempotent: skipped if a build is already pending/running. Best-effort —
-    # never fail the upload because the background kickoff couldn't be queued.
-    if result.status != "FAILED" and result.mf_transactions_inserted > 0:
-        try:
-            job, created = await create_job(db, current_user.id)
-            if created:
-                background.add_task(run_networth_backfill, current_user.id, job.id)
-        except Exception:  # noqa: BLE001
-            logger.exception("could not auto-start net-worth backfill after CAS upload")
+    # Rebuild the net-worth series from the statement that is now active. Queued
+    # AFTER the commit above, because that is where the snapshot is promoted — a
+    # task started earlier would pin the statement this upload just replaced.
+    await schedule_rebuild_after_cas(
+        db,
+        background,
+        current_user.id,
+        ingest_failed=result.status == "FAILED",
+    )
 
     if result.status == "FAILED":
         message = (
