@@ -156,6 +156,11 @@ class NetworthJobStatusResponse(BaseModel):
     has_history: bool = False
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    # What asked for this build: cas_upload | onboarding | daily | manual. The
+    # chart needs it to tell "your statement changed, so these numbers are about
+    # to" from "the nightly refresh is running" — only the former invalidates the
+    # series already on screen.
+    trigger: Optional[str] = None
     # Degraded-data counters from the last build (stale prices, failed NAV fetches).
     warnings: Optional[dict[str, Any]] = None
 

@@ -428,6 +428,7 @@ def _job_status(job, *, state) -> NetworthJobStatusResponse:
         has_history=has_history,
         started_at=job.started_at,
         finished_at=job.finished_at,
+        trigger=job.trigger,
         warnings=job.warnings,
     )
 
