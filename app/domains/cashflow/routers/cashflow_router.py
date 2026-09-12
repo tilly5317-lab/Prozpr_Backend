@@ -135,18 +135,11 @@ async def _compute_and_persist(
     )
     from app.domains.portfolio.services.portfolio_service import (
         get_primary_portfolio,
-        revalue_primary_portfolio_at_latest_nav,
     )
 
     # The current portfolio value feeds the engine's starting corpus (single
     # source of truth — the portfolio/CAMS data), summed with cash & assets.
-    # Re-mark it to *today's* NAV first (the same revaluation the /portfolio
-    # dashboard uses) so the corpus tracks the current value, not the frozen
-    # statement-date figure. Falls back to the stored row if there is nothing to
-    # revalue (no holdings / no primary portfolio).
-    portfolio = await revalue_primary_portfolio_at_latest_nav(db, user.id)
-    if portfolio is None:
-        portfolio = await get_primary_portfolio(db, user.id)
+    portfolio = await get_primary_portfolio(db, user.id)
     portfolio_value = (
         float(portfolio.total_value)
         if portfolio is not None and portfolio.total_value is not None

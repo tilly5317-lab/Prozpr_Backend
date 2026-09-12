@@ -1,12 +1,12 @@
 """Tracks the post-signup "Generate my portfolio" personalisation job.
 
 A row records the lifecycle of the background job kicked off when the user taps
-"Generate my portfolio" at the end of onboarding: effective-risk recalculation
-and the daily net-worth NAV history build. The loading page polls the latest
-row for this user to render a real progress bar and per-task checklist.
+"Generate my portfolio" at the end of onboarding: effective-risk recalculation.
+The loading page polls the latest row for this user to render a real progress
+bar and per-task checklist.
 
 Status: ``pending`` -> ``running`` -> ``success`` | ``failed``.
-Phase:  ``queued`` -> ``risk`` -> ``networth`` -> ``done``.
+Phase:  ``queued`` -> ``risk`` -> ``done``.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **identity/** — user, auth, OTP, family members, linked accounts, onboarding
   - **profile/** — risk, tax, investment, constraints, personal finance, properties
   - **goals/** — financial goals, contributions, holdings
-  - **portfolio/** — portfolio + allocations + holdings + history + NAV history
+  - **portfolio/** — portfolio + allocations + holdings + history
   - **benchmarks/** — benchmark index data (e.g. Nifty50 TRI), scheduler-fed
   - **mutual_funds/** — MF metadata, NAV, txns, SIPs, snapshots, watchlists, AA imports, mfapi.in
   - **equities/** — company metadata, prices, transactions

@@ -16,9 +16,9 @@ from contextvars import ContextVar
 logger = logging.getLogger(__name__)
 
 # Per-site rate limit, keyed by (logger, exception type, file, line).
-# networth_history_service.py:367 logs inside a per-scheme loop, so one upstream
-# outage would otherwise file thousands of issues from a single code line. The
-# log line still ships either way — this only drops duplicate issue reports.
+# A log call inside a per-item loop means one upstream outage would otherwise
+# file thousands of issues from a single code line. The log line still ships
+# either way — this only drops duplicate issue reports.
 _THROTTLE_SECONDS = 60.0
 _last_sent: dict[tuple[str, str, str, int], float] = {}
 
