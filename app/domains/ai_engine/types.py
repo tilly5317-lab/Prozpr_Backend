@@ -114,6 +114,8 @@ class ModuleOutput:
     snapshot_id: uuid.UUID | None = None
     rebalancing_recommendation_id: uuid.UUID | None = None
     additional_investment_run_id: uuid.UUID | None = None
+    # Cadence of that run ("sip_monthly" | "lumpsum"), for chat "View plan" routing.
+    additional_investment_cadence: str | None = None
     # True when the turn produced a savable candidate preference (a what-if).
     has_candidate_preference: bool = False
     chart_payloads: list[dict[str, Any]] | None = None

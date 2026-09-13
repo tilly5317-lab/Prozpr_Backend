@@ -80,6 +80,9 @@ class ChatSendMessageResponse(BaseModel):
     # /additional-investment/{run_id}/save-preference. Sent ONLY on preference
     # what-if turns (an ordinary deploy carries no candidate to save).
     additional_investment_run_id: Optional[uuid.UUID] = None
+    # Cadence ("sip_monthly" | "lumpsum") of that run — the chat "View plan"
+    # button routes to the SIP vs Lump sum tab by it.
+    additional_investment_cadence: Optional[str] = None
     # True when this turn produced a savable candidate preference (a "what-if").
     # The rebalancing pill uses it to note the preference is kept on save and to
     # show the "View preferences" link only on what-if turns.
