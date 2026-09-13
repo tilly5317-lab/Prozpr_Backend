@@ -40,6 +40,9 @@ from app.domains.ai_engine.common import (
     format_inr_indian,
 )
 from app.domains.additional_investment.models import AdditionalInvestmentRun
+from app.domains.additional_investment.services.additional_investment_read_service import (
+    ORIGIN_CANDIDATE,
+)
 from app.domains.additional_investment.services.ainv_engine.service import (
     compute_additional_investment_result,
 )
@@ -1033,6 +1036,10 @@ async def _handle_preference_what_if_ainv(
         persist=True,
         focus_category=category,
         saved_investment_preference_id=candidate.id,
+        # Draft: this is an unsaved what-if the customer is previewing. Tag it
+        # 'candidate' so the Invest-page reads firewall it out until Save
+        # preference (mirrors rebalancing). "View plan" still opens it by run-id.
+        origin=ORIGIN_CANDIDATE,
     )
     if requested.blocking_message:
         return await _relay_ainv(ctx, requested.blocking_message)

@@ -35,6 +35,7 @@ from app.domains.additional_investment.services.additional_investment_lumpsum_cr
     create_lumpsum_plan_for_user,
 )
 from app.domains.additional_investment.services.additional_investment_read_service import (
+    get_ainv_plan_for_run,
     get_latest_lumpsum_plan,
     get_latest_sip_plan,
     get_session_current_ainv,
@@ -103,6 +104,29 @@ async def get_current_ainv(
         cadence=cadence,
         save_preference_run_id=str(save_run_id) if save_run_id else None,
     )
+
+
+@router.get("/run/{run_id}", response_model=None)
+async def get_run_plan(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> SipPlanResponse | LumpsumPlanResponse:
+    """One specific run's plan by id — SIP or lump-sum, discriminated by cadence.
+
+    ORIGIN-AGNOSTIC on purpose: the chat "View plan" popup uses this to open an
+    unsaved what-if (``origin='candidate'``) draft that the latest-plan reads
+    (``GET /sip``, ``/lumpsum``) firewall out. 404 when the run is not the
+    customer's. Distinct ``/run/`` prefix so it never shadows ``/sip`` / ``/lumpsum``
+    / ``/current``.
+    """
+    plan = await get_ainv_plan_for_run(db, current_user.id, run_id)
+    if plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Additional-investment run not found",
+        )
+    return plan
 
 
 @router.post("/sip", response_model=SipPlanResponse)

@@ -50,6 +50,7 @@ async def persist_additional_investment_recommendation(
     request: Optional[AdditionalInvestmentInput] = None,
     request_extras: Optional[dict[str, Any]] = None,
     saved_investment_preference_id: Optional[uuid.UUID] = None,
+    origin: Optional[str] = None,
 ) -> uuid.UUID:
     """Write the engine output and return the new ``AdditionalInvestmentRun`` id.
 
@@ -93,6 +94,9 @@ async def persist_additional_investment_recommendation(
         user_question=user_question,
         request_input=request_input,
         saved_investment_preference_id=saved_investment_preference_id,
+        # NULL for a plain/committed deploy; "candidate" for an unsaved what-if
+        # (set by the chat preference-what-if branch) so the Invest reads hide it.
+        origin=origin,
     )
     db.add(run)
     await db.flush()  # assign run.id before parenting children

@@ -157,6 +157,7 @@ async def compute_additional_investment_result(
     persist: bool = False,
     focus_category: Optional[str] = None,
     saved_investment_preference_id=DERIVE_PREFERENCE_ID,
+    origin: Optional[str] = None,
     progress: Optional[Callable[[float, str], Awaitable[None]]] = None,
 ) -> AdditionalInvestmentRunOutcome:
     """Prime allocation → build input → run the engine.
@@ -441,6 +442,7 @@ async def compute_additional_investment_result(
                 request=inp,
                 request_extras=request_extras,
                 saved_investment_preference_id=saved_pref_id,
+                origin=origin,
             )
 
             if cadence is Cadence.SIP_MONTHLY:
