@@ -228,13 +228,16 @@ async def get_portfolio(
             for h in holdings
             if h.average_cost is not None and h.quantity is not None and float(h.quantity or 0) > 0
         )
-        portfolio.total_value = current_total_value
-        portfolio.total_invested = current_total_invested or portfolio.total_invested
+        # Only update if we have valid calculated values; preserve originals as fallback
+        if current_total_value > 0:
+            portfolio.total_value = current_total_value
         if current_total_invested > 0:
+            portfolio.total_invested = current_total_invested
             portfolio.total_gain_percentage = round(
                 (current_total_value - current_total_invested) / current_total_invested * 100, 2
             )
-        else:
+        elif current_total_value > 0:
+            # Holdings exist but no cost basis; calculate from value alone
             portfolio.total_gain_percentage = None
 
     return PortfolioDetailResponse(
