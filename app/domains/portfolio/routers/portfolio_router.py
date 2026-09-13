@@ -216,12 +216,33 @@ async def get_portfolio(
             holdings=[],
         )
 
+    # Recalculate portfolio.total_value and total_invested from current holdings
+    # to ensure they match the holdings list when multiple CAS snapshots exist.
+    # The ORM hook filters holdings to only the active snapshot, but these values
+    # might be stale from an earlier ingest that included archived holdings.
+    holdings = list(portfolio.holdings)
+    if holdings:
+        current_total_value = sum(float(h.current_value or 0) for h in holdings)
+        current_total_invested = sum(
+            float(h.average_cost or 0) * float(h.quantity or 0)
+            for h in holdings
+            if h.average_cost is not None and h.quantity is not None and float(h.quantity or 0) > 0
+        )
+        portfolio.total_value = current_total_value
+        portfolio.total_invested = current_total_invested or portfolio.total_invested
+        if current_total_invested > 0:
+            portfolio.total_gain_percentage = round(
+                (current_total_value - current_total_invested) / current_total_invested * 100, 2
+            )
+        else:
+            portfolio.total_gain_percentage = None
+
     return PortfolioDetailResponse(
         **PortfolioResponse.model_validate(portfolio).model_dump(),
         allocations=_derive_allocations(
-            portfolio.id, list(portfolio.holdings), list(portfolio.allocations)
+            portfolio.id, holdings, list(portfolio.allocations)
         ),
-        holdings=[_build_holding_response(h) for h in portfolio.holdings],
+        holdings=[_build_holding_response(h) for h in holdings],
     )
 
 
