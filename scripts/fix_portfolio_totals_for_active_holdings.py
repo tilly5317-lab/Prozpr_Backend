@@ -31,6 +31,9 @@ async def fix_portfolio_for_user(
 ) -> tuple[bool, str]:
     """Recalculate portfolio totals for one user from active holdings only.
 
+    Saves the corrected values to the database so they're used by other services
+    (like asset allocation) that read portfolio.total_value.
+
     Returns (success, message).
     """
     try:
@@ -68,12 +71,16 @@ async def fix_portfolio_for_user(
         else:
             gain_pct = None
 
-        # Update portfolio
+        # Update portfolio AND PERSIST TO DATABASE
+        # This is critical - the asset allocation engine reads portfolio.total_value
+        # from the DB when building allocation input, so we must save here
         portfolio.total_value = float(total_value)
         portfolio.total_invested = float(total_invested)
         portfolio.total_gain_percentage = gain_pct
 
+        await db.flush()  # Ensure changes are written
         await db.commit()
+
         return True, (
             f"Fixed portfolio for {user_id}: value={total_value}, "
             f"invested={total_invested}, gain={gain_pct}%"
