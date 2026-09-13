@@ -1,128 +1,70 @@
 #!/usr/bin/env python3
-"""Fix portfolio totals to only include active holdings from the current CAS snapshot.
+"""Re-mark every user's primary portfolio to their ACTIVE CAS snapshot and clear
+computed plans, via the same service the CAMS ingest runs after activation.
 
-When users upload multiple CAMS statements, old PortfolioHolding rows from previous
-uploads get marked with older cas_upload_id values. The portfolio.total_invested and
-total_gain_percentage calculations were including ALL holdings regardless of snapshot,
-resulting in wrong values.
+Why a script at all: ``portfolios.total_value`` is not snapshot-scoped and is
+what the allocation engine reads as the corpus. Rows written before the
+post-ingest invalidation existed (or by a process without the scope listeners)
+sum EVERY snapshot the user ever uploaded.
 
-This script recalculates these totals from only the active snapshot's holdings for
-each user.
+Scripts run outside a request, so the CAS-scope SELECT filter is NOT active
+until ``install_cas_scope_listeners()`` is called — without it this script would
+write the all-snapshots sum back again.
 """
 
 import asyncio
 import logging
-import uuid
-from decimal import Decimal
 
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
-# Import all ORM models so they register with Base.metadata
-import app.all_models  # noqa: F401
-
-from app.core.cas_scope import cas_scope_for_user, get_scope, set_scope
+import app.all_models  # noqa: F401 — register every ORM model before any query
+from app.core.cas_scope import install_cas_scope_listeners
 from app.core.database import _get_session_factory
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
+from app.domains.ingestion.services.cache_invalidation_service import (
+    invalidate_user_caches,
+)
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-async def fix_portfolio_for_user(
-    db: AsyncSession, user_id: uuid.UUID
-) -> tuple[bool, str]:
-    """Recalculate portfolio totals for one user from active holdings only.
-
-    Saves the corrected values to the database so they're used by other services
-    (like asset allocation) that read portfolio.total_value.
-
-    Returns (success, message).
-    """
-    try:
-        # Load portfolio with all holdings (ORM hook filters to active snapshot)
-        stmt = select(Portfolio).where(
-            Portfolio.user_id == user_id,
-            Portfolio.is_primary == True  # noqa: E712
-        )
-        portfolio = (await db.execute(stmt)).scalar_one_or_none()
-        if not portfolio:
-            return False, f"No primary portfolio for user {user_id}"
-
-        # Get active holdings (should be filtered by scope)
-        holdings_stmt = select(PortfolioHolding).where(
-            PortfolioHolding.portfolio_id == portfolio.id
-        )
-        result = await db.execute(holdings_stmt)
-        holdings = result.scalars().all()
-
-        # Recalculate totals from active holdings only
-        total_value = Decimal(0)
-        total_invested = Decimal(0)
-
-        for h in holdings:
-            if h.current_value:
-                total_value += Decimal(str(h.current_value))
-
-            if h.average_cost and h.quantity and float(h.quantity or 0) > 0:
-                total_invested += Decimal(str(h.average_cost)) * Decimal(str(h.quantity))
-
-        # Calculate gain percentage
-        if total_invested > 0:
-            gain_pct = (total_value - total_invested) / total_invested * 100
-            gain_pct = round(float(gain_pct), 2)
-        else:
-            gain_pct = None
-
-        # Update portfolio AND PERSIST TO DATABASE
-        # This is critical - the asset allocation engine reads portfolio.total_value
-        # from the DB when building allocation input, so we must save here
-        portfolio.total_value = float(total_value)
-        portfolio.total_invested = float(total_invested)
-        portfolio.total_gain_percentage = gain_pct
-
-        await db.flush()  # Ensure changes are written
-        await db.commit()
-
-        return True, (
-            f"Fixed portfolio for {user_id}: value={total_value}, "
-            f"invested={total_invested}, gain={gain_pct}%"
-        )
-    except Exception as e:
-        await db.rollback()
-        return False, f"Error fixing portfolio for {user_id}: {e}"
-
-
-async def main():
-    """Fix portfolios for all users."""
+async def main() -> None:
+    install_cas_scope_listeners()
     factory = _get_session_factory()
 
-    # Get list of all users with primary portfolios
     async with factory() as db:
-        users_stmt = text(
-            "SELECT DISTINCT p.user_id FROM portfolios p "
-            "WHERE p.is_primary = TRUE ORDER BY p.user_id"
+        user_ids = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT user_id FROM portfolios "
+                        "WHERE is_primary = TRUE ORDER BY user_id"
+                    )
+                )
+            )
+            .scalars()
+            .all()
         )
-        result = await db.execute(users_stmt)
-        user_ids = result.scalars().all()
 
-    logger.info(f"Fixing portfolio totals for {len(user_ids)} users...")
-    fixed = 0
+    logger.info("re-marking %d portfolios", len(user_ids))
     failed = 0
-
     for user_id in user_ids:
         async with factory() as db:
-            # Set the CAS scope for this user to ensure we load the active snapshot
-            async with cas_scope_for_user(db, user_id):
-                success, message = await fix_portfolio_for_user(db, user_id)
-                if success:
-                    fixed += 1
-                    logger.info(f"✓ {message}")
-                else:
-                    failed += 1
-                    logger.warning(f"✗ {message}")
-
-    logger.info(f"Done: {fixed} fixed, {failed} failed")
+            summary = await invalidate_user_caches(db, user_id)
+            await db.commit()
+        if summary["error"]:
+            failed += 1
+            logger.warning("FAILED %s: %s", user_id, summary["error"])
+        else:
+            logger.info(
+                "%s value=%s cleared alloc=%d rebal=%d",
+                user_id,
+                summary["portfolio_total_value"],
+                summary["allocations_cleared"],
+                summary["rebalancing_runs_cleared"],
+            )
+    logger.info("done: %d ok, %d failed", len(user_ids) - failed, failed)
 
 
 if __name__ == "__main__":

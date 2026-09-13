@@ -1,120 +1,69 @@
-"""Cache invalidation service for CAMS ingestion.
+"""Post-ingest cache invalidation.
 
-Automatically clears stale caches after successful CAMS upload to ensure
-allocations and rebalancing plans are recalculated with the new holdings data.
+Runs after a CAS snapshot is activated. Every computed plan is snapshot-scoped
+(``CasScoped``) so the read hook already hides the superseded runs; what is NOT
+scoped is the single ``portfolios`` row whose ``total_value`` the allocation
+input builder reads as the corpus. Re-marking that row under the new snapshot is
+the load-bearing step — the run deletes are belt-and-braces.
 """
+
+from __future__ import annotations
 
 import logging
 import uuid
-from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import cas_scope_for_user
 from app.domains.asset_allocation.models.run import AssetAllocationRun
+from app.domains.portfolio.services.portfolio_service import (
+    revalue_primary_portfolio_at_latest_nav,
+)
 from app.domains.rebalancing.models.rebalancing_run import RebalancingRun
-from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
 
 logger = logging.getLogger(__name__)
 
 
 async def invalidate_user_caches(db: AsyncSession, user_id: uuid.UUID) -> dict:
-    """Invalidate all caches and recalculate portfolio totals after CAMS upload.
+    """Clear computed plans and re-mark the primary portfolio to the active snapshot.
 
-    This should be called after successful CAMS ingestion to ensure:
-    1. Allocation caches are cleared (will force recalculation)
-    2. Rebalancing runs are cleared (will force recalculation)
-    3. Portfolio totals are recalculated from active holdings only
-
-    Returns a summary dict with counts of cleared/recalculated items.
+    Deletes are unfiltered on purpose (the read hook only scopes SELECTs), so
+    every snapshot's runs go — the new snapshot has none yet. They run inside a
+    SAVEPOINT: a failure here must never roll back the ingest that called us.
     """
+    summary = {
+        "user_id": str(user_id),
+        "allocations_cleared": 0,
+        "rebalancing_runs_cleared": 0,
+        "portfolio_total_value": None,
+        "error": None,
+    }
+
     try:
-        summary = {
-            "user_id": str(user_id),
-            "allocations_cleared": 0,
-            "rebalancing_runs_cleared": 0,
-            "portfolio_recalculated": False,
-            "error": None,
-        }
-
-        # 1. Clear allocation caches - forces next request to recalculate
-        alloc_result = await db.execute(
-            delete(AssetAllocationRun).where(
-                AssetAllocationRun.user_id == user_id
+        async with db.begin_nested():
+            # rebalancing_runs.source_allocation_run_id is ON DELETE RESTRICT,
+            # so the dependents must go first.
+            rebal = await db.execute(
+                delete(RebalancingRun).where(RebalancingRun.user_id == user_id)
             )
-        )
-        summary["allocations_cleared"] = alloc_result.rowcount or 0
-
-        # 2. Clear rebalancing recommendations - forces next request to recalculate
-        rebal_result = await db.execute(
-            delete(RebalancingRun).where(RebalancingRun.user_id == user_id)
-        )
-        summary["rebalancing_runs_cleared"] = rebal_result.rowcount or 0
-
-        # 3. Recalculate portfolio totals from active holdings only
-        portfolio_stmt = select(Portfolio).where(
-            Portfolio.user_id == user_id,
-            Portfolio.is_primary == True  # noqa: E712
-        )
-        portfolio = (await db.execute(portfolio_stmt)).scalar_one_or_none()
-
-        if portfolio:
-            # Get active holdings (ORM hook filters to active CAS snapshot)
-            holdings_stmt = select(PortfolioHolding).where(
-                PortfolioHolding.portfolio_id == portfolio.id
+            alloc = await db.execute(
+                delete(AssetAllocationRun).where(AssetAllocationRun.user_id == user_id)
             )
-            result = await db.execute(holdings_stmt)
-            holdings = result.scalars().all()
+        summary["rebalancing_runs_cleared"] = rebal.rowcount or 0
+        summary["allocations_cleared"] = alloc.rowcount or 0
+    except Exception as exc:  # noqa: BLE001 — best-effort, never fail the ingest
+        logger.warning("run cache clear failed for %s: %s", user_id, exc)
+        summary["error"] = str(exc)
 
-            # Recalculate totals from active holdings
-            total_value = Decimal(0)
-            total_invested = Decimal(0)
+    try:
+        async with cas_scope_for_user(db, user_id):
+            portfolio = await revalue_primary_portfolio_at_latest_nav(db, user_id)
+        if portfolio is not None:
+            summary["portfolio_total_value"] = float(portfolio.total_value or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("portfolio revalue failed for %s: %s", user_id, exc)
+        summary["error"] = str(exc)
 
-            for h in holdings:
-                if h.current_value:
-                    total_value += Decimal(str(h.current_value))
-
-                if h.average_cost and h.quantity and float(h.quantity or 0) > 0:
-                    total_invested += Decimal(str(h.average_cost)) * Decimal(
-                        str(h.quantity)
-                    )
-
-            # Calculate gain percentage
-            if total_invested > 0:
-                gain_pct = (total_value - total_invested) / total_invested * 100
-                gain_pct = round(float(gain_pct), 2)
-            else:
-                gain_pct = None
-
-            # Update portfolio with corrected values
-            portfolio.total_value = float(total_value)
-            portfolio.total_invested = float(total_invested)
-            portfolio.total_gain_percentage = gain_pct
-
-            summary["portfolio_recalculated"] = True
-            logger.info(
-                f"Recalculated portfolio for {user_id}: "
-                f"value={total_value}, invested={total_invested}, gain={gain_pct}%"
-            )
-
-        await db.commit()
-
-        logger.info(
-            f"Cache invalidation for {user_id}: "
-            f"cleared {summary['allocations_cleared']} allocations, "
-            f"{summary['rebalancing_runs_cleared']} rebalancing runs, "
-            f"recalculated portfolio={summary['portfolio_recalculated']}"
-        )
-
-        return summary
-
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error invalidating caches for {user_id}: {e}", exc_info=True)
-        return {
-            "user_id": str(user_id),
-            "allocations_cleared": 0,
-            "rebalancing_runs_cleared": 0,
-            "portfolio_recalculated": False,
-            "error": str(e),
-        }
+    logger.info("cache invalidation %s", summary)
+    return summary

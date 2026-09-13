@@ -8,6 +8,7 @@ towards (``AssetAllocationRun`` in ``app.models.asset_allocation``) —
 
 from __future__ import annotations
 
+import logging
 import uuid
 from decimal import Decimal
 from typing import Optional
@@ -40,6 +41,8 @@ from app.domains.portfolio.services.portfolio_service import (
 
 ensure_ai_agents_path()
 
+logger = logging.getLogger(__name__)
+
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     FundRowAfterStep5,
     RebalancingComputeRequest,
@@ -53,20 +56,22 @@ def _to_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
-def _round_to_precision(value, scale: int) -> Decimal:
-    """Round a value to the given number of decimal places.
+def _round_to_precision(value, scale: int, precision: int = 7) -> Decimal:
+    """Fit a value into NUMERIC(precision, scale).
 
-    Used to ensure Decimal values fit within the database column precision
-    (e.g., Numeric(7, 4) allows max 4 decimal places).
+    Rounds to ``scale`` places and clamps the magnitude below 10**(precision-scale).
+    A percentage that needs clamping is a bad input (e.g. an allocation priced off
+    a different corpus than the holdings) — log it rather than 500 the whole run.
     """
     if value is None:
         return None
-    dec = _to_decimal(value)
-    if scale is not None:
-        # Use ROUND_HALF_UP to match database rounding behavior
-        from decimal import ROUND_HALF_UP
-        quantize_exp = Decimal(10) ** -scale
-        return dec.quantize(quantize_exp, rounding=ROUND_HALF_UP)
+    from decimal import ROUND_HALF_UP
+
+    dec = _to_decimal(value).quantize(Decimal(10) ** -scale, rounding=ROUND_HALF_UP)
+    limit = Decimal(10) ** (precision - scale) - Decimal(10) ** -scale
+    if abs(dec) > limit:
+        logger.warning("clamping %s to NUMERIC(%s,%s) limit", dec, precision, scale)
+        dec = limit.copy_sign(dec)
     return dec
 
 
