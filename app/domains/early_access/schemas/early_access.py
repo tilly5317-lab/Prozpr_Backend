@@ -1,0 +1,160 @@
+"""Pydantic schema — `early_access.py`.
+
+Request/response shapes for the public `/early-access` endpoints. There is no
+ORM model behind these: the register is a Google Sheet, not a table, and the
+seat count is read back out of that Sheet rather than kept anywhere here (see
+``services/early_access_service.py``).
+
+The field names mirror the `/earlyaccess` page's form exactly — this is the
+agreed contract with the frontend, so rename on neither side alone.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, field_validator
+
+# What the profession dropdown offers. Free text is NOT accepted: the page
+# renders a fixed list, so anything else is a caller that bypassed the form,
+# and a tidy column is worth more to the team working the list than an open
+# string would be. "Other" is the escape hatch, and is on the list.
+PROFESSIONS = (
+    "Finance",
+    "Tech",
+    "HR",
+    "Management",
+    "Consulting",
+    "Healthcare",
+    "Legal",
+    "Business owner",
+    "Student",
+    "Other",
+)
+
+# Punctuation someone might reasonably type into a WhatsApp number. Unlike the
+# signup form this is NOT normalised to ten digits: it is a way for the team to
+# reach a person, the page accepts it exactly as typed (country code, spaces,
+# dashes), and rejecting a valid overseas number on a waiting-list form would
+# cost a lead to no purpose. Letters are still refused.
+_PHONE_PUNCTUATION = frozenset(" -().+")
+
+
+class EarlyAccessSignupRequest(BaseModel):
+    """One application from the public `/earlyaccess` page."""
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "Ananya Rao",
+                    "email": "ananya@example.com",
+                    "whatsapp": "+91 98765 43210",
+                    "profession": "Finance",
+                    "source": "earlyaccess_page",
+                }
+            ]
+        }
+    }
+
+    name: str = Field(..., min_length=1, max_length=120)
+    email: str = Field(..., min_length=3, max_length=320)
+    whatsapp: str | None = Field(default=None, max_length=32)
+    profession: str = Field(..., min_length=1, max_length=64)
+    source: str = Field(default="earlyaccess_page", max_length=64)
+
+    # Anti-spam honeypot. The form renders this visually hidden and leaves it
+    # empty; a bot that fills every input trips it. Named after something a
+    # scraper would expect to be real, never "honeypot".
+    company: str | None = Field(default=None, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        name = " ".join(v.split())
+        if not name:
+            raise ValueError("Please enter your name")
+        return name
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        email = v.strip().lower()
+        local, _, domain = email.partition("@")
+        if (
+            not local
+            or "." not in domain
+            or domain.startswith(".")
+            or domain.endswith(".")
+        ):
+            raise ValueError("Please enter a valid email address")
+        return email
+
+    @field_validator("whatsapp")
+    @classmethod
+    def validate_whatsapp(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        raw = " ".join(v.split())
+        if not raw:
+            return None
+        if any(not (c.isdigit() or c in _PHONE_PUNCTUATION) for c in raw):
+            raise ValueError("WhatsApp number must contain digits only")
+        if sum(c.isdigit() for c in raw) < 8:
+            raise ValueError("Please enter a valid WhatsApp number")
+        return raw
+
+    @field_validator("profession")
+    @classmethod
+    def validate_profession(cls, v: str) -> str:
+        choice = " ".join(v.split())
+        match = {p.casefold(): p for p in PROFESSIONS}.get(choice.casefold())
+        if not match:
+            raise ValueError(
+                "Please pick a profession from the list: " + ", ".join(PROFESSIONS)
+            )
+        return match
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v: str) -> str:
+        # Falls back rather than blanking: the Sheet's Source column is how the
+        # team tells the landing page apart from any later campaign link, and a
+        # blank there is worth less than a slightly wrong guess.
+        return " ".join(v.split()) or "earlyaccess_page"
+
+    @field_validator("company")
+    @classmethod
+    def blank_to_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return " ".join(v.split()) or None
+
+
+class SeatsResponse(BaseModel):
+    """The live seat meter on the `/earlyaccess` page."""
+
+    seats_total: int
+    seats_claimed: int
+    seats_left: int
+
+
+class EarlyAccessSignupResponse(SeatsResponse):
+    """Answer to a successful application.
+
+    ``waitlisted`` is True once the claimed seats have passed the cap — the
+    application is still recorded, it just sits behind the first hundred.
+    ``already_registered`` means this email was on the list before today's
+    submission; the page treats it as a success ("You're already on the list")
+    rather than an error, so nothing about it is a failure path.
+    """
+
+    ok: bool = True
+    waitlisted: bool = False
+    already_registered: bool = False
+
+
+class SignupStatusResponse(BaseModel):
+    """Read by the app's public entry screen so it knows whether to offer
+    account creation at all, and where to send someone who cannot create one."""
+
+    signups_open: bool
+    early_access_path: str = "/earlyaccess"

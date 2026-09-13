@@ -38,6 +38,9 @@ from app.domains.ingestion.routers.mf_ingest_router import router as mf_ingest_r
 from app.domains.cashflow.routers.cashflow_router import router as cashflow_router
 from app.domains.ai_engine.routers import router as ai_modules_router
 from app.domains.support.routers.support_router import router as support_router
+from app.domains.early_access.routers.early_access_router import (
+    router as early_access_router,
+)
 from app.domains.benchmarks.routers import router as benchmarks_router
 from app.domains.execution.routers.fp_router import router as fp_router
 from app.domains.privacy.routers.privacy_router import router as privacy_router
@@ -70,6 +73,7 @@ all_routers = [
     cashflow_router,
     ai_modules_router,
     support_router,
+    early_access_router,
     benchmarks_router,
     fp_router,
     privacy_router,
