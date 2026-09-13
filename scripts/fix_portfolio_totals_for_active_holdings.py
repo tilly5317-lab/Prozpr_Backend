@@ -18,6 +18,9 @@ from decimal import Decimal
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Import all ORM models so they register with Base.metadata
+import app.all_models  # noqa: F401
+
 from app.core.cas_scope import cas_scope_for_user, get_scope, set_scope
 from app.core.database import _get_session_factory
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
