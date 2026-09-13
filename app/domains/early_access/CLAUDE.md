@@ -55,6 +55,15 @@ renders it as "You're already on the list".
   (`fetch_claimed`). A counter on this side would drift the first time someone
   edits the Sheet by hand, which is exactly what the team will do while working
   the list. Cached 30s so a public page cannot burn the Apps Script quota.
+- **`EARLY_ACCESS_SEATS_BASELINE` is added to that count** (`_effective_claimed`)
+  and defaults to 0. It covers real places gone that never became rows —
+  testers recruited before the page went up, invites handed out in person — so
+  the public meter is not wrong by however many of those exist. It is **not** a
+  dial for making the beta look busier: the number is stated to visitors as a
+  fact about how many seats are taken. The waitlist threshold is measured after
+  it is applied, or an already-full beta would keep handing out seats it does
+  not have, and `seats_claimed` is clamped to the cap so a full meter reads
+  "100 of 100" rather than overflowing.
 - **PII is NOT masked into the Sheet**, deliberately — unlike the signup ping
   and the issue register. The team has to *phone* these people and a masked
   number cannot be dialled. The cost: rows sit outside the database, so an
@@ -85,6 +94,10 @@ renders it as "You're already on the list".
 
 ## The Google Apps Script
 
+Paste the WHOLE script, constants included — `TOKEN`, `SHEET` and `HEADERS`
+are referenced by every function below, so pasting from `function sheet_()`
+down throws `ReferenceError: SHEET is not defined` on the first request.
+
 Bind this to the team's Sheet (Extensions → Apps Script), then **Deploy → New
 deployment → Web app**, "Execute as: Me", "Who has access: Anyone". Paste the
 `/exec` URL into `EARLY_ACCESS_SHEET_WEBHOOK_URL` and set a matching
@@ -92,8 +105,8 @@ deployment → Web app**, "Execute as: Me", "Who has access: Anyone". Paste the
 
 ```javascript
 const TOKEN = 'put-the-same-value-as-EARLY_ACCESS_SHEET_TOKEN-here';
-const SHEET = 'Applications';
-const HEADERS = ['Date', 'Name', 'Email', 'WhatsApp', 'Profession', 'Source', 'Seat', 'Status'];
+const SHEET = 'Entries';
+const HEADERS = ['Date', 'Name', 'Email', 'WhatsApp', 'Profession', 'Source', 'Seat', 'Notes'];
 
 function sheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

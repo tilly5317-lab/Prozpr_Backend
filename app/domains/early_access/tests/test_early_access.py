@@ -132,6 +132,41 @@ def test_past_the_cap_is_waitlisted_not_rejected(
     assert body["seats_left"] == 0
 
 
+def test_baseline_is_added_to_the_sheet_count(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Testers recruited before the page went up are real seats gone, so the
+    meter has to include them or it understates how full the beta is."""
+    monkeypatch.setenv("EARLY_ACCESS_SEATS_BASELINE", "60")
+    client.post(f"{API}/signup", json=APPLICATION)
+    r = client.get(f"{API}/seats")
+    assert r.json() == {"seats_total": 100, "seats_claimed": 61, "seats_left": 39}
+
+
+def test_baseline_defaults_to_zero_so_the_count_is_the_register(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Unset means the page reports exactly what the Sheet holds — no invented
+    head start."""
+    monkeypatch.delenv("EARLY_ACCESS_SEATS_BASELINE", raising=False)
+    client.post(f"{API}/signup", json=APPLICATION)
+    assert client.get(f"{API}/seats").json()["seats_claimed"] == 1
+
+
+def test_baseline_pushes_the_beta_full_and_waitlists(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A beta that is already full must not keep handing out seats it lacks."""
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "10")
+    monkeypatch.setenv("EARLY_ACCESS_SEATS_BASELINE", "10")
+    r = client.post(f"{API}/signup", json=APPLICATION)
+    body = r.json()
+    assert body["waitlisted"] is True
+    assert body["seats_left"] == 0
+    # The meter is clamped at the cap rather than reading "11 of 10".
+    assert body["seats_claimed"] == 10
+
+
 def test_honeypot_writes_nothing_and_reveals_nothing(
     client: TestClient, sheet: FakeSheet
 ):
@@ -264,6 +299,7 @@ def test_env_example_documents_every_new_setting():
         "EARLY_ACCESS_SEATS",
         "EARLY_ACCESS_SHEET_WEBHOOK_URL",
         "EARLY_ACCESS_SHEET_TOKEN",
+        "EARLY_ACCESS_SEATS_BASELINE",
         "SLACK_EARLY_ACCESS_WEBHOOK_URL",
     ):
         assert key in env, f"{key} is missing from .env.example"

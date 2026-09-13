@@ -18,7 +18,7 @@ through the list.
   * ``doGet``   — answers ``{"ok": true, "claimed": <n>}`` for the seat meter.
 
   Row shape: ``Date | Name | Email | WhatsApp | Profession | Source | Seat |
-  Status`` (``Status`` stays empty — it is the team's column to fill while
+  Notes`` (``Notes`` stays empty — it is the team's column to fill while
   working the list: *Invited*, *Onboarded*, *Passed*.) The script itself is in
   ``CLAUDE.md`` in this package.
   ``EARLY_ACCESS_SHEET_TOKEN`` is a shared secret the script checks so
@@ -106,7 +106,7 @@ SHEET_HEADERS = [
     "Profession",
     "Source",
     "Seat",
-    "Status",
+    "Notes",
 ]
 
 # The applicant is waiting on the append (the Sheet is the sole register, so it

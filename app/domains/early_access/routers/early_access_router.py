@@ -57,11 +57,20 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _seats(claimed: int) -> dict[str, int]:
+def _effective_claimed(sheet_rows: int) -> int:
+    """Seats the page should report as gone: the Sheet's rows plus any places
+    already taken by people who never became rows (see the baseline setting)."""
+    return get_settings().get_early_access_seats_baseline() + sheet_rows
+
+
+def _seats(sheet_rows: int) -> dict[str, int]:
     total = get_settings().get_early_access_seats()
+    claimed = _effective_claimed(sheet_rows)
     return {
         "seats_total": total,
-        "seats_claimed": claimed,
+        # Never overstates the cap: a full meter reads "100 of 100", and the
+        # overflow shows up as `waitlisted` instead of a count past the total.
+        "seats_claimed": min(total, claimed),
         # Never negative: once the waitlist runs past the cap the page should
         # read "0 seats left", not a negative number.
         "seats_left": max(0, total - claimed),
@@ -149,7 +158,13 @@ async def signup(
 
     total = get_settings().get_early_access_seats()
     # Seat numbers are 1-based, so seat 100 is the last one inside a cap of 100.
-    waitlisted = result.seat > total if result.seat else result.claimed > total
+    # Measured AFTER the baseline is applied, or a beta that is already part
+    # full would keep handing out seats it does not have.
+    waitlisted = (
+        _effective_claimed(result.seat) > total
+        if result.seat
+        else _effective_claimed(result.claimed) > total
+    )
     # The meter's next reader gets a count that already includes this row.
     svc.prime_seats_cache(result.claimed)
 

@@ -561,6 +561,28 @@ class Settings:
         return seats if seats > 0 else 100
 
     @staticmethod
+    def get_early_access_seats_baseline() -> int:
+        """Seats already taken by people who are NOT rows in the Sheet.
+
+        Added to the Sheet's row count to produce the number the meter shows.
+        Defaults to 0, i.e. the meter reports exactly what the register holds.
+
+        This exists for a real case — testers recruited before the page went
+        up, or invites handed out in person — so the public count is not wrong
+        by however many of those there are. It is NOT a dial for making the
+        beta look busier than it is: whatever is set here is stated to visitors
+        as a fact about how many places are gone, so it should correspond to
+        actual committed people. A count that outruns reality is the kind of
+        thing a prospective user can later discover was untrue.
+        """
+        raw = (_getenv("EARLY_ACCESS_SEATS_BASELINE") or "").strip()
+        try:
+            baseline = int(raw)
+        except ValueError:
+            return 0
+        return max(0, baseline)
+
+    @staticmethod
     def get_early_access_sheet_webhook_url() -> str | None:
         """Google Apps Script web-app URL that appends one row per early-access
         application to the shared Google Sheet — the SOLE register for these
