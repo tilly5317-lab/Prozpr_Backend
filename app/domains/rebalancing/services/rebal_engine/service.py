@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import cas_scope_for_user, get_scope
+
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
 
@@ -793,6 +795,10 @@ async def compute_rebalancing_result(
 ) -> RebalancingRunOutcome:
     """Top-level orchestrator: cache → builder → engine → persist → format.
 
+    Reads holdings from the ACTIVE CAS snapshot only (via CAS scope). All
+    calculations respect the user's current statement, excluding archived funds
+    from previous uploads.
+
     ``progress`` (optional) is awaited at each real stage boundary with
     (percent, customer-facing message) — the Invest page's compute endpoint
     passes a writer so its progress poller can show the live pipeline stage.
@@ -810,6 +816,24 @@ async def compute_rebalancing_result(
     wouldn't reflect.
     """
     trace_line("module: rebalancing — start")
+
+    # Ensure we're scoped to the active CAS snapshot so we read only active funds.
+    # The request path (get_effective_user) should have set this already, but if
+    # called from a background task or API without proper scoping, set it here.
+    if get_scope() is None:
+        async with cas_scope_for_user(db, acting_user_id):
+            return await compute_rebalancing_result(
+                user,
+                user_question,
+                db=db,
+                acting_user_id=acting_user_id,
+                chat_session_id=chat_session_id,
+                persist=persist,
+                origin=origin,
+                force_fresh_allocation=force_fresh_allocation,
+                chat_ctx=chat_ctx,
+                progress=progress,
+            )
 
     # Stage messages are customer-facing: describe the benefit, never the
     # mechanics (no engine/strategy internals — ranks, caps, tax lots, caches).
