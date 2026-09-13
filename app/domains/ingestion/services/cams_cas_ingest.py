@@ -1168,6 +1168,18 @@ async def _persist_parsed_cas(
         # are precisely the superseded ones.
         await mark_cashflow_stale(db, user_id, commit=False)
 
+        # CRITICAL: Invalidate all user caches after successful ingestion
+        # This ensures allocations and rebalancing plans are recalculated with
+        # the new active holdings data, not cached values from the old statement
+        from app.domains.ingestion.services.cache_invalidation_service import (
+            invalidate_user_caches,
+        )
+
+        cache_summary = await invalidate_user_caches(db, user_id)
+        logger.info(
+            f"Cache invalidation after CAMS ingestion: {cache_summary}"
+        )
+
     return CamsIngestResult(
         import_id=import_id,
         cas_upload_id=(snapshot.id if snapshot is not None else None),
