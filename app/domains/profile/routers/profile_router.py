@@ -35,9 +35,9 @@ from app.domains.profile.schemas import (
     FullProfileResponse,
     InvestmentConstraintResponse,
     InvestmentConstraintUpdate,
-    InvestmentPreferenceIntent,
-    InvestmentPreferencePreviewResponse,
-    InvestmentPreferenceResponse,
+    ScreenPreferenceGetResponse,
+    ScreenPreferenceRequest,
+    ScreenSaveResponse,
     InvestmentProfileResponse,
     InvestmentProfileUpdate,
     PersonalFinanceResponse,
@@ -716,37 +716,34 @@ async def get_review_preference(
     return ReviewPreferenceResponse.model_validate(pref)
 
 
-# Section 9 - Investment preferences (spec 2026-09-01-investment-preferences-s1-core)
+# Section 9 - Investment preferences (S4 percentage screen — spec
+# 2026-09-10-investment-preferences-s4-pct-screen-backend-design)
 @router.get(
-    "/investment-preferences", response_model=InvestmentPreferenceResponse
+    "/investment-preferences", response_model=ScreenPreferenceGetResponse
 )
 async def get_investment_preferences(
     db: AsyncSession = Depends(get_db),
     user_ctx: User = Depends(get_ai_user_context),
 ):
-    from app.domains.profile.services.preference_save_service import (
-        active_preference_row,
-        recommendation_block,
-    )
+    from app.domains.profile.services.screen_preference_service import screen_read_model
 
-    row = await active_preference_row(db, user_ctx.id)
-    rec = await recommendation_block(user_ctx, row)  # neutral only when a row exists
-    return InvestmentPreferenceResponse.from_row(row, recommendation=rec)
+    return await screen_read_model(db, user_ctx)
 
 
-@router.put(
-    "/investment-preferences", response_model=InvestmentPreferencePreviewResponse
-)
+@router.put("/investment-preferences", response_model=ScreenSaveResponse)
 async def put_investment_preferences(
-    payload: InvestmentPreferenceIntent,
+    payload: ScreenPreferenceRequest,
     db: AsyncSession = Depends(get_db),
     user_ctx: User = Depends(get_ai_user_context),
 ):
-    from app.domains.profile.services.preference_save_service import preview_or_save
-
-    return await preview_or_save(
-        db,
-        user_ctx,
-        payload.model_dump(exclude_unset=True, exclude={"confirm"}),
-        confirm=payload.confirm,
+    from app.domains.profile.services.screen_preference_service import (
+        ScreenPreferenceError,
+        save_screen_preference,
     )
+
+    try:
+        return await save_screen_preference(
+            db, user_ctx, payload.class_mix, [p.model_dump() for p in payload.pins]
+        )
+    except ScreenPreferenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

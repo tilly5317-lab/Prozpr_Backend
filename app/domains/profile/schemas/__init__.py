@@ -11,7 +11,12 @@ from app.domains.profile.schemas.full_profile import FullProfileResponse
 from app.domains.profile.schemas.investment_preferences import (
     InvestmentPreferenceIntent,
     InvestmentPreferencePreviewResponse,
-    InvestmentPreferenceResponse,
+    ScreenPin,
+    ScreenPreferenceGetResponse,
+    ScreenPreferenceRequest,
+    ScreenSaved,
+    ScreenSaveResponse,
+    ScreenSubcategory,
 )
 from app.domains.profile.schemas.investment import (
     CurrentPropertiesUpdate,
@@ -54,7 +59,12 @@ __all__ = [
     "InvestmentConstraintUpdate",
     "InvestmentPreferenceIntent",
     "InvestmentPreferencePreviewResponse",
-    "InvestmentPreferenceResponse",
+    "ScreenPin",
+    "ScreenPreferenceGetResponse",
+    "ScreenPreferenceRequest",
+    "ScreenSaved",
+    "ScreenSaveResponse",
+    "ScreenSubcategory",
     "InvestmentProfileResponse",
     "InvestmentProfileUpdate",
     "PersonalFinanceFields",

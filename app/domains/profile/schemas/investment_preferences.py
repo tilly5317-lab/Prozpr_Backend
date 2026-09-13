@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 _ASSET_CLASSES = {"equity", "debt", "others"}
 _DIRECTIONS = {"more", "heavy", "less", "none", "target"}
@@ -72,29 +72,56 @@ class InvestmentPreferencePreviewResponse(BaseModel):
     no_op: bool = False
 
 
-class InvestmentPreferenceResponse(BaseModel):
-    """The active ``SavedInvestmentPreference`` row plus the GET-only
-    neutral ``recommendation`` block. Class mixes are assembled as dicts
-    from the row's flat pct columns; market-cap asks and exclusions (value
-    0) appear inside ``resolved_targets`` (and, as the customer's words, in
-    ``customer_choices``)."""
+# ---------------------------------------------------------------------------
+# S4 percentage screen (spec 2026-09-10-investment-preferences-s4-pct-screen)
+# ---------------------------------------------------------------------------
 
-    asset_class_requested: Optional[dict[str, float]] = None
-    asset_class_target: Optional[dict[str, float]] = None
-    resolved_targets: Optional[dict[str, float]] = None
-    customer_choices: Optional[dict[str, Any]] = None
+
+class ScreenPin(BaseModel):
+    """A subcategory pinned to an exact share of the WHOLE portfolio."""
+
+    subgroup: str
+    pct_of_total: float
+
+
+class ScreenPreferenceRequest(BaseModel):
+    """The redesigned screen's save payload: an explicit three-class split
+    (% of total, sums to 100) plus optional subcategory pins (% of total)."""
+
+    class_mix: dict[str, float]
+    pins: list[ScreenPin] = []
+
+
+class ScreenSubcategory(BaseModel):
+    """One settable subcategory: id, class, display label, and Prozpr's
+    recommended share of total — feeds both the grouped dropdown and each
+    pin's "Prozpr N%"."""
+
+    id: str
+    class_: str = Field(alias="class", serialization_alias="class")
+    label: str
+    recommended_pct_of_total: float
+
+    model_config = {"populate_by_name": True}
+
+
+class ScreenSaved(BaseModel):
+    class_mix: dict[str, float]
+    pins: list[ScreenPin]
     saved_at: Optional[datetime] = None
-    recommendation: Optional[dict[str, float]] = None
 
-    @classmethod
-    def from_row(cls, row, *, recommendation: Optional[dict] = None):
-        if row is None:
-            return cls(recommendation=recommendation)
-        return cls(
-            asset_class_requested=row.asset_class_requested,
-            asset_class_target=row.asset_class_target,
-            resolved_targets=row.resolved_targets,
-            customer_choices=row.customer_choices,
-            saved_at=row.activated_at,
-            recommendation=recommendation,
-        )
+
+class ScreenPreferenceGetResponse(BaseModel):
+    """GET payload: the customer's saved split (or null), Prozpr's class-level
+    recommendation, and the settable-subcategory list."""
+
+    saved: Optional[ScreenSaved] = None
+    recommendation: dict[str, dict[str, float]]
+    subcategories: list[ScreenSubcategory]
+
+
+class ScreenSaveResponse(BaseModel):
+    ok: bool = True
+    saved_at: Optional[datetime] = None
+    blocked: Optional[str] = None
+    no_op: bool = False

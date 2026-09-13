@@ -5,7 +5,6 @@ BEFORE any resolution.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -14,7 +13,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.observability import capture_preference_cleared, capture_preference_saved
+from app.core.observability import capture_preference_saved
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.mutual_funds.services.investment_preferences import (
     ResolvedPreferences,
@@ -23,18 +22,11 @@ from app.domains.mutual_funds.services.investment_preferences import (
 from app.domains.profile.models.saved_investment_preference import (
     SavedInvestmentPreference,
 )
-from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
-    build_practical_allocation_input_for_user,
-)
 from app.domains.practical_asset_allocation.services.paa_engine.service import (
     compute_practical_allocation_result,
 )
 
 ensure_ai_agents_path()
-
-from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]  # noqa: E402
-    run_practical_allocation,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -437,21 +429,48 @@ async def _persist_confirm(db, user, resolved, intent, preferred_out, prior_row)
     await db.commit()
 
 
-async def _persist_neutral_after_clear(db, user):
-    """Same compute_allocation_result call — the user now has no row, so it
-    persists a neutral (un-bent) allocation."""
-    from app.domains.asset_allocation.services.aa_engine.service import (
-        compute_allocation_result,
-    )
+async def _refresh_standing_plan(db, user, user_id, cadence, label) -> None:
+    """Recompute + persist the customer's latest additional-investment plan of
+    one cadence (SIP or lump sum), if one exists, against the new preference —
+    reusing its stored deploy amount. Best-effort and self-committing like the
+    rebalancing block below: a failure rolls back and self-heals on next read."""
+    try:
+        from app.domains.additional_investment.models.additional_investment_run import (
+            AdditionalInvestmentRun,
+        )
 
-    await compute_allocation_result(
-        user,
-        "preference save",
-        db=db,
-        persist_recommendation=True,
-        acting_user_id=user.id,
-        chat_ctx=_build_ctx(user),
-    )
+        stmt = (
+            select(AdditionalInvestmentRun)
+            .where(
+                AdditionalInvestmentRun.user_id == user_id,
+                AdditionalInvestmentRun.cadence == cadence,
+            )
+            .order_by(AdditionalInvestmentRun.created_at.desc())
+            .limit(1)
+        )
+        latest = (await db.execute(stmt)).scalars().first()
+        if latest is not None:
+            from app.domains.additional_investment.services.ainv_engine.service import (
+                compute_additional_investment_result,
+            )
+
+            await compute_additional_investment_result(
+                user,
+                "preference refresh",
+                db=db,
+                acting_user_id=user_id,
+                chat_session_id=None,
+                deploy_amount_inr=float(latest.deploy_amount_inr),
+                cadence=cadence,
+                chat_ctx=_build_ctx(user),
+                persist=True,
+            )
+            await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "eager refresh: %s recompute failed for user_id=%s", label, user_id
+        )
 
 
 async def _eager_refresh(db, user):
@@ -492,158 +511,12 @@ async def _eager_refresh(db, user):
             "eager refresh: rebalancing recompute failed for user_id=%s", user_id
         )
 
-    try:
-        from app.domains.additional_investment.models.additional_investment_run import (
-            AdditionalInvestmentRun,
-            Cadence,
-        )
+    from app.domains.additional_investment.models.additional_investment_run import Cadence
 
-        stmt = (
-            select(AdditionalInvestmentRun)
-            .where(
-                AdditionalInvestmentRun.user_id == user_id,
-                AdditionalInvestmentRun.cadence == Cadence.SIP_MONTHLY,
-            )
-            .order_by(AdditionalInvestmentRun.created_at.desc())
-            .limit(1)
-        )
-        latest_sip = (await db.execute(stmt)).scalars().first()
-        if latest_sip is not None:
-            from app.domains.additional_investment.services.ainv_engine.service import (
-                compute_additional_investment_result,
-            )
-
-            await compute_additional_investment_result(
-                user,
-                "preference refresh",
-                db=db,
-                acting_user_id=user_id,
-                chat_session_id=None,
-                deploy_amount_inr=float(latest_sip.deploy_amount_inr),
-                cadence=Cadence.SIP_MONTHLY,
-                chat_ctx=_build_ctx(user),
-                persist=True,
-            )
-            await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.exception(
-            "eager refresh: SIP recompute failed for user_id=%s", user_id
-        )
-
-
-async def recommendation_block(user, row) -> Optional[dict]:
-    """The neutral (no-preference) recommended mix, for the GET screen.
-
-    None when the user has no saved row — the persisted current allocation
-    IS the neutral in that case, and the screen already reads it elsewhere.
-    """
-    if row is None:
-        return None
-
-    inp, _ = build_practical_allocation_input_for_user(
-        _build_ctx(user), apply_saved_preferences=False
-    )
-    out = await asyncio.to_thread(run_practical_allocation, inp)
-    rec = out.asset_class_breakdown.recommended
-    return {
-        "equity": rec.equity_total_pct,
-        "debt": rec.debt_total_pct,
-        "others": rec.others_total_pct,
-    }
-
-
-async def preview_or_save(db, user, intent: dict, *, confirm: bool):
-    from app.domains.profile.schemas import InvestmentPreferencePreviewResponse
-
-    # Normalize sole-class subgroup asks (e.g. "more gold" → "more others")
-    # BEFORE canonicalising, change-detection, storage and resolution — so
-    # the whole facet machinery, idempotence, and the stored customer_choices
-    # all see one consistent form.
-    intent = _route_sole_class_subgroups(intent or {})
-    intent = _canonical_intent(intent)
-    row = await active_preference_row(db, user.id)
-    stored_intent = _canonical_intent(getattr(row, "customer_choices", None) or {})
-    intent = _follow_stored_arbitrage_key(intent, stored_intent)
-
-    if intent == stored_intent:
-        return InvestmentPreferencePreviewResponse(no_op=True)
-
-    if not intent:  # clear
-        if confirm and row is not None:
-            # Soft clear: rows are immutable history (runs FK them) — flip
-            # is_active, never delete. Flush before any further engine call —
-            # a pending write left for autoflush can get swept up inside a
-            # lazy-load SELECT fired deep in the input builder, and a failure
-            # there mid-flush leaves the session's transaction unusable for
-            # the commit below (SQLAlchemy marks it DEACTIVE on a failed
-            # autoflush rollback).
-            row.is_active = False
-            await db.flush()
-            await db.refresh(user, ["saved_investment_preference"])
-            await _persist_neutral_after_clear(db, user)
-            await db.commit()
-            user_id = user.id  # captured before _eager_refresh: a mid-refresh
-            # rollback expires `user` (see _eager_refresh's own docstring).
-            await _eager_refresh(db, user)
-            capture_preference_cleared(distinct_id=user_id)
-        return InvestmentPreferencePreviewResponse(no_op=row is None)
-
-    resolved, changed, class_mix, intent = await _resolve_against_row(db, user, intent, row)
-
-    preferred, blocking_message = await _run_preferred(user, resolved)
-    if preferred is None:
-        # Never write a half-save — a blocked compute (e.g. zero corpus)
-        # must leave no row, no run, and no refresh, or an identical retry
-        # would find the stored intent unchanged and permanently no-op.
-        return InvestmentPreferencePreviewResponse(
-            shortfall=blocking_message or _DEFAULT_BLOCKED_SHORTFALL,
-            no_op=False,
-        )
-
-    achieved, shortfall = _preferred_view(preferred)
-
-    recommended_block = getattr(
-        getattr(preferred, "asset_class_breakdown", None), "recommended", None
-    )
-    recommendation = (
-        {
-            "equity": recommended_block.equity_total_pct,
-            "debt": recommended_block.debt_total_pct,
-            "others": recommended_block.others_total_pct,
-        }
-        if recommended_block is not None
-        else class_mix
-    )
-    deviation = (
-        {k: round(achieved.get(k, 0.0) - class_mix.get(k, 0.0), 1) for k in achieved}
-        if achieved
-        else None
-    )
-
-    if confirm:
-        await _persist_confirm(db, user, resolved, intent, preferred, row)
-        user_id = user.id  # captured before _eager_refresh: a mid-refresh
-        # rollback expires `user` (see _eager_refresh's own docstring).
-        await _eager_refresh(db, user)
-        fields_set = [
-            field
-            for field in ("asset_class_requested", "subgroup_emphasis")
-            if getattr(resolved, field, None) not in (None, [], {})
-        ]
-        capture_preference_saved(
-            fields_set=fields_set,
-            applied_defaults=resolved.applied_defaults or {},
-            shortfall=shortfall is not None,
-            distinct_id=user_id,
-        )
-
-    return InvestmentPreferencePreviewResponse(
-        recommendation=recommendation,
-        preferred=achieved,
-        deviation=deviation,
-        shortfall=shortfall,
-    )
+    # SIP and lump sum: recompute each standing plan (if the customer has one)
+    # against the new preference, so its tab reflects the save like rebalancing.
+    await _refresh_standing_plan(db, user, user_id, Cadence.SIP_MONTHLY, "SIP")
+    await _refresh_standing_plan(db, user, user_id, Cadence.LUMPSUM, "lump-sum")
 
 
 async def resolve_one_off(db, user, chat_intent: dict, *, base_row=None):
