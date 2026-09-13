@@ -53,6 +53,23 @@ def _to_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _round_to_precision(value, scale: int) -> Decimal:
+    """Round a value to the given number of decimal places.
+
+    Used to ensure Decimal values fit within the database column precision
+    (e.g., Numeric(7, 4) allows max 4 decimal places).
+    """
+    if value is None:
+        return None
+    dec = _to_decimal(value)
+    if scale is not None:
+        # Use ROUND_HALF_UP to match database rounding behavior
+        from decimal import ROUND_HALF_UP
+        quantize_exp = Decimal(10) ** -scale
+        return dec.quantize(quantize_exp, rounding=ROUND_HALF_UP)
+    return dec
+
+
 async def persist_rebalancing_recommendation(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -168,10 +185,10 @@ async def persist_rebalancing_recommendation(
                 fund_rating=row.fund_rating,
                 is_recommended=row.is_recommended,
                 target_amount_pre_cap=_to_decimal(row.target_amount_pre_cap),
-                max_pct=row.max_pct,
-                target_pre_cap_pct=row.target_pre_cap_pct,
-                target_own_capped_pct=row.target_own_capped_pct,
-                final_target_pct=row.final_target_pct,
+                max_pct=_round_to_precision(row.max_pct, 4),
+                target_pre_cap_pct=_round_to_precision(row.target_pre_cap_pct, 4),
+                target_own_capped_pct=_round_to_precision(row.target_own_capped_pct, 4),
+                final_target_pct=_round_to_precision(row.final_target_pct, 4),
                 final_target_amount=_to_decimal(row.final_target_amount),
                 present_allocation_inr=_to_decimal(row.present_allocation_inr),
                 invested_cost_inr=_to_decimal(row.invested_cost_inr),
