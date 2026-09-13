@@ -22,6 +22,32 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class AssetClassBreakdownRow(BaseModel):
+    """One Equity / Debt / Commodity row of the plan's "Proposed Target" bar.
+
+    ``asset_class`` is the backend vocabulary ("Equity" | "Debt" | "Others");
+    the frontend surfaces "Others" to the customer as "Commodity".
+    """
+
+    asset_class: str
+    current_inr: float
+    target_inr: float
+
+
+class AssetClassBreakdown(BaseModel):
+    """Look-through asset-class split of the deployment for the Invest "Proposed
+    Target" bar. Mirrors the rebalancing breakdown shape and is built via the
+    SAME rollup (``asset_class_breakdown.asset_class_mix_from_rows`` with the
+    ``multi_asset`` sleeve rule), so AINV and rebalancing can't quote different
+    splits for the same funds. A deployment is target-only, so ``current_inr`` is
+    0 on every row. See ``build_ainv_asset_class_breakdown``.
+    """
+
+    rows: List[AssetClassBreakdownRow]
+    current_total_inr: float
+    target_total_inr: float
+
+
 class SipCreateRequest(BaseModel):
     """Set-up request from the Invest page's "Start a SIP" action.
 
@@ -89,6 +115,10 @@ class SipPlanResponse(BaseModel):
     # plan at the canonical amount. True when there is no plan to compare.
     goal_plan_in_sync: bool = True
 
+    # Look-through Equity / Debt / Commodity split of the monthly deployment, for
+    # the Invest "Proposed Target" bar. None when there is no plan / no buys.
+    asset_class_breakdown: Optional[AssetClassBreakdown] = None
+
 
 # ── Lump sum (one-time deployment) ─────────────────────────────────────────
 # The Invest → Lump sum page (`/invest/lumpsum`) reads the customer's latest
@@ -118,24 +148,6 @@ class LumpsumCreateRequest(BaseModel):
         default="add",
         description="'add' deploys fresh money; 'withdraw' is not yet supported.",
     )
-
-
-class LumpsumAlignmentRow(BaseModel):
-    """One part of the portfolio the lump sum was measured against.
-
-    The "why these funds" section renders these: for each subgroup the money
-    went into, how the customer's CURRENT holdings compare with their goal-based
-    IDEAL, the resulting gap, and how much of this lump sum fills it. Subgroup is
-    the raw engine id (for keys); ``label`` is the customer-facing name.
-    """
-
-    subgroup: str
-    label: str
-    asset_class: str
-    ideal_inr: float
-    current_inr: float
-    gap_inr: float
-    deploy_inr: float
 
 
 class LumpsumFundBuy(BaseModel):
@@ -176,11 +188,10 @@ class LumpsumPlanResponse(BaseModel):
     target_bucket: Optional[str] = None
     fund_count: int = 0
     buys: List[LumpsumFundBuy] = []
-    # Per-part current-vs-ideal alignment behind the plan (may be empty for a
-    # legacy run persisted before the facts were stored).
-    alignment_rows: List[LumpsumAlignmentRow] = []
-    # One-line summary of the whole deployment in goal terms.
-    headline_reason: Optional[str] = None
+
+    # Look-through Equity / Debt / Commodity split of the deployment, for the
+    # Invest "Proposed Target" bar. None when there is no plan / no buys.
+    asset_class_breakdown: Optional[AssetClassBreakdown] = None
 
 
 class PreferenceActivationResponse(BaseModel):
@@ -190,11 +201,12 @@ class PreferenceActivationResponse(BaseModel):
 
 
 __all__ = [
+    "AssetClassBreakdownRow",
+    "AssetClassBreakdown",
     "SipCreateRequest",
     "SipFundBuy",
     "SipPlanResponse",
     "LumpsumCreateRequest",
-    "LumpsumAlignmentRow",
     "LumpsumFundBuy",
     "LumpsumPlanResponse",
     "PreferenceActivationResponse",

@@ -278,6 +278,17 @@ async def test_what_if_runs_baseline_then_the_requested_one_off(spy):
     assert result.additional_investment_run_id == "candidate-run-id"
 
 
+async def test_what_if_surfaces_the_run_cadence_for_view_plan_routing(spy):
+    # The chat "View plan" button routes to the SIP vs Lump sum tab by cadence,
+    # so the run's cadence must ride out alongside its id.
+    ctx = _ainv_ctx()
+    result = await chat_mod._handle_preference_what_if_ainv(
+        ctx, 25000.0, chat_mod.Cadence.LUMPSUM, [_ask("small_cap", "heavy")], None, None
+    )
+    assert result.additional_investment_run_id == "candidate-run-id"
+    assert result.additional_investment_cadence == "lumpsum"
+
+
 async def test_candidate_row_is_inserted_before_the_requested_run_and_filled_after(spy):
     ctx = _ainv_ctx()
     await chat_mod._handle_preference_what_if_ainv(

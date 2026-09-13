@@ -15,7 +15,7 @@ Decimals to plain float (the allocation family) before it leaves this layer.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,20 +27,22 @@ from app.domains.additional_investment.models import (
     Cadence,
 )
 from app.domains.additional_investment.schemas import (
-    LumpsumAlignmentRow,
+    AssetClassBreakdown,
+    AssetClassBreakdownRow,
     LumpsumFundBuy,
     LumpsumPlanResponse,
     SipFundBuy,
     SipPlanResponse,
 )
 from app.domains.additional_investment.services.lumpsum_reasoning import (
-    build_alignment_rows,
     build_fund_reason,
-    headline_reason,
     reason_by_subgroup,
 )
 from app.domains.profile.models.personal_finance_profile import (
     PersonalFinanceProfile,
+)
+from app.domains.profile.models.saved_investment_preference import (
+    SavedInvestmentPreference,
 )
 from app.domains.profile.services.profile_finance import (
     starting_monthly_investment_pfp,
@@ -59,6 +61,96 @@ def _monthly_amount(buy: AdditionalInvestmentBuy) -> float:
         else buy.amount_inr
     )
     return float(amount)
+
+
+_ASSET_CLASS_ORDER = ("Equity", "Debt", "Others")
+
+
+def build_ainv_asset_class_breakdown(
+    rows: Iterable[tuple[str | None, str | None, float]],
+) -> Optional[AssetClassBreakdown]:
+    """Look-through Equity / Debt / Commodity split of an AINV deployment.
+
+    ``rows`` are ``(asset_subgroup, sub_category, amount)`` per fund bought. This
+    REUSES the rebalancing rollup ``asset_class_mix_from_rows`` with
+    ``multi_asset_sleeve=True`` — a deployment is a PLAN, so the ``multi_asset``
+    sleeve is split by the engine's own composition (65/25/10) rather than by the
+    picked funds, exactly as the rebalancing TARGET bar does; otherwise an
+    equity-heavy hybrid landing in the sleeve would silently delete the plan's
+    debt. Target-only (a deployment has no "current"), so ``current_inr`` is 0 on
+    every row. Returns None when nothing was deployed.
+    """
+    # Lazy import: keeps this module free of any load-order coupling to the
+    # rebalancing package (the rollup itself is a leaf helper over
+    # scheme_classification).
+    from app.domains.rebalancing.services.asset_class_breakdown import (
+        asset_class_mix_from_rows,
+    )
+
+    mix = asset_class_mix_from_rows(rows, multi_asset_sleeve=True)
+    breakdown_rows = [
+        AssetClassBreakdownRow(
+            asset_class=asset_class,
+            current_inr=0.0,
+            target_inr=round(mix.get(asset_class, 0.0), 2),
+        )
+        for asset_class in _ASSET_CLASS_ORDER
+        if mix.get(asset_class, 0.0) > 0
+    ]
+    if not breakdown_rows:
+        return None
+    return AssetClassBreakdown(
+        rows=breakdown_rows,
+        current_total_inr=0.0,
+        target_total_inr=round(sum(mix.values()), 2),
+    )
+
+
+async def get_session_current_ainv(
+    db: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID
+) -> tuple[str | None, uuid.UUID | None]:
+    """This chat SESSION's most recent additional-investment run, as
+    ``(cadence, save_preference_run_id)`` — the two datums the chat restores its
+    pills from on reload (history carries no per-message pill data):
+
+    * ``cadence`` ("sip_monthly" | "lumpsum") restores "View plan" for ANY
+      deploy; None when the session produced no run.
+    * ``save_preference_run_id`` restores the "Save preference" pill, set ONLY
+      when that same latest run carries an unsaved what-if candidate preference
+      (``activated_at`` NULL). A later ordinary deploy (no candidate) or a
+      candidate the customer already saved leaves it None — nothing left to save.
+
+    One query, one row: both facts describe the session's latest run, so a later
+    ordinary deploy correctly supersedes an earlier what-if. Session-scoped on
+    purpose — a user's globally-latest run may belong to another conversation,
+    and a SIP turn must not restore a lump-sum popup.
+    """
+    row = (
+        await db.execute(
+            select(
+                AdditionalInvestmentRun.id,
+                AdditionalInvestmentRun.cadence,
+                AdditionalInvestmentRun.saved_investment_preference_id,
+                SavedInvestmentPreference.activated_at,
+            )
+            .outerjoin(
+                SavedInvestmentPreference,
+                SavedInvestmentPreference.id
+                == AdditionalInvestmentRun.saved_investment_preference_id,
+            )
+            .where(
+                AdditionalInvestmentRun.user_id == user_id,
+                AdditionalInvestmentRun.chat_session_id == session_id,
+            )
+            .order_by(AdditionalInvestmentRun.created_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None, None
+    run_id, cadence, preference_id, activated_at = row
+    save_run_id = run_id if (preference_id is not None and activated_at is None) else None
+    return (cadence.value if cadence is not None else None), save_run_id
 
 
 async def get_latest_sip_plan(
@@ -124,6 +216,10 @@ async def get_latest_sip_plan(
         goal_sip is not None and abs(float(goal_sip) - monthly_amount_inr) < 1.0
     )
 
+    breakdown = build_ainv_asset_class_breakdown(
+        (b.asset_subgroup, b.sub_category, _monthly_amount(b)) for b in run.buys
+    )
+
     return SipPlanResponse(
         has_plan=True,
         run_id=run.id,
@@ -138,6 +234,7 @@ async def get_latest_sip_plan(
         buys=buys,
         goal_plan_monthly_investment_inr=goal_sip,
         goal_plan_in_sync=goal_plan_in_sync,
+        asset_class_breakdown=breakdown,
     )
 
 
@@ -215,6 +312,10 @@ async def get_latest_lumpsum_plan(
         run.target_bucket.value if run.target_bucket is not None else None
     )
 
+    breakdown = build_ainv_asset_class_breakdown(
+        (b.asset_subgroup, b.sub_category, _lumpsum_amount(b)) for b in run.buys
+    )
+
     return LumpsumPlanResponse(
         has_plan=True,
         run_id=run.id,
@@ -225,12 +326,7 @@ async def get_latest_lumpsum_plan(
         target_bucket=target_bucket,
         fund_count=len(buys),
         buys=buys,
-        alignment_rows=[
-            LumpsumAlignmentRow(**row) for row in build_alignment_rows(deficit_facts)
-        ],
-        headline_reason=headline_reason(
-            target_bucket, deployed_inr, undeployed_inr
-        ),
+        asset_class_breakdown=breakdown,
     )
 
 

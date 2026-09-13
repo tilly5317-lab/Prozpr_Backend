@@ -38,6 +38,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         # AA-run id. The id surfaces instead via additional_investment_run_id below.
         persisted_run_id=None,
         additional_investment_run_id=result.additional_investment_run_id,
+        additional_investment_cadence=result.additional_investment_cadence,
         chart_payloads=result.chart_payloads,  # forward hook: the ainv engine does not populate this yet
     )
 

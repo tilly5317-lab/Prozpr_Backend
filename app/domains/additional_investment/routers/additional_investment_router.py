@@ -37,6 +37,7 @@ from app.domains.additional_investment.services.additional_investment_lumpsum_cr
 from app.domains.additional_investment.services.additional_investment_read_service import (
     get_latest_lumpsum_plan,
     get_latest_sip_plan,
+    get_session_current_ainv,
 )
 from app.domains.identity.models.user import User
 
@@ -71,6 +72,37 @@ async def get_sip_plan(
     Invest page then shows its "start a SIP" prompt rather than a plan.
     """
     return await get_latest_sip_plan(db, current_user.id)
+
+
+class AdditionalInvestmentCurrentResponse(BaseModel):
+    """A chat session's latest additional-investment run, for restoring the chat
+    pills on reload (history carries no per-message pill data). ``cadence``
+    restores "View plan" for ANY deploy; ``save_preference_run_id`` restores the
+    "Save preference" pill, and is set only when that latest run carries an
+    unsaved what-if candidate. Both null when the session made no such run."""
+
+    cadence: str | None = None
+    save_preference_run_id: str | None = None
+
+
+@router.get("/current", response_model=AdditionalInvestmentCurrentResponse)
+async def get_current_ainv(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_effective_user),
+) -> AdditionalInvestmentCurrentResponse:
+    """Latest additional-investment run in the given chat session, for restoring
+    the chat pills — the mirror of ``GET /rebalancing/current``, but
+    session-scoped (AINV has two cadences). ``cadence`` ("sip_monthly" |
+    "lumpsum") restores "View plan"; ``save_preference_run_id`` restores the
+    "Save preference" pill when the latest run has an unsaved what-if candidate."""
+    cadence, save_run_id = await get_session_current_ainv(
+        db, current_user.id, session_id
+    )
+    return AdditionalInvestmentCurrentResponse(
+        cadence=cadence,
+        save_preference_run_id=str(save_run_id) if save_run_id else None,
+    )
 
 
 @router.post("/sip", response_model=SipPlanResponse)

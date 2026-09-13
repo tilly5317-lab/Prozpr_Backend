@@ -196,6 +196,44 @@ def test_handle_runs_engine_and_calls_formatter():
     assert result.text == "tailored ainv answer"
 
 
+def test_ordinary_deploy_surfaces_cadence_but_not_run_id():
+    """An ordinary deploy surfaces its cadence so the chat 'View plan' button can
+    open the matching SIP/lump-sum popup — while still withholding the run id, so
+    'Save preference' (gated on the run id) stays off on a plain deploy."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+    from app.domains.additional_investment.services.ainv_engine.service import (
+        AdditionalInvestmentRunOutcome,
+    )
+
+    outcome = AdditionalInvestmentRunOutcome(
+        output=_output(cadence=Cadence.LUMPSUM),
+        run_id=uuid.uuid4(),
+    )
+    with (
+        patch.object(
+            ainv_chat,
+            "extract_deploy_request",
+            new=AsyncMock(return_value=(100000.0, Cadence.LUMPSUM, None, None)),
+        ),
+        patch.object(
+            ainv_chat,
+            "compute_additional_investment_result",
+            new=AsyncMock(return_value=outcome),
+        ),
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.format_answer",
+            new=AsyncMock(return_value="tailored ainv answer"),
+        ),
+        patch(
+            "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        result = asyncio.run(ainv_chat.handle(_ctx()))
+    assert result.additional_investment_cadence == "lumpsum"
+    assert result.additional_investment_run_id is None
+
+
 def test_handle_falls_back_to_fund_naming_brief_on_formatter_failure():
     from app.domains.ai_engine.answer_formatter import FormatterFailure
     from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat

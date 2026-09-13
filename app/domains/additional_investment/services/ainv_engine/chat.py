@@ -943,13 +943,13 @@ async def _ordinary_deploy(
         category_ask=category_ask,
         preference=preference,
     )
-    # No candidate preference on an ordinary deploy, so surface NO run id: the
-    # "Save preference" pill (the field's only client) must appear ONLY on
-    # preference what-if turns (_handle_preference_what_if_ainv, which sets it).
-    # Deliberate divergence from ideal_allocation_rebalancing_id, which rides
-    # every rebalancing turn because "Save plan" is meaningful without a
-    # preference — "Save preference" is not.
-    return ChatHandlerResult(text=text)
+    # Surface the cadence so the chat "View plan" button can open the matching
+    # SIP / lump-sum popup — but NO run id: the "Save preference" pill (the run
+    # id's only client) must appear ONLY on preference what-if turns
+    # (_handle_preference_what_if_ainv, which sets it). "View plan" needs the
+    # cadence to route; "Save preference" needs a candidate to save — an ordinary
+    # deploy has the former, not the latter.
+    return ChatHandlerResult(text=text, additional_investment_cadence=cadence.value)
 
 
 async def _handle_preference_what_if_ainv(
@@ -1083,6 +1083,7 @@ async def _handle_preference_what_if_ainv(
     return ChatHandlerResult(
         text=text,
         additional_investment_run_id=requested.run_id,
+        additional_investment_cadence=cadence.value if requested.run_id is not None else None,
     )
 
 
