@@ -60,6 +60,13 @@ PCT_PERSIST = 96.0
 # calling the difference "an opening position" and start calling it a warning.
 ANCHOR_WARN_FRACTION = Decimal("0.05")
 
+# Below this the residual is rounding, not a position: the headline sums each holding's
+# ``current_value`` rounded to the paisa while the ledger replay is exact, so two
+# half-paisa round-ups make a Rs 0.01 "anchor" that then rides every daily point and
+# reads as an incomplete ledger. A rupee is far above any rounding and far below any
+# real opening balance.
+ANCHOR_NOISE = Decimal("1")
+
 
 @dataclass
 class RebuildResult:
@@ -192,9 +199,15 @@ async def build_series(
 ) -> RebuildResult:
     """Compute the user's whole series and atomically replace what is stored.
 
-    Callers are responsible for CAS scope; this reads whatever scope is active.
+    Reads the ACTIVE CAS statement only. Callers normally pin it (``snapshot_id``);
+    when one does not, it is resolved here rather than left to whatever the scope
+    ContextVar happens to hold — the ledger query itself carries the statement filter
+    (``loader.load_ledger``), so a caller without the read hook cannot sum a
+    superseded upload's funds into the series.
     """
     today = ist_today()
+    if snapshot_id is None:
+        snapshot_id = await effective_scope(db, user_id)
 
     async def progress(pct: float, message: str, **fields: object) -> None:
         if job_id is not None:
@@ -203,12 +216,13 @@ async def build_series(
             )
 
     with job_span("networth.load"):
-        ledger = await load_ledger(db, user_id, today)
+        ledger = await load_ledger(db, user_id, today, snapshot_id=snapshot_id)
 
     if ledger.is_empty:
         # No positions at all. Clearing rather than returning early matters: a user
         # whose ledger disappeared (a corrected re-upload, a reset) would otherwise
         # keep a ghost chart forever, priced off holdings that no longer exist.
+        await _end_read_transaction(db)
         await clear_series(db, user_id)
         return RebuildResult(0, 0, 0, True, {})
 
@@ -309,6 +323,7 @@ async def build_series(
         PCT_PERSIST, f"Saving {len(rows)} days of history...", phase="persisting"
     )
     with job_span("networth.persist"):
+        await _end_read_transaction(db)
         await replace_series(
             db,
             user_id,
@@ -335,6 +350,20 @@ async def build_series(
         ledger_complete=ledger.ledger_complete,
         warnings=dict(warnings),
     )
+
+
+async def _end_read_transaction(db: AsyncSession) -> None:
+    """Close the transaction the loads autobegan, so the writer can open its own.
+
+    ``replace_series`` wraps the delete and the insert in ONE ``db.begin()`` — and
+    SQLAlchemy refuses that while a transaction is already open, which every SELECT
+    above autobegins. Nothing is pending at either call site: the loads only read,
+    and the anchor's revalue commits (or rolls back) on its own. So ending the read
+    transaction is free — and without it an empty ledger, or a user with no primary
+    portfolio, failed every rebuild with "A transaction is already begun".
+    """
+    if db.in_transaction():
+        await db.rollback()
 
 
 async def _anchor(
@@ -384,6 +413,10 @@ async def _anchor(
         anchor_value = max(ZERO, auth_value - ledger_value)
     if auth_invested > ZERO:
         anchor_invested = max(ZERO, auth_invested - ledger_invested)
+    if anchor_value < ANCHOR_NOISE:
+        anchor_value = ZERO
+    if anchor_invested < ANCHOR_NOISE:
+        anchor_invested = ZERO
 
     if auth_value > ZERO and anchor_value > auth_value * ANCHOR_WARN_FRACTION:
         warnings["large_anchor"] += 1

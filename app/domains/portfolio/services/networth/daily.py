@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -59,6 +60,13 @@ MAX_FORWARD_FILL_DAYS = 7
 # Bounded so a bad week cannot turn one cron tick into a fleet-wide recompute.
 MAX_REBUILDS_PER_RUN = 50
 
+# Rebuilds allowed to run at the same time. Each one holds a session and fans out up
+# to ``NAV_FETCH_CONCURRENCY`` (6) more for NAV fetches; firing all fifty at once
+# exhausted the pool ("QueuePool limit of size 10 overflow 10 reached") and failed
+# seven of the first morning's adoptions before they had loaded a single row. Two
+# keeps the worst case (14 sessions) under the pool's twenty with room for requests.
+REBUILD_CONCURRENCY = 2
+
 # Chart-latest and the dashboard headline must agree. Both derive from held units x
 # latest NAV, so they agree by construction — this is the tripwire for when they do not.
 RECONCILE_TOLERANCE = 0.005
@@ -67,6 +75,11 @@ RECONCILE_TOLERANCE = 0.005
 # One statement, whole fleet. LATERAL + uq_mf_nav_scheme_date makes the price lookup an
 # index scan per position; users with a live rebuild, no positions, or no series state
 # simply produce no row.
+#
+# ``anchor_value`` rides along. The rebuild holds the opening-position anchor flat
+# across every day of the series (``replay.combine``), so a daily point priced from
+# positions alone sat exactly one anchor BELOW the rebuilt points it replaced — Rs 12.5
+# lakh for one account — and the trailing week stepped down on every run.
 _UPSERT_DAY = text(
     """
     WITH priced AS (
@@ -89,11 +102,11 @@ _UPSERT_DAY = text(
     INSERT INTO user_portfolio_nav_history
           (id, user_id, recorded_date, total_value, total_invested, gain_percentage)
     SELECT gen_random_uuid(), pr.user_id, :as_of,
-           LEAST(pr.total_value, 9999999999999999.99),
+           LEAST(pr.total_value + s.anchor_value, 9999999999999999.99),
            s.last_invested,
            CASE WHEN s.last_invested > 0
                 THEN GREATEST(LEAST(
-                       round((pr.total_value - s.last_invested)
+                       round((pr.total_value + s.anchor_value - s.last_invested)
                              / s.last_invested * 100, 4),
                        999999.9999), -999999.9999)
                 ELSE 0 END
@@ -156,16 +169,35 @@ _STALE_USERS = text(
     """
 )
 
+# The headline is rolled up from the holdings the ACTIVE statement owns (plus rows no
+# statement owns — the NULL rule), not read off ``portfolios.total_value``. That column
+# is not snapshot-scoped and any writer without the scope re-marks it to the sum of
+# every statement the user ever uploaded; comparing against it flagged the correct
+# series as drifted and hid the actual problem.
 _RECONCILE = text(
     """
-    SELECT h.user_id, h.total_value AS series_value, p.total_value AS headline_value
+    WITH headline AS (
+        SELECT p.user_id, SUM(ph.current_value) AS total_value
+        FROM   portfolios p
+        JOIN   portfolio_holdings ph ON ph.portfolio_id = p.id
+        LEFT   JOIN cas_uploads c
+               ON c.user_id = p.user_id AND c.status = 'active'
+        WHERE  p.is_primary = TRUE
+          AND  (ph.cas_upload_id IS NULL OR ph.cas_upload_id = c.id)
+        GROUP  BY p.user_id
+    )
+    SELECT h.user_id, h.total_value AS series_value, hd.total_value AS headline_value
     FROM   user_portfolio_nav_history h
-    JOIN   portfolios p ON p.user_id = h.user_id AND p.is_primary = TRUE
+    JOIN   headline hd ON hd.user_id = h.user_id
     WHERE  h.recorded_date = :as_of
-      AND  p.total_value > 0
-      AND  abs(h.total_value - p.total_value) > p.total_value * :tolerance
+      AND  hd.total_value > 0
+      AND  abs(h.total_value - hd.total_value) > hd.total_value * :tolerance
     LIMIT  50
     """
+)
+
+_DELETE_DAY = text(
+    "DELETE FROM user_portfolio_nav_history WHERE recorded_date = :as_of"
 )
 
 
@@ -176,6 +208,26 @@ async def refresh_day(db: AsyncSession, as_of: date) -> int:
     await db.execute(_ADVANCE_STATE, {"as_of": as_of})
     await db.commit()
     return written
+
+
+async def rewrite_day(db: AsyncSession, as_of: date) -> tuple[int, int]:
+    """Drop every user's point for ``as_of`` and write it afresh — ONE transaction.
+
+    ``refresh_day`` upserts, which is right for the scheduled pass: a row that is
+    already correct is simply re-priced. This is the repair path for a day some other
+    writer has filled with the wrong number (a process still running the pre-package
+    daily job wrote today's point from the unscoped holdings roll-up, so a user holding
+    Rs 60,792 charted Rs 15.1 crore). Deleting and re-inserting inside the same
+    transaction means no reader ever sees the day missing, and a user this pass cannot
+    price (no positions yet) loses the wrong row rather than keeping it.
+
+    Returns ``(deleted, written)``.
+    """
+    deleted = int((await db.execute(_DELETE_DAY, {"as_of": as_of})).rowcount or 0)
+    written = int((await db.execute(_UPSERT_DAY, {"as_of": as_of})).rowcount or 0)
+    await db.execute(_ADVANCE_STATE, {"as_of": as_of})
+    await db.commit()
+    return deleted, written
 
 
 async def _refresh_held_fund_navs(db: AsyncSession) -> None:
@@ -270,6 +322,15 @@ async def _queue_rebuilds(db: AsyncSession, cutoff: date) -> int:
         .scalars()
         .all()
     )
+    # The queue is unbounded; the *running* set is not. A queued job waits here,
+    # still ``pending``, until a slot frees — so fifty adoptions run two at a time
+    # instead of all at once against a twenty-connection pool.
+    slots = asyncio.Semaphore(REBUILD_CONCURRENCY)
+
+    async def _one(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
+        async with slots:
+            await rebuild_user_networth(user_id, job_id, trigger="daily")
+
     queued = 0
     for user_id in rows:
         try:
@@ -281,9 +342,7 @@ async def _queue_rebuilds(db: AsyncSession, cutoff: date) -> int:
                 # The done-callback consumes the exception so a failed rebuild does
                 # not surface as "Task exception was never retrieved" — the job row
                 # already records the failure, and the sweep must carry on.
-                task = asyncio.create_task(
-                    rebuild_user_networth(user_id, job.id, trigger="daily")
-                )
+                task = asyncio.create_task(_one(user_id, job.id))
                 task.add_done_callback(_consume_task_exception)
                 queued += 1
         except Exception:  # noqa: BLE001 — never let one user block the rest
@@ -302,6 +361,8 @@ async def _reconcile(db: AsyncSession, as_of: date) -> int:
     run, to force the two to match. Under the position-based refresh both sides derive
     from the same held units x latest NAV, so they agree by construction — which makes a
     disagreement a signal worth seeing rather than a nightly write storm worth hiding.
+    The headline side is the ACTIVE statement's holdings, rolled up here; see
+    ``_RECONCILE`` for why it is not ``portfolios.total_value``.
     """
     rows = (
         await db.execute(_RECONCILE, {"as_of": as_of, "tolerance": RECONCILE_TOLERANCE})

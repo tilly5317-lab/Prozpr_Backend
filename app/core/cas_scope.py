@@ -207,6 +207,32 @@ def non_snapshot_filter(model) -> list:
     return [model.cas_upload_id.is_(None)]
 
 
+def _visible_predicate(model, snapshot_id: uuid.UUID):
+    """Rows of ``model`` that ``snapshot_id`` may see: its own, plus unowned ones."""
+    # NULL is always visible — see THE NULL RULE in the module docstring.
+    return or_(model.cas_upload_id == snapshot_id, model.cas_upload_id.is_(None))
+
+
+def visible_in_snapshot(model, snapshot_id: Optional[uuid.UUID]) -> list:
+    """Extra WHERE criteria confining a READ to one snapshot, NULL rule included.
+
+    This is the very predicate the ``do_orm_execute`` hook adds to every ORM
+    SELECT — but the hook only fires when the listeners are installed AND the
+    scope ContextVar is set, and both are process-global state that a script, a
+    scheduler or an older process can be missing. The sums a user reads as "net
+    worth" (the series builder, the as-of valuer, the portfolio revalue) add it
+    explicitly as well, so that a forgotten ``install_cas_scope_listeners()`` is
+    never the only thing keeping a superseded statement's funds out of today's
+    total: six schemes worth Rs 60,792 once summed to Rs 15.1 crore that way.
+
+    Returns [] when versioning is off or no snapshot applies — every row is
+    visible, which is the pre-feature behaviour and what the hook does too.
+    """
+    if snapshot_id is None or not versioning_enabled():
+        return []
+    return [_visible_predicate(model, snapshot_id)]
+
+
 @contextlib.asynccontextmanager
 async def cas_scope_for_user(db: AsyncSession, user_id: uuid.UUID):
     """Scope a background job to a user's active snapshot.
@@ -255,11 +281,9 @@ def install_cas_scope_listeners() -> None:
         execute_state.statement = execute_state.statement.options(
             with_loader_criteria(
                 CasScoped,
-                # NULL is always visible — see THE NULL RULE in the module docstring.
-                lambda cls: or_(
-                    cls.cas_upload_id == snapshot_id,
-                    cls.cas_upload_id.is_(None),
-                ),
+                # One predicate for the hook and for the explicit read filters, so
+                # the two can never disagree about what "visible" means.
+                lambda cls: _visible_predicate(cls, snapshot_id),
                 include_aliases=True,
             )
         )

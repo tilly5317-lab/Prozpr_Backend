@@ -28,6 +28,7 @@ from sqlalchemy import String, bindparam, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import effective_scope, visible_in_snapshot
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
 from app.domains.mutual_funds.models.mf_aa_import import MfAaImport, MfAaSummary
 from app.domains.mutual_funds.services.scheme_resolver import (
@@ -89,12 +90,26 @@ def _parse_cas_date(value: object) -> date | None:
     return None
 
 
-async def load_ledger(db: AsyncSession, user_id: uuid.UUID, today: date) -> Ledger:
+async def load_ledger(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    today: date,
+    snapshot_id: uuid.UUID | None = None,
+) -> Ledger:
     """Load the user's whole transaction history, grouped and ready to replay.
 
-    Runs inside the caller's CAS scope, so it sees exactly one statement's ledger plus
-    any unscoped rows (manual entries, SimBanks) — which is the point.
+    Sees exactly one statement's ledger — the ACTIVE CAS upload — plus any unscoped
+    rows (manual entries, SimBanks), which is the point: a superseded statement's
+    funds must never be summed into the series.
+
+    The statement is pinned HERE, in the query, not only by the CAS read hook. The
+    hook is process-global state (listeners installed? ContextVar set?) and a rebuild
+    that ran with either missing summed every statement the user ever uploaded: six
+    schemes worth Rs 60,792 became 67 schemes worth Rs 15.1 crore. ``snapshot_id``
+    defaults to the scope in force, resolving the user's active upload when none is.
     """
+    if snapshot_id is None:
+        snapshot_id = await effective_scope(db, user_id)
     rows = (
         await db.execute(
             select(
@@ -105,7 +120,10 @@ async def load_ledger(db: AsyncSession, user_id: uuid.UUID, today: date) -> Ledg
                 MfTransaction.nav,
                 MfTransaction.amount,
             )
-            .where(MfTransaction.user_id == user_id)
+            .where(
+                MfTransaction.user_id == user_id,
+                *visible_in_snapshot(MfTransaction, snapshot_id),
+            )
             # ``created_at`` alone is not a tiebreak: the ledger is inserted in
             # 1500-row chunks, so hundreds of rows share a timestamp. Without ``id``
             # a same-day SELL-before-BUY flips between runs and the cost basis — and
@@ -155,7 +173,9 @@ async def load_ledger(db: AsyncSession, user_id: uuid.UUID, today: date) -> Ledg
             if txn_date > existing.last_txn_date:
                 existing.last_txn_date = txn_date
 
-    openings, statement_from, ledger_complete = await load_openings(db, user_id)
+    openings, statement_from, ledger_complete = await load_openings(
+        db, user_id, snapshot_id
+    )
     nav_keys = await resolve_nav_keys(db, set(schemes) | set(openings))
 
     return Ledger(
@@ -168,7 +188,7 @@ async def load_ledger(db: AsyncSession, user_id: uuid.UUID, today: date) -> Ledg
 
 
 async def load_openings(
-    db: AsyncSession, user_id: uuid.UUID
+    db: AsyncSession, user_id: uuid.UUID, snapshot_id: uuid.UUID | None = None
 ) -> tuple[dict[str, Opening], date | None, bool]:
     """Per-scheme opening balances from the active statement's raw audit rows.
 
@@ -179,13 +199,16 @@ async def load_openings(
     over one constant at a time.
 
     ``mf_aa_summaries`` is not itself CAS-scoped; its parent ``mf_aa_imports`` is, so
-    scoping comes from the join. Balances are summed across folios because the replay
-    groups by scheme, exactly as ``_derive_scheme_snapshot`` does.
+    scoping comes from the join — pinned explicitly to ``snapshot_id`` for the same
+    reason ``load_ledger`` pins the ledger. Balances are summed across folios because
+    the replay groups by scheme, exactly as ``_derive_scheme_snapshot`` does.
 
     Returns ``(openings, statement_from, ledger_complete)``. ``ledger_complete`` is
     False when any scheme opened at a non-zero balance — that is the signal that this
     statement cannot tell the whole story on its own.
     """
+    if snapshot_id is None:
+        snapshot_id = await effective_scope(db, user_id)
     summaries = (
         await db.execute(
             select(
@@ -197,7 +220,10 @@ async def load_openings(
                 MfAaImport.from_date,
             )
             .join(MfAaImport, MfAaSummary.aa_import_id == MfAaImport.id)
-            .where(MfAaImport.user_id == user_id)
+            .where(
+                MfAaImport.user_id == user_id,
+                *visible_in_snapshot(MfAaImport, snapshot_id),
+            )
         )
     ).all()
     if not summaries:
