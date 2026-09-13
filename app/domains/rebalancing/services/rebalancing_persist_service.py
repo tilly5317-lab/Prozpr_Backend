@@ -8,6 +8,7 @@ towards (``AssetAllocationRun`` in ``app.models.asset_allocation``) —
 
 from __future__ import annotations
 
+import logging
 import uuid
 from decimal import Decimal
 from typing import Optional
@@ -40,6 +41,8 @@ from app.domains.portfolio.services.portfolio_service import (
 
 ensure_ai_agents_path()
 
+logger = logging.getLogger(__name__)
+
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     FundRowAfterStep5,
     RebalancingComputeRequest,
@@ -51,6 +54,25 @@ def _to_decimal(value) -> Decimal:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
+
+
+def _round_to_precision(value, scale: int, precision: int = 7) -> Decimal:
+    """Fit a value into NUMERIC(precision, scale).
+
+    Rounds to ``scale`` places and clamps the magnitude below 10**(precision-scale).
+    A percentage that needs clamping is a bad input (e.g. an allocation priced off
+    a different corpus than the holdings) — log it rather than 500 the whole run.
+    """
+    if value is None:
+        return None
+    from decimal import ROUND_HALF_UP
+
+    dec = _to_decimal(value).quantize(Decimal(10) ** -scale, rounding=ROUND_HALF_UP)
+    limit = Decimal(10) ** (precision - scale) - Decimal(10) ** -scale
+    if abs(dec) > limit:
+        logger.warning("clamping %s to NUMERIC(%s,%s) limit", dec, precision, scale)
+        dec = limit.copy_sign(dec)
+    return dec
 
 
 async def persist_rebalancing_recommendation(
@@ -168,10 +190,10 @@ async def persist_rebalancing_recommendation(
                 fund_rating=row.fund_rating,
                 is_recommended=row.is_recommended,
                 target_amount_pre_cap=_to_decimal(row.target_amount_pre_cap),
-                max_pct=row.max_pct,
-                target_pre_cap_pct=row.target_pre_cap_pct,
-                target_own_capped_pct=row.target_own_capped_pct,
-                final_target_pct=row.final_target_pct,
+                max_pct=_round_to_precision(row.max_pct, 4),
+                target_pre_cap_pct=_round_to_precision(row.target_pre_cap_pct, 4),
+                target_own_capped_pct=_round_to_precision(row.target_own_capped_pct, 4),
+                final_target_pct=_round_to_precision(row.final_target_pct, 4),
                 final_target_amount=_to_decimal(row.final_target_amount),
                 present_allocation_inr=_to_decimal(row.present_allocation_inr),
                 invested_cost_inr=_to_decimal(row.invested_cost_inr),
