@@ -31,11 +31,15 @@ PROFESSIONS = (
 )
 
 # WhatsApp numbers are Indian national numbers, exactly like app accounts —
-# ten digits behind a +91 (mirrors MOBILE_DIGITS in `identity/schemas/auth.py`).
-# The page shows +91 as a fixed prefix and takes ten digits, so a number can
-# only ever be stored in one shape and the team can dial the column directly.
+# ten digits (mirrors MOBILE_DIGITS in `identity/schemas/auth.py`). The page
+# shows +91 as a fixed prefix and takes ten digits, so a number can only ever
+# be stored in one shape.
+#
+# The stored value carries NO "+91": Google Sheets parses a cell beginning with
+# "+" as a formula, so a stored "+91..." lands in the register as #ERROR! and
+# the number is lost. Ten bare digits sidestep that entirely, and the column is
+# all-Indian by construction so the code adds nothing a reader needs.
 WHATSAPP_DIGITS = 10
-WHATSAPP_COUNTRY_CODE = "+91"
 
 # Punctuation someone might reasonably type or paste. Letters are refused
 # outright rather than stripped — quietly dropping characters turns a typo into
@@ -52,7 +56,7 @@ class EarlyAccessSignupRequest(BaseModel):
                 {
                     "name": "Ananya Rao",
                     "email": "ananya@example.com",
-                    "whatsapp": "+91 98765 43210",
+                    "whatsapp": "9876543210",
                     "profession": "Finance",
                     "source": "earlyaccess_page",
                 }
@@ -112,6 +116,8 @@ class EarlyAccessSignupRequest(BaseModel):
         lead for no reason. Anything that is not ten national digits is
         refused rather than truncated: storing a wrong number the team then
         tries to dial is worse than making someone retype it.
+
+        Returns the ten bare digits; see WHATSAPP_DIGITS for why no "+91".
         """
         if v is None:
             return None
@@ -128,7 +134,7 @@ class EarlyAccessSignupRequest(BaseModel):
                 f"Please enter a {WHATSAPP_DIGITS}-digit WhatsApp number, "
                 "without the country code"
             )
-        return f"{WHATSAPP_COUNTRY_CODE}{digits}"
+        return digits
 
     @field_validator("profession")
     @classmethod
