@@ -318,7 +318,20 @@ def test_the_wordmark_and_barcode_survive_a_blocked_image():
     assert "<img" not in html_body
     assert "prozp&#8377;" in html_body  # wordmark as live text
     assert "Instrument Serif" in html_body
-    assert html_body.count("tk-bar") > 20  # barcode drawn with table cells
+    # Barcode drawn with table cells, each carrying a REAL height. The first
+    # version put the height on the table and left the cells at font-size:0,
+    # so they collapsed and the barcode was invisible in real inboxes.
+    # `class="tk-bar"`, not "tk-bar" — the latter also matches the dark-mode
+    # rule in the <style> block, which is not a bar.
+    assert html_body.count('class="tk-bar"') == 18
+    assert 'height="28"' in html_body
+    assert "line-height:28px" in html_body
+    # No coloured cell relies on a zero-sized space to hold its height open:
+    # that is exactly what made the barcode invisible in real inboxes, and the
+    # gold rule was one edit from the same fate. (`font-size:0` on its own is
+    # fine and still present — the fluid-hybrid wrapper needs it to kill the
+    # whitespace gap between the two inline-block panels.)
+    assert "font-size:0;line-height:0" not in html_body
 
 
 def test_the_ticket_stacks_on_mobile_without_needing_a_media_query():

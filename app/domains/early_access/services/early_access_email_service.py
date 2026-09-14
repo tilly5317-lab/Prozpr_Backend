@@ -71,6 +71,9 @@ _MUTED = "#8A8275"
 _BODY = "#57534A"
 _RULE = "#E8E2D2"
 
+# Bar height, repeated on every cell — see _barcode for why it is not on the table.
+_BARCODE_H = 28
+
 
 def _first_name(full_name: str) -> str:
     """The name to greet by. Falls back to a neutral greeting rather than an
@@ -89,21 +92,36 @@ def _holder_name(full_name: str) -> str:
 def _barcode(seed: int) -> str:
     """A barcode strip built from table cells, so an image blocker cannot strip
     it. Bar widths derive from the seat number, so a ticket's code is stable for
-    that seat and no two tickets look identical."""
+    that seat and no two tickets look identical.
+
+    Every cell carries its height three ways — the `height` attribute, an
+    inline `height`, and a `line-height` the &nbsp; can actually fill. The
+    first version set the height on the TABLE and left the cells at
+    `font-size:0`, so they collapsed to nothing and the barcode was invisible
+    in real inboxes: a table's height is advisory in most mail clients, and a
+    zero-size space cannot hold a row open. `bgcolor` sits alongside the inline
+    background for the same belt-and-braces reason.
+    """
     digits = [int(c) for c in f"{seed:06d}"]
-    bars: list[str] = []
-    for i in range(30):
+    cells: list[str] = []
+    for i in range(18):
         d = digits[i % len(digits)]
-        width = 1 + ((d + i) % 3)  # 1-3px bars
-        gap = 1 + ((d + i) % 2)  # with their own rhythm between
-        bars.append(
-            f'<td class="tk-bar" width="{width}" style="width:{width}px;'
-            f'background-color:{_INK};font-size:0;line-height:0">&nbsp;</td>'
-            f'<td width="{gap}" style="width:{gap}px;font-size:0;line-height:0">&nbsp;</td>'
+        bar = 2 + ((d + i) % 3)  # 2-4px bar
+        gap = 2 + ((d + i) % 2)  # 2-3px gap, with its own rhythm
+        cells.append(
+            f'<td class="tk-bar" width="{bar}" height="{_BARCODE_H}" '
+            f'bgcolor="{_INK}" style="width:{bar}px;height:{_BARCODE_H}px;'
+            f"background-color:{_INK};font-size:1px;line-height:{_BARCODE_H}px"
+            '">&nbsp;</td>'
+            f'<td width="{gap}" height="{_BARCODE_H}" style="width:{gap}px;'
+            f"height:{_BARCODE_H}px;font-size:1px;line-height:{_BARCODE_H}px"
+            '">&nbsp;</td>'
         )
     return (
         '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-        'style="height:30px"><tr>' + "".join(bars) + "</tr></table>"
+        'align="center" style="border-collapse:collapse;margin:0 auto"><tr>'
+        + "".join(cells)
+        + "</tr></table>"
     )
 
 
@@ -175,8 +193,13 @@ _HTML_TEMPLATE = """\
             </table>
           </td>
         </tr>
-        <!-- One gold hairline, doing the work a coloured panel would do badly. -->
-        <tr><td style="height:2px;background-color:__GOLD__;font-size:0;line-height:0">&nbsp;</td></tr>
+        <!-- One gold hairline, doing the work a coloured panel would do badly.
+             Height stated three ways for the same reason as the barcode bars:
+             a cell whose only content is a zero-sized space collapses, and the
+             rule disappears. -->
+        <tr><td height="2" bgcolor="__GOLD__"
+                style="height:2px;background-color:__GOLD__;font-size:1px;
+                       line-height:2px">&nbsp;</td></tr>
         <tr>
           <td style="padding:0">
             <!-- FLUID HYBRID. Two inline-block panels with max-widths that add
