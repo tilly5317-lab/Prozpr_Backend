@@ -184,6 +184,33 @@ async def _ensure_fp_investment_profile(db: AsyncSession, user_id: uuid.UUID) ->
         logger.warning("FP investment-profile init skipped for %s", user_id)
 
 
+# ── Invite-only early access ────────────────────────────────────────────────
+# Prozpr is onboarding a first 100 by hand, so the public front door takes
+# RETURNING users only: a phone number with no account behind it cannot create
+# one, and is sent to `/earlyaccess` to apply instead. Two escape hatches, both
+# config and neither needing a deploy:
+#   * ``SIGNUPS_OPEN=true``            — reopen the door for everybody;
+#   * ``EARLY_ACCESS_ALLOWED_PHONES``  — let named numbers through while it
+#     stays shut, which is how an approved applicant actually gets in.
+# Deliberately NOT applied to `/login`, `/token` or the PIN-reset flow: those
+# all require an existing account, and locking out the people already using the
+# product is never what "close signups" means.
+
+# Rendered verbatim by the app's entry screen, so the wording is part of the
+# contract with the frontend — change it in both places or not at all.
+_SIGNUPS_CLOSED_DETAIL = (
+    "Sign-ups are closed. Join the early-access list at prozpr.in/earlyaccess."
+)
+
+
+def _can_sign_up(phone: str) -> bool:
+    """Whether a brand-new `phone` may create an account right now."""
+    settings = get_settings()
+    if settings.signups_open():
+        return True
+    return phone in settings.get_early_access_allowed_phones()
+
+
 @router.post("/check-mobile", response_model=MobileStatusResponse)
 async def check_mobile(
     payload: MobileLookupRequest, db: AsyncSession = Depends(get_db)
@@ -192,10 +219,17 @@ async def check_mobile(
     result = await db.execute(select(User).where(User.phone == phone))
     user = result.scalar_one_or_none()
     if not user:
-        return MobileStatusResponse(exists=False, is_onboarding_complete=False)
+        return MobileStatusResponse(
+            exists=False,
+            is_onboarding_complete=False,
+            can_sign_up=_can_sign_up(phone),
+        )
     return MobileStatusResponse(
         exists=True,
         is_onboarding_complete=user.is_onboarding_complete,
+        # A returning user is signing IN, so the signup gate never applies to
+        # them — closing signups must not lock out the existing base.
+        can_sign_up=True,
         # Masked, so the reset screen can say WHICH inbox to open before it
         # sends anything. This endpoint already answers `exists` for any number
         # a caller cares to try, so the fact of registration is disclosed here
@@ -247,6 +281,14 @@ async def signup(
             user_id=existing.id,
             access_token=access_token,
             message="Account already exists. Logged in successfully.",
+        )
+
+    # No account for this number: this is a genuinely new signup, which is
+    # exactly what invite-only closes. Checked before the email lookup so a
+    # blocked number learns nothing about which addresses are taken.
+    if not _can_sign_up(phone):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=_SIGNUPS_CLOSED_DETAIL
         )
 
     if payload.email and await _email_taken(db, payload.email):

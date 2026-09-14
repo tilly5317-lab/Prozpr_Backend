@@ -312,6 +312,13 @@ class MobileLookupRequest(BaseModel):
 class MobileStatusResponse(BaseModel):
     exists: bool
     is_onboarding_complete: bool = False
+    # False while the product is in invite-only early access AND this number is
+    # not on the allow-list — i.e. "this number cannot create an account, send
+    # them to /earlyaccess". Always True for a number that already `exists`,
+    # because a returning user is signing in, not signing up. Advisory only:
+    # `/auth/signup` enforces the same rule server-side, so a client that
+    # ignores this gets a 403 rather than an account.
+    can_sign_up: bool = True
     # Masked (`j••••••n@gmail.com`), never the address itself, so the reset
     # screen can name the inbox a code will go to before spending a mail. Only
     # ever set when `exists` is already True, which is what actually discloses
