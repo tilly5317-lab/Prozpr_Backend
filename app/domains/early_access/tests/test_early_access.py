@@ -321,6 +321,29 @@ def test_the_wordmark_and_barcode_survive_a_blocked_image():
     assert html_body.count("tk-bar") > 20  # barcode drawn with table cells
 
 
+def test_the_ticket_stacks_on_mobile_without_needing_a_media_query():
+    """Gmail's mobile app strips <style> for many account types, so a layout
+    that needs a media query to stack does not stack on the phones most of
+    these people read mail on — the columns just crush. The panels are
+    inline-blocks with max-widths that wrap on their own instead.
+    """
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Shreyash Dhakate", seat=2, seats_total=100, waitlisted=False
+    )
+    # Two panels that wrap by themselves, not percentage table columns.
+    assert html_body.count("display:inline-block") == 2
+    assert 'width="62%"' not in html_body and 'width="38%"' not in html_body
+    # The gap inline-block would otherwise render between the panels.
+    assert "font-size:0;text-align:left" in html_body
+    # Outlook ignores inline-block, so it gets a real table.
+    assert "[if mso]" in html_body
+    # The stacked (mobile) perforation is the DEFAULT, inline; the side-by-side
+    # one is the enhancement. If the <style> block is dropped, mobile is right.
+    assert "border-top:1px dashed" in html_body
+
+
 def test_a_standby_ticket_never_claims_a_seat():
     from app.domains.early_access.services.early_access_email_service import _render
 

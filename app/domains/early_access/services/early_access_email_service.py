@@ -117,13 +117,19 @@ _HTML_TEMPLATE = """\
 <meta name="supported-color-schemes" content="light dark">
 <title>{{TITLE}}</title>
 <style>
-  @media only screen and (max-width:520px) {
-    .tk-outer { padding:18px 10px !important; }
-    .tk-col   { display:block !important; width:100% !important; }
-    .tk-stub  { border-left:0 !important; border-top:1px dashed __RULE__ !important; }
-    .tk-name  { font-size:25px !important; }
-    .tk-seat  { font-size:40px !important; }
-    .tk-pad   { padding:22px !important; }
+  /* The layout STACKS BY DEFAULT and needs no media query to do it — see the
+     fluid-hybrid comment on the ticket body. Gmail's mobile app strips this
+     whole <style> block for many account types, so anything load-bearing put
+     here would simply not happen on the phones most of these people use.
+     What is left is a desktop enhancement: side by side, the perforation
+     belongs on the left edge rather than the top. Lose it and the ticket is
+     still correct, just with its tear line above the stub. */
+  /* 630px, not 600: the two panels total 594, plus the card border and the
+     32px outer gutter, so they only actually sit side by side from about 628
+     up. Firing this at 600 would leave a band where the stub is stacked but
+     wearing a left-hand tear line. */
+  @media only screen and (min-width:630px) {
+    .tk-stub { border-top:0 !important; border-left:1px dashed __RULE__ !important; }
   }
   @media (prefers-color-scheme:dark) {
     .tk-page  { background-color:#0f1115 !important; }
@@ -172,54 +178,76 @@ _HTML_TEMPLATE = """\
         <!-- One gold hairline, doing the work a coloured panel would do badly. -->
         <tr><td style="height:2px;background-color:__GOLD__;font-size:0;line-height:0">&nbsp;</td></tr>
         <tr>
-          <td>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-              <tr>
-                <td class="tk-col tk-pad" width="62%" valign="top"
-                    style="width:62%;padding:26px 26px 28px 26px">
-                  <p style="margin:0;font-size:10px;font-weight:700;letter-spacing:2px;
-                            text-transform:uppercase;color:__ADMIT_COLOR__">{{ADMIT}}</p>
-                  <p class="tk-name" style="margin:10px 0 0 0;font-family:'Instrument Serif',
-                            Georgia,'Times New Roman',serif;font-size:29px;line-height:1.15;
-                            color:__INK__">{{HOLDER}}</p>
-                  <p class="tk-body" style="margin:5px 0 0 0;font-size:13px;color:__BODY__">
-                    {{ROLE}}
-                  </p>
-                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-                         class="tk-rule" style="border-top:1px solid __RULE__;margin-top:20px">
-                    <tr>
-                      <td style="padding-top:16px">
-                        <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
-                                  letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                          Prozpr MVP 2.0 &middot; {{TOTAL}} seats
-                        </p>
-                        <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
-                                  letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                          Issued {{ISSUED}}
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-                <!-- Perforation: a dashed rule reads as a tear line without the
-                     absolutely-positioned notches email cannot place reliably. -->
-                <td class="tk-col tk-stub tk-pad" width="38%" valign="top" align="center"
-                    style="width:38%;padding:26px 22px 28px 22px;border-left:1px dashed __RULE__">
-                  <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
-                            letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
-                    {{SEAT_LABEL}}
-                  </p>
-                  <p class="tk-seat" style="margin:8px 0 0 0;font-family:'Instrument Serif',
-                            Georgia,'Times New Roman',serif;font-size:46px;line-height:1;
-                            color:__INK__">{{SEAT_VALUE}}</p>
-                  <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
-                            letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                    {{SEAT_SUB}}
-                  </p>
-                  <div style="margin-top:18px">{{BARCODE}}</div>
-                </td>
-              </tr>
-            </table>
+          <td style="padding:0">
+            <!-- FLUID HYBRID. Two inline-block panels with max-widths that add
+                 up to the ticket: wide enough and they sit side by side, too
+                 narrow and the second wraps under the first ON ITS OWN. No
+                 media query is involved, which matters because Gmail's mobile
+                 app drops <style> for many accounts — a percentage-column
+                 table would stay side by side there and crush to nothing.
+                 font-size:0 on the wrapper kills the whitespace gap that
+                 inline-block elements otherwise render between them; each
+                 panel sets its own size back. The MSO conditionals give
+                 Outlook a real table, since it ignores inline-block. -->
+            <div style="font-size:0;text-align:left">
+              <!--[if mso]><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td width="358" valign="top"><![endif]-->
+              <div style="display:inline-block;width:100%;max-width:358px;
+                          vertical-align:top;font-size:14px">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:26px 26px 28px 26px">
+                      <p style="margin:0;font-size:10px;font-weight:700;letter-spacing:2px;
+                                text-transform:uppercase;color:__ADMIT_COLOR__">{{ADMIT}}</p>
+                      <p class="tk-name" style="margin:10px 0 0 0;font-family:'Instrument Serif',
+                                Georgia,'Times New Roman',serif;font-size:29px;line-height:1.15;
+                                color:__INK__">{{HOLDER}}</p>
+                      <p class="tk-body" style="margin:5px 0 0 0;font-size:13px;color:__BODY__">
+                        {{ROLE}}
+                      </p>
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                             class="tk-rule" style="border-top:1px solid __RULE__;margin-top:20px">
+                        <tr>
+                          <td style="padding-top:16px">
+                            <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
+                                      letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                              Prozpr MVP 2.0 &middot; {{TOTAL}} seats
+                            </p>
+                            <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
+                                      letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                              Issued {{ISSUED}}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </div><!--[if mso]></td><td width="236" valign="top"><![endif]--><div
+                   class="tk-stub"
+                   style="display:inline-block;width:100%;max-width:236px;
+                          vertical-align:top;font-size:14px;
+                          border-top:1px dashed __RULE__">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td align="center" style="padding:24px 20px 28px 20px">
+                      <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
+                                letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
+                        {{SEAT_LABEL}}
+                      </p>
+                      <p class="tk-seat" style="margin:8px 0 0 0;font-family:'Instrument Serif',
+                                Georgia,'Times New Roman',serif;font-size:46px;line-height:1;
+                                color:__INK__">{{SEAT_VALUE}}</p>
+                      <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
+                                letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                        {{SEAT_SUB}}
+                      </p>
+                      <div style="margin-top:18px">{{BARCODE}}</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              <!--[if mso]></td></tr></table><![endif]-->
+            </div>
           </td>
         </tr>
       </table>
