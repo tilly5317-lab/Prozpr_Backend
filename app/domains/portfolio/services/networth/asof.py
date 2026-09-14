@@ -19,6 +19,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cas_scope import effective_scope, visible_in_snapshot
 from app.domains.mutual_funds.models import MfNavHistory, MfTransaction
 from app.domains.mutual_funds.services.txn_value import trade_value
 from app.domains.portfolio.services.networth.clock import ist_today
@@ -37,14 +38,22 @@ BPS = Decimal("0.0001")
 
 
 async def compute_networth_as_of(
-    db: AsyncSession, user_id: uuid.UUID, as_of: date
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    as_of: date,
+    snapshot_id: uuid.UUID | None = None,
 ) -> tuple[Decimal, Decimal, Decimal] | None:
     """``(total_value, total_invested, gain_pct)`` from the ledger, valued at ``as_of``.
 
     Returns ``None`` when the user has no transactions on or before ``as_of`` — that is
     "no answer", which is different from "zero", and callers must be able to tell them
     apart.
+
+    Reads the ACTIVE statement's ledger only (plus unowned rows), pinned in the query
+    itself rather than left to the CAS read hook — see ``loader.load_ledger`` for why.
     """
+    if snapshot_id is None:
+        snapshot_id = await effective_scope(db, user_id)
     rows = (
         await db.execute(
             select(
@@ -57,6 +66,7 @@ async def compute_networth_as_of(
             .where(
                 MfTransaction.user_id == user_id,
                 MfTransaction.transaction_date <= as_of,
+                *visible_in_snapshot(MfTransaction, snapshot_id),
             )
             .order_by(
                 MfTransaction.transaction_date.asc(),
