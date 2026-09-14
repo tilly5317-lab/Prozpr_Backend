@@ -1,26 +1,41 @@
-"""Confirmation mail for a new early-access application (Resend).
+"""The early-access mail: a ticket, rendered for one applicant.
 
-Without this, an applicant fills the form, sees a success screen, and then
-hears nothing — no record in their inbox that they applied, and nothing to
-recognise when the invite finally arrives. This sends one personalised HTML
-mail the moment their row lands: who they are, which seat they took, and what
-happens next.
+**Nothing here is sent automatically.** `/early-access/signup` does not import
+this module — a form being tested, spammed or replayed must never mail anyone.
+Mail goes out in deliberate batches the team triggers itself, through
+``scripts/send_early_access_mails.py``, which defaults to a dry run.
 
-Sent through Resend (``RESEND_API_KEY``), the same channel as the forgot-PIN
-code, from the verified ``notifications.prozpr.com`` sender. The template
-follows ``identity/services/pin_reset_email_service`` deliberately — table
-layout, inline styles, a dark-mode block — because that is what already renders
-correctly across the clients Prozpr sends to, and a second house style would
-just be a second thing to keep working.
+Sent through Resend (``RESEND_API_KEY``), the same channel and verified sender
+as the forgot-PIN code.
 
-**Best-effort, always.** Every failure is logged and swallowed: the Google
-Sheet row is the thing that matters, and an applicant must never see their
-application fail because a mail provider was down. The router fires this as a
-background task, after the response.
+## The design
 
-Sent only for a NEW row, never on a repeat submission of the same address —
-the second mail would say "you're in" to someone who already got that, and
-read like a duplicate application.
+The message is a **ticket**: the applicant claimed their way into something,
+and the mail should feel like the stub you keep rather than a receipt you
+delete. A horizontal ticket carries the identity — holder, seat, issue date,
+barcode — and everything conversational sits *below* it, outside the ticket,
+where a letter belongs. The ticket is the object; the words are the covering
+note.
+
+It is built to read as a wealth advisory would: restraint over decoration.
+Instrument Serif for the two moments that matter (the holder's name and the
+seat number), small letterspaced capitals for everything structural, hairlines
+rather than filled blocks, and a single gold rule doing the work a coloured
+panel would do badly. The palette is the /earlyaccess page's own, so the mail
+and the page are recognisably one thing.
+
+## Email constraints this obeys
+
+- Tables and inline styles only; no flexbox or grid.
+- The wordmark is TEXT, not an image — most clients block remote images by
+  default, so a logo file leaves a blank box for a large share of recipients.
+  Instrument Serif with Georgia behind it; both carry the rupee glyph.
+- The barcode is table cells with background colours, so it survives an image
+  blocker too.
+- A dark-mode block, because a cream ticket inverted by a client's own filter
+  looks broken.
+- Rounded corners and dashed borders degrade to square and solid in Outlook
+  desktop, which is acceptable; nothing load-bearing depends on them.
 """
 
 from __future__ import annotations
@@ -28,6 +43,7 @@ from __future__ import annotations
 import html
 import logging
 import uuid
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -39,12 +55,56 @@ logger = logging.getLogger(__name__)
 _RESEND_ENDPOINT = "https://api.resend.com/emails"
 _TIMEOUT_S = 10.0
 
+try:
+    from zoneinfo import ZoneInfo
+
+    IST = ZoneInfo("Asia/Kolkata")
+except Exception:  # Windows without `tzdata` — the fixed offset is exact for IST.
+    IST = timezone(timedelta(hours=5, minutes=30), "IST")
+
+# The /earlyaccess page's palette, so the mail and the page read as one thing.
+_INK = "#111113"
+_CREAM = "#F7F3EC"
+_GOLD = "#E0B84A"
+_RED = "#C8321F"
+_MUTED = "#8A8275"
+_BODY = "#57534A"
+_RULE = "#E8E2D2"
+
 
 def _first_name(full_name: str) -> str:
     """The name to greet by. Falls back to a neutral greeting rather than an
     empty one — "Hi ," reads worse than no name at all."""
     first = (full_name or "").strip().split(" ")[0].strip()
     return first if first else "there"
+
+
+def _holder_name(full_name: str) -> str:
+    """The name printed on the ticket. The full name where we have one, because
+    a ticket carries a holder rather than a greeting."""
+    name = " ".join((full_name or "").split())
+    return name if name else "Founding tester"
+
+
+def _barcode(seed: int) -> str:
+    """A barcode strip built from table cells, so an image blocker cannot strip
+    it. Bar widths derive from the seat number, so a ticket's code is stable for
+    that seat and no two tickets look identical."""
+    digits = [int(c) for c in f"{seed:06d}"]
+    bars: list[str] = []
+    for i in range(30):
+        d = digits[i % len(digits)]
+        width = 1 + ((d + i) % 3)  # 1-3px bars
+        gap = 1 + ((d + i) % 2)  # with their own rhythm between
+        bars.append(
+            f'<td class="tk-bar" width="{width}" style="width:{width}px;'
+            f'background-color:{_INK};font-size:0;line-height:0">&nbsp;</td>'
+            f'<td width="{gap}" style="width:{gap}px;font-size:0;line-height:0">&nbsp;</td>'
+        )
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        'style="height:30px"><tr>' + "".join(bars) + "</tr></table>"
+    )
 
 
 _HTML_TEMPLATE = """\
@@ -57,115 +117,162 @@ _HTML_TEMPLATE = """\
 <meta name="supported-color-schemes" content="light dark">
 <title>{{TITLE}}</title>
 <style>
-  @media only screen and (max-width:440px) {
-    .px-outer { padding:20px 10px !important; }
-    .px-card  { padding:26px 22px !important; }
-    .px-seat  { font-size:26px !important; }
+  @media only screen and (max-width:520px) {
+    .tk-outer { padding:18px 10px !important; }
+    .tk-col   { display:block !important; width:100% !important; }
+    .tk-stub  { border-left:0 !important; border-top:1px dashed __RULE__ !important; }
+    .tk-name  { font-size:25px !important; }
+    .tk-seat  { font-size:40px !important; }
+    .tk-pad   { padding:22px !important; }
   }
   @media (prefers-color-scheme:dark) {
-    .px-page   { background-color:#0f1115 !important; }
-    .px-card   { background-color:#171a21 !important; border-color:#262b34 !important; }
-    .px-mark   { color:#f0efe9 !important; }
-    .px-head   { color:#f0efe9 !important; }
-    .px-body   { color:#c3c8d1 !important; }
-    .px-muted  { color:#9aa1ac !important; }
-    .px-chip   { background-color:#1e232c !important; border-color:#2f3641 !important; }
-    .px-seat   { color:#f0efe9 !important; }
-    .px-strong { color:#e6e8ec !important; }
-    .px-rule   { border-color:#262b34 !important; }
-    .px-foot   { color:#767d88 !important; }
+    .tk-page  { background-color:#0f1115 !important; }
+    .tk-card  { background-color:#171a21 !important; border-color:#262b34 !important; }
+    .tk-name  { color:#f0efe9 !important; }
+    .tk-seat  { color:#f0efe9 !important; }
+    .tk-body  { color:#c3c8d1 !important; }
+    .tk-muted { color:#9aa1ac !important; }
+    .tk-head  { color:#f0efe9 !important; }
+    .tk-rule  { border-color:#2f3641 !important; }
+    .tk-stub  { border-color:#2f3641 !important; }
+    .tk-foot  { color:#767d88 !important; }
+    .tk-bar   { background-color:#c3c8d1 !important; }
   }
 </style>
 </head>
-<body class="px-page" style="margin:0;padding:0;width:100%;background-color:#f4f5f7;">
+<body class="tk-page" style="margin:0;padding:0;width:100%;background-color:__CREAM__;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all" aria-hidden="true">
   {{PREHEADER}}
 </div>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-       class="px-page" style="background-color:#f4f5f7">
+       class="tk-page" style="background-color:__CREAM__">
   <tr>
-    <td align="center" class="px-outer" style="padding:36px 12px">
+    <td align="center" class="tk-outer" style="padding:40px 16px">
+
+      <!-- ─────────────────────── THE TICKET ─────────────────────── -->
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-             class="px-card"
-             style="max-width:480px;background-color:#ffffff;border-radius:16px;
-                    border:1px solid #e4e6ea;padding:32px 34px;
+             class="tk-card"
+             style="max-width:600px;background-color:#ffffff;border:1px solid __RULE__;
+                    border-radius:18px;overflow:hidden;
                     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,
                     Helvetica,Arial,sans-serif">
         <tr>
-          <td>
-            <!-- The same wordmark the /earlyaccess navbar shows, set as TEXT
-                 rather than an image. Most clients block remote images by
-                 default, so a logo file would leave a blank box for a large
-                 share of recipients; live text always renders. Instrument
-                 Serif is the site face, with Georgia as the near-universal
-                 email fallback (both carry the rupee glyph). -->
-            <p class="px-mark" style="margin:0;font-size:26px;line-height:1;
-                      color:#131d34;font-family:'Instrument Serif',Georgia,
-                      'Times New Roman',serif">prozp&#8377;<span
-                      style="color:#E0B84A">.</span></p>
-            <h1 class="px-head" style="margin:16px 0 0 0;font-size:22px;line-height:1.3;
-                       font-weight:600;color:#131d34">{{HEADING}}</h1>
-            <p class="px-body" style="margin:10px 0 0 0;font-size:15px;line-height:1.6;color:#4b5563">
-              {{INTRO}}
-            </p>
+          <td style="background-color:__INK__;padding:18px 26px">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td align="left" style="font-family:'Instrument Serif',Georgia,
+                           'Times New Roman',serif;font-size:24px;line-height:1;
+                           color:__CREAM__">prozp&#8377;<span style="color:__GOLD__">.</span></td>
+                <td align="right" style="font-size:10px;font-weight:700;letter-spacing:1.8px;
+                           text-transform:uppercase;color:__GOLD__">Private beta</td>
+              </tr>
+            </table>
           </td>
         </tr>
+        <!-- One gold hairline, doing the work a coloured panel would do badly. -->
+        <tr><td style="height:2px;background-color:__GOLD__;font-size:0;line-height:0">&nbsp;</td></tr>
         <tr>
-          <td style="padding:22px 0 0 0">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-                   class="px-chip"
-                   style="background-color:#f4f6fa;border:1px solid #dce3ee;border-radius:12px">
+          <td>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
-                <td align="center" style="padding:22px 10px">
-                  <p class="px-muted" style="margin:0;font-size:12px;font-weight:600;
-                            letter-spacing:1.2px;text-transform:uppercase;color:#6b7280">
+                <td class="tk-col tk-pad" width="62%" valign="top"
+                    style="width:62%;padding:26px 26px 28px 26px">
+                  <p style="margin:0;font-size:10px;font-weight:700;letter-spacing:2px;
+                            text-transform:uppercase;color:__ADMIT_COLOR__">{{ADMIT}}</p>
+                  <p class="tk-name" style="margin:10px 0 0 0;font-family:'Instrument Serif',
+                            Georgia,'Times New Roman',serif;font-size:29px;line-height:1.15;
+                            color:__INK__">{{HOLDER}}</p>
+                  <p class="tk-body" style="margin:5px 0 0 0;font-size:13px;color:__BODY__">
+                    {{ROLE}}
+                  </p>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                         class="tk-rule" style="border-top:1px solid __RULE__;margin-top:20px">
+                    <tr>
+                      <td style="padding-top:16px">
+                        <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
+                                  letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                          Prozpr MVP 2.0 &middot; {{TOTAL}} seats
+                        </p>
+                        <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
+                                  letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                          Issued {{ISSUED}}
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <!-- Perforation: a dashed rule reads as a tear line without the
+                     absolutely-positioned notches email cannot place reliably. -->
+                <td class="tk-col tk-stub tk-pad" width="38%" valign="top" align="center"
+                    style="width:38%;padding:26px 22px 28px 22px;border-left:1px dashed __RULE__">
+                  <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
+                            letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
                     {{SEAT_LABEL}}
                   </p>
-                  <p class="px-seat" style="margin:6px 0 0 0;font-size:30px;font-weight:600;
-                            line-height:1.2;color:#131d34">{{SEAT_VALUE}}</p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:22px 0 0 0">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-                   class="px-rule" style="border-top:1px solid #e4e6ea">
-              <tr>
-                <td style="padding-top:20px">
-                  <p class="px-strong" style="margin:0;font-size:13px;font-weight:600;color:#374151">
-                    What happens next
+                  <p class="tk-seat" style="margin:8px 0 0 0;font-family:'Instrument Serif',
+                            Georgia,'Times New Roman',serif;font-size:46px;line-height:1;
+                            color:__INK__">{{SEAT_VALUE}}</p>
+                  <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
+                            letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
+                    {{SEAT_SUB}}
                   </p>
-                  <p class="px-muted" style="margin:6px 0 0 0;font-size:13px;line-height:1.6;color:#6b7280">
-                    {{NEXT}}
-                  </p>
-                  <p class="px-muted" style="margin:14px 0 0 0;font-size:13px;line-height:1.6;color:#6b7280">
-                    The beta is free, and Prozpr will never ask you for payment
-                    details or a one-time password.
-                  </p>
+                  <div style="margin-top:18px">{{BARCODE}}</div>
                 </td>
               </tr>
             </table>
           </td>
         </tr>
       </table>
+
+      <!-- ──────────── THE COVERING NOTE (outside the ticket) ──────────── -->
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-             style="max-width:480px">
+             style="max-width:600px;
+                    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,
+                    Helvetica,Arial,sans-serif">
         <tr>
-          <td style="padding:18px 6px 0 6px">
-            <p class="px-foot" style="margin:0;font-size:11px;line-height:1.7;color:#9ca3af;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,
-                      Helvetica,Arial,sans-serif">
-              Prozpr Private Limited - Educational insights, not investment advice.
+          <td style="padding:30px 8px 0 8px">
+            <p class="tk-head" style="margin:0;font-family:'Instrument Serif',Georgia,
+                      'Times New Roman',serif;font-size:21px;line-height:1.3;color:__INK__">
+              {{HEADING}}
+            </p>
+            <p class="tk-body" style="margin:12px 0 0 0;font-size:15px;line-height:1.65;
+                      color:__BODY__">{{INTRO}}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:26px 8px 0 8px">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                   class="tk-rule" style="border-top:1px solid __RULE__">
+              <tr>
+                <td style="padding-top:22px">
+                  <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
+                            letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
+                    What happens next
+                  </p>
+                  <p class="tk-body" style="margin:10px 0 0 0;font-size:14px;line-height:1.7;
+                            color:__BODY__">{{NEXT}}</p>
+                  <p class="tk-muted" style="margin:16px 0 0 0;font-size:13px;line-height:1.7;
+                            color:__MUTED__">
+                    The beta is free. Prozpr will never ask you for payment details
+                    or a one-time password.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:26px 8px 0 8px">
+            <p class="tk-foot" style="margin:0;font-size:11px;line-height:1.75;color:#9ca3af">
+              Prozpr Private Limited &middot; Educational insights, not investment advice.
               AMFI and SEBI registration in process.<br>
-              You are receiving this because you requested early access at
-              {{SITE_HOST}}. This is an automated message; replies to it are not
-              monitored.
+              You are receiving this because you requested early access at {{SITE_HOST}}.
+              Replies to this address are not monitored.
             </p>
           </td>
         </tr>
       </table>
+
     </td>
   </tr>
 </table>
@@ -174,65 +281,96 @@ _HTML_TEMPLATE = """\
 
 
 def _render(
-    *, first_name: str, seat: int, seats_total: int, waitlisted: bool
+    *,
+    full_name: str,
+    seat: int,
+    seats_total: int,
+    waitlisted: bool,
+    issued_on: date | None = None,
 ) -> tuple[str, str, str]:
     """Build (subject, text, html) for one applicant.
 
     Every interpolated value is either an int we produced or an HTML-escaped
     string. The name comes from a public form, so dropping it in raw would let
-    a submitted name inject markup into a mail we send under our own domain.
+    a submitted name inject markup into a mail sent under our own domain.
     """
+    first = _first_name(full_name)
+    holder = _holder_name(full_name)
     # Two forms on purpose: the HTML part needs the escaped name, the plain
     # text part needs the real one. Reusing the escaped string for both is how
     # "O'Brien" reaches an inbox as "O&#x27;Brien".
-    safe_name = html.escape(first_name)
+    safe_first = html.escape(first)
+    safe_holder = html.escape(holder)
     host = get_settings().get_public_site_url().split("://", 1)[-1].rstrip("/")
+    issued = (issued_on or datetime.now(IST).date()).strftime("%d %b %Y").upper()
 
     if waitlisted:
-        subject = "You are on the Prozpr early-access waitlist"
+        position = seat - seats_total if seat > seats_total else 1
+        subject = "Your Prozpr beta standby ticket"
         preheader = (
-            f"All {seats_total} beta seats are taken - you have the next place in line."
+            f"All {seats_total} seats are taken. You hold standby position {position}."
         )
-        heading = f"You are on the waitlist, {safe_name}."
-        heading_text = f"You are on the waitlist, {first_name}."
+        admit, admit_color = "Standby", _MUTED
+        role = "Next in line for a seat"
+        seat_label, seat_value, seat_sub = "Position", f"{position:02d}", "On standby"
+        heading = f"You are next in line, {safe_first}."
+        heading_text = f"You are next in line, {first}."
         intro = (
             f"Thank you for asking to test Prozpr MVP 2.0. All {seats_total} seats "
-            "were claimed before your request arrived, so you have the next place "
-            "in line rather than a seat."
+            "were taken before your request reached us, so this is a standby "
+            "ticket rather than a seat."
         )
-        seat_label = "Waitlist position"
-        seat_value = f"#{seat - seats_total}" if seat > seats_total else "Next in line"
         next_line = (
-            "Seats are confirmed in sign-up order, and testers do drop out. "
-            "If one opens up we will email you before anyone else, and there is "
+            "Seats are confirmed in sign-up order, and testers do drop out. If a "
+            "place opens we will write to you before anyone else. There is "
             "nothing you need to do in the meantime."
         )
-        text_seat = f"Waitlist position: {seat_value}"
+        text_seat = f"Standby position: {position:02d}"
     else:
-        subject = "You are in - your Prozpr beta seat is confirmed"
-        preheader = f"Seat {seat} of {seats_total} is yours. Here is what happens next."
-        heading = f"You are in, {safe_name}."
-        heading_text = f"You are in, {first_name}."
+        subject = "Your Prozpr beta ticket is confirmed"
+        preheader = (
+            f"Seat {seat:03d} of {seats_total} is held in your name. "
+            "Here is what happens next."
+        )
+        admit, admit_color = "Admit one", _RED
+        role = "Founding tester"
+        seat_label = "Seat"
+        seat_value = f"{seat:03d}"
+        seat_sub = f"of {seats_total}"
+        heading = f"Your seat is held, {safe_first}."
+        heading_text = f"Your seat is held, {first}."
         intro = (
             "Thank you for putting your hand up. We are glad to have you testing "
-            "Prozpr MVP 2.0 before anyone else, and your seat is confirmed."
+            "Prozpr MVP 2.0 before anyone else, and this ticket is yours to keep."
         )
-        seat_label = "Your seat"
-        seat_value = f"{seat} of {seats_total}"
         next_line = (
-            "We will email your invite and the tester WhatsApp group link before "
-            "the beta opens. Seats are confirmed in sign-up order, so nothing "
-            "can take yours - there is nothing you need to do until then."
+            "We will write with your invite and the tester group link before the "
+            "beta opens. Seats are confirmed in sign-up order, so nothing can "
+            "take yours. There is nothing you need to do until then."
         )
-        text_seat = f"Your seat: {seat} of {seats_total}"
+        text_seat = f"Seat {seat:03d} of {seats_total}"
 
     html_body = (
-        _HTML_TEMPLATE.replace("{{TITLE}}", html.escape(subject))
+        _HTML_TEMPLATE.replace("__INK__", _INK)
+        .replace("__CREAM__", _CREAM)
+        .replace("__GOLD__", _GOLD)
+        .replace("__MUTED__", _MUTED)
+        .replace("__BODY__", _BODY)
+        .replace("__RULE__", _RULE)
+        .replace("__ADMIT_COLOR__", admit_color)
+        .replace("{{TITLE}}", html.escape(subject))
         .replace("{{PREHEADER}}", html.escape(preheader))
-        .replace("{{HEADING}}", heading)
-        .replace("{{INTRO}}", html.escape(intro))
+        .replace("{{ADMIT}}", html.escape(admit))
+        .replace("{{HOLDER}}", safe_holder)
+        .replace("{{ROLE}}", html.escape(role))
+        .replace("{{TOTAL}}", str(seats_total))
+        .replace("{{ISSUED}}", html.escape(issued))
         .replace("{{SEAT_LABEL}}", html.escape(seat_label))
         .replace("{{SEAT_VALUE}}", html.escape(seat_value))
+        .replace("{{SEAT_SUB}}", html.escape(seat_sub))
+        .replace("{{BARCODE}}", _barcode(seat))
+        .replace("{{HEADING}}", heading)
+        .replace("{{INTRO}}", html.escape(intro))
         .replace("{{NEXT}}", html.escape(next_line))
         .replace("{{SITE_HOST}}", html.escape(host))
     )
@@ -245,16 +383,18 @@ def _render(
             "",
             intro,
             "",
+            f"{holder} - {role}",
             text_seat,
+            f"Prozpr MVP 2.0, issued {issued}",
             "",
-            "What happens next",
+            "WHAT HAPPENS NEXT",
             next_line,
             "",
-            "The beta is free, and Prozpr will never ask you for payment details "
-            "or a one-time password.",
+            "The beta is free. Prozpr will never ask you for payment details or "
+            "a one-time password.",
             "",
             f"You are receiving this because you requested early access at {host}.",
-            "This is an automated message; replies to it are not monitored.",
+            "Replies to this address are not monitored.",
         ]
     )
     return subject, text_body, html_body
@@ -267,27 +407,28 @@ async def send_early_access_confirmation(
     seat: int,
     seats_total: int,
     waitlisted: bool,
-) -> None:
-    """Send one confirmation mail. Logs every failure; never raises.
+    issued_on: date | None = None,
+) -> bool:
+    """Send one ticket. Returns True if Resend accepted it.
 
-    The applicant's row is already in the register by the time this runs, so
-    there is nothing a failure here should undo — losing the mail is a smaller
-    problem than losing the lead, and the two must not be coupled.
+    Logs every failure and returns False rather than raising, so a batch run
+    reports what it managed and carries on to the next recipient instead of
+    stopping partway through a list.
     """
     settings = get_settings()
     api_key = settings.get_resend_api_key()
     if not api_key:
-        logger.info(
-            "RESEND_API_KEY not set - early-access confirmation mail skipped for %s.",
-            mask_email(to_email) or "-",
+        logger.warning(
+            "RESEND_API_KEY not set - no mail sent to %s.", mask_email(to_email) or "-"
         )
-        return
+        return False
 
     subject, text_body, html_body = _render(
-        first_name=_first_name(full_name),
+        full_name=full_name,
         seat=seat,
         seats_total=seats_total,
         waitlisted=waitlisted,
+        issued_on=issued_on,
     )
     payload = {
         # Named sender — a bare address shows up as "no-reply" in most inboxes.
@@ -311,20 +452,19 @@ async def send_early_access_confirmation(
         if resp.status_code >= 400:
             # Never log the body verbatim — it echoes the recipient address.
             logger.warning(
-                "Resend rejected the early-access confirmation (status=%s) for %s. "
-                "A sending domain must be verified in Resend before mail can "
-                "reach addresses other than the account owner's.",
+                "Resend rejected the ticket mail (status=%s) for %s. A sending "
+                "domain must be verified in Resend before mail can reach "
+                "addresses other than the account owner's.",
                 resp.status_code,
                 mask_email(to_email) or "-",
             )
-            return
+            return False
         logger.info(
-            "Early-access confirmation sent to %s (seat %s).",
-            mask_email(to_email) or "-",
-            seat,
+            "Ticket mail sent to %s (seat %s).", mask_email(to_email) or "-", seat
         )
+        return True
     except Exception:
         logger.exception(
-            "Failed to send the early-access confirmation to %s.",
-            mask_email(to_email) or "-",
+            "Failed to send the ticket mail to %s.", mask_email(to_email) or "-"
         )
+        return False

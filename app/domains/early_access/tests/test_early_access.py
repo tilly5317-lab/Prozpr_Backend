@@ -10,6 +10,7 @@ a lead silently lost, or a "you're on the list" shown when no row exists.
 from __future__ import annotations
 
 import os
+import pathlib
 
 import pytest
 
@@ -243,36 +244,95 @@ def test_invalid_input_is_422(client: TestClient, bad: dict):
     assert r.status_code == 422
 
 
-# ── Confirmation mail ───────────────────────────────────────────────────────
-def test_confirmation_mail_is_personalised_and_names_the_seat():
+# ── Mail is NEVER automatic ─────────────────────────────────────────────────
+def test_signing_up_sends_no_mail_whatsoever(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Applicant mail goes out in batches the team triggers by hand, never on
+    submit. A form being tested, spammed or replayed must not mail anyone, so
+    this asserts the absence of a send rather than trusting a comment.
+    """
+    import httpx
+
+    calls: list[str] = []
+
+    async def explode(self, url, *args, **kwargs):  # noqa: ANN001
+        calls.append(str(url))
+        raise AssertionError(f"signup tried to send mail: {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", explode)
+    r = client.post(f"{API}/signup", json=APPLICATION)
+    assert r.status_code == 201
+    assert calls == []
+
+
+def test_the_router_does_not_even_import_the_mail_service():
+    """Defence in depth: no import, so no later edit can wire a send back in
+    by accident."""
+    from app.domains.early_access.routers import early_access_router
+
+    src = pathlib.Path(early_access_router.__file__).read_text(encoding="utf-8")
+    assert "send_early_access_confirmation" not in src.replace("# ", "").split(
+        "def signup"
+    )[0].replace("scripts/send_early_access_mails.py", "")
+    assert not hasattr(early_access_router, "send_early_access_confirmation")
+
+
+# ── The mail template (sent by hand, see scripts/) ──────────────────────────
+def test_ticket_names_the_holder_and_the_seat():
     from app.domains.early_access.services.early_access_email_service import _render
 
     subject, text, html_body = _render(
-        first_name="Shreyash", seat=3, seats_total=100, waitlisted=False
+        full_name="Shreyash Dhakate", seat=37, seats_total=100, waitlisted=False
     )
     assert "confirmed" in subject
-    for body in (text, html_body):
-        assert "Shreyash" in body
-        assert "3 of 100" in body
-    # The same wordmark the /earlyaccess navbar shows, as TEXT. Remote images
-    # are blocked by default in most clients, so a logo file would leave a
-    # blank box for a large share of recipients.
-    assert "prozp&#8377;" in html_body
-    assert "Instrument Serif" in html_body
-    assert "#E0B84A" in html_body  # the gold full stop
+    # The ticket carries the full name as a holder, the note greets by first.
+    assert "Shreyash Dhakate" in html_body and "Shreyash Dhakate" in text
+    assert "Your seat is held, Shreyash." in text
+    # Seat is zero-padded like a real ticket, and the cap is stated.
+    assert "037" in html_body and "of 100" in html_body
+    assert "ADMIT ONE" in html_body.upper()
+
+
+def test_what_happens_next_sits_outside_the_ticket():
+    """The ticket is the object; the words are the covering note. If the two
+    ever merge, the design intent is gone."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Asha", seat=3, seats_total=100, waitlisted=False
+    )
+    ticket_end = html_body.index("THE COVERING NOTE")
+    assert "What happens next" not in html_body[:ticket_end]
+    assert "What happens next" in html_body[ticket_end:]
+
+
+def test_the_wordmark_and_barcode_survive_a_blocked_image():
+    """Most clients block remote images by default, so nothing the ticket needs
+    may be an image."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Asha", seat=3, seats_total=100, waitlisted=False
+    )
     assert "<img" not in html_body
+    assert "prozp&#8377;" in html_body  # wordmark as live text
+    assert "Instrument Serif" in html_body
+    assert html_body.count("tk-bar") > 20  # barcode drawn with table cells
 
 
-def test_waitlisted_applicant_is_not_told_they_have_a_seat():
+def test_a_standby_ticket_never_claims_a_seat():
     from app.domains.early_access.services.early_access_email_service import _render
 
     subject, text, html_body = _render(
-        first_name="Asha", seat=104, seats_total=100, waitlisted=True
+        full_name="Asha Rao", seat=104, seats_total=100, waitlisted=True
     )
-    assert "waitlist" in subject.lower()
-    assert "Waitlist position: #4" in text
+    assert "standby" in subject.lower()
+    assert "STANDBY" in html_body.upper()
+    assert "Standby position: 04" in text
     for body in (text, html_body):
-        assert "seat is confirmed" not in body
+        assert "seat is held" not in body
+        assert "ADMIT ONE" not in body.upper()
 
 
 def test_a_submitted_name_cannot_inject_markup_into_our_mail():
@@ -281,8 +341,8 @@ def test_a_submitted_name_cannot_inject_markup_into_our_mail():
     or "O'Brien" arrives as "O&#x27;Brien"."""
     from app.domains.early_access.services.early_access_email_service import _render
 
-    _, text, html_body = _render(
-        first_name="<img src=x onerror=alert(1)>",
+    _, _, html_body = _render(
+        full_name="<img src=x onerror=alert(1)>",
         seat=1,
         seats_total=100,
         waitlisted=False,
@@ -290,37 +350,36 @@ def test_a_submitted_name_cannot_inject_markup_into_our_mail():
     assert "<img src=x onerror" not in html_body
     assert "&lt;img" in html_body
 
-    _, text, _ = _render(
-        first_name="O'Brien", seat=1, seats_total=100, waitlisted=False
-    )
+    _, text, _ = _render(full_name="O'Brien", seat=1, seats_total=100, waitlisted=False)
     assert "O'Brien" in text and "&#x27;" not in text
 
 
-def test_missing_name_falls_back_to_a_neutral_greeting():
+def test_missing_name_falls_back_rather_than_printing_an_empty_ticket():
     from app.domains.early_access.services.early_access_email_service import (
         _first_name,
+        _holder_name,
     )
 
     assert _first_name("Shreyash Dhakate") == "Shreyash"
     assert _first_name("   ") == "there"
-    assert _first_name("") == "there"
+    assert _holder_name("  ") == "Founding tester"
 
 
-async def test_mail_without_a_resend_key_is_skipped_not_raised(
+async def test_mail_without_a_resend_key_reports_failure_not_an_exception(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """The row is already in the register by then, so a mail problem must never
-    surface as a failed application."""
+    """A batch run must carry on to the next recipient rather than stop."""
     from app.domains.early_access.services import early_access_email_service as mail
 
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
-    await mail.send_early_access_confirmation(
+    ok = await mail.send_early_access_confirmation(
         to_email="a@example.com",
         full_name="Asha",
         seat=1,
         seats_total=100,
         waitlisted=False,
-    )  # must simply return
+    )
+    assert ok is False
 
 
 # ── The signup block ────────────────────────────────────────────────────────
