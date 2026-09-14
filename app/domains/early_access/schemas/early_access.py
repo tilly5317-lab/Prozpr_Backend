@@ -30,11 +30,16 @@ PROFESSIONS = (
     "Other",
 )
 
-# Punctuation someone might reasonably type into a WhatsApp number. Unlike the
-# signup form this is NOT normalised to ten digits: it is a way for the team to
-# reach a person, the page accepts it exactly as typed (country code, spaces,
-# dashes), and rejecting a valid overseas number on a waiting-list form would
-# cost a lead to no purpose. Letters are still refused.
+# WhatsApp numbers are Indian national numbers, exactly like app accounts —
+# ten digits behind a +91 (mirrors MOBILE_DIGITS in `identity/schemas/auth.py`).
+# The page shows +91 as a fixed prefix and takes ten digits, so a number can
+# only ever be stored in one shape and the team can dial the column directly.
+WHATSAPP_DIGITS = 10
+WHATSAPP_COUNTRY_CODE = "+91"
+
+# Punctuation someone might reasonably type or paste. Letters are refused
+# outright rather than stripped — quietly dropping characters turns a typo into
+# a different, valid-looking number.
 _PHONE_PUNCTUATION = frozenset(" -().+")
 
 
@@ -99,6 +104,15 @@ class EarlyAccessSignupRequest(BaseModel):
     @field_validator("whatsapp")
     @classmethod
     def validate_whatsapp(cls, v: str | None) -> str | None:
+        """Normalise to ``+91XXXXXXXXXX``, or reject. Optional: blank is fine.
+
+        A typed or pasted country code is tolerated so "+91 98765 43210",
+        "919876543210" and "9876543210" all mean the same number — people
+        paste from contacts, and refusing the form they already have is a lost
+        lead for no reason. Anything that is not ten national digits is
+        refused rather than truncated: storing a wrong number the team then
+        tries to dial is worse than making someone retype it.
+        """
         if v is None:
             return None
         raw = " ".join(v.split())
@@ -106,9 +120,15 @@ class EarlyAccessSignupRequest(BaseModel):
             return None
         if any(not (c.isdigit() or c in _PHONE_PUNCTUATION) for c in raw):
             raise ValueError("WhatsApp number must contain digits only")
-        if sum(c.isdigit() for c in raw) < 8:
-            raise ValueError("Please enter a valid WhatsApp number")
-        return raw
+        digits = "".join(c for c in raw if c.isdigit())
+        if len(digits) == WHATSAPP_DIGITS + 2 and digits.startswith("91"):
+            digits = digits[2:]
+        if len(digits) != WHATSAPP_DIGITS:
+            raise ValueError(
+                f"Please enter a {WHATSAPP_DIGITS}-digit WhatsApp number, "
+                "without the country code"
+            )
+        return f"{WHATSAPP_COUNTRY_CODE}{digits}"
 
     @field_validator("profession")
     @classmethod
