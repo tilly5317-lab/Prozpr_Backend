@@ -170,10 +170,27 @@ def test_baseline_pushes_the_beta_full_and_waitlists(
 def test_honeypot_writes_nothing_and_reveals_nothing(
     client: TestClient, sheet: FakeSheet
 ):
-    r = client.post(f"{API}/signup", json={**APPLICATION, "company": "Acme Corp"})
+    r = client.post(f"{API}/signup", json={**APPLICATION, "referrer_note": "Acme Corp"})
     assert r.status_code == 201  # a scraper learns nothing from the status
     assert sheet.emails == []  # …and no row was written
     assert r.json()["seats_claimed"] == 100  # nor anything about the real count
+
+
+def test_honeypot_name_is_not_something_a_browser_autofills(
+    client: TestClient, sheet: FakeSheet
+):
+    """The trap was once called `company`. Chrome recognised that as the
+    organization field, filled it from the visitor's saved profile, and every
+    applicant with autofill on was silently discarded behind a success screen.
+
+    So: a field a browser knows how to fill must never be the trap. `company`
+    is now just an unknown key, which pydantic ignores — the application goes
+    through instead of vanishing.
+    """
+    r = client.post(f"{API}/signup", json={**APPLICATION, "company": "Acme Corp"})
+    assert r.status_code == 201
+    assert r.json()["already_registered"] is False
+    assert sheet.emails == ["ananya@example.com"], "a real applicant was dropped"
 
 
 def test_rate_limit_after_a_burst(client: TestClient):

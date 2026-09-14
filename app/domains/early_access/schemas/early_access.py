@@ -61,10 +61,18 @@ class EarlyAccessSignupRequest(BaseModel):
     profession: str = Field(..., min_length=1, max_length=64)
     source: str = Field(default="earlyaccess_page", max_length=64)
 
-    # Anti-spam honeypot. The form renders this visually hidden and leaves it
-    # empty; a bot that fills every input trips it. Named after something a
-    # scraper would expect to be real, never "honeypot".
-    company: str | None = Field(default=None, max_length=200)
+    # Anti-spam honeypot: the form renders it visually hidden and leaves it
+    # empty, so a bot that fills every input trips it.
+    #
+    # It used to be called `company`, which was a mistake that cost real
+    # applicants. Chrome reads a field's name and label to decide what to
+    # autofill, recognised "company" as the organization field, and filled it
+    # from the visitor's saved profile — so anyone with autofill on was
+    # silently discarded while being shown a success screen. The name must
+    # therefore match NOTHING in a browser's profile vocabulary; a trap that
+    # catches slightly fewer bots is a trade worth making against one that
+    # drops real people.
+    referrer_note: str | None = Field(default=None, max_length=200)
 
     @field_validator("name")
     @classmethod
@@ -121,7 +129,7 @@ class EarlyAccessSignupRequest(BaseModel):
         # blank there is worth less than a slightly wrong guess.
         return " ".join(v.split()) or "earlyaccess_page"
 
-    @field_validator("company")
+    @field_validator("referrer_note")
     @classmethod
     def blank_to_none(cls, v: str | None) -> str | None:
         if v is None:

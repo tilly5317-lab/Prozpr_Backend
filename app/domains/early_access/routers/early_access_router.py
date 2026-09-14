@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.core.config import get_settings
+from app.core.pii import mask_email
 from app.domains.early_access.schemas.early_access import (
     EarlyAccessSignupRequest,
     EarlyAccessSignupResponse,
@@ -119,8 +120,14 @@ async def signup(
     # see this branch (the field is hidden and stays empty). Nothing is written,
     # and the seat numbers are left at the cap so the reply reveals nothing
     # about the real state of the list.
-    if payload.company:
-        logger.info("Early-access honeypot tripped — application discarded.")
+    if payload.referrer_note:
+        # WARNING, not INFO, and it names the address: this branch throws an
+        # application away silently, so if the trap ever starts catching real
+        # people again it has to be visible in the logs rather than buried.
+        logger.warning(
+            "Early-access honeypot tripped — application from %s discarded.",
+            mask_email(payload.email) or "-",
+        )
         total = get_settings().get_early_access_seats()
         return EarlyAccessSignupResponse(
             seats_total=total, seats_claimed=total, seats_left=0, waitlisted=True
