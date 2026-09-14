@@ -243,6 +243,86 @@ def test_invalid_input_is_422(client: TestClient, bad: dict):
     assert r.status_code == 422
 
 
+# ── Confirmation mail ───────────────────────────────────────────────────────
+def test_confirmation_mail_is_personalised_and_names_the_seat():
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    subject, text, html_body = _render(
+        first_name="Shreyash", seat=3, seats_total=100, waitlisted=False
+    )
+    assert "confirmed" in subject
+    for body in (text, html_body):
+        assert "Shreyash" in body
+        assert "3 of 100" in body
+    # The same wordmark the /earlyaccess navbar shows, as TEXT. Remote images
+    # are blocked by default in most clients, so a logo file would leave a
+    # blank box for a large share of recipients.
+    assert "prozp&#8377;" in html_body
+    assert "Instrument Serif" in html_body
+    assert "#E0B84A" in html_body  # the gold full stop
+    assert "<img" not in html_body
+
+
+def test_waitlisted_applicant_is_not_told_they_have_a_seat():
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    subject, text, html_body = _render(
+        first_name="Asha", seat=104, seats_total=100, waitlisted=True
+    )
+    assert "waitlist" in subject.lower()
+    assert "Waitlist position: #4" in text
+    for body in (text, html_body):
+        assert "seat is confirmed" not in body
+
+
+def test_a_submitted_name_cannot_inject_markup_into_our_mail():
+    """The name comes from a public form and goes out under our own sending
+    domain, so it is escaped in the HTML part — and left raw in the text part,
+    or "O'Brien" arrives as "O&#x27;Brien"."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, text, html_body = _render(
+        first_name="<img src=x onerror=alert(1)>",
+        seat=1,
+        seats_total=100,
+        waitlisted=False,
+    )
+    assert "<img src=x onerror" not in html_body
+    assert "&lt;img" in html_body
+
+    _, text, _ = _render(
+        first_name="O'Brien", seat=1, seats_total=100, waitlisted=False
+    )
+    assert "O'Brien" in text and "&#x27;" not in text
+
+
+def test_missing_name_falls_back_to_a_neutral_greeting():
+    from app.domains.early_access.services.early_access_email_service import (
+        _first_name,
+    )
+
+    assert _first_name("Shreyash Dhakate") == "Shreyash"
+    assert _first_name("   ") == "there"
+    assert _first_name("") == "there"
+
+
+async def test_mail_without_a_resend_key_is_skipped_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The row is already in the register by then, so a mail problem must never
+    surface as a failed application."""
+    from app.domains.early_access.services import early_access_email_service as mail
+
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    await mail.send_early_access_confirmation(
+        to_email="a@example.com",
+        full_name="Asha",
+        seat=1,
+        seats_total=100,
+        waitlisted=False,
+    )  # must simply return
+
+
 # ── The signup block ────────────────────────────────────────────────────────
 def _can_sign_up(phone: str) -> bool:
     from app.domains.identity.routers.auth_router import _can_sign_up as fn
@@ -318,5 +398,6 @@ def test_env_example_documents_every_new_setting():
         "EARLY_ACCESS_SHEET_TOKEN",
         "EARLY_ACCESS_SEATS_BASELINE",
         "SLACK_EARLY_ACCESS_WEBHOOK_URL",
+        "PUBLIC_SITE_URL",
     ):
         assert key in env, f"{key} is missing from .env.example"

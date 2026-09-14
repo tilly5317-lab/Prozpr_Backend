@@ -31,6 +31,9 @@ from app.domains.early_access.schemas.early_access import (
     SignupStatusResponse,
 )
 from app.domains.early_access.services import early_access_service as svc
+from app.domains.early_access.services.early_access_email_service import (
+    send_early_access_confirmation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +182,17 @@ async def signup(
     # Skipped for a repeat submission — the team already heard about this
     # person, and a second ping reads like a second applicant.
     if not result.already_registered:
+        # The applicant hears back straight away instead of filling a form and
+        # then hearing nothing. Background, and best-effort inside: the row is
+        # already safe, so a mail outage must not surface as a failed signup.
+        background_tasks.add_task(
+            send_early_access_confirmation,
+            to_email=payload.email,
+            full_name=payload.name,
+            seat=result.seat,
+            seats_total=total,
+            waitlisted=waitlisted,
+        )
         background_tasks.add_task(
             svc.notify_slack,
             applied_at=applied_at,

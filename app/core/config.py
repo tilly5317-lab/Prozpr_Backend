@@ -548,6 +548,17 @@ class Settings:
         return frozenset(numbers)
 
     @staticmethod
+    def get_public_site_url() -> str:
+        """Absolute origin of the public site, no trailing slash.
+
+        Mail cannot use a relative path: the logo has to resolve from inside
+        someone's inbox, and the footer names the site the person applied on.
+        Override with ``PUBLIC_SITE_URL`` for staging.
+        """
+        raw = (_getenv("PUBLIC_SITE_URL") or "https://prozpr.in").strip()
+        return raw.rstrip("/")
+
+    @staticmethod
     def get_early_access_seats() -> int:
         """How many early-access places exist — the denominator of the seat
         meter on `/earlyaccess`. Applications past this still get recorded;
