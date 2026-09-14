@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import logging
 import pathlib
 import sys
 
@@ -157,6 +158,12 @@ async def _run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    # The service logs the reason a send failed (a rejected status, an
+    # unverified sending domain) through `logging`. Without this the script
+    # would print "FAILED" and swallow the one line that says why.
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     p = argparse.ArgumentParser(
         description="Send early-access ticket mails. Dry run unless --send.",
     )
