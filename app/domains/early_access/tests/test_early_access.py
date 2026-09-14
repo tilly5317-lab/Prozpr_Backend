@@ -355,6 +355,13 @@ def test_the_ticket_stacks_on_mobile_without_needing_a_media_query():
     # The stacked (mobile) perforation is the DEFAULT, inline; the side-by-side
     # one is the enhancement. If the <style> block is dropped, mobile is right.
     assert "border-top:1px dashed" in html_body
+    # Panels are FULL WIDTH inline. The side-by-side caps live only in the
+    # media query: capping them inline left the stub at 236px on a 356px
+    # phone, so the perforation stopped dead at 45% of the card and the seat
+    # block sat off-centre beneath a half-drawn line.
+    assert "max-width:358px" not in html_body.split("</style>")[1]
+    assert "max-width:236px" not in html_body.split("</style>")[1]
+    assert "max-width:358px" in html_body.split("</style>")[0]
 
 
 def test_a_standby_ticket_never_claims_a_seat():

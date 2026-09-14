@@ -142,12 +142,25 @@ _HTML_TEMPLATE = """\
      What is left is a desktop enhancement: side by side, the perforation
      belongs on the left edge rather than the top. Lose it and the ticket is
      still correct, just with its tear line above the stub. */
-  /* 630px, not 600: the two panels total 594, plus the card border and the
-     32px outer gutter, so they only actually sit side by side from about 628
-     up. Firing this at 600 would leave a band where the stub is stacked but
-     wearing a left-hand tear line. */
+  /* MOBILE IS THE DEFAULT, and it is the default INLINE: both panels are full
+     width, stacked, with the tear line across the top of the stub. Gmail's
+     mobile app strips this whole block for many account types, and stacked
+     full width is exactly what those phones should get.
+
+     Side by side is the DESKTOP enhancement. Capping the panels here rather
+     than inline is what fixes the stacked look: a max-width of 236 left the
+     stub at 236 on a 356-wide phone, so the perforation stopped dead at 45%
+     and the seat block sat off-centre under a half-drawn line.
+
+     630px, not 600: the panels total 594, and with the card border and the
+     32px gutter they only really fit side by side from about 628. */
   @media only screen and (min-width:630px) {
-    .tk-stub { border-top:0 !important; border-left:1px dashed __RULE__ !important; }
+    .tk-main { max-width:358px !important; }
+    .tk-stub {
+      max-width:236px !important;
+      border-top:0 !important;
+      border-left:1px dashed __RULE__ !important;
+    }
   }
   @media (prefers-color-scheme:dark) {
     .tk-page  { background-color:#0f1115 !important; }
@@ -214,8 +227,8 @@ _HTML_TEMPLATE = """\
                  Outlook a real table, since it ignores inline-block. -->
             <div style="font-size:0;text-align:left">
               <!--[if mso]><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td width="358" valign="top"><![endif]-->
-              <div style="display:inline-block;width:100%;max-width:358px;
-                          vertical-align:top;font-size:14px">
+              <div class="tk-main" style="display:inline-block;width:100%;
+                          max-width:100%;vertical-align:top;font-size:14px">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr>
                     <td style="padding:26px 26px 28px 26px">
@@ -247,7 +260,7 @@ _HTML_TEMPLATE = """\
                 </table>
               </div><!--[if mso]></td><td width="236" valign="top"><![endif]--><div
                    class="tk-stub"
-                   style="display:inline-block;width:100%;max-width:236px;
+                   style="display:inline-block;width:100%;max-width:100%;
                           vertical-align:top;font-size:14px;
                           border-top:1px dashed __RULE__">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
