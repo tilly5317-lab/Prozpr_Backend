@@ -324,6 +324,7 @@
    "goals": [],
    "rationale": "With many years to go, more of the money can aim for growth since short-term ups and downs have time to even out.",
    "subgroup_amounts": {
+    "arbitrage": 0,
     "arbitrage_plus_income": 6925300,
     "gold_commodities": 1272900,
     "high_beta_equities": 543700,

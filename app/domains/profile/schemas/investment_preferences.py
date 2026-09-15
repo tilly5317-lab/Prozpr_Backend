@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -111,6 +111,9 @@ class ScreenSaved(BaseModel):
     saved_at: Optional[datetime] = None
 
 
+CarveOutAtRisk = Literal["emergency_fund", "near_term_goals", "liability_offset"]
+
+
 class ScreenPreferenceGetResponse(BaseModel):
     """GET payload: the customer's saved split (or null), Prozpr's class-level
     recommendation, and the settable-subcategory list."""
@@ -118,6 +121,17 @@ class ScreenPreferenceGetResponse(BaseModel):
     saved: Optional[ScreenSaved] = None
     recommendation: dict[str, dict[str, float]]
     subcategories: list[ScreenSubcategory]
+    carve_outs_at_risk: list[CarveOutAtRisk] = Field(default_factory=list)
+    """Which bucket carve-outs saving a preference would cost this customer
+    (spec 2026-09-15 §9.1) — the WARNING shown before they commit, as opposed to
+    the §9 record attached after the run. Three values rather than one flag
+    because they are three different facts with three different triggers: a
+    customer with negative net financial assets and no emergency-fund need
+    should be told about the liability offset and nothing else.
+
+    Defaults to empty, so the frontend can ship its panel ahead of this and
+    degrade to showing nothing — silence, not a warning shown to people it does
+    not apply to."""
 
 
 class ScreenSaveResponse(BaseModel):

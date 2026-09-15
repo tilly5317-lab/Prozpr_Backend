@@ -106,4 +106,11 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 # 1.6.0: human_override step in PAA (S1) — output-altering when a preference exists
 # 1.7.0: legacy per-turn sleeve tilt deleted (S2-R3) — preferences ride the PAA
 #        human_override step only.
-ENGINE_VERSION: str = "1.9.0"
+# 1.10.0: subcategory full distribution (spec 2026-09-15). A subgroup absent
+#         from the practical allocation means a ZERO target, not "keep whatever
+#         the input builder seeded from the IDEAL output" (§2); a stated
+#         preference suspends the emergency / short / medium carve-outs (§3);
+#         `arbitrage` becomes a long-term subgroup, reachable only by asking
+#         for it (§4); the long-term debt residual splits pro-rata across the
+#         rows the customer named instead of landing in one (§7).
+ENGINE_VERSION: str = "1.10.0"

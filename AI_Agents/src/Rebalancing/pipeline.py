@@ -153,6 +153,21 @@ def _assign_subgroup_targets(
         for r in practical.aggregated_subgroups
         if r.subgroup not in _FROZEN_SUBGROUPS
     }
+    # ABSENT MEANS ZERO. `step5_aggregation` drops rows whose total is zero, so a
+    # subgroup the practical plan gives nothing to is missing rather than 0. Left
+    # missing, the row falls through below keeping the target the input builder
+    # seeded — which comes from the IDEAL allocation, a preference-free plan that
+    # funds subgroups the practical one does not. That buys into a subgroup the
+    # customer's plan excludes and breaks the sum against the practical
+    # allocation shipped on the same response.
+    for r in rows:
+        if (
+            1 <= r.rank < FORCE_EXIT_RANK
+            and r.asset_subgroup not in _FROZEN_SUBGROUPS
+            and r.asset_subgroup not in target_by_subgroup
+        ):
+            target_by_subgroup[r.asset_subgroup] = Decimal(0)
+
     neutral_st_by_subgroup: dict[str, Decimal] = {}
     for r in rows:
         if r.rank == 0 and r.asset_subgroup in target_by_subgroup:

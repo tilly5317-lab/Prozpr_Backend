@@ -32,6 +32,9 @@ from app.domains.profile.services.preference_save_service import (
 )
 
 ensure_ai_agents_path()
+from asset_allocation_pydantic.tables import (  # noqa: E402
+    DEFAULT_MULTI_ASSET_COMPOSITION_PCTS,
+)
 from practical_asset_allocation.human_override import (  # noqa: E402
     CLASS_OF,
     FROZEN_SUBGROUPS,
@@ -44,6 +47,26 @@ _SUM_TOLERANCE = 0.5
 # stock) — the sleeve included (D-A2, 2026-09-14): a multi_asset pin sizes the
 # multi-asset fund, and a zero empties it.
 _SETTABLE_IDS = frozenset(sg for sg in SETTABLE_SUBGROUPS if sg not in FROZEN_SUBGROUPS)
+# Spec 2026-09-15 §5. Read off the engine's own composition rather than written
+# out, so the class-fit check and the engine's carve cannot drift apart.
+_MULTI_ASSET_SLICES: dict[str, float] = dict(
+    zip(_CLASSES, (pct / 100.0 for pct in DEFAULT_MULTI_ASSET_COMPOSITION_PCTS))
+)
+
+
+def _class_budget_consumed(subgroup: str, pct_of_total: float) -> dict[str, float]:
+    """How much of each class bar a pin spends — spec 2026-09-15 §5.
+
+    `multi_asset` is ONE fund holding all three classes, and the engine carves
+    it by `multi_asset_composition`, so a 20% ask spends 13 equity, 5 debt and
+    2 others. `CLASS_OF` files it flatly under equity, which charged the whole
+    20 against the equity bar — enough to reject the screen's own
+    recommendation, whose sleeve is typically half the portfolio. Every other
+    row spends its whole share in its own class.
+    """
+    if subgroup == "multi_asset":
+        return {cls: pct_of_total * share for cls, share in _MULTI_ASSET_SLICES.items()}
+    return {CLASS_OF.get(subgroup, "others"): pct_of_total}
 
 
 class ScreenPreferenceError(ValueError):
@@ -58,6 +81,12 @@ def resolve_screen_preferences(
     Both pass straight through: the engine speaks % of the whole portfolio too
     (D-A3), so there is nothing left to convert. A pin is still checked against
     its class share — the class split is the outer truth its class must honour.
+
+    Pins arrive COMPLETE (spec 2026-09-15): one entry per settable category,
+    blanks sent as explicit zeros. A zero is a valid entry — the engine reads 0
+    in `subgroup_emphasis` as a hard exclusion, which is exactly what an emptied
+    row means. An OMITTED row is a different fact and still means "engine
+    decides", so the two must not be collapsed.
     """
     mix = {c: float(class_mix.get(c, 0.0)) for c in _CLASSES}
     total = sum(mix.values())
@@ -73,14 +102,15 @@ def resolve_screen_preferences(
         if sg not in _SETTABLE_IDS:
             raise ScreenPreferenceError(f"{sg} is not a settable category.")
         pot = float(pin["pct_of_total"])
-        cls = CLASS_OF.get(sg, "others")
-        if pot <= 0:
-            raise ScreenPreferenceError(f"{sg}: a pinned share must be above 0%.")
-        pinned_of_total[cls] += pot
-        if pinned_of_total[cls] > mix[cls] + _SUM_TOLERANCE:
-            raise ScreenPreferenceError(
-                f"Pinned categories inside {cls} exceed its {mix[cls]:.0f}% share."
-            )
+        if pot < 0:
+            raise ScreenPreferenceError(f"{sg}: a share cannot be negative.")
+        # A zero spends nothing, so it can never push a class over its bar.
+        for cls, spent in _class_budget_consumed(sg, pot).items():
+            pinned_of_total[cls] += spent
+            if pinned_of_total[cls] > mix[cls] + _SUM_TOLERANCE:
+                raise ScreenPreferenceError(
+                    f"Pinned categories inside {cls} exceed its {mix[cls]:.0f}% share."
+                )
         emphasis[sg] = pot
 
     return ResolvedPreferences(
@@ -124,7 +154,10 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
     from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
         build_practical_allocation_input_for_user,
     )
-    from practical_asset_allocation.pipeline import run_practical_allocation
+    from practical_asset_allocation.pipeline import (
+        carve_outs_at_risk,
+        run_practical_allocation,
+    )
 
     inp, _ = build_practical_allocation_input_for_user(
         _build_ctx(user), apply_saved_preferences=False
@@ -142,16 +175,21 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
     if row is not None and row.asset_class_requested is not None:
         mix = row.asset_class_requested
         pins: list[dict] = []
+        # Zeros are PRESERVED (spec 2026-09-15 §6). A stored 0 is the customer
+        # emptying that row; filtering it out returned the engine's number in
+        # its place, so the screen showed them something they had not asked for.
         for sg, pct_of_total in (row.resolved_targets or {}).items():
-            pot = float(pct_of_total)
-            if pot > 0:  # a stored 0 is an exclusion, not a pin the screen shows
-                pins.append({"subgroup": sg, "pct_of_total": pot})
+            pins.append({"subgroup": sg, "pct_of_total": float(pct_of_total)})
         saved = ScreenSaved(class_mix=mix, pins=pins, saved_at=row.activated_at)
 
     return ScreenPreferenceGetResponse(
         saved=saved,
         recommendation={"class_mix": class_rec},
         subcategories=subcategory_catalog(out),
+        # Spec 2026-09-15 §9.1. Read off the same profile the catalog was built
+        # from, through the engine's own helper — so this warning and the §9
+        # record attached after the run can never name different facts.
+        carve_outs_at_risk=carve_outs_at_risk(inp),
     )
 
 

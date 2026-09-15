@@ -29,6 +29,25 @@ def make_practical_input(**overrides):
     return PracticalAllocationInput(**kwargs)
 
 
+# Spec 2026-09-15 §9: the carve-out suspension rides on `shortfall_reason`
+# alongside the trim notes, but it is a DESIGN disclosure — what setting a
+# preference deliberately costs — not something the engine could not deliver.
+# A test asserting "nothing was trimmed" must not trip over it.
+SUSPENSION_PREFIX = "because you've set your own split"
+
+
+def trim_disclosure(applied):
+    """``shortfall_reason`` with the §9 suspension note removed; ``None`` when
+    nothing but the suspension was reported."""
+    reason = None if applied is None else applied.shortfall_reason
+    if not reason:
+        return None
+    head = reason.split("; " + SUSPENSION_PREFIX)[0]
+    if head.startswith(SUSPENSION_PREFIX):
+        return None
+    return head or None
+
+
 def _canon(model) -> str:
     return json.dumps(model.model_dump(mode="json"), sort_keys=True, indent=1)
 

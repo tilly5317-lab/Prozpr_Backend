@@ -324,6 +324,7 @@
    "goals": [],
    "rationale": null,
    "subgroup_amounts": {
+    "arbitrage": 0,
     "arbitrage_plus_income": 7309900,
     "gold_commodities": 1426800,
     "high_beta_equities": 0,

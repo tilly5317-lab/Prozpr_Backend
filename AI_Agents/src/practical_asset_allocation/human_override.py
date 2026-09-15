@@ -127,12 +127,33 @@ def excludes(prefs, subgroup: str) -> bool:
     return share is not None and share <= 0
 
 
+# Spec 2026-09-15 §9. What each suspended carve-out cost, in the customer's
+# words. Qualitative and amount-free on purpose: naming the ₹6,00,000 we would
+# have set aside would mean running step 1 to learn it, and §3 is explicit that
+# steps 1-3 genuinely do not run when a preference is set. Only the conditions
+# that actually hold are named — telling a leveraged customer with no emergency
+# need that we stopped carving their emergency fund would simply be false.
+_SUSPENSION_PHRASES: dict[str, str] = {
+    "emergency_fund": "setting aside a separate emergency fund",
+    "near_term_goals": "earmarking money for goals in the next five years",
+    "liability_offset": "holding back an amount against your borrowings",
+}
+
+
+def _join_phrases(parts: list[str]) -> str:
+    """"a", "a or b", "a, b or c" — the notes are read as prose, not a list."""
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + " or " + parts[-1]
+
+
 def apply_human_override(
     output,
     prefs,
     multi_asset_composition=None,
     pins_scaled: bool = False,
     sleeve_clamped: bool = False,
+    carve_outs_suspended: Optional[list[str]] = None,
 ):
     """THE reporting point. Always invoked; strict no-op when prefs is None
     or empty (golden-test guarantee). Pure — returns a new output.
@@ -216,6 +237,12 @@ def apply_human_override(
     # phases 4/5. So this is now a GUARD on the finished plan rather than an
     # expected outcome: if what the emergency bucket promises ever stops
     # matching what the rows carry, the customer hears about it.
+    #
+    # Spec 2026-09-15 §3 made `emergency_planned` always 0 under a preference,
+    # so this guard can no longer fire for precisely the population it was
+    # written for. It stays for the non-suspended paths; the suspension note
+    # below is its replacement, and the two are mutually exclusive by
+    # construction — nothing is planned when the carve-outs did not run.
     emergency_planned = sum(
         b.allocated_amount for b in output.bucket_allocations if b.bucket == "emergency"
     )
@@ -223,6 +250,12 @@ def apply_human_override(
     if emergency_planned > 0 and emergency_rows < emergency_planned - _MONEY_TOLERANCE:
         cut_pct = (emergency_planned - emergency_rows) * 100.0 / emergency_planned
         notes.append(f"this reduces your emergency buffer by {cut_pct:.0f}%")
+    suspended = [c for c in (carve_outs_suspended or []) if c in _SUSPENSION_PHRASES]
+    if suspended:
+        notes.append(
+            "because you've set your own split, we're no longer "
+            + _join_phrases([_SUSPENSION_PHRASES[c] for c in suspended])
+        )
     if notes:
         shortfall = "; ".join(filter(None, [shortfall, *notes]))
     return output, HumanOverrideApplied(shortfall_reason=shortfall)

@@ -14,7 +14,10 @@ _TESTS_DIR = Path(__file__).resolve().parent
 if str(_TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(_TESTS_DIR))
 
-from test_human_override_golden import make_practical_input  # noqa: E402
+from test_human_override_golden import (  # noqa: E402
+    make_practical_input,
+    trim_disclosure,
+)
 
 
 # ── Task 1: the shared phase-2 function ──────────────────────────────────────
@@ -214,7 +217,7 @@ class TestPracticalEngineHonoursTheClassPreference:
         assert abs(ot - 8.0) < 1.5
         applied = out.human_override_applied
         assert applied is not None
-        assert applied.shortfall_reason is None
+        assert trim_disclosure(applied) is None
 
     def test_class_preference_lands_despite_the_others_gate_on_an_aggressive_profile(self):
         # Risk 9.5 + a tepid commodity view fires BOTH others-gates. On the
@@ -258,15 +261,17 @@ class TestPracticalEngineHonoursTheClassPreference:
         assert applied.shortfall_reason is not None
         assert "already committed" in applied.shortfall_reason
 
-    def test_debt_ask_below_the_emergency_buffer_lands_at_the_buffer_and_discloses(self):
-        # A large household expense makes a large emergency buffer (debt).
-        # Asking for less debt than the buffer holds cannot be honoured:
-        # what's already committed wins, and we say so.
+    def test_debt_ask_below_the_emergency_buffer_is_now_honoured(self):
+        # AMENDED by spec 2026-09-15 §3. A large household expense builds a
+        # large emergency buffer (debt), and this ask is smaller than it. That
+        # used to be unhonourable — what steps 1-3 had committed won, and the
+        # shortfall was disclosed. Setting a preference now SUSPENDS those
+        # carve-outs, so nothing is committed and the 3% lands.
         from practical_asset_allocation.pipeline import run_practical_allocation
 
         base = make_practical_input(monthly_household_expense=500_000)
-        # Guard the fixture: the buffer must actually exceed the 3% ask, or
-        # this test would pass without ever exercising the floor.
+        # Guard the fixture: without a preference the buffer must still be
+        # bigger than the ask, or this test proves nothing about suspension.
         neutral = run_practical_allocation(base)
         buffer_pct = (
             100.0
@@ -274,12 +279,11 @@ class TestPracticalEngineHonoursTheClassPreference:
             / float(base.total_corpus)
         )
         assert buffer_pct > 3.0 + 1.0, "fixture must build a buffer larger than the 3% debt ask"
+
         out = run_practical_allocation(
             _with_prefs(base, equity=90.0, debt=3.0, others=7.0)
         )
         applied = out.human_override_applied
         assert applied is not None
-        # Task C2: achieved is the run's own mix; the ask is the 3% above.
-        assert _recommended(out)[1] > 3.0 + 1.0
-        assert applied.shortfall_reason is not None
-        assert "already committed" in applied.shortfall_reason
+        assert abs(_recommended(out)[1] - 3.0) < 1.5, "the debt ask now lands"
+        assert sum(r.emergency for r in out.aggregated_subgroups) == 0

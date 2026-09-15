@@ -363,6 +363,7 @@ class TestSubgroupStages:
         # engine fills the rest of the class itself; nothing to disclose.
         from asset_allocation_pydantic.utils import round_to_100
         from practical_asset_allocation.human_override import HumanOverridePreferences
+        from test_human_override_golden import trim_disclosure
 
         out, s4 = _run_practical_with_prefs_traced(
             HumanOverridePreferences(subgroup_emphasis={
@@ -377,7 +378,7 @@ class TestSubgroupStages:
         assert abs(rows["high_beta_equities"] - tot * 0.09) < 500
         assert abs(sum(rows.values()) - out.grand_total) < 500
         assert s4["pins_scaled"] is False
-        assert out.human_override_applied.shortfall_reason is None
+        assert trim_disclosure(out.human_override_applied) is None
 
     # spec 2026-09-14 (D-B3): the exclusion arrives on the INPUT and the
     # commodity CLASS goes to zero before the sleeve is sized — the money

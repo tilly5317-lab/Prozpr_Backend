@@ -64,6 +64,29 @@ from practical_asset_allocation.human_override import (
 )
 
 
+# The settable long-term debt rows, derived so a new one in the table cannot be
+# missed here. `arbitrage` joined them on 2026-09-15 (§4).
+DEBT_SUBGROUPS: tuple[str, ...] = tuple(
+    sg for sg in STEP4_SUBGROUPS if SUBGROUP_TO_ASSET_CLASS[sg] == "debt"
+)
+# Where the residual goes when the customer named NO debt row. Order matters —
+# the second entry is the D-B5 reroute when the first is excluded. `arbitrage`
+# is deliberately not here: the engine must never pick it unasked (§4).
+DEBT_DEFAULT_ORDER: tuple[str, ...] = ("arbitrage_plus_income", "short_debt")
+
+# How large a sleeve trim has to be before the customer is TOLD about it, as a
+# share of the portfolio (spec 2026-09-15 §8.1, amended 2026-09-15 after
+# measurement). The preferences screen states every row to one decimal place,
+# so a complete distribution can only ever be self-consistent to that
+# precision: a funded row rounding UP eats the sleeve's room, and with the
+# sleeve drawing equity at 0.65 the slop is divided by that again. Three funded
+# equity rows are worth 3 x 0.05 / 0.65 = 0.23pp of sleeve, and a customer who
+# accepts our own recommendation verbatim lands squarely inside it (measured:
+# 0.161pp). Disclosing that reads as "your multi-asset choice was too large"
+# for a number WE gave them. Anything past the floor is a genuine shortfall and
+# is still disclosed — the near-term-goal case trims 0.924pp and says so.
+SLEEVE_CLAMP_DISCLOSURE_FLOOR_PCT: float = 0.25
+
 # Spec §B.5 step 4 — practical-side others-gate (stricter than upstream).
 # Upstream uses score >= 8 AND view <= 6; practical uses score > 8 AND view < 7.
 PRACTICAL_OTHERS_GATE_SCORE_THRESHOLD: float = 8.0
@@ -230,6 +253,98 @@ class _PracticalLongTermResult:
     # can say so (Task C1) — a pin is never silently trimmed.
     pins_scaled: bool = False
     sleeve_clamped: bool = False
+
+
+def carve_outs_at_risk(inp: AllocationInput) -> list[str]:
+    """Which bucket carve-outs a stated preference would cost this customer —
+    spec 2026-09-15 §9/§9.1. Read off the PROFILE, so it answers both moments:
+    the warning the screen shows BEFORE the customer commits, and the record
+    attached to the run afterwards. One source of truth, or the two disagree.
+
+    Three values rather than one flag because they are three different facts
+    with three different triggers. The NFA offset in particular is a LIABILITY
+    offset computed regardless of `emergency_fund_needed` (§3.4), so a leveraged
+    customer with no emergency-fund need must be told about the offset and
+    nothing else — which a single boolean would have got wrong.
+
+    NOTE: `emergency_fund_needed` is hardcoded `False` by the app-side input
+    builder (not yet a DB column), so today only the other two can fire on the
+    screen's path. The condition is written out anyway — it is the profile's
+    own flag, and it starts working the day the column lands.
+    """
+    at_risk: list[str] = []
+    if inp.emergency_fund_needed:
+        at_risk.append("emergency_fund")
+    if any(g.time_to_goal_months < LONG_TERM_BOUNDARY_MONTHS for g in inp.goals):
+        # Not merely a lost bucket linkage: step 4 only selects goals at or past
+        # the boundary, so a nearer one leaves the plan entirely (§3.3).
+        at_risk.append("near_term_goals")
+    nfa = inp.net_financial_assets
+    if nfa is not None and nfa < 0:
+        at_risk.append("liability_offset")
+    return at_risk
+
+
+def _split_pro_rata(total: int, asks: dict[str, int]) -> dict[str, int]:
+    """Split ``total`` across ``asks`` in proportion to them — spec 2026-09-15 §7.
+
+    Rounded to ₹100 like every other amount the engine emits, with the whole
+    remainder parked on the largest ask so the rupees always conserve exactly.
+    Ties break on the name so the result is deterministic.
+    """
+    ask_total = sum(asks.values())
+    if ask_total <= 0:
+        return {sg: 0 for sg in asks}
+    out = {sg: round_to_100(total * amt / ask_total) for sg, amt in asks.items()}
+    largest = max(asks, key=lambda sg: (asks[sg], sg))
+    out[largest] = max(0, out[largest] + total - sum(out.values()))
+    return out
+
+
+def _no_carveout_buckets(
+    rebalancing_corpus: float,
+) -> tuple[Step1Output, Step2Output, Step3Output]:
+    """Zeroed emergency / short / medium outputs carrying the whole corpus
+    forward — spec 2026-09-15 §3.
+
+    `asset_subgroup` (steps 2 and 3) and `risk_bucket` (step 3) are required
+    `Literal` fields with no defaults, so a zeroed instance has to name one.
+    The values below are INERT: nothing is allocated, so no row can receive
+    them. They surface only in the `trace` dict, which no production caller
+    passes.
+    """
+    # int(), not round(): step 1 derives its own remaining_corpus with
+    # `int(inp.total_corpus)`, and a fractional ELSS corpus makes the two differ
+    # by a rupee. The suspended path must hand the long-term step the same
+    # number the carved path would have.
+    corpus = int(rebalancing_corpus)
+    return (
+        Step1Output(
+            emergency_fund_months=0,
+            emergency_fund_amount=0,
+            nfa_carveout_amount=0,
+            total_emergency=0,
+            remaining_corpus=corpus,
+            subgroup_amounts={},
+        ),
+        Step2Output(
+            goals_allocated=[],
+            asset_subgroup="short_debt",
+            total_goal_amount=0,
+            allocated_amount=0,
+            remaining_corpus=corpus,
+            subgroup_amounts={},
+        ),
+        Step3Output(
+            risk_bucket="Low",
+            asset_subgroup="short_debt",
+            goals_allocated=[],
+            total_goal_amount=0,
+            allocated_amount=0,
+            remaining_corpus=corpus,
+            subgroup_amounts={},
+        ),
+    )
 
 
 def _committed_by_class(*steps) -> dict[str, float]:
@@ -721,7 +836,13 @@ def _run_practical_long_term(
         # is held out of _fit_pins_to_room (it is one fund, not a share of a
         # class pool), so its own trim has to be noticed here — the class rooms
         # in _sleeve_size can clamp it below what the customer asked for.
-        if requested_sleeve and sized_sleeve < requested_sleeve:
+        #
+        # Below the floor the trim is an artefact of the screen's own one-decimal
+        # precision rather than something the customer can act on — see
+        # SLEEVE_CLAMP_DISCLOSURE_FLOOR_PCT. The sleeve is still placed at its
+        # clamped size either way; only the disclosure is gated.
+        clamp_floor = SLEEVE_CLAMP_DISCLOSURE_FLOOR_PCT / 100.0 * inp.total_corpus
+        if requested_sleeve and (requested_sleeve - sized_sleeve) > clamp_floor:
             sleeve_clamped = True
         multi_asset_block = phase4_multi_asset(
             equities_amount=residual_equity_corpus_pre_multi_asset,
@@ -873,17 +994,27 @@ def _run_practical_long_term(
                 )
     if drift != 0:
         # Genuine rounding noise (a handful of rupees), or the degenerate case
-        # where no equity row at all — pinned or not — is holding money. Only
-        # then may a pin be touched.
+        # where no engine-filled equity row is holding money. Only then may a
+        # pin be touched.
+        #
+        # A COMPLETE distribution (spec 2026-09-15) makes that degenerate case
+        # the NORMAL one: every equity row is either pinned or sent as an
+        # explicit zero, so there is never an engine-filled row to prefer. The
+        # sleeve cannot take the money back either — it is spare equity
+        # precisely BECAUSE a different class room clamped the sleeve, and
+        # growing it would draw debt the customer's debt pins have claimed
+        # (measured: absorbing ₹1,60,000 of spare equity costs the two debt
+        # rows ₹55,400). So a pin must absorb it — but SPREAD in proportion,
+        # never dumped whole on the largest row, which put one row 8.4% above
+        # what the customer typed while its neighbours landed exactly.
         holders = holders or {
             sg: amt for sg, amt in equity_subgroup_amounts.items() if amt > 0
         }
         if holders:
-            largest_sg = max(holders, key=lambda k: holders[k])
-            equity_subgroup_amounts[largest_sg] = max(
-                0,
-                equity_subgroup_amounts[largest_sg] + drift,
+            spread = _split_pro_rata(
+                sum(holders.values()) + drift, {sg: amt for sg, amt in holders.items()}
             )
+            equity_subgroup_amounts.update(spread)
 
     # R220-R222: gold / commodities = others budget minus what the multi-asset
     # fund's own others slice already absorbed (less any excess we already
@@ -905,48 +1036,43 @@ def _run_practical_long_term(
     # arbitrage_plus_income BY DEFAULT; the tax-rate gate on debt routing
     # applies to medium-term only (asset_allocation Part A.4).
     #
-    # D-A5 (spec 2026-09-14): a debt pin is not written in directly — it sizes
-    # the sleeve and the row is left as the class residual, which by the
-    # uniform min() comes out at or ABOVE the ask. That guarantee only holds
-    # if the residual lands in the row the customer NAMED, so a debt pin moves
-    # the default home; without this a pin on short_debt placed zero rupees in
-    # it and handed the whole residual to arbitrage_plus_income.
+    # D-A5 (spec 2026-09-14), AS AMENDED by spec 2026-09-15 §7: a debt pin is
+    # still not written in directly — it sizes the sleeve and the rows are left
+    # as the class residual — but the residual now splits PRO-RATA across every
+    # debt row the customer NAMED instead of landing entirely in one.
     #
-    # D-B5 (spec 2026-09-14): an exclusion re-routes on top of that. The debt
-    # class has TWO homes, so refusing one moves the money to the other rather
-    # than stranding it in a fund they refused — step 6 used to do this, and it
-    # no longer reshapes. Only if BOTH are excluded is the class homeless; then
-    # the sleeve is the sole debt vehicle and whatever it could not absorb is
-    # disclosed rather than silently placed.
-    debt_pins = {
-        sg: amt
-        for sg, amt in pins.items()
-        if sg in ("short_debt", "arbitrage_plus_income") and amt > 0
-    }
-    # A customer realistically pins one row or the other; the max() is a
-    # defensive tie-break, not the expected path.
-    debt_row = (
-        max(debt_pins, key=lambda k: debt_pins[k])
-        if debt_pins
-        else "arbitrage_plus_income"
-    )
-    debt_rerouted = False
-    debt_unplaceable = 0
-    if debt_row in subgroup_excluded:
-        other_row = (
-            "short_debt"
-            if debt_row == "arbitrage_plus_income"
-            else "arbitrage_plus_income"
+    # Why pro-rata is exact: with the carve-outs suspended (§3) long-term is the
+    # whole corpus, so the customer's pure-debt rows sum to
+    # `debt_amount - sleeve_debt_component` by the screen's own validation —
+    # precisely the residual. Splitting it in proportion reproduces their
+    # numbers. D-A5's "comes out at or ABOVE the ask" therefore stops being
+    # true, deliberately: a named debt row now lands AT its ask, bar rounding.
+    # Under the old single-row rule every other named row landed at ZERO and
+    # nothing said so (measured: a 10% short_debt ask placing ₹0, with
+    # sleeve_clamped=False, pins_scaled=False, shortfall_reason=None).
+    #
+    # D-B5 (spec 2026-09-14) is unchanged and applies FIRST. `_subgroup_pins`
+    # never yields an excluded row, so an excluded row is never a participant
+    # and its share redistributes across the rows that remain. The DEFAULT home
+    # still reroutes when refused; only if every default home is refused is the
+    # class homeless, and then the sleeve is the sole debt vehicle and whatever
+    # it could not absorb is disclosed rather than silently placed.
+    for sg in DEBT_SUBGROUPS:
+        long_term_subgroup_amounts[sg] = 0
+    named_debt = {sg: amt for sg, amt in pins.items() if sg in DEBT_SUBGROUPS and amt > 0}
+    if named_debt:
+        long_term_subgroup_amounts.update(
+            _split_pro_rata(residual_debt_corpus, named_debt)
         )
-        if other_row in subgroup_excluded:
-            debt_unplaceable = residual_debt_corpus
-        else:
-            debt_row = other_row
-            debt_rerouted = True
-    long_term_subgroup_amounts["arbitrage_plus_income"] = 0
-    long_term_subgroup_amounts["short_debt"] = 0
-    if debt_unplaceable == 0:
-        long_term_subgroup_amounts[debt_row] = residual_debt_corpus
+    else:
+        # `arbitrage` is deliberately absent from the default order: plain
+        # arbitrage is a short/medium-term instrument, and Prozpr never routes
+        # long-term money there on its own (§4).
+        default_row = next(
+            (sg for sg in DEBT_DEFAULT_ORDER if sg not in subgroup_excluded), None
+        )
+        if default_row is not None:
+            long_term_subgroup_amounts[default_row] = residual_debt_corpus
     long_term_subgroup_amounts["gold_commodities"] = residual_other_corpus
 
     return _PracticalLongTermResult(
@@ -1022,9 +1148,34 @@ def run_practical_allocation(
         total_corpus=rebalancing_corpus,
     )
 
-    s1 = step1_emergency.run(sub_inp)
-    s2 = step2_short_term.run(sub_inp, s1.remaining_corpus)
-    s3 = step3_medium_term.run(sub_inp, s2.remaining_corpus)
+    prefs = inp.human_override
+    # D-B4: ANY preference, class or sub-group. A customer who only excludes
+    # gold must still get the commodity bound, or the sleeve would hand them
+    # back the gold they refused.
+    preference_set = prefs is not None and not prefs.is_empty()
+
+    if preference_set:
+        # Spec 2026-09-15 §3: a stated preference SUSPENDS the bucket carve-outs.
+        # If the customer has told us where their money goes, the engine is not
+        # also deciding to hold back an emergency reserve, a near-term goal pot,
+        # or an NFA liability offset. Steps 1-3 are replaced with zeroed outputs
+        # carrying the whole corpus forward, so the long-term step receives
+        # `rebalancing_corpus` intact.
+        #
+        # Two things fall out of it: `_lt_class_targets_from_overall` becomes the
+        # identity (nothing committed), and `_subgroup_pins` — which takes a raw
+        # % of total_corpus with no subtraction of what steps 1-3 placed in the
+        # same subgroups — can no longer double-count.
+        #
+        # Deliberately accepted: a goal under 60 months leaves the plan entirely
+        # (step 4 only selects >= 60 months), and a leveraged customer loses the
+        # liability offset. Both are disclosed — see human_override's
+        # suspended-buffer reason and `carve_outs_at_risk` on the screen.
+        s1, s2, s3 = _no_carveout_buckets(rebalancing_corpus)
+    else:
+        s1 = step1_emergency.run(sub_inp)
+        s2 = step2_short_term.run(sub_inp, s1.remaining_corpus)
+        s3 = step3_medium_term.run(sub_inp, s2.remaining_corpus)
 
     # Spec 2026-09-14 §4.1: the class preference targets the OVERALL portfolio.
     # Steps 1-3 have already committed rupees per class (emergency / short /
@@ -1045,11 +1196,6 @@ def run_practical_allocation(
     # step to read them off. The third return value is exactly
     # `"gold_commodities" in excluded`, and the long-term step reads D-B3 off
     # the exclusion set it already receives — so it is not carried separately.
-    prefs = inp.human_override
-    # D-B4: ANY preference, class or sub-group. A customer who only excludes
-    # gold must still get the commodity bound, or the sleeve would hand them
-    # back the gold they refused.
-    preference_set = prefs is not None and not prefs.is_empty()
     subgroup_pins, subgroup_excluded, gold_excluded = _subgroup_pins(
         prefs, float(inp.total_corpus)
     )
@@ -1110,6 +1256,9 @@ def run_practical_allocation(
         # the customer has to be told, so carry the flag into the disclosure.
         pins_scaled=s4_practical.pins_scaled,
         sleeve_clamped=s4_practical.sleeve_clamped,
+        # Spec 2026-09-15 §9: what the carve-out suspension actually cost this
+        # customer. Empty when nothing was at risk, and nothing is said.
+        carve_outs_suspended=carve_outs_at_risk(inp) if preference_set else [],
     )
     if applied is None:
         return built

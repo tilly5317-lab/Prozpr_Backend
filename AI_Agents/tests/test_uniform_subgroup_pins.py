@@ -11,7 +11,10 @@ _TESTS_DIR = Path(__file__).resolve().parent
 if str(_TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(_TESTS_DIR))
 
-from test_human_override_golden import make_practical_input  # noqa: E402
+from test_human_override_golden import (  # noqa: E402
+    make_practical_input,
+    trim_disclosure,
+)
 
 POOL = 10_000_000
 
@@ -854,11 +857,20 @@ class TestExcludedResidualRowsAreActuallyEmptied:
         assert abs(sum(rows.values()) - out.grand_total) < 1.0
 
     def test_the_debt_class_is_preserved_by_the_reroute(self):
-        """Re-routing must move the money, not destroy it."""
-        neutral, n_rows = self._run()
-        excl, e_rows = self._run(subgroup_emphasis={"arbitrage_plus_income": 0.0})
+        """Re-routing must move the money, not destroy it.
+
+        Both arms carry a preference, so both take the carve-outs-suspended
+        path (spec 2026-09-15 §3) and the ONLY difference between them is the
+        exclusion. A preference-free control would differ by the suspended
+        emergency buffer as well, and measure that instead of the reroute."""
+        mix = {"equity": 60.0, "debt": 30.0, "others": 10.0}
+        control, _ = self._run(asset_class_requested=mix)
+        excl, _ = self._run(
+            asset_class_requested=mix,
+            subgroup_emphasis={"arbitrage_plus_income": 0.0},
+        )
         assert abs(
-            neutral.asset_class_breakdown.recommended.debt_total_pct
+            control.asset_class_breakdown.recommended.debt_total_pct
             - excl.asset_class_breakdown.recommended.debt_total_pct
         ) < 0.5
 
@@ -886,11 +898,11 @@ class TestATrimmedPinIsNeverSilent:
         assert reason is not None and "multi-asset" in reason
 
     def test_a_multi_asset_pin_that_fits_is_not_disclosed(self):
-        assert self._run(multi_asset=20.0).human_override_applied.shortfall_reason is None
+        assert trim_disclosure(self._run(multi_asset=20.0).human_override_applied) is None
 
     def test_excluding_multi_asset_is_not_a_trim(self):
         """Zero is honoured exactly, so there is nothing to disclose."""
-        assert self._run(multi_asset=0.0).human_override_applied.shortfall_reason is None
+        assert trim_disclosure(self._run(multi_asset=0.0).human_override_applied) is None
 
     def test_over_subscribed_equity_pins_keep_their_own_wording(self):
         out = self._run(low_beta_equities=60.0, medium_beta_equities=60.0)
@@ -1080,7 +1092,7 @@ class TestADebtPinRoutesTheResidualToItsOwnRow:
         """A re-route that PLACES the pin is not a shortfall — only money the
         engine cannot place anywhere is."""
         _inp, out, _s4 = self._run({"short_debt": 40.0})
-        assert out.human_override_applied.shortfall_reason is None
+        assert trim_disclosure(out.human_override_applied) is None
 
     def test_excluding_the_pinned_row_is_impossible_but_an_exclusion_still_wins(self):
         """A share of 0 is an exclusion, never a pin, so the two can only meet
