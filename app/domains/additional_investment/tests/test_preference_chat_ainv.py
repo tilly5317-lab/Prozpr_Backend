@@ -207,9 +207,10 @@ def spy(monkeypatch):
     )
     state = {
         "changed": {"subgroups": {"high_beta_equities": "heavy"}},
-        "applied": SimpleNamespace(
-            achieved={"equity": 69.0, "debt": 26.0, "others": 5.0}, shortfall_reason=None
-        ),
+        "applied": SimpleNamespace(preference_applied=True, shortfall_reason=None),
+        # The ACHIEVED mix is the PAA run's own class breakdown (Task C2), not
+        # a field carried on human_override_applied.
+        "achieved": {"equity": 69.0, "debt": 26.0, "others": 5.0},
         "blocking": [None, None],
         "run_ids": [None, "candidate-run-id"],
     }
@@ -225,7 +226,16 @@ def spy(monkeypatch):
             run_id=run_id,
             blocking_message=blocking,
             deficit_facts=None,
-            practical_result=SimpleNamespace(human_override_applied=state["applied"]),
+            practical_result=SimpleNamespace(
+                human_override_applied=state["applied"],
+                asset_class_breakdown=SimpleNamespace(
+                    recommended=SimpleNamespace(
+                        equity_total_pct=state["achieved"]["equity"],
+                        debt_total_pct=state["achieved"]["debt"],
+                        others_total_pct=state["achieved"]["others"],
+                    )
+                ),
+            ),
         )
 
     async def fake_format(**kw):
@@ -326,9 +336,9 @@ async def test_save_hint_is_withheld_when_the_requested_run_did_not_persist(spy)
 
 async def test_shortfall_rides_on_the_preference_block(spy):
     spy["state"]["applied"] = SimpleNamespace(
-        achieved={"equity": 60.0, "debt": 35.0, "others": 5.0},
-        shortfall_reason="emergency buffer kept intact",
+        preference_applied=True, shortfall_reason="emergency buffer kept intact",
     )
+    spy["state"]["achieved"] = {"equity": 60.0, "debt": 35.0, "others": 5.0}
     ctx = _ainv_ctx()
     await chat_mod._handle_preference_what_if_ainv(
         ctx, 25000.0, chat_mod.Cadence.SIP_MONTHLY, [_ask("small_cap", "heavy")], None, None

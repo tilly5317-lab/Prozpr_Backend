@@ -57,8 +57,9 @@ class SavedInvestmentPreference(Base):
     debt_target_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     others_target_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # What we PROMISED: {subgroup: % share of its own class}, resolved once
-    # at save; 0 = hard exclusion. The engine's only subgroup input.
+    # What we PROMISED: {subgroup: % share of the WHOLE portfolio}, resolved
+    # once at save; 0 = hard exclusion. One basis everywhere (D-A3), so the
+    # engine reads this column verbatim. The engine's only subgroup input.
     resolved_targets: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     # What the customer SAID: the chips/words verbatim. Renders the screen
     # and powers save idempotence; never read by the engine.

@@ -16,13 +16,15 @@ def test_class_mix_passes_through_as_asset_class_requested():
     assert r.subgroup_emphasis == {}
 
 
-def test_pin_pct_of_total_converts_to_pct_of_class():
-    # large-cap 25% of total, equity 72% of total -> 25 / 0.72 = 34.7% of equity
+def test_pin_pct_of_total_is_stored_verbatim():
+    # D-A3: storage and the engine speak % of total too, so a large-cap ask of
+    # 25% of the portfolio is stored as 25 (it used to become 25 / 0.72 = 34.7%
+    # of the equity class, and be multiplied back on read).
     r = resolve_screen_preferences(
         {"equity": 72, "debt": 18, "others": 10},
         [{"subgroup": "low_beta_equities", "pct_of_total": 25}],
     )
-    assert r.subgroup_emphasis["low_beta_equities"] == pytest.approx(34.72, abs=0.1)
+    assert r.subgroup_emphasis["low_beta_equities"] == pytest.approx(25.0, abs=0.1)
 
 
 def test_class_mix_must_sum_to_100():
@@ -44,6 +46,28 @@ def test_pin_with_unsettable_subgroup_is_rejected():
             {"equity": 72, "debt": 18, "others": 10},
             [{"subgroup": "not_a_real_subgroup", "pct_of_total": 5}],
         )
+
+
+def test_multi_asset_is_a_settable_pin():
+    # D-A2: the sleeve is a sub-group like any other; 18% of total is stored
+    # as 18 (CLASS_OF files the sleeve as equity, which only gates the
+    # class-share check now — D-A3).
+    r = resolve_screen_preferences(
+        {"equity": 72, "debt": 18, "others": 10},
+        [{"subgroup": "multi_asset", "pct_of_total": 18}],
+    )
+    assert r.subgroup_emphasis["multi_asset"] == pytest.approx(18.0, abs=0.1)
+
+
+def test_locked_holding_rows_are_still_rejected():
+    # ELSS and direct stock are HOLDINGS the engine cannot trade, not
+    # preferences — unblocking the sleeve must not unblock them.
+    for sg in ("tax_efficient_equities", "non_mf_equities"):
+        with pytest.raises(ScreenPreferenceError):
+            resolve_screen_preferences(
+                {"equity": 72, "debt": 18, "others": 10},
+                [{"subgroup": sg, "pct_of_total": 5}],
+            )
 
 
 async def test_save_is_a_no_op_when_the_payload_is_unchanged(monkeypatch):
@@ -125,12 +149,13 @@ def test_catalog_lists_settable_subgroups_with_pct_of_total():
     assert cat["gold_commodities"].class_ == "others"
 
 
-def test_catalog_excludes_frozen_and_multi_asset():
+def test_catalog_offers_multi_asset_and_excludes_frozen_holdings():
     from app.domains.profile.services.screen_preference_service import subcategory_catalog
 
     out = _fake_run(1_000_000, [("multi_asset", 500_000), ("low_beta_equities", 150_000)])
-    ids = {c.id for c in subcategory_catalog(out)}
-    assert "multi_asset" not in ids
+    cat = {c.id: c for c in subcategory_catalog(out)}
+    assert cat["multi_asset"].recommended_pct_of_total == 50.0
+    assert "tax_efficient_equities" not in cat and "non_mf_equities" not in cat
 
 
 async def test_save_translates_persists_and_refreshes(monkeypatch):

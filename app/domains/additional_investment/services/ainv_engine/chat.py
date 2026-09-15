@@ -1050,7 +1050,9 @@ async def _handle_preference_what_if_ainv(
     try:
         prefs.fill_candidate_targets(
             candidate,
-            getattr(override_applied, "achieved", None),
+            # The achieved mix is the run's own class breakdown, not a field
+            # the engine carries (spec §6).
+            prefs.achieved_class_mix(requested.practical_result),
             shortfall_reason=getattr(override_applied, "shortfall_reason", None),
         )
         await ctx.db.flush()

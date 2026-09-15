@@ -73,13 +73,15 @@ def normalize_tilt(
 
 # Saved-preference resolution. ONE subgroup facet: the customer sets a
 # 5-state spectrum per subgroup — neutral (absent) / more / heavy / less /
-# none — resolved here into a share of that subgroup's OWN asset class.
-# Market-cap language (large/mid/small) is frontend display naming over the
-# beta subgroups; storage and the engine speak subgroups only. A bare
-# number in the map is an explicit target share (chat: "make gold 30%").
-SUBGROUP_STEP_PP = 10.0        # "more"/"less" move the class share this much
-HEAVY_STEP_PP = 20.0           # "heavy" = +20 — always strictly beyond "more"
-HEAVY_CLASS_FLOOR_PCT = 40.0   # ...and never below this dominant class share
+# none — resolved here into a share of the WHOLE portfolio (D-A3, the one
+# basis storage and the engine speak). Market-cap language (large/mid/small)
+# is frontend display naming over the beta subgroups; storage and the engine
+# speak subgroups only. A bare number in the map is an explicit target share
+# (chat: "make gold 30%"). The step sizes are UNCHANGED across the basis
+# switch (decision 2026-09-14) — a step is simply points of the portfolio now.
+SUBGROUP_STEP_PP = 10.0          # "more"/"less" move the share this many points
+HEAVY_STEP_PP = 20.0             # "heavy" = +20 — always strictly beyond "more"
+HEAVY_SUBGROUP_FLOOR_PCT = 40.0  # ...and never below this dominant share
 
 # Asset-class facet, same 5-state vocabulary as subgroups (option 1, 2026-09-04):
 # more = +DEFAULT_TILT_STEP_PP; heavy = at least this dominant share, or
@@ -99,7 +101,7 @@ def _resolve_subgroup_token(token, current_share_pct: float) -> float:
         return min(100.0, current_share_pct + SUBGROUP_STEP_PP)
     if token == "heavy":
         return min(
-            100.0, max(HEAVY_CLASS_FLOOR_PCT, current_share_pct + HEAVY_STEP_PP)
+            100.0, max(HEAVY_SUBGROUP_FLOOR_PCT, current_share_pct + HEAVY_STEP_PP)
         )
     if token == "less":
         return max(0.0, current_share_pct - SUBGROUP_STEP_PP)
@@ -122,7 +124,7 @@ def resolve_saved_preferences(
     """Turn the screen/chat qualitative intent into stored absolutes.
 
     ``current_subgroup_share_pct`` carries each subgroup's current share of
-    its own asset class (needed only when a relative token — more/heavy/less
+    the WHOLE portfolio (needed only when a relative token — more/heavy/less
     — is present). Runs ONLY when the intent changed (caller enforces —
     re-resolving an unchanged relative intent against an already-preferred
     mix would ratchet).
@@ -162,7 +164,7 @@ def resolve_saved_preferences(
         cur = float(current_subgroup_share_pct.get(sg, 0.0))
         emphasis[sg] = _resolve_subgroup_token(token, cur)
         if isinstance(token, str) and token != "none":
-            applied[sg] = f"{token} → {emphasis[sg]:.0f}% of class"
+            applied[sg] = f"{token} → {emphasis[sg]:.0f}% of portfolio"
 
     return ResolvedPreferences(
         asset_class_requested=class_mix,

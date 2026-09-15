@@ -40,8 +40,7 @@ class PreferenceAsk(BaseModel):
             "categories: large_cap / mid_cap / small_cap (any large/mid/small-cap "
             "wording), value, sector (sectoral/thematic), us_international (US, "
             "global, international, overseas funds), multi_asset (multi-asset / "
-            "hybrid funds — exclusion only), short_debt (liquid / short-term "
-            "debt), arbitrage. "
+            "hybrid funds), short_debt (liquid / short-term debt), arbitrage. "
             "Anything else (a named fund, 'banking funds', ESG, dividend) → other."
         )
     )
@@ -101,9 +100,6 @@ def build_intent(asks: Optional[list[PreferenceAsk]]) -> tuple[dict[str, Any], l
                 continue
             value = float(ask.number)
         kind, key = facet
-        if key == "multi_asset" and value != "none":
-            unmapped.append(words)
-            continue
         if kind == "asset_class":
             if "asset_class" in intent:
                 continue

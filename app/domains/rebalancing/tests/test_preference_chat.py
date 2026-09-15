@@ -17,10 +17,19 @@ CANDIDATE_ID = uuid.UUID("c0ffee00-aaaa-4bbb-8ccc-ddddeeee0001")
 
 
 def _applied(shortfall=None):
+    return SimpleNamespace(preference_applied=True, shortfall_reason=shortfall)
+
+
+def _practical(applied):
+    """The PAA output the chat reads: the ACHIEVED mix is its own class
+    breakdown (Task C2), not a field carried on human_override_applied."""
     return SimpleNamespace(
-        requested={"equity": 65.0, "debt": 27.0, "others": 8.0},
-        achieved={"equity": 64.0, "debt": 28.0, "others": 8.0},
-        shortfall_reason=shortfall,
+        human_override_applied=applied,
+        asset_class_breakdown=SimpleNamespace(
+            recommended=SimpleNamespace(
+                equity_total_pct=64.0, debt_total_pct=28.0, others_total_pct=8.0,
+            )
+        ),
     )
 
 
@@ -29,7 +38,7 @@ def _outcome(applied=None):
         blocking_message=None,
         response=SimpleNamespace(
             kind="stub-response",
-            practical_allocation=SimpleNamespace(human_override_applied=applied),
+            practical_allocation=_practical(applied),
             subgroups=[],
             model_dump=lambda mode=None: {"totals": {}},
         ),
@@ -277,7 +286,7 @@ async def test_tax_override_rides_alongside_the_preference(spy):
 async def test_fund_count_reshapes_the_requested_plan_before_persisting(spy, monkeypatch):
     reshaped = SimpleNamespace(
         totals=SimpleNamespace(funds_to_buy_count=4), kind="reshaped",
-        practical_allocation=SimpleNamespace(human_override_applied=_applied()),
+        practical_allocation=_practical(_applied()),
         subgroups=[], model_dump=lambda mode=None: {"totals": {"funds_to_buy_count": 4}},
     )
     monkeypatch.setattr("Rebalancing.consolidation.reshape_response",

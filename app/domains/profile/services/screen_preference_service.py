@@ -3,9 +3,9 @@
 The redesigned screen speaks percentages of the WHOLE portfolio: an explicit
 Equity / Debt / Commodity (`others`) split plus optional subcategory pins. This
 module turns that into the exact shape the allocation engine already consumes
-(`ResolvedPreferences`: `asset_class_requested` + `subgroup_emphasis` as a share
-of each subgroup's own class), and reads the saved row + a neutral run back out
-for the screen. No engine or DB change — see
+(`ResolvedPreferences`: `asset_class_requested` + `subgroup_emphasis`, both a
+share of the whole portfolio since D-A3), and reads the saved row + a neutral
+run back out for the screen. No engine or DB change — see
 `docs/superpowers/specs/2026-09-10-investment-preferences-s4-pct-screen-backend-design.md`.
 """
 
@@ -40,9 +40,10 @@ from practical_asset_allocation.human_override import (  # noqa: E402
 
 _CLASSES = ("equity", "debt", "others")
 _SUM_TOLERANCE = 0.5
-_SETTABLE_IDS = frozenset(
-    sg for sg in SETTABLE_SUBGROUPS if sg not in FROZEN_SUBGROUPS and sg != "multi_asset"
-)
+# Every sub-group is settable except the frozen HOLDINGS rows (ELSS, direct
+# stock) — the sleeve included (D-A2, 2026-09-14): a multi_asset pin sizes the
+# multi-asset fund, and a zero empties it.
+_SETTABLE_IDS = frozenset(sg for sg in SETTABLE_SUBGROUPS if sg not in FROZEN_SUBGROUPS)
 
 
 class ScreenPreferenceError(ValueError):
@@ -54,9 +55,9 @@ def resolve_screen_preferences(
 ) -> ResolvedPreferences:
     """Explicit `{class_mix}` (% of total) + `pins` (% of total) → `ResolvedPreferences`.
 
-    The class mix passes straight through as `asset_class_requested`; each pin's
-    share of the whole portfolio is converted to a share of its own asset class
-    (the engine's basis): ``pct_of_class = pct_of_total / (class_share / 100)``.
+    Both pass straight through: the engine speaks % of the whole portfolio too
+    (D-A3), so there is nothing left to convert. A pin is still checked against
+    its class share — the class split is the outer truth its class must honour.
     """
     mix = {c: float(class_mix.get(c, 0.0)) for c in _CLASSES}
     total = sum(mix.values())
@@ -80,7 +81,7 @@ def resolve_screen_preferences(
             raise ScreenPreferenceError(
                 f"Pinned categories inside {cls} exceed its {mix[cls]:.0f}% share."
             )
-        emphasis[sg] = round(pot / (mix[cls] / 100.0), 2) if mix[cls] > 0 else 0.0
+        emphasis[sg] = pot
 
     return ResolvedPreferences(
         asset_class_requested=mix,
@@ -117,8 +118,9 @@ def subcategory_catalog(out) -> list[ScreenSubcategory]:
 
 
 async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
-    """GET payload: the saved split (mapped back to % of total), the class-level
-    recommendation, and the subcategory catalog — from one neutral run."""
+    """GET payload: the saved split, the class-level recommendation, and the
+    subcategory catalog — from one neutral run. Everything is already % of
+    total, so the saved row is echoed back as-is."""
     from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
         build_practical_allocation_input_for_user,
     )
@@ -140,10 +142,9 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
     if row is not None and row.asset_class_requested is not None:
         mix = row.asset_class_requested
         pins: list[dict] = []
-        for sg, pct_of_class in (row.resolved_targets or {}).items():
-            cls = CLASS_OF.get(sg, "others")
-            pot = round(float(pct_of_class) * float(mix.get(cls, 0.0)) / 100.0, 1)
-            if pot > 0:
+        for sg, pct_of_total in (row.resolved_targets or {}).items():
+            pot = float(pct_of_total)
+            if pot > 0:  # a stored 0 is an exclusion, not a pin the screen shows
                 pins.append({"subgroup": sg, "pct_of_total": pot})
         saved = ScreenSaved(class_mix=mix, pins=pins, saved_at=row.activated_at)
 

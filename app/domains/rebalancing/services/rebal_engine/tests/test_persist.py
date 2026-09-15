@@ -109,10 +109,8 @@ async def test_persist_tags_preference_fk_when_override_applied(
     response = fixture_rebalancing_response.model_copy(update={
         "practical_allocation": fixture_rebalancing_response.practical_allocation.model_copy(
             update={
-                "human_override_applied": HumanOverrideApplied(
-                    requested={"equity": 80.0, "debt": 15.0, "others": 5.0},
-                    achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
-                )
+                # Its presence IS the "this run used a preference" signal.
+                "human_override_applied": HumanOverrideApplied()
             }
         )
     })
@@ -188,10 +186,8 @@ async def test_persist_explicit_none_never_borrows_the_active_row(
     response = fixture_rebalancing_response.model_copy(update={
         "practical_allocation": fixture_rebalancing_response.practical_allocation.model_copy(
             update={
-                "human_override_applied": HumanOverrideApplied(
-                    requested={"equity": 80.0, "debt": 15.0, "others": 5.0},
-                    achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
-                )
+                # Its presence IS the "this run used a preference" signal.
+                "human_override_applied": HumanOverrideApplied()
             }
         )
     })

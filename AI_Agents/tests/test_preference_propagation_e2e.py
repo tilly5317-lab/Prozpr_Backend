@@ -51,7 +51,11 @@ def test_constrained_customer_discloses_shortfall():
     )
     applied = out.human_override_applied
     assert applied is not None and applied.shortfall_reason is not None
-    assert applied.achieved["equity"] > applied.requested["equity"]
+    # Task C2: achieved is the run's own class breakdown, no longer carried.
+    assert (
+        out.asset_class_breakdown.recommended.equity_total_pct
+        > prefs.asset_class_requested["equity"]
+    )
 
 
 def test_preference_moves_the_ainv_subgroup_split():
@@ -123,7 +127,62 @@ def test_preference_moves_the_ainv_subgroup_split():
         )
     )
 
+    # Spec 2026-09-14: this used to assert a MAGNITUDE ("moves by more than
+    # N"), which went stale twice as the engine got more correct — once when
+    # the sleeve began sizing itself to the requested debt, and again when the
+    # commodity bound stopped it overshooting. The magnitude is a side-effect
+    # of sleeve sizing; the CONTRACT is that AINV has no preference code of its
+    # own and simply mirrors whatever foundation it is handed. Assert that.
     assert neutral < 0.25, "baseline deploy must not already be equity-dominated"
-    assert preferred > neutral + 0.20, (
-        "the preference must move the AINV deploy split, not just the target mix"
+
+    # 1. Direction: the preference genuinely reaches the deploy.
+    assert preferred > neutral, (
+        "an 80% equity ask must raise the equity share of the AINV deploy"
+    )
+
+    # 2. The contract itself: every deploy ratio equals that subgroup's share of
+    #    the foundation's LONG-TERM column (the documented mechanism — short and
+    #    medium are fulfilled here, so long_term is the target bucket). If AINV
+    #    ever grew preference logic of its own, this is what would break.
+    def _mirrors_the_foundation(practical_output) -> None:
+        subgroups = [
+            SubgroupBucketAmounts(**row.model_dump())
+            for row in practical_output.aggregated_subgroups
+        ]
+        eligible = {
+            s.subgroup: s.long_term
+            for s in subgroups
+            if s.subgroup not in _EXCLUDE_SUBGROUPS and s.long_term > 0
+        }
+        total = sum(eligible.values())
+        ranked = [
+            RankedFund(
+                asset_subgroup=sg, sub_category="Synthetic", rank=1,
+                isin=f"INF000{sg[:6]}", scheme_code=sg, recommended_fund=f"Fund {sg}",
+            )
+            for sg in eligible
+        ]
+        out = run_additional_investment(
+            AdditionalInvestmentInput(
+                deploy_amount_inr=100_000.0,
+                cadence=Cadence.SIP_MONTHLY,
+                subgroups=subgroups,
+                short_term_fulfilled=True,
+                medium_term_fulfilled=True,
+                ranked_funds=ranked,
+                default_cap_pct=100.0,
+                exclude_subgroups=set(_EXCLUDE_SUBGROUPS),
+            )
+        )
+        for t in out.per_subgroup_target:
+            assert abs(t.ratio - eligible[t.subgroup] / total) < 1e-6, (
+                f"{t.subgroup}: AINV ratio {t.ratio} does not mirror the "
+                f"foundation share {eligible[t.subgroup] / total}"
+            )
+
+    _mirrors_the_foundation(run_practical_allocation(make_practical_input()))
+    _mirrors_the_foundation(
+        run_practical_allocation(
+            make_practical_input().model_copy(update={"human_override": prefs})
+        )
     )

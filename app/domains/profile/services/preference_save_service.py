@@ -31,16 +31,18 @@ ensure_ai_agents_path()
 logger = logging.getLogger(__name__)
 
 # No-run-yet fallbacks (spec §4.4 One-run rule). Beta shares are % of the
-# equity CLASS, mirroring the engine's DEFAULT_CLASS_COMPOSITION constants.
+# equity CLASS.
 _FALLBACK_CLASS_MIX = {"equity": 60.0, "debt": 35.0, "others": 5.0}
-# Mirrors the engine's DEFAULT_CLASS_COMPOSITION constants (share of own class).
+# The reviewed neutral composition, as a share of the WHOLE portfolio (D-A3)
+# — the per-class composition (40/40/20, 60/40, 100) carried through
+# _FALLBACK_CLASS_MIX, so the six add to 100.
 _FALLBACK_SUBGROUP_SHARES = {
-    "low_beta_equities": 40.0,
-    "medium_beta_equities": 40.0,
-    "high_beta_equities": 20.0,
-    "short_debt": 60.0,
-    "arbitrage": 40.0,
-    "gold_commodities": 100.0,
+    "low_beta_equities": 24.0,     # 40% of the 60% equity class
+    "medium_beta_equities": 24.0,  # 40% of equity
+    "high_beta_equities": 12.0,    # 20% of equity
+    "short_debt": 21.0,            # 60% of the 35% debt class
+    "arbitrage": 14.0,             # 40% of debt
+    "gold_commodities": 5.0,       # 100% of the 5% commodity class
 }
 
 # Honest fallback when a blocked practical run carried no message of its own.
@@ -55,15 +57,15 @@ _RELATIVE_TOKENS = ("more", "heavy", "less")
 
 def _sole_settable_subgroup_by_class() -> dict:
     """{subgroup: class} for each class whose ONLY settable subgroup is that
-    one (today: gold_commodities → others). multi_asset excluded (it is a
-    fixed contributor, not a settable lever)."""
+    one (today: gold_commodities → others). Only the frozen HOLDINGS rows are
+    left out — they are not levers the customer can pull."""
     from practical_asset_allocation.human_override import (
         CLASS_OF, FROZEN_SUBGROUPS, SETTABLE_SUBGROUPS,
     )
 
     by_class: dict[str, list[str]] = {}
     for sg in SETTABLE_SUBGROUPS:
-        if sg in FROZEN_SUBGROUPS or sg == "multi_asset":
+        if sg in FROZEN_SUBGROUPS:
             continue
         by_class.setdefault(CLASS_OF.get(sg, "others"), []).append(sg)
     return {subs[0]: cls for cls, subs in by_class.items() if len(subs) == 1}
@@ -254,8 +256,8 @@ async def _current_mixes(db, user, *, need_subgroup_shares: bool):
     pre-existing persistence bug in write_asset_allocation_run.py). Only a
     relative subgroup token (more/heavy/less) forces one engine run
     (per-subgroup values aren't on the run row): ``need_subgroup_shares=True``
-    → one no-persist practical run, each row's share of its own migratable
-    class (the same basis ``_apply_emphasis`` uses). Fallbacks: class 60/35/5,
+    → one no-persist practical run, each row's share of the WHOLE portfolio
+    (the basis the engine honours sub-group asks in — D-A3). Fallbacks: class 60/35/5,
     subgroup shares from the engine's default class composition — used both
     when the user has no run yet AND when the latest run's mix is degenerate
     (sums to <= 0), so a corrupt/empty row can never silently resolve "more"
@@ -264,7 +266,7 @@ async def _current_mixes(db, user, *, need_subgroup_shares: bool):
     from app.domains.practical_asset_allocation.models.run import (
         PracticalAssetAllocationRun,
     )
-    from practical_asset_allocation.human_override import CLASS_OF, FROZEN_SUBGROUPS
+    from practical_asset_allocation.human_override import FROZEN_SUBGROUPS
 
     stmt = (
         select(PracticalAssetAllocationRun)
@@ -291,36 +293,26 @@ async def _current_mixes(db, user, *, need_subgroup_shares: bool):
         )
         result = outcome.result
         if result is not None:
-            # Base EXCLUDES multi_asset: it is a fixed contributor, not an
-            # adjustable peer (ruling 10 + finding #2), so a subgroup's
-            # "current share" must be a share of the migratable sleeve — the
-            # same basis _apply_emphasis targets.
-            class_base = {
-                cls: sum(
-                    r.total
-                    for r in result.aggregated_subgroups
-                    if CLASS_OF.get(r.subgroup, "others") == cls
-                    and r.subgroup not in FROZEN_SUBGROUPS
-                    and r.subgroup != "multi_asset"
-                )
-                for cls in ("equity", "debt", "others")
-            }
+            # Share of the WHOLE portfolio (D-A3) — the one basis storage, the
+            # screen catalog and the engine all speak, so "more gold" adds ten
+            # points of the portfolio and the stored number means the same
+            # thing wherever it is read. multi_asset is in: the sleeve is an
+            # adjustable peer now (D-A2). Only the frozen HOLDINGS rows stay
+            # out; the customer cannot move those.
+            grand = float(getattr(result, "grand_total", 0.0))
             # A run exists → the computed shares are the WHOLE truth. A
-            # subgroup with no row genuinely holds 0% of its class; the
+            # subgroup with no row genuinely holds 0% of the portfolio; the
             # resolver's .get(sg, 0.0) supplies that. The fallback must NOT
             # act as a per-subgroup floor here (it would resolve "more X" for
             # a customer holding no X off a fabricated baseline — moving real
             # money into a category they don't hold). Fallback is the
             # no-run-yet cold start only.
-            shares = {
-                r.subgroup: r.total
-                * 100.0
-                / class_base[CLASS_OF.get(r.subgroup, "others")]
-                for r in result.aggregated_subgroups
-                if r.subgroup not in FROZEN_SUBGROUPS
-                and r.subgroup != "multi_asset"
-                and class_base[CLASS_OF.get(r.subgroup, "others")] > 0
-            }
+            if grand > 0:
+                shares = {
+                    r.subgroup: r.total * 100.0 / grand
+                    for r in result.aggregated_subgroups
+                    if r.subgroup not in FROZEN_SUBGROUPS
+                }
 
     return class_mix, shares
 
@@ -338,13 +330,36 @@ async def _run_preferred(user, prefs):
     return outcome.result, outcome.blocking_message
 
 
+def achieved_class_mix(practical_output) -> Optional[dict]:
+    """The class mix the *_target_pct columns record — "what was achievable at
+    save time" — read off the run's FINAL breakdown. The engine stopped
+    carrying it on ``human_override_applied`` (spec §6); the breakdown was
+    always where that number came from. None when the run consumed no
+    preference, so a neutral run leaves the columns empty as before.
+    Tolerant of a None output (engine failure)."""
+    if practical_output is None:
+        return None
+    if getattr(practical_output, "human_override_applied", None) is None:
+        return None
+    block = getattr(
+        getattr(practical_output, "asset_class_breakdown", None), "recommended", None
+    )
+    if block is None:
+        return None
+    return {
+        "equity": block.equity_total_pct,
+        "debt": block.debt_total_pct,
+        "others": block.others_total_pct,
+    }
+
+
 def _preferred_view(preferred) -> tuple[Optional[dict], Optional[str]]:
     """(achieved, shortfall_reason) off a preferred practical output — tolerant
     of a None output (engine failure)."""
     applied = getattr(preferred, "human_override_applied", None) if preferred else None
     if applied is None:
         return None, None
-    return getattr(applied, "achieved", None), getattr(applied, "shortfall_reason", None)
+    return achieved_class_mix(preferred), getattr(applied, "shortfall_reason", None)
 
 
 def _new_row(user_id, intent, resolved, achieved, *, active: bool, supersedes_id=None):

@@ -48,11 +48,16 @@ from asset_allocation_pydantic.steps.step4_long_term import (
 from asset_allocation_pydantic.tables import (
     EQUITY_SUBGROUPS,
     LONG_TERM_BOUNDARY_MONTHS,
+    MULTI_ASSET_EQUITY_CAP_PCT,
     STEP4_SUBGROUPS,
     SUBGROUP_TO_ASSET_CLASS,
 )
 from asset_allocation_pydantic.utils import round_to_100
 from practical_asset_allocation.human_override import (
+    ASSET_CLASSES,
+    excludes,
+    CLASS_OF,
+    FROZEN_SUBGROUPS,
     HumanOverrideApplied,
     HumanOverridePreferences,
     apply_human_override,
@@ -220,6 +225,207 @@ class _PracticalLongTermResult:
     long_term_subgroup_amounts: dict[str, int]  # one entry per STEP4_SUBGROUPS
     goals_allocated: List[Goal]
     future_investment: Optional[FutureInvestment]
+    # D-A4 disclosure: the customer's pins over-drew a class room and had to
+    # scale down proportionally. Carried out of the engine so the output step
+    # can say so (Task C1) — a pin is never silently trimmed.
+    pins_scaled: bool = False
+    sleeve_clamped: bool = False
+
+
+def _committed_by_class(*steps) -> dict[str, float]:
+    """Rupees already allocated per asset class by the emergency / short /
+    medium steps (their ``subgroup_amounts``), rolled up via the subgroup→class
+    table. Direct indexing is deliberate: an unmapped subgroup must fail loud,
+    not be silently counted as commodity and skew the split. NOTE: the table
+    maps ``multi_asset`` flatly to equity; safe here because steps 1-3 only
+    ever emit debt subgroups, but do NOT reuse this for a bucket that could
+    hold multi_asset without splitting it by the fund composition first."""
+    out = {c: 0.0 for c in ASSET_CLASSES}
+    for s in steps:
+        for sg, amt in s.subgroup_amounts.items():
+            out[SUBGROUP_TO_ASSET_CLASS[sg]] += float(amt)
+    return out
+
+
+def _lt_class_targets_from_overall(
+    requested: dict[str, float],
+    total_corpus: float,
+    committed: dict[str, float],
+) -> dict[str, float]:
+    """Turn an OVERALL-portfolio class preference (% of total) into the
+    long-term step's class split (% of the LT corpus) — spec 2026-09-14 §4.1.
+
+    ``LT_target[c] = max(0, total × pref[c]/100 − committed[c])``, then the three
+    are scaled proportionally to fill the LT corpus exactly (D4). A class a
+    bucket already over-holds gets 0 here, so the overall lands at the
+    committed amount — what's already committed wins; step 6 discloses it
+    from the final numbers. With nothing committed this is the identity.
+    """
+    raw = {
+        c: max(0.0, total_corpus * requested[c] / 100.0 - committed.get(c, 0.0))
+        for c in ASSET_CLASSES
+    }
+    total = sum(raw.values())
+    if total <= 0:
+        # Degenerate: the buckets already hold everything the customer asked
+        # for. Fall back to the requested split rather than zeros, which phase
+        # 2's largest-absorbs-drift would turn into a surprising 100% equity.
+        return dict(requested)
+    return {c: raw[c] * 100.0 / total for c in ASSET_CLASSES}
+
+
+def _subgroup_pins(
+    prefs: Optional[HumanOverridePreferences],
+    total_corpus: float,
+) -> tuple[dict[str, int], frozenset[str], bool]:
+    """Turn the customer's sub-group asks into rupee pins — spec 2026-09-14 §5.
+
+    Returns ``(pins, excluded, gold_excluded)``. A share ``<= 0`` is a hard
+    exclusion, not a pin of zero: the row must be emptied, and phase 5 has to
+    drop it BEFORE the tilt or it gets quietly refilled.
+
+    ``gold_excluded`` is D-B3 surfaced to the caller. ``gold_commodities`` is
+    the only dedicated commodity vehicle, so excluding it leaves the commodity
+    class with no home — the caller must zero the commodity class before
+    sizing the sleeve (which by D-B2 then yields no sleeve at all) and
+    disclose it, since the multi-asset fund was delivering the debt
+    tax-efficiently. Debt needs no equivalent: excluding the debt bucket just
+    forces the sleeve to carry all the debt, which is feasible.
+
+    The frozen rows (ELSS, direct stock) are ignored — they are HOLDINGS the
+    engine cannot trade, not preferences. ``HumanOverridePreferences`` already
+    rejects them; skipping them here keeps the helper honest for any other
+    caller.
+
+    ``subgroup_emphasis`` is a share of the WHOLE portfolio (D-A3), so a pin
+    is one multiply against ``total_corpus`` and needs no class amounts —
+    which is what lets the caller size the long-term step in a single run.
+    """
+    pins: dict[str, int] = {}
+    excluded: set[str] = set()
+    emphasis = prefs.subgroup_emphasis if prefs is not None else {}
+    for sg, share in emphasis.items():
+        if sg in FROZEN_SUBGROUPS:
+            continue
+        if excludes(prefs, sg):
+            excluded.add(sg)
+            continue
+        pins[sg] = round_to_100(total_corpus * share / 100.0)
+    return pins, frozenset(excluded), "gold_commodities" in excluded
+
+
+def _fit_pins_to_room(
+    pins: dict[str, int],
+    room: int,
+) -> tuple[dict[str, int], bool]:
+    """Reconcile pins to the pool that has to hold them — D-A4.
+
+    Over-subscribed pins scale down PROPORTIONALLY and the bool comes back
+    True so the caller discloses it; a pin is never silently dropped. Returns
+    the pins untouched (and False) whenever they already fit.
+    """
+    total = sum(pins.values())
+    if not pins or total <= room:
+        return dict(pins), False
+    if room <= 0:
+        return {sg: 0 for sg in pins}, True
+    scaled = {sg: round_to_100(amt * room / total) for sg, amt in pins.items()}
+    # round_to_100 rounds half UP, so the scaled set can overshoot `room` by up
+    # to ₹50 a pin. Phase 5 raises when the pins exceed its pool, so shave the
+    # drift off the largest rather than hand the caller an unfittable set.
+    drift = sum(scaled.values()) - room
+    if drift > 0:
+        largest = max(scaled, key=lambda k: scaled[k])
+        scaled[largest] = max(0, scaled[largest] - drift)
+    return scaled, True
+
+
+def _sleeve_size(
+    deployable_equity: float,
+    debt: float,
+    others: float,
+    pins: dict[str, int],
+    eq_pct: float,
+    dt_pct: float,
+    oth_pct: float,
+    requested: Optional[int] = None,
+    preference_set: bool = False,
+) -> int:
+    """How large the multi-asset sleeve may be — the uniform min() (spec §5).
+
+    Gold and the long-term debt bucket are pure residuals of their class
+    (``others − 0.10×sleeve`` and ``debt − 0.25×sleeve``), so a pin on either
+    has the same shape as a pin on equity: a ceiling on the sleeve. Every
+    sub-group preference therefore collapses into one rule, and because each
+    residual is what the sleeve leaves behind, the min() guarantees no pin is
+    ever UNDER-satisfied — exactly one room binds and the rest come out at or
+    above their ask (D-A5). Never "correct" a residual back toward its pin;
+    that would strand rupees and break conservation.
+
+    ``eq_pct``/``dt_pct``/``oth_pct`` are the fund composition as FRACTIONS
+    (0.65 / 0.25 / 0.10), matching phase4_multi_asset's internals — plain
+    floats, so this stays pure arithmetic.
+
+    ``deployable_equity`` is the post-ELSS, post-direct-stock equity residual:
+    what can actually be bought. ``preference_set`` means ANY preference,
+    class or sub-group (D-B4). The caller must already have applied D-B3 —
+    with gold excluded, ``others`` arrives as 0 and the sleeve falls out at 0.
+    A sleeve the customer REFUSED arrives as ``requested=0`` and falls out the
+    same way; an absent ask is ``None``, which is not the same thing.
+
+    With ``requested=None``, no pins and ``preference_set=False`` this is
+    today's auto-size exactly; that equivalence is pinned by
+    TestSleeveSizeNoDrift and must never be relaxed.
+    """
+    INF = float("inf")
+
+    # Bucket the pins by the class that funds them. multi_asset is skipped on
+    # purpose: CLASS_OF maps it flatly to equity, but the sleeve IS the
+    # multi-asset ask and arrives as `requested` — counting it here too would
+    # charge it against the equity room twice.
+    equity_pins = sum(
+        amt
+        for sg, amt in pins.items()
+        if sg != "multi_asset" and CLASS_OF[sg] == "equity"
+    )
+    debt_pins = sum(amt for sg, amt in pins.items() if CLASS_OF[sg] == "debt")
+    others_pins = sum(amt for sg, amt in pins.items() if CLASS_OF[sg] == "others")
+
+    rooms = [
+        # EQUITY class — the sleeve's equity slice and the customer's equity
+        # pins are both funded out of the deployable equity residual.
+        (deployable_equity - equity_pins) / eq_pct if eq_pct > 0 else INF,
+        # DEBT class — what is left once the debt pin is set aside. Feasibility:
+        # a slice that over-draws its class is simply unaffordable.
+        (debt - debt_pins) / dt_pct if dt_pct > 0 else INF,
+    ]
+    if preference_set:
+        # COMMODITY class — bounded ONLY with a preference (D-B1). On the
+        # default path the others-gate can zero commodity, and bounding by
+        # others/0.10 = 0 would destroy a sleeve that is fine today. With a
+        # preference the class split is the outer truth, so the bound applies
+        # and the commodity target lands exactly.
+        rooms.append((others - others_pins) / oth_pct if oth_pct > 0 else INF)
+
+    if requested is None:
+        # DIVERSIFICATION cap — POLICY, not feasibility (D-A6): the engine's own
+        # "anchor without dominating" judgement, and the auto path's alone. A
+        # customer who names a sleeve size has made that judgement themselves,
+        # so a request drops this term and keeps only the three class rooms.
+        rooms.append(
+            (MULTI_ASSET_EQUITY_CAP_PCT * deployable_equity) / eq_pct
+            if eq_pct > 0
+            else INF
+        )
+    else:
+        rooms.append(float(requested))
+
+    candidate = min(rooms)
+    # Same guards as phase4_multi_asset: no equity or no debt to draw on means
+    # no sleeve, and an all-INF candidate means the fund holds neither.
+    if candidate == INF or candidate <= 0 or deployable_equity <= 0 or debt <= 0:
+        return 0
+    return round_to_100(candidate)
 
 
 def _run_practical_long_term(
@@ -230,6 +436,10 @@ def _run_practical_long_term(
     non_mf_equity_input: float,
     nfa: Optional[float],
     max_non_mf_equity_pct_client_input: Optional[float],
+    requested_class_pcts: Optional[dict[str, float]] = None,
+    subgroup_pins: Optional[dict[str, int]] = None,
+    subgroup_excluded: frozenset[str] = frozenset(),
+    preference_set: bool = False,
 ) -> _PracticalLongTermResult:
     """Long-term step — Excel R157-R222. Holdings-aware.
 
@@ -240,6 +450,18 @@ def _run_practical_long_term(
       Task 8  (R187-R194): multi-asset block.
       Task 9  (R196-R215): equity subgroup gates, slider, amounts.
       Task 10 (R217-R222): debt and others residuals.
+
+    ``subgroup_pins`` are the customer's sub-group asks in RUPEES and
+    ``subgroup_excluded`` the rows they emptied (spec 2026-09-14 §5). Every pin
+    — equity category, gold, the debt bucket or the sleeve itself — is one
+    thing: a ceiling on how large the multi-asset sleeve may be, because gold
+    and the long-term debt bucket are pure residuals of their class. Only the
+    equity pins are PLACED (phase 5); the gold and debt asks stay residuals and
+    D-A5 guarantees the residual lands at or above the ask.
+
+    ``preference_set`` means ANY preference, class or sub-group (D-B4). It is
+    the switch between the default path — which must stay byte-identical — and
+    the preference path, so it gates the sleeve request, never the pins alone.
     """
     # R-pre: filter long-term goals using LONG_TERM_BOUNDARY_MONTHS (same
     # operator as upstream step4_long_term.run). Emit FutureInvestment when
@@ -313,9 +535,15 @@ def _run_practical_long_term(
         )
 
     # R170: market-view tilt → phase2_asset_class_pcts (reused upstream).
+    # With a customer class preference the requested split IS the output —
+    # tilt and both others-gates bypassed (spec 2026-09-14 D3). Everything
+    # below (ELSS floor, pro-rata redistribution, amounts) runs unchanged, and
+    # because the redistribution uses these same raws, a floored equity keeps
+    # the customer's own debt:others ratio (D4) for free.
     a2_eq_pct_raw, a2_debt_pct_raw, a2_oth_pct_raw = phase2_asset_class_pcts(
         bounds_for_phase2,
         inp.market_commentary,
+        requested_class_pcts=requested_class_pcts,
     )
 
     # R171: ELSS floor lifts equity allocation if needed.
@@ -367,6 +595,21 @@ def _run_practical_long_term(
         debt_amount = max(0, amounts_by_name["dt"])
         others_amount = max(0, amounts_by_name["oth"])
 
+    # D-B3: gold_commodities is the only DEDICATED commodity vehicle, so
+    # excluding it leaves the commodity class with no home — and parking the
+    # class in the sleeve instead is infeasible (an 8% commodity ask would need
+    # a sleeve worth 80% of the corpus, whose 25% debt slice breaks any sane
+    # debt target). The class therefore goes to ZERO here, which by D-B2 also
+    # zeroes the sleeve: the sleeve is 10% commodity by construction, so "no
+    # gold" really does mean "no multi-asset fund". The freed rupees go to
+    # EQUITY, not debt — the debt target is the customer's own number and must
+    # still land, delivered by dedicated debt funds once the sleeve is gone.
+    if "gold_commodities" in subgroup_excluded and others_amount > 0:
+        equities_amount += others_amount
+        others_amount = 0
+        allocation_2_equity_pct += allocation_2_others_pct
+        allocation_2_others_pct = 0
+
     # R180: ELSS frozen amount.
     elss_amount_frozen = int(round(elss_amount))
 
@@ -406,17 +649,94 @@ def _run_practical_long_term(
         equities_amount - non_mf_equity_actual - elss_amount_frozen,
     )
 
+    # Reconcile the pins to the class rooms BEFORE sizing the sleeve: the class
+    # split is the outer truth and locked holdings outrank an ask (D-A4).
+    # Over-subscribed pins scale down proportionally and set the disclosure
+    # flag — never silently dropped.
+    pins = dict(subgroup_pins or {})
+    pins_scaled = False
+    sleeve_clamped = False
+    if pins:
+        pin_rooms = {
+            # Equity pins are funded out of what can actually be BOUGHT: the
+            # locked ELSS and direct-stock rupees are already carved off here.
+            "equity": residual_equity_corpus_pre_multi_asset,
+            "debt": debt_amount,
+            "others": others_amount,
+        }
+        fitted: dict[str, int] = {}
+        for cls, room in pin_rooms.items():
+            # multi_asset is held out: CLASS_OF files it under equity, but it
+            # is the sleeve ASK rather than a claim on the equity pool, and
+            # _sleeve_size clamps it against all three class rooms itself.
+            group = {
+                sg: amt
+                for sg, amt in pins.items()
+                if sg != "multi_asset" and CLASS_OF[sg] == cls
+            }
+            if not group:
+                continue
+            group, scaled = _fit_pins_to_room(group, room)
+            pins_scaled = pins_scaled or scaled
+            fitted.update(group)
+        if "multi_asset" in pins:
+            fitted["multi_asset"] = pins["multi_asset"]
+        pins = fitted
+
     # R187: multi-asset block. The upstream helper already caps the multi-asset
     # equity slice at MULTI_ASSET_EQUITY_CAP_PCT and rounds to 100. We feed it
     # the practical RESIDUAL equity (post-ELSS, post-non-MF) rather than
     # equities_amount, so the multi-asset cap respects what we can actually
     # deploy via MFs.
-    multi_asset_block = phase4_multi_asset(
-        equities_amount=residual_equity_corpus_pre_multi_asset,
-        debt_amount=debt_amount,
-        others_amount=others_amount,
-        composition=inp.multi_asset_composition,
-    )
+    comp = inp.multi_asset_composition
+    if preference_set:
+        # THE UNIFORM CARVE (spec §5): one min() fixes the sleeve and every
+        # residual falls out of it. `requested_amount` is passed ONLY on this
+        # branch. phase 4's REQUESTED path clamps by the commodity room while
+        # its AUTO path does not, and on the default path the others-gate can
+        # legitimately zero commodity — the risk-9.5 profile runs a ₹1.1cr
+        # sleeve with others == 0 — so handing the default path a request would
+        # collapse that sleeve to nothing. Hence the branch, not a default arg.
+        #
+        # A REFUSED sleeve is a sleeve of zero, not an absent ask (D-A2): an
+        # exclusion leaves no `multi_asset` key among the pins, so without this
+        # the request would be None and the sleeve would auto-size straight
+        # back to the fund the customer declined. Its slices simply return to
+        # the dedicated rows of the classes that were funding them.
+        requested_sleeve = (
+            0 if "multi_asset" in subgroup_excluded else pins.get("multi_asset")
+        )
+        sized_sleeve = _sleeve_size(
+            deployable_equity=residual_equity_corpus_pre_multi_asset,
+            debt=debt_amount,
+            others=others_amount,
+            pins=pins,
+            eq_pct=comp.equity_pct / 100.0,
+            dt_pct=comp.debt_pct / 100.0,
+            oth_pct=comp.others_pct / 100.0,
+            requested=requested_sleeve,
+            preference_set=True,
+        )
+        # D-A4: a pin that had to be trimmed is never silent. A multi-asset ask
+        # is held out of _fit_pins_to_room (it is one fund, not a share of a
+        # class pool), so its own trim has to be noticed here — the class rooms
+        # in _sleeve_size can clamp it below what the customer asked for.
+        if requested_sleeve and sized_sleeve < requested_sleeve:
+            sleeve_clamped = True
+        multi_asset_block = phase4_multi_asset(
+            equities_amount=residual_equity_corpus_pre_multi_asset,
+            debt_amount=debt_amount,
+            others_amount=others_amount,
+            composition=comp,
+            requested_amount=sized_sleeve,
+        )
+    else:
+        multi_asset_block = phase4_multi_asset(
+            equities_amount=residual_equity_corpus_pre_multi_asset,
+            debt_amount=debt_amount,
+            others_amount=others_amount,
+            composition=comp,
+        )
 
     # R193: overflow redistribution. When the multi-asset others slice exceeds
     # the budgeted others_amount, the excess is split between equity (residual)
@@ -464,10 +784,28 @@ def _run_practical_long_term(
     # R196-R200: equity subgroup allocation via upstream phase5_equity_subgroups.
     # This already applies the sector/value view-<= 7 gates and the upstream
     # PHASE5_MIN_SUBGROUP_SHARE_PCT (2%) internal drop.
+    # Only the EQUITY pins are placed here — gold and the debt bucket stay
+    # residuals of their class (D-A5), and writing a pin in directly would
+    # strand the rest of the class.
+    equity_pins = {sg: amt for sg, amt in pins.items() if sg in EQUITY_SUBGROUPS}
+    if equity_pins:
+        # round_to_100 rounds half UP, so the sleeve's equity slice can land up
+        # to ~₹100 past the room the pins left behind. Phase 5 REFUSES to
+        # truncate a customer's number (it raises), so re-fit against the pool
+        # that actually has to hold them.
+        equity_pins, scaled = _fit_pins_to_room(
+            equity_pins, residual_equity_corpus_final
+        )
+        pins_scaled = pins_scaled or scaled
+    equity_excluded = frozenset(
+        sg for sg in subgroup_excluded if sg in EQUITY_SUBGROUPS
+    )
     initial_subgroup_amounts = phase5_equity_subgroups(
         total_equity_for_subgroups=residual_equity_corpus_final,
         score=inp.effective_risk_score,
         market_commentary=inp.market_commentary,
+        requested_amounts=equity_pins or None,
+        excluded=equity_excluded or None,
     )
 
     # R198-R215: v2 average-based slider via shared helper (single source of
@@ -491,6 +829,9 @@ def _run_practical_long_term(
             equities_amount=equities_amount,
             locked_amount=elss_amount_frozen + non_mf_equity_actual,
             share_denominator=total_equity_pool_for_shares,
+            # D-A1: the slider stops the ENGINE producing dust; a number the
+            # customer typed is not the engine's to police.
+            exempt=frozenset(equity_pins),
         )
     )
 
@@ -500,16 +841,22 @@ def _run_practical_long_term(
         equity_subgroup_amounts[sg] = amt
 
     # Reconcile any residual rounding drift against residual_equity_corpus_final.
+    # Never park it on a PINNED row — the customer's number has to come out
+    # exactly as they typed it (D-A1) — so prefer an engine-filled row and fall
+    # back to the pins only if nothing else is holding money.
     drift = residual_equity_corpus_final - sum(equity_subgroup_amounts.values())
-    if drift != 0 and any(v > 0 for v in equity_subgroup_amounts.values()):
-        largest_sg = max(
-            equity_subgroup_amounts,
-            key=lambda k: equity_subgroup_amounts[k],
-        )
-        equity_subgroup_amounts[largest_sg] = max(
-            0,
-            equity_subgroup_amounts[largest_sg] + drift,
-        )
+    if drift != 0:
+        holders = {
+            sg: amt
+            for sg, amt in equity_subgroup_amounts.items()
+            if amt > 0 and sg not in equity_pins
+        } or {sg: amt for sg, amt in equity_subgroup_amounts.items() if amt > 0}
+        if holders:
+            largest_sg = max(holders, key=lambda k: holders[k])
+            equity_subgroup_amounts[largest_sg] = max(
+                0,
+                equity_subgroup_amounts[largest_sg] + drift,
+            )
 
     # R220-R222: gold / commodities = others budget minus what the multi-asset
     # fund's own others slice already absorbed (less any excess we already
@@ -530,8 +877,26 @@ def _run_practical_long_term(
     # Spec §B.5 step 11: long-term debt residual ALWAYS routes to
     # arbitrage_plus_income; the tax-rate gate on debt routing applies to
     # medium-term only (asset_allocation Part A.4).
-    long_term_subgroup_amounts["arbitrage_plus_income"] = residual_debt_corpus
-    long_term_subgroup_amounts["short_debt"] = 0  # explicit zero
+    #
+    # D-B5 (spec 2026-09-14): unless the customer excluded that row. The debt
+    # class has TWO homes, so an exclusion re-routes to the other bucket rather
+    # than stranding money in a fund they refused — step 6 used to do this, and
+    # it no longer reshapes. Only if BOTH are excluded is the class homeless;
+    # then the sleeve is the sole debt vehicle and whatever it could not absorb
+    # is disclosed rather than silently placed.
+    debt_row = "arbitrage_plus_income"
+    debt_rerouted = False
+    debt_unplaceable = 0
+    if debt_row in subgroup_excluded:
+        if "short_debt" in subgroup_excluded:
+            debt_unplaceable = residual_debt_corpus
+        else:
+            debt_row = "short_debt"
+            debt_rerouted = True
+    long_term_subgroup_amounts["arbitrage_plus_income"] = 0
+    long_term_subgroup_amounts["short_debt"] = 0
+    if debt_unplaceable == 0:
+        long_term_subgroup_amounts[debt_row] = residual_debt_corpus
     long_term_subgroup_amounts["gold_commodities"] = residual_other_corpus
 
     return _PracticalLongTermResult(
@@ -567,6 +932,8 @@ def _run_practical_long_term(
         long_term_subgroup_amounts=long_term_subgroup_amounts,
         goals_allocated=lt_goals,
         future_investment=future_investment,
+        pins_scaled=pins_scaled,
+        sleeve_clamped=sleeve_clamped,
     )
 
 
@@ -580,9 +947,12 @@ def run_practical_allocation(
       1. ELSS freeze — subtract elss_corpus to get rebalancing_corpus.
       2. Build sub-AllocationInput with total_corpus = rebalancing_corpus.
       3. Run upstream steps 1-3 (emergency, short-term, medium-term) verbatim.
-      4. Run _run_practical_long_term (Excel R157-R222) for the long-term step.
-      5. Aggregate with step5_aggregation_with_frozen (adds two frozen rows).
-      6. Assemble PracticalAllocationOutput.
+      4. Convert a class preference from an OVERALL-portfolio ask into the
+         long-term split, subtracting what steps 1-3 already committed
+         (_lt_class_targets_from_overall) — spec 2026-09-14.
+      5. Run _run_practical_long_term (Excel R157-R222) for the long-term step.
+      6. Aggregate with step5_aggregation_with_frozen (adds two frozen rows).
+      7. Assemble PracticalAllocationOutput.
 
     If `trace` is provided (any dict), populated in-place with intermediate
     state for downstream Excel-comparison views — never affects the return value.
@@ -606,6 +976,34 @@ def run_practical_allocation(
     s2 = step2_short_term.run(sub_inp, s1.remaining_corpus)
     s3 = step3_medium_term.run(sub_inp, s2.remaining_corpus)
 
+    # Spec 2026-09-14 §4.1: the class preference targets the OVERALL portfolio.
+    # Steps 1-3 have already committed rupees per class (emergency / short /
+    # medium buckets), so the long-term step is asked for the REMAINDER; a
+    # class a bucket already over-holds gets 0 here and is disclosed downstream.
+    requested_lt_class_pcts: Optional[dict[str, float]] = None
+    if inp.human_override is not None and inp.human_override.asset_class_requested:
+        requested_lt_class_pcts = _lt_class_targets_from_overall(
+            inp.human_override.asset_class_requested,
+            float(inp.total_corpus),
+            _committed_by_class(s1, s2, s3),
+        )
+
+    # Spec 2026-09-14 §5: a sub-group ask is an INPUT to the phase that decides
+    # it, not a post-hoc reshape. Asks are stored as a share of the WHOLE
+    # portfolio (D-A3), so a pin is one multiply against total_corpus — no
+    # class amounts needed, and hence no pin-free probe run of the long-term
+    # step to read them off. The third return value is exactly
+    # `"gold_commodities" in excluded`, and the long-term step reads D-B3 off
+    # the exclusion set it already receives — so it is not carried separately.
+    prefs = inp.human_override
+    # D-B4: ANY preference, class or sub-group. A customer who only excludes
+    # gold must still get the commodity bound, or the sleeve would hand them
+    # back the gold they refused.
+    preference_set = prefs is not None and not prefs.is_empty()
+    subgroup_pins, subgroup_excluded, gold_excluded = _subgroup_pins(
+        prefs, float(inp.total_corpus)
+    )
+
     s4_practical = _run_practical_long_term(
         inp=sub_inp,
         remaining_corpus=s3.remaining_corpus,
@@ -613,6 +1011,10 @@ def run_practical_allocation(
         non_mf_equity_input=inp.non_mf_equity_corpus,
         nfa=inp.net_financial_assets,
         max_non_mf_equity_pct_client_input=inp.max_non_mf_equity_pct_client_input,
+        requested_class_pcts=requested_lt_class_pcts,
+        subgroup_pins=subgroup_pins,
+        subgroup_excluded=subgroup_excluded,
+        preference_set=preference_set,
     )
 
     s5 = _step5_aggregation_with_frozen(
@@ -651,7 +1053,13 @@ def run_practical_allocation(
 
     built = _build_output(inp, s1, s2, s3, s4_practical, s5)
     reshaped, applied = apply_human_override(
-        built, inp.human_override, inp.multi_asset_composition
+        built,
+        inp.human_override,
+        inp.multi_asset_composition,
+        # D-A4: the engine scaled over-subscribed pins down to fit their class;
+        # the customer has to be told, so carry the flag into the disclosure.
+        pins_scaled=s4_practical.pins_scaled,
+        sleeve_clamped=s4_practical.sleeve_clamped,
     )
     if applied is None:
         return built
@@ -708,6 +1116,8 @@ def _practical_lt_result_to_dict(r: _PracticalLongTermResult) -> dict:
         # R217-R222 (Task 10 — debt & others residuals)
         "residual_other_corpus": r.residual_other_corpus,
         "long_term_subgroup_amounts": dict(r.long_term_subgroup_amounts),
+        "pins_scaled": r.pins_scaled,
+        "sleeve_clamped": r.sleeve_clamped,
         "goals_allocated": [g.model_dump(mode="json") for g in r.goals_allocated],
         "future_investment": (
             r.future_investment.model_dump(mode="json")

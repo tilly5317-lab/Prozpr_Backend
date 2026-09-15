@@ -71,10 +71,8 @@ def test_handle_passes_preference_fk_to_persist():
     )
     from practical_asset_allocation.human_override import HumanOverrideApplied
 
-    applied = HumanOverrideApplied(
-        requested={"equity": 80.0, "debt": 15.0, "others": 5.0},
-        achieved={"equity": 78.0, "debt": 17.0, "others": 5.0},
-    )
+    # Its presence IS the "this run used a preference" signal.
+    applied = HumanOverrideApplied()
     outcome = PracticalAllocationRunOutcome(result=_result(applied))
     persist = AsyncMock(return_value=uuid.uuid4())
     pref_id = uuid.uuid4()

@@ -1149,11 +1149,11 @@ async def _handle_preference_what_if(
             if action.target_fund_count and bumped and bumped > action.target_fund_count:
                 applied["fund_count_bumped_to"] = bumped
 
-    override_applied = getattr(
-        getattr(requested_response, "practical_allocation", None),
-        "human_override_applied", None,
-    )
-    achieved = getattr(override_applied, "achieved", None)
+    practical = getattr(requested_response, "practical_allocation", None)
+    override_applied = getattr(practical, "human_override_applied", None)
+    # The achieved mix is the run's own class breakdown, not a field the
+    # engine carries (spec §6).
+    achieved = prefs.achieved_class_mix(practical)
     shortfall = getattr(override_applied, "shortfall_reason", None)
 
     # Candidate row first (the run FKs it), then the candidate run, then the

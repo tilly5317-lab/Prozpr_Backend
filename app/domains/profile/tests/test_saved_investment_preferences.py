@@ -808,8 +808,9 @@ class TestCurrentMixesBaseline:
 
     async def test_unheld_subgroup_resolves_off_zero_not_fallback(self, session, monkeypatch):
         """C2: when a run exists, a subgroup with no row genuinely holds 0% of
-        its class — it must NOT inherit the no-run-yet fallback share (which
-        would move ~half a sleeve into a category the customer holds none of)."""
+        the portfolio — it must NOT inherit the no-run-yet fallback share
+        (which would move ~half a sleeve into a category the customer holds
+        none of). D-A3: the share is of the WHOLE portfolio, not of its class."""
         from types import SimpleNamespace
         from app.domains.profile.services import preference_save_service as svc
 
@@ -821,7 +822,9 @@ class TestCurrentMixesBaseline:
 
         async def _fake_compute(*a, **k):
             return SimpleNamespace(
-                result=SimpleNamespace(aggregated_subgroups=rows),
+                result=SimpleNamespace(
+                    aggregated_subgroups=rows, grand_total=2_000_000.0
+                ),
                 blocking_message=None,
             )
 
@@ -830,7 +833,8 @@ class TestCurrentMixesBaseline:
         assert shares.get("high_beta_equities", 0.0) == 0.0, (
             "an unheld subgroup must be 0, not the fabricated fallback"
         )
-        assert abs(shares["low_beta_equities"] - 100.0) < 0.1
+        # ₹10L of a ₹20L portfolio = 50% of TOTAL (it was 100% of its class).
+        assert abs(shares["low_beta_equities"] - 50.0) < 0.1
 
     async def test_degenerate_zero_row_falls_back_to_neutral_mix(self, session):
         from app.domains.profile.services import preference_save_service as svc

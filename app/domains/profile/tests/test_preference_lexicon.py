@@ -38,12 +38,14 @@ def test_category_words_map_to_their_subgroups():
     }
 
 
-def test_multi_asset_accepts_only_exclusion():
-    # The engine never moves multi_asset (S1 ruling 13) — a more/heavy/less on
-    # it would be a silent no-op, so it is reported unmapped instead.
-    for level in ("more", "heavy", "less"):
+def test_multi_asset_takes_every_level_like_any_other_subgroup():
+    # D-A2 (2026-09-14): the sleeve is a settable sub-group now — a pin on it
+    # sizes the multi-asset fund, so no level is a no-op any more.
+    for level in ("more", "heavy", "less", "none"):
         intent, unmapped = _build([_ask("multi_asset", level)])
-        assert intent == {} and unmapped == ["multi asset"], level
+        assert intent == {"subgroups": {"multi_asset": level}} and unmapped == [], level
+    intent, unmapped = _build([_ask("multi_asset", "number", number=15)])
+    assert intent == {"subgroups": {"multi_asset": 15.0}} and unmapped == []
 
 
 def test_class_words_map_to_the_asset_class_facet():
