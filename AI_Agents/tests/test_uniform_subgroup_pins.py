@@ -946,3 +946,149 @@ class TestTheDisclosureNamesTheRealCause:
         )
         reason = self._run(clean, gold_commodities=0.0).human_override_applied.shortfall_reason
         assert "asked 8%" in reason and "landed 0.0%" in reason
+
+
+class TestAPinNeverAbsorbsTheSliderFreedRoom:
+    """D-A1 — a pin large enough to leave only slivers behind must still come
+    out exactly as typed.
+
+    The slider's drop bar is measured against the TOTAL equity pool (the
+    sleeve included), so once a big pin has taken most of the equity room
+    EVERY remaining engine row can fall under it at once. The slider then
+    correctly returns them all as zero — there is no survivor to redistribute
+    to. That freed money is real corpus, not rounding noise: parking it on
+    the pinned row hands the customer 55% of their portfolio in a category
+    they asked 45% for, with no disclosure. It belongs back in the engine's
+    own pre-slider split.
+    """
+
+    # 45% of the WHOLE portfolio in large-cap on a high-risk 85/10/5 ask: the
+    # pin takes ~82% of the deployable equity residual, leaving three engine
+    # rows at 2-5% of the total equity pool — all under the 8% bar.
+    CORPUS = 28_930_900.0
+    CLASS = {"equity": 85.0, "debt": 10.0, "others": 5.0}
+
+    def _run(self):
+        return _run(
+            self.CLASS,
+            {"low_beta_equities": 45.0},
+            total_corpus=self.CORPUS,
+            net_financial_assets=self.CORPUS,
+            mf_corpus=self.CORPUS - 2_000_000.0,
+            effective_risk_score=9.4,
+        )
+
+    def test_the_slider_really_does_zero_every_non_pinned_row(self):
+        """The trigger this class exists for. If this stops holding, the rest
+        of the class is no longer testing what it claims to."""
+        from asset_allocation_pydantic.equity_subgroup_slider import (
+            apply_equity_subgroup_slider,
+        )
+
+        _inp, _out, s4 = self._run()
+        pre = s4["initial_equity_subgroup_amounts"]
+        assert pre["low_beta_equities"] > 0
+        assert sum(a for sg, a in pre.items() if sg != "low_beta_equities") > 0
+        policed, _min_pct, _avg = apply_equity_subgroup_slider(
+            pre,
+            equity_pool=s4["residual_equity_corpus_final"],
+            equities_amount=s4["equities_amount"],
+            locked_amount=s4["elss_amount_frozen"] + s4["non_mf_equity_actual"],
+            share_denominator=s4["equity_share_denominator"],
+            exempt=frozenset({"low_beta_equities"}),
+        )
+        assert all(
+            amt == 0 for sg, amt in policed.items() if sg != "low_beta_equities"
+        ), "the slider is expected to drop every non-pinned row in this scenario"
+
+    def test_the_pin_comes_out_exactly_as_asked(self):
+        inp, _out, s4 = self._run()
+        assert s4["equity_subgroup_amounts"]["low_beta_equities"] == _pin_of(inp, 45.0)
+
+    def test_the_pinned_share_of_the_portfolio_is_the_share_asked_for(self):
+        _inp, _out, s4 = self._run()
+        placed = s4["equity_subgroup_amounts"]["low_beta_equities"]
+        assert abs(placed * 100.0 / self.CORPUS - 45.0) < 0.5
+
+    def test_the_freed_room_goes_back_to_the_engines_own_split(self):
+        """Phase 5 always spends the whole pool, so the pre-slider split is
+        exactly the freed room — restoring it conserves every rupee."""
+        _inp, _out, s4 = self._run()
+        assert s4["equity_subgroup_amounts"] == s4["initial_equity_subgroup_amounts"]
+
+    def test_no_rupee_is_created_or_destroyed(self):
+        _inp, _out, s4 = self._run()
+        assert (
+            sum(s4["equity_subgroup_amounts"].values())
+            == s4["residual_equity_corpus_final"]
+        )
+
+
+class TestADebtPinRoutesTheResidualToItsOwnRow:
+    """D-A5 promises the debt residual lands AT or ABOVE the ask — which can
+    only be true if it lands in the row the customer named. The long-term
+    debt residual used to be hard-wired to ``arbitrage_plus_income`` and only
+    ever re-routed for an EXCLUSION (D-B5), so a customer who pinned
+    ``short_debt`` got zero rupees in it and no disclosure."""
+
+    CORPUS = 28_930_900.0
+    CLASS = {"equity": 25.0, "debt": 65.0, "others": 10.0}
+
+    def _run(self, emphasis=None):
+        return _run(
+            self.CLASS,
+            emphasis,
+            total_corpus=self.CORPUS,
+            net_financial_assets=self.CORPUS,
+            mf_corpus=self.CORPUS - 2_000_000.0,
+        )
+
+    def test_a_short_debt_pin_is_where_the_residual_lands(self):
+        _inp, _out, s4 = self._run({"short_debt": 40.0})
+        lt = s4["long_term_subgroup_amounts"]
+        assert lt["short_debt"] == s4["residual_debt_corpus"]
+        assert lt["arbitrage_plus_income"] == 0
+
+    def test_the_short_debt_residual_is_at_or_above_the_ask(self):
+        inp, _out, s4 = self._run({"short_debt": 40.0})
+        assert s4["long_term_subgroup_amounts"]["short_debt"] >= _pin_of(inp, 40.0)
+
+    def test_pinning_the_default_row_still_lands_there(self):
+        _inp, _out, s4 = self._run({"arbitrage_plus_income": 40.0})
+        lt = s4["long_term_subgroup_amounts"]
+        assert lt["arbitrage_plus_income"] == s4["residual_debt_corpus"]
+        assert lt["short_debt"] == 0
+
+    def test_no_debt_pin_still_defaults_to_arbitrage_plus_income(self):
+        _inp, _out, s4 = self._run({"low_beta_equities": 10.0})
+        lt = s4["long_term_subgroup_amounts"]
+        assert lt["arbitrage_plus_income"] == s4["residual_debt_corpus"]
+        assert lt["short_debt"] == 0
+
+    def test_the_debt_class_total_is_unmoved_by_where_it_lands(self):
+        _i1, pinned, _s1 = self._run({"short_debt": 40.0})
+        _i2, default, _s2 = self._run()
+        assert (
+            abs(
+                pinned.asset_class_breakdown.recommended.debt_total_pct
+                - default.asset_class_breakdown.recommended.debt_total_pct
+            )
+            < 0.5
+        )
+
+    def test_a_pin_that_lands_needs_no_disclosure(self):
+        """A re-route that PLACES the pin is not a shortfall — only money the
+        engine cannot place anywhere is."""
+        _inp, out, _s4 = self._run({"short_debt": 40.0})
+        assert out.human_override_applied.shortfall_reason is None
+
+    def test_excluding_the_pinned_row_is_impossible_but_an_exclusion_still_wins(self):
+        """A share of 0 is an exclusion, never a pin, so the two can only meet
+        across the two debt rows: pin one, refuse the other. D-B5 must still
+        empty the refused row."""
+        _inp, _out, s4 = self._run(
+            {"short_debt": 40.0, "arbitrage_plus_income": 0.0}
+        )
+        lt = s4["long_term_subgroup_amounts"]
+        assert lt["arbitrage_plus_income"] == 0
+        assert lt["short_debt"] == s4["residual_debt_corpus"] > 0

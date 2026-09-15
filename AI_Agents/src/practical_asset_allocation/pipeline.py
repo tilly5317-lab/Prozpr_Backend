@@ -842,15 +842,42 @@ def _run_practical_long_term(
 
     # Reconcile any residual rounding drift against residual_equity_corpus_final.
     # Never park it on a PINNED row — the customer's number has to come out
-    # exactly as they typed it (D-A1) — so prefer an engine-filled row and fall
-    # back to the pins only if nothing else is holding money.
+    # exactly as they typed it (D-A1) — so prefer an engine-filled row.
     drift = residual_equity_corpus_final - sum(equity_subgroup_amounts.values())
     if drift != 0:
         holders = {
             sg: amt
             for sg, amt in equity_subgroup_amounts.items()
             if amt > 0 and sg not in equity_pins
-        } or {sg: amt for sg, amt in equity_subgroup_amounts.items() if amt > 0}
+        }
+        if not holders:
+            # The slider measures its drop bar against the TOTAL equity pool
+            # (share_denominator), so a pin large enough to leave only slivers
+            # behind can put EVERY other candidate under the bar at once — the
+            # slider then has no survivor to redistribute to and returns them
+            # all as zero. What it freed is real corpus, not rounding noise,
+            # and a pinned row must not absorb it (D-A1). Phase 5 always spends
+            # the whole pool, so its pre-slider split IS exactly that freed
+            # room: put the money back where the engine's own tilt had it.
+            pre_slider_non_pinned = {
+                sg: amt
+                for sg, amt in initial_subgroup_amounts.items()
+                if amt > 0 and sg not in equity_pins
+            }
+            if pre_slider_non_pinned:
+                for sg, amt in pre_slider_non_pinned.items():
+                    equity_subgroup_amounts[sg] = amt
+                holders = pre_slider_non_pinned
+                drift = residual_equity_corpus_final - sum(
+                    equity_subgroup_amounts.values()
+                )
+    if drift != 0:
+        # Genuine rounding noise (a handful of rupees), or the degenerate case
+        # where no equity row at all — pinned or not — is holding money. Only
+        # then may a pin be touched.
+        holders = holders or {
+            sg: amt for sg, amt in equity_subgroup_amounts.items() if amt > 0
+        }
         if holders:
             largest_sg = max(holders, key=lambda k: holders[k])
             equity_subgroup_amounts[largest_sg] = max(
@@ -874,24 +901,47 @@ def _run_practical_long_term(
     long_term_subgroup_amounts["multi_asset"] = multi_asset_block.multi_asset_amount
     for sg, amt in equity_subgroup_amounts.items():
         long_term_subgroup_amounts[sg] = amt
-    # Spec §B.5 step 11: long-term debt residual ALWAYS routes to
-    # arbitrage_plus_income; the tax-rate gate on debt routing applies to
-    # medium-term only (asset_allocation Part A.4).
+    # Spec §B.5 step 11: the long-term debt residual routes to
+    # arbitrage_plus_income BY DEFAULT; the tax-rate gate on debt routing
+    # applies to medium-term only (asset_allocation Part A.4).
     #
-    # D-B5 (spec 2026-09-14): unless the customer excluded that row. The debt
-    # class has TWO homes, so an exclusion re-routes to the other bucket rather
-    # than stranding money in a fund they refused — step 6 used to do this, and
-    # it no longer reshapes. Only if BOTH are excluded is the class homeless;
-    # then the sleeve is the sole debt vehicle and whatever it could not absorb
-    # is disclosed rather than silently placed.
-    debt_row = "arbitrage_plus_income"
+    # D-A5 (spec 2026-09-14): a debt pin is not written in directly — it sizes
+    # the sleeve and the row is left as the class residual, which by the
+    # uniform min() comes out at or ABOVE the ask. That guarantee only holds
+    # if the residual lands in the row the customer NAMED, so a debt pin moves
+    # the default home; without this a pin on short_debt placed zero rupees in
+    # it and handed the whole residual to arbitrage_plus_income.
+    #
+    # D-B5 (spec 2026-09-14): an exclusion re-routes on top of that. The debt
+    # class has TWO homes, so refusing one moves the money to the other rather
+    # than stranding it in a fund they refused — step 6 used to do this, and it
+    # no longer reshapes. Only if BOTH are excluded is the class homeless; then
+    # the sleeve is the sole debt vehicle and whatever it could not absorb is
+    # disclosed rather than silently placed.
+    debt_pins = {
+        sg: amt
+        for sg, amt in pins.items()
+        if sg in ("short_debt", "arbitrage_plus_income") and amt > 0
+    }
+    # A customer realistically pins one row or the other; the max() is a
+    # defensive tie-break, not the expected path.
+    debt_row = (
+        max(debt_pins, key=lambda k: debt_pins[k])
+        if debt_pins
+        else "arbitrage_plus_income"
+    )
     debt_rerouted = False
     debt_unplaceable = 0
     if debt_row in subgroup_excluded:
-        if "short_debt" in subgroup_excluded:
+        other_row = (
+            "short_debt"
+            if debt_row == "arbitrage_plus_income"
+            else "arbitrage_plus_income"
+        )
+        if other_row in subgroup_excluded:
             debt_unplaceable = residual_debt_corpus
         else:
-            debt_row = "short_debt"
+            debt_row = other_row
             debt_rerouted = True
     long_term_subgroup_amounts["arbitrage_plus_income"] = 0
     long_term_subgroup_amounts["short_debt"] = 0
