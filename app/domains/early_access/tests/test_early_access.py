@@ -279,19 +279,23 @@ def test_the_router_does_not_even_import_the_mail_service():
 
 
 # ── The mail template (sent by hand, see scripts/) ──────────────────────────
-def test_ticket_names_the_holder_and_the_seat():
+def test_ticket_names_the_holder_but_never_a_seat_number():
+    """The /earlyaccess page shows a smaller seats-left count than the register
+    holds, so a seat or position number in the mail would contradict it."""
     from app.domains.early_access.services.early_access_email_service import _render
 
     subject, text, html_body = _render(
         full_name="Shreyash Dhakate", seat=37, seats_total=100, waitlisted=False
     )
-    assert "confirmed" in subject
+    assert "Beta 2.0" in subject
     # The ticket carries the full name as a holder, the note greets by first.
     assert "Shreyash Dhakate" in html_body and "Shreyash Dhakate" in text
-    assert "Your seat is held, Shreyash." in text
-    # Seat is zero-padded like a real ticket, and the cap is stated.
-    assert "037" in html_body and "of 100" in html_body
+    assert "You're in, Shreyash." in text
     assert "ADMIT ONE" in html_body.upper()
+    for body in (subject, text, html_body):
+        assert "037" not in body and "of 100" not in body
+        # Framed as early access / Beta 2.0, never our internal "MVP" name.
+        assert "MVP" not in body
 
 
 def test_what_happens_next_sits_outside_the_ticket():
@@ -372,9 +376,9 @@ def test_a_standby_ticket_never_claims_a_seat():
     )
     assert "standby" in subject.lower()
     assert "STANDBY" in html_body.upper()
-    assert "Standby position: 04" in text
-    for body in (text, html_body):
-        assert "seat is held" not in body
+    for body in (subject, text, html_body):
+        assert "position" not in body.lower()
+        assert "You're in" not in body
         assert "ADMIT ONE" not in body.upper()
 
 

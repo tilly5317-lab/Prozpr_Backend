@@ -171,7 +171,12 @@ def main() -> int:
     src.add_argument("--to", help="a single recipient's email address")
     src.add_argument("--csv", help="the Sheet's CSV export (Name, Email, Seat)")
     p.add_argument("--name", help="holder name printed on the ticket (with --to)")
-    p.add_argument("--seat", type=int, default=1, help="seat number (with --to)")
+    p.add_argument(
+        "--seat",
+        type=int,
+        default=1,
+        help="register seat (with --to); picks confirmed vs standby, never printed",
+    )
     p.add_argument(
         "--seats-total",
         type=int,

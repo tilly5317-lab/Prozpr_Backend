@@ -555,7 +555,7 @@ class Settings:
         someone's inbox, and the footer names the site the person applied on.
         Override with ``PUBLIC_SITE_URL`` for staging.
         """
-        raw = (_getenv("PUBLIC_SITE_URL") or "https://prozpr.in").strip()
+        raw = (_getenv("PUBLIC_SITE_URL") or "https://prozpr.com").strip()
         return raw.rstrip("/")
 
     @staticmethod
