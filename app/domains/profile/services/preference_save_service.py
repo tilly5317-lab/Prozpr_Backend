@@ -22,6 +22,7 @@ from app.domains.mutual_funds.services.investment_preferences import (
 from app.domains.profile.models.saved_investment_preference import (
     SavedInvestmentPreference,
 )
+from app.domains.profile.services.preference_view import canonical_intent
 from app.domains.practical_asset_allocation.services.paa_engine.service import (
     compute_practical_allocation_result,
 )
@@ -205,6 +206,21 @@ def _merge_field_level(
     )
 
 
+def _rekey_arbitrage_to_held_twin(intent: dict, stored_intent: dict) -> dict:
+    """Move an ``arbitrage`` ask onto the held twin WITHOUT dropping a stored
+    pin on the other one. Both twins are settable, so a screen-saved complete
+    distribution carries an entry for each; a stored ``0.0`` is an exclusion,
+    and popping it would silently turn it into "engine decides"."""
+    subs = dict(intent.get("subgroups") or {})
+    if "arbitrage" not in subs:
+        return intent
+    subs["arbitrage_plus_income"] = subs.pop("arbitrage")
+    stored_twin = (stored_intent.get("subgroups") or {}).get("arbitrage")
+    if stored_twin is not None:
+        subs["arbitrage"] = stored_twin
+    return {**intent, "subgroups": subs}
+
+
 async def _resolve_against_row(
     db, user, intent: dict, row
 ) -> tuple[ResolvedPreferences, dict, dict, dict]:
@@ -212,7 +228,7 @@ async def _resolve_against_row(
     that differ from ``row`` re-resolve. The returned ``intent`` may have
     ``subgroups["arbitrage"]`` re-keyed to ``arbitrage_plus_income`` when the
     customer's current run holds that subgroup and not ``arbitrage``."""
-    stored_intent = _canonical_intent(getattr(row, "customer_choices", None) or {})
+    stored_intent = canonical_intent(row)
     changed = _changed_intent(intent, stored_intent)
     changed_subs = changed.get("subgroups") or {}
     need_shares = any(token in _RELATIVE_TOKENS for token in changed_subs.values())
@@ -227,9 +243,7 @@ async def _resolve_against_row(
         new_changed_subs = dict(changed_subs)
         new_changed_subs["arbitrage_plus_income"] = new_changed_subs.pop("arbitrage")
         changed = {**changed, "subgroups": new_changed_subs}
-        intent_subs = dict(intent.get("subgroups") or {})
-        intent_subs["arbitrage_plus_income"] = intent_subs.pop("arbitrage")
-        intent = {**intent, "subgroups": intent_subs}
+        intent = _rekey_arbitrage_to_held_twin(intent, stored_intent)
     resolved_changed = resolve_saved_preferences(
         changed,
         current_class_mix_pct=class_mix,
@@ -539,7 +553,7 @@ async def resolve_one_off(db, user, chat_intent: dict, *, base_row=None):
     facet in the ask replaces the base's — one class at a time; subgroups merge
     per key. Returns ``(merged_intent, resolved, changed)``."""
     row = base_row if base_row is not None else await active_preference_row(db, user.id)
-    stored = _canonical_intent(getattr(row, "customer_choices", None) or {})
+    stored = canonical_intent(row)
     ask = _canonical_intent(_route_sole_class_subgroups(chat_intent or {}))
     ask = _follow_stored_arbitrage_key(ask, stored)
     intent: dict = {}
@@ -554,10 +568,13 @@ async def resolve_one_off(db, user, chat_intent: dict, *, base_row=None):
 
 
 def one_off_override(resolved: ResolvedPreferences) -> dict:
-    return {
-        "asset_class_requested": resolved.asset_class_requested,
-        "subgroup_emphasis": resolved.subgroup_emphasis,
-    }
+    """The engine-side override dict. A null class facet is OMITTED, never sent
+    as None: the PAA input builder merges ``{**saved, **one_off}`` and then
+    drops Nones, so a None here deletes the customer's SAVED class mix."""
+    out: dict = {"subgroup_emphasis": resolved.subgroup_emphasis}
+    if resolved.asset_class_requested is not None:
+        out["asset_class_requested"] = resolved.asset_class_requested
+    return out
 
 
 def fill_candidate_targets(

@@ -497,6 +497,7 @@ class ChatBrain:
             if final
             else None,
             has_candidate_preference=final.has_candidate_preference if final else False,
+            show_preferences_pill=final.show_preferences_pill if final else False,
             chart_payloads=final.chart_payloads if final else None,
             portfolio_data_missing=portfolio_data_missing,
         )

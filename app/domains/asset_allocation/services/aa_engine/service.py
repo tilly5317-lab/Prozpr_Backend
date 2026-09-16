@@ -309,6 +309,8 @@ def build_aa_facts_pack(
     output: GoalAllocationOutput,
     current_mix: dict[str, Any] | None = None,
     annual_income: float | None = None,
+    active_preferences: dict[str, Any] | None = None,
+    preference_impact: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM is allowed to cite.
 
@@ -419,6 +421,13 @@ def build_aa_facts_pack(
         facts["your_actual_holdings_today_pct"] = current_mix["pct"]
         facts["your_actual_holdings_today_inr"] = current_mix["inr"]
         facts["your_actual_holdings_today_indian"] = current_mix["indian"]
+    # An unsaved what-if's own contrast wins the turn; a SAVED preference is
+    # disclosed only when no candidate contrast is present, so the reply never
+    # credits the customer with a save they have not made.
+    if preference_impact is not None:
+        facts["preference_impact"] = preference_impact
+    elif active_preferences is not None:
+        facts["active_preferences"] = active_preferences
     return facts
 
 

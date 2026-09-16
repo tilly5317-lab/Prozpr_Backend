@@ -33,6 +33,7 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         snapshot_id=result.snapshot_id,
         rebalancing_recommendation_id=result.rebalancing_recommendation_id,
         has_candidate_preference=result.has_candidate_preference,
+        show_preferences_pill=result.show_preferences_pill,
         chart_payloads=result.chart_payloads,
     )
 

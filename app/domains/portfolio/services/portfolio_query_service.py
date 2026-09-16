@@ -245,6 +245,11 @@ def _build_client_context(user: Any) -> ClientContext:
         if name:
             goals.append(str(name))
 
+    # Read through the profile domain's accessor: only sanctioned modules may
+    # touch the `saved_investment_preference` relationship directly (see
+    # profile/tests::test_contract_single_computation_reader).
+    from app.domains.profile.services.preference_view import describe_active
+
     return ClientContext(
         age=age,
         risk_category=risk_category,
@@ -254,6 +259,7 @@ def _build_client_context(user: Any) -> ClientContext:
         annual_income_inr=annual_income,
         total_liabilities_inr=total_liabilities,
         financial_goals=goals,
+        investment_preferences=(describe_active(user) or []),
     )
 
 
@@ -507,6 +513,9 @@ class PortfolioQueryOutcome:
 
     text: str
     suggested_intent: str | None = None
+    # The customer asked to CHANGE the saved preference record; chat cannot
+    # write it, so the client offers a route to their investment preferences.
+    show_preferences_pill: bool = False
     # Which internal path the agent took: "X" out of scope, "M" market, "P"
     # portfolio. Telemetry only — this agent has no detector and nothing branches
     # on it; the choice has already shaped the reply by the time we see it.
@@ -528,6 +537,15 @@ _PORTFOLIO_TOOL_FIELDS: dict[str, Any] = {
         "description": (
             "Polite, one-sentence redirect when `guardrail_triggered` is true. Null when "
             "the answer is in-scope."
+        ),
+    },
+    "wants_preference_change": {
+        "type": "boolean",
+        "description": (
+            "True when the customer is asking to CHANGE, clear, reset or remove a "
+            "saved investment preference — not merely asking what is set. Chat "
+            "does not write preferences: read back what they have, then point "
+            "them at their investment preferences. False for every other question."
         ),
     },
     "path": {
@@ -628,6 +646,7 @@ async def generate_portfolio_query_response(
         text=_apply_guardrail_backstop(text, extras),
         suggested_intent=extras.get("suggested_intent"),
         path=extras.get("path"),
+        show_preferences_pill=bool(extras.get("wants_preference_change")),
     )
 
 
@@ -636,7 +655,16 @@ async def generate_portfolio_query_response(
 # ---------------------------------------------------------------------------
 
 
-async def answer_portfolio_query(question: str, ctx) -> str:
+@dataclass(frozen=True)
+class PortfolioQueryReply:
+    """What the flow needs from a portfolio_query turn: the answer, plus whether
+    to route the customer to their investment preferences."""
+
+    text: str
+    show_preferences_pill: bool = False
+
+
+async def answer_portfolio_query(question: str, ctx) -> PortfolioQueryReply:
     """Answer a question about the user's current portfolio (read-only).
 
     ``ctx`` is the brain's ``TurnContext`` — it already carries the preloaded
@@ -655,7 +683,9 @@ async def answer_portfolio_query(question: str, ctx) -> str:
     )
     await _record_path(ctx, outcome)
     await _record_intent_disagreement(question, ctx, outcome)
-    return outcome.text
+    return PortfolioQueryReply(
+        text=outcome.text, show_preferences_pill=outcome.show_preferences_pill
+    )
 
 
 async def _record_path(ctx, outcome: PortfolioQueryOutcome) -> None:

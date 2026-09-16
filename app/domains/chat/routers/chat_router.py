@@ -301,6 +301,7 @@ async def send_message(
         additional_investment_run_id=brain_result.additional_investment_run_id,
         additional_investment_cadence=brain_result.additional_investment_cadence,
         has_candidate_preference=brain_result.has_candidate_preference,
+        show_preferences_pill=brain_result.show_preferences_pill,
         portfolio_data_missing=brain_result.portfolio_data_missing,
         session_title=session.title,
     )
@@ -423,6 +424,7 @@ async def send_message_streaming(
                 additional_investment_run_id=brain_result.additional_investment_run_id,
                 additional_investment_cadence=brain_result.additional_investment_cadence,
                 has_candidate_preference=brain_result.has_candidate_preference,
+                show_preferences_pill=brain_result.show_preferences_pill,
                 portfolio_data_missing=brain_result.portfolio_data_missing,
                 session_title=session_title,
             ).model_dump(),

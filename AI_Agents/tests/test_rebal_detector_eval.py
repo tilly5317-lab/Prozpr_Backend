@@ -76,6 +76,15 @@ CASES = [
     Case("exclude-elss", "nothing with a lock-in please", "consolidate", vocab="s2-pref"),
     Case("named-include", "use Parag Parikh Flexi Cap instead", "narrate", vocab="s2-pref"),
     Case("named-why-not", "why didn't you pick Quant Small Cap?", "narrate", vocab="s2-pref"),
+    # The one-word distinction (2026-09-16). "Remove small caps" EXCLUDES the
+    # category; "remove my small-cap PREFERENCE" unsets the stored record —
+    # opposite intents, so both directions are pinned.
+    Case("record-undo-targeted", "remove my small cap preference", "redirect",
+         vocab="s2-pref"),
+    Case("record-undo-saved", "clear my saved preference", "redirect",
+         vocab="s2-pref"),
+    Case("exposure-not-record", "remove small caps", "counterfactual_explore",
+         vocab="s2-pref", expect_intent=_sub(high_beta_equities="none")),
     Case("contradiction", "only debt funds but add more mid cap", "clarify",
          vocab="s2-pref", expect_clarify=True),
     Case("vague-safer", "make it safer", "counterfactual_explore", vocab="s2-pref",

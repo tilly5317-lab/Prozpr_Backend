@@ -326,6 +326,24 @@ These cases are easy to misclassify. Apply these rules explicitly:
    - "What is my risk profile?" (asking for the stored value) → `portfolio_query`
    - "Show me my linked demat accounts" → `portfolio_query`
    - "Which broker is my demat with?" → `portfolio_query`
+   - The customer's SAVED INVESTMENT PREFERENCES are such a stored record. Two
+     kinds of question reach it, and only these two:
+     - READING the record — "What preferences do I have set?", "which fund
+       categories am I excluding?", "am I still avoiding small caps?" →
+       `portfolio_query`.
+     - Wiping the record WHOLESALE — "reset my preferences", "clear my saved
+       preferences", "start over with my preferences" → `portfolio_query` too.
+       Asking to clear the whole record is a question ABOUT that record, NOT
+       `out_of_scope`: the reply reads back what is stored and says where it is
+       edited.
+     Everything else about exposure belongs to the PLAN IN VIEW and keeps the
+     active plan intent per §5 — including an ask naming ONE category, whether
+     or not the customer says the word "preference": "remove small caps", "no
+     sectoral funds", "add gold" AND "remove my small-cap preference", "drop my
+     gold preference" all stay with the active plan (`rebalancing` /
+     `additional_investment`), whose own flow decides whether to reshape the
+     plan or point at the record. Only a question about the record AS A WHOLE
+     routes here.
    - Distinguish from: "Should I be more aggressive given my age?" → `asset_allocation` (decision ask, not a readout).
 
 2. **Stock-pick asks stay in `stock_advice`, even if extreme.** A request to buy/sell a specific stock or to concentrate the portfolio into a single stock is `stock_advice`. Do NOT escalate to `out_of_scope` on the basis that the suggestion seems imprudent — the stock_advice canned redirect is the appropriate response.

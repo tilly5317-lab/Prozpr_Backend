@@ -83,7 +83,12 @@ def test_service_sets_want_view_from_tools_needed(monkeypatch):
 
     async def fake_generate(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(text="ok", path=None, suggested_intent=None)
+        return SimpleNamespace(
+            text="ok",
+            path=None,
+            suggested_intent=None,
+            show_preferences_pill=False,
+        )
 
     async def _noop(*a, **k):
         return None

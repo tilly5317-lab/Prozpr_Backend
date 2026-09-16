@@ -55,6 +55,7 @@ from app.domains.mutual_funds.services.fund_ranking_lookup import (
     resolve_ranked_fund,
 )
 from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services import preference_view as pref_view
 from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
@@ -276,6 +277,15 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   preference_asks entry with target other, not redirect. Set `redirect_reason`
   to a short description. (An exposure or category change is NEVER redirect —
   see PREFERENCE ASKS.)
+  ONE narrow exception: a request to change the STORED PREFERENCE RECORD itself
+  — "remove my small cap preference", "clear my saved preference", "undo the
+  preference I set", "reset my preferences" — IS redirect. Set redirect_reason
+  to "change your saved preference" (the word "preference" MUST appear) and
+  leave preference_asks UNSET. Chat can reshape the plan but cannot write the
+  record. Keep this NARROW: an ask about the EXPOSURE is still a preference ask.
+  "Remove small caps" -> preference_asks [{small_cap, none}]; "remove my
+  small-cap PREFERENCE" -> redirect. One word apart, opposite modes — and
+  getting it wrong EXCLUDES the category instead of unsetting it.
 
 NAMED FUNDS: when the customer names a specific scheme, set named_fund (their
 words verbatim) + named_fund_intent — "use/switch to X" → include, "why not X /
@@ -424,6 +434,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   reconcile against it. If a block you need is absent, say you don't have that
   figure — never substitute one of the other two.
 
+  A preference is a fact ONLY when active_preferences or constraint_impact says
+  so. When neither block is present you cannot attribute this plan to a saved
+  preference — do not credit one, and equally do not claim they have none (the
+  block is also absent on what-if turns and on older plans). If asked directly,
+  say you don't have that on this turn and point them at their preferences.
+
   NEVER state an asset-class mix or percentage that is not present verbatim in
   CUSTOMER_RECORD. Do not average two mixes, do not interpolate a "middle
   ground", and never invent a compromise split (e.g. "we could trim to
@@ -501,6 +517,20 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     light line (e.g. "this also nudges your flexi/multi-cap funds in the same
     bucket") — do not imply pin-point precision.
 
+  active_preferences: optional — present when the customer has SAVED investment
+    preferences AND this plan was actually shaped by them. NEVER present on the
+    same turn as constraint_impact (that block is an unsaved what-if). Fields:
+      choices: list[str] — their preference in their own words ("60% equity /
+        30% debt / 10% commodity", "no small-cap equity", "30% of your portfolio
+        in large-cap equity"). Quote these verbatim; never restate them as engine
+        categories, never re-base a percentage, and never add a category or a
+        percentage that is not in this list.
+      applied: true — the engine consumed the preference on THIS plan.
+      shortfall_reason: string|null — present when the engine could not fully
+        honour the ask.
+    Say "the preferences you saved" — never name WHERE they saved them. They may
+    have set this in chat or on a screen, and the pack does not tell you which.
+
   constraint_impact: optional — on a consolidate OR preference turn. Fields:
       recommended_mix_pct / requested_mix_pct: {equity, debt, others} — the
         recommended plan vs the plan reshaped to the customer's request. On a
@@ -574,6 +604,15 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                "your portfolio is already aligned with your target mix") and
                briefly mention current_asset_class_mix_indian. Length: 8-12
                sentences (3-5 for trade_count=0).
+               When active_preferences is present, ATTRIBUTE the plan in the
+               opening: "this plan follows the preferences you saved — 30% of
+               your portfolio in large-cap equity, no small-cap equity", quoting
+               `choices` verbatim. It is the customer's own instruction being
+               honoured: state it as fact, don't thank them for it and don't ask
+               whether they still want it. If shortfall_reason is present, add
+               ONE plain sentence that the plan could not go all the way, and
+               why — never hide it, never dramatise it. This replaces one
+               sentence of the budget above; it does not extend it.
                When CUSTOMER_RECORD carries `is_rerun: true` the customer asked
                us to run it again and has seen a plan before: open by
                acknowledging the re-run and lead with what changed since the
@@ -586,6 +625,10 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                English definition, then anchor it in at least one specific
                from CUSTOMER_RECORD (a sub_category, a trade, a tax/exit-load
                amount). Length: 4-7 sentences.
+
+  On narrate and educate, active_preferences is available but is NEVER the lead:
+  use it only when the question touches it ("why is there no small cap?", "is
+  this based on what I set?"). A question about tax gets an answer about tax.
   counterfactual_explore — a hypothetical plan the customer ASKED FOR (a
                preference ask: "more equity", "only equity", "small-cap heavy",
                "drop US funds").
@@ -642,6 +685,15 @@ _LOCK_NOT_SUPPORTED = (
     "that would help you decide."
 )
 
+# Saving or clearing the stored record happens where the customer can SEE it
+# before it applies; chat only ever reshapes the plan in view.
+_PREFERENCE_CHANGE_TEMPLATE = (
+    "I can show you what a change would do to this plan, but saving or clearing "
+    "a preference happens in your investment preferences — that way you can see "
+    "exactly what's stored before it applies. Open them below and I'll rebuild "
+    "the plan from whatever you set."
+)
+
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific fund, action (sell/swap), "
     "or constraint?"
@@ -685,6 +737,52 @@ _DEFAULT_WEIGHT_STEP = 0.10
 # ---------------------------------------------------------------------------
 
 
+# Sentinel: this turn used the customer's ACTIVE preference. It exists so this
+# module never reads the `saved_investment_preference` relationship itself —
+# `test_contract_single_computation_reader` reserves that for the profile domain.
+_FRESH = object()
+
+_REHYDRATED_MODES = ("narrate", "educate")
+
+
+async def _preference_row_for_run(ctx: TurnContext, recommendation_id: str):
+    """The preference row THIS run was computed under, via the run's own FK.
+
+    Runs in a savepoint for the same reason ``_last_action_mode`` does: a failed
+    read would poison the outer session for the rest of the turn.
+    """
+    from sqlalchemy import select
+
+    from app.domains.rebalancing.models import RebalancingRun
+
+    async with ctx.db.begin_nested():
+        stmt = select(RebalancingRun.saved_investment_preference_id).where(
+            RebalancingRun.id == uuid.UUID(recommendation_id)
+        )
+        pref_id = (await ctx.db.execute(stmt)).scalar_one_or_none()
+    if pref_id is None:
+        return None
+    return await prefs.candidate_row(ctx.db, ctx.effective_user_id, pref_id)
+
+
+async def _preference_row_for_turn(ctx: TurnContext, last_run, action_mode: str):
+    """Fresh runs used the ACTIVE preference; a rehydrated plan may predate it,
+    so that turn resolves the row the RUN itself points at — otherwise a newly
+    saved preference gets credited for an older plan."""
+    if action_mode in _REHYDRATED_MODES and last_run is not None and ctx.db is not None:
+        raw = ((last_run.output_payload or {}).get("correlation_ids") or {}).get(
+            "recommendation_id"
+        )
+        if not raw:
+            return None  # nothing to attribute this plan to
+        try:
+            return await _preference_row_for_run(ctx, raw)
+        except Exception:
+            logger.warning("preference row lookup failed", exc_info=True)
+            return None
+    return _FRESH
+
+
 async def _format_or_fallback_rebal(
     *,
     ctx: TurnContext,
@@ -694,18 +792,33 @@ async def _format_or_fallback_rebal(
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
+    last_run=None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     # Prozpr-only house view, gated on the classifier's tools_needed. A rebalance is
     # advice, so when the view is called it frames the trades; the flow sets scope.
     want_view = "fund_house_view" in (getattr(ctx, "tools_needed", ()) or ())
     fund_house_view = load_house_view(prozpr_only=True) if want_view else None
+    # Disclose a SAVED preference — but never beside a candidate's own contrast
+    # (constraint_impact), and not on a plain tax/cash what-if, which carries no
+    # disclosure rule in the prompt.
+    if constraint_impact is not None or action_mode == "counterfactual_explore":
+        active_preferences = None
+    else:
+        practical = getattr(response, "practical_allocation", None)
+        row = await _preference_row_for_turn(ctx, last_run, action_mode)
+        active_preferences = (
+            pref_view.active_preferences_for(ctx.user_ctx, practical)
+            if row is _FRESH
+            else pref_view.active_preferences_block(row, practical)
+        )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_rebal_facts_pack(
             response,
             goal_buckets=goal_buckets,
             constraint_impact=constraint_impact,
+            active_preferences=active_preferences,
             is_rerun=is_rerun,
             fund_house_view=fund_house_view,
             # Ship the goal-based ideal ONLY on the plan-presentation (compute) turn,
@@ -868,6 +981,17 @@ async def _handle_action(
     if action.named_fund:
         return await _handle_named_fund(ctx, action)
 
+    # A request to change the STORED RECORD is not an exposure ask, and this
+    # check must sit AHEAD of the preference_asks short-circuit below or it can
+    # never fire. Reshaping "remove my small-cap preference" as
+    # {small_cap: none} would EXCLUDE small caps — the opposite of the ask.
+    if action.mode == "redirect" and "preference" in (
+        action.redirect_reason or ""
+    ).lower():
+        return await _relay(
+            ctx, _PREFERENCE_CHANGE_TEMPLATE, show_preferences_pill=True
+        )
+
     # The extracted preference fields are authoritative regardless of the mode
     # label the detector attached (conversational "100% equity" asks sometimes
     # get labelled consolidate / clarify / redirect).
@@ -973,6 +1097,9 @@ async def _handle_action(
         fallback_brief=fallback,
         action_mode=action.mode,  # "narrate" or "educate"
         goal_buckets=persisted_goal_buckets,
+        # This plan is REHYDRATED and may predate a newer preference, so the
+        # disclosure resolves the row off this run rather than the active one.
+        last_run=last_run,
     )
     return ChatHandlerResult(
         text=text, snapshot_id=None, rebalancing_recommendation_id=None
@@ -1042,11 +1169,21 @@ async def _degraded_or_none(ctx: TurnContext, outcome) -> ChatHandlerResult | No
     return None
 
 
-async def _relay(ctx: TurnContext, message: str, action_mode: ActionMode = "redirect") -> ChatHandlerResult:
+async def _relay(
+    ctx: TurnContext,
+    message: str,
+    action_mode: ActionMode = "redirect",
+    show_preferences_pill: bool = False,
+) -> ChatHandlerResult:
     text = await format_relay_or_canned(
         ctx=ctx, module_name="rebalancing", message=message, action_mode=action_mode
     )
-    return ChatHandlerResult(text=text, snapshot_id=None, rebalancing_recommendation_id=None)
+    return ChatHandlerResult(
+        text=text,
+        snapshot_id=None,
+        rebalancing_recommendation_id=None,
+        show_preferences_pill=show_preferences_pill,
+    )
 
 
 def _pending_candidate_id(last_run: AgentRunRecord | None) -> uuid.UUID | None:
@@ -1085,7 +1222,9 @@ async def _handle_preference_what_if(
         )
     if not chat_intent:
         return await _relay(
-            ctx, _UNMAPPED_PREFERENCE_TEMPLATE.format(words=", ".join(unmapped))
+            ctx,
+            _UNMAPPED_PREFERENCE_TEMPLATE.format(words=", ".join(unmapped)),
+            show_preferences_pill=True,
         )
     if ctx.db is None:
         return ChatHandlerResult(

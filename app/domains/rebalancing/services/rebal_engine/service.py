@@ -297,6 +297,7 @@ def build_rebal_facts_pack(
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    active_preferences: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
     fund_house_view: Optional[str] = None,
     include_ideal: bool = True,
@@ -701,6 +702,12 @@ def build_rebal_facts_pack(
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
         pack["constraint_impact"] = constraint_impact
+    # A plan shaped by the customer's SAVED preference says so. Mutually
+    # exclusive with constraint_impact: that block's override is an unsaved
+    # candidate, and both at once would credit the customer with a save they
+    # have not made.
+    elif active_preferences is not None:
+        pack["active_preferences"] = active_preferences
     if is_rerun:
         pack["is_rerun"] = True
     if fund_house_view:

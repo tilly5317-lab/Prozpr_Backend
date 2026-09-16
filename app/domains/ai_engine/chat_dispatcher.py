@@ -50,6 +50,10 @@ class ChatHandlerResult:
     # self-distinguishes via additional_investment_run_id (sent only on its
     # what-if turns), so it does not read this.
     has_candidate_preference: bool = False
+    # True when the turn should route the customer to their investment
+    # preferences — they asked to change/clear the saved record, or named
+    # something we could not map. Chat never WRITES a preference.
+    show_preferences_pill: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
 
 

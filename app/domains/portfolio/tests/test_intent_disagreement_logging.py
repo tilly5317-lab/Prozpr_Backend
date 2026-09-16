@@ -55,9 +55,9 @@ async def test_disagreement_is_recorded(recorded, monkeypatch):
         monkeypatch,
     )
 
-    text = await svc.answer_portfolio_query("Review my portfolio", _ctx())
+    reply = await svc.answer_portfolio_query("Review my portfolio", _ctx())
 
-    assert text == "answer", "the customer still gets the answer — reporting only"
+    assert reply.text == "answer", "the customer still gets the answer — reporting only"
     assert len(recorded) == 1
     row = recorded[0]
     assert row["module"] == "portfolio_query"

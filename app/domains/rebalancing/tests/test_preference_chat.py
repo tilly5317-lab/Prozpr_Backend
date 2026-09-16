@@ -514,3 +514,249 @@ async def test_first_turn_consumes_speculative_detect_without_serial_call(monkey
     assert calls["serial_detect"] == 0, "speculative result was present; serial detect must not run"
     assert result == "WHATIF"
     assert calls["whatif"] == [(action, None)]
+
+
+# ---------------------------------------------------------------------------
+# Disclosure: a plan shaped by a SAVED preference says so (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def _saved_row():
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        customer_choices={"class_mix": {}, "pins": []},
+        asset_class_requested={"equity": 60.0, "debt": 30.0, "others": 10.0},
+        resolved_targets={"high_beta_equities": 0.0},
+    )
+
+
+@pytest.fixture
+def pack_spy(monkeypatch):
+    """Capture the facts pack without running the formatter or the real builder."""
+    seen = {}
+
+    async def _fake_format(**kw):
+        seen.update(kw)
+        return "reply"
+
+    monkeypatch.setattr(chat_mod, "format_with_telemetry", _fake_format)
+    monkeypatch.setattr(chat_mod, "build_rebal_facts_pack", lambda *a, **k: dict(k))
+    return seen
+
+
+async def test_compute_turn_discloses_the_saved_preference(pack_spy):
+    ctx = _ctx("rebalance me")
+    ctx.user_ctx.saved_investment_preference = _saved_row()
+
+    await chat_mod._format_or_fallback_rebal(
+        ctx=ctx,
+        response=_outcome(_applied()).response,
+        fallback_brief="brief",
+        action_mode="compute",
+    )
+
+    block = pack_spy["facts_pack"]["active_preferences"]
+    assert block["applied"] is True
+    assert block["choices"][0] == "60% equity / 30% debt / 10% commodity"
+    assert "no small-cap equity" in block["choices"]
+
+
+async def test_a_what_if_turn_never_discloses_a_saved_preference(pack_spy):
+    """constraint_impact means the applied override is an unsaved CANDIDATE —
+    claiming a saved preference alongside it credits a save never made."""
+    ctx = _ctx("make it 100% equity")
+    ctx.user_ctx.saved_investment_preference = _saved_row()
+
+    await chat_mod._format_or_fallback_rebal(
+        ctx=ctx,
+        response=_outcome(_applied()).response,
+        fallback_brief="brief",
+        action_mode="counterfactual_explore",
+        constraint_impact={"save_offer": True},
+    )
+
+    assert pack_spy["facts_pack"]["active_preferences"] is None
+
+
+async def test_a_plain_tax_counterfactual_stays_silent_too(pack_spy):
+    """_counterfactual_explore passes constraint_impact=None explicitly, and the
+    prompt has no disclosure rule for that mode."""
+    ctx = _ctx("what if my tax rate were 20%?")
+    ctx.user_ctx.saved_investment_preference = _saved_row()
+
+    await chat_mod._format_or_fallback_rebal(
+        ctx=ctx,
+        response=_outcome(_applied()).response,
+        fallback_brief="brief",
+        action_mode="counterfactual_explore",
+        constraint_impact=None,
+    )
+
+    assert pack_spy["facts_pack"]["active_preferences"] is None
+
+
+async def test_no_row_means_no_block(pack_spy):
+    ctx = _ctx("rebalance me")
+    ctx.user_ctx.saved_investment_preference = None
+
+    await chat_mod._format_or_fallback_rebal(
+        ctx=ctx,
+        response=_outcome(_applied()).response,
+        fallback_brief="brief",
+        action_mode="compute",
+    )
+
+    assert pack_spy["facts_pack"]["active_preferences"] is None
+
+
+async def test_a_run_that_applied_nothing_means_no_block(pack_spy):
+    ctx = _ctx("rebalance me")
+    ctx.user_ctx.saved_investment_preference = _saved_row()
+
+    await chat_mod._format_or_fallback_rebal(
+        ctx=ctx,
+        response=_outcome(None).response,  # human_override_applied is None
+        fallback_brief="brief",
+        action_mode="compute",
+    )
+
+    assert pack_spy["facts_pack"]["active_preferences"] is None
+
+
+async def test_narrate_resolves_the_row_the_run_recorded(monkeypatch):
+    """The customer saved preference B after this plan was built under A.
+    Naming B for A's plan is a lie about their own instructions."""
+    old_row = _saved_row()
+
+    async def _fake_for_run(ctx, recommendation_id):
+        return old_row
+
+    monkeypatch.setattr(chat_mod, "_preference_row_for_run", _fake_for_run)
+
+    ctx = _ctx("why is there no small cap?")
+    ctx.user_ctx.saved_investment_preference = _saved_row()  # the NEW row
+    last_run = SimpleNamespace(
+        output_payload={"correlation_ids": {"recommendation_id": str(uuid.uuid4())}}
+    )
+
+    row = await chat_mod._preference_row_for_turn(ctx, last_run, "narrate")
+
+    assert row is old_row, "a rehydrated turn resolves the row from the RUN"
+
+
+async def test_a_fresh_turn_uses_the_active_row():
+    ctx = _ctx("rebalance me")
+
+    row = await chat_mod._preference_row_for_turn(ctx, None, "compute")
+
+    assert row is chat_mod._FRESH
+
+
+async def test_a_run_with_no_recommendation_id_discloses_nothing():
+    ctx = _ctx("why is there no small cap?")
+    last_run = SimpleNamespace(output_payload={"correlation_ids": {}})
+
+    assert await chat_mod._preference_row_for_turn(ctx, last_run, "narrate") is None
+
+
+async def test_a_failed_lookup_degrades_to_nothing(monkeypatch):
+    async def _boom(ctx, recommendation_id):
+        raise RuntimeError("db is unhappy")
+
+    monkeypatch.setattr(chat_mod, "_preference_row_for_run", _boom)
+
+    ctx = _ctx("why is there no small cap?")
+    last_run = SimpleNamespace(
+        output_payload={"correlation_ids": {"recommendation_id": str(uuid.uuid4())}}
+    )
+
+    assert await chat_mod._preference_row_for_turn(ctx, last_run, "narrate") is None
+
+
+# ---------------------------------------------------------------------------
+# Task 8: a request to CHANGE the stored record routes to the preferences
+# screen. Chat reshapes plans; it never writes the record.
+# ---------------------------------------------------------------------------
+
+
+async def test_a_record_change_ask_routes_to_preferences(monkeypatch):
+    relayed = {}
+
+    async def _fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        relayed.update(message=message, pill=show_preferences_pill)
+        return chat_mod.ChatHandlerResult(
+            text=message,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+            show_preferences_pill=show_preferences_pill,
+        )
+
+    monkeypatch.setattr(chat_mod, "_relay", _fake_relay)
+
+    action = chat_mod.RebalanceAction(
+        mode="redirect", redirect_reason="change your saved preference"
+    )
+    result = await chat_mod._handle_action(ctx := _ctx("remove my small cap preference"),
+                                          action, SimpleNamespace(output_payload={}))
+    assert ctx is not None
+    assert relayed["pill"] is True, "the customer needs a route to the record"
+    assert result.show_preferences_pill is True
+    assert "preferences" in relayed["message"].lower()
+
+
+async def test_the_record_check_beats_the_preference_asks_short_circuit(monkeypatch):
+    """`_handle_action` short-circuits on preference_asks before the mode ladder,
+    so the record branch must sit AHEAD of it or it can never fire."""
+    hits = {"what_if": 0, "relay": 0}
+
+    async def _fake_what_if(ctx, action, last_run):
+        hits["what_if"] += 1
+        return chat_mod.ChatHandlerResult(text="reshaped", snapshot_id=None,
+                                          rebalancing_recommendation_id=None)
+
+    async def _fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        hits["relay"] += 1
+        return chat_mod.ChatHandlerResult(
+            text=message, snapshot_id=None, rebalancing_recommendation_id=None,
+            show_preferences_pill=show_preferences_pill,
+        )
+
+    monkeypatch.setattr(chat_mod, "_handle_preference_what_if", _fake_what_if)
+    monkeypatch.setattr(chat_mod, "_relay", _fake_relay)
+
+    action = chat_mod.RebalanceAction(
+        mode="redirect",
+        redirect_reason="clear your saved preference",
+        preference_asks=[{"target": "small_cap", "level": "none"}],
+    )
+    await chat_mod._handle_action(_ctx("clear my small cap preference"), action,
+                                 SimpleNamespace(output_payload={}))
+
+    assert hits["relay"] == 1
+    assert hits["what_if"] == 0, (
+        "a record-change ask must NOT be reshaped as an exposure ask — "
+        "{small_cap: none} would EXCLUDE small caps, the opposite of removing "
+        "the preference"
+    )
+
+
+async def test_an_ordinary_redirect_still_points_at_profile(monkeypatch):
+    relayed = {}
+
+    async def _fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        relayed.update(message=message, pill=show_preferences_pill)
+        return chat_mod.ChatHandlerResult(text=message, snapshot_id=None,
+                                          rebalancing_recommendation_id=None)
+
+    monkeypatch.setattr(chat_mod, "_relay", _fake_relay)
+
+    # NOT a "hold/keep/lock" reason — those hit the pre-existing
+    # _LOCK_NOT_SUPPORTED branch, which is separate behaviour.
+    action = chat_mod.RebalanceAction(
+        mode="redirect", redirect_reason="defer this rebalance by 3 months"
+    )
+    await chat_mod._handle_action(_ctx("can I defer this by 3 months?"), action,
+                                 SimpleNamespace(output_payload={}))
+
+    assert relayed["pill"] is False, "only a RECORD ask offers the preferences route"
+    assert "Profile" in relayed["message"] or "Holdings" in relayed["message"]

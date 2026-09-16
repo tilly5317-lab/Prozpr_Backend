@@ -87,6 +87,10 @@ class ChatSendMessageResponse(BaseModel):
     # The rebalancing pill uses it to note the preference is kept on save and to
     # show the "View preferences" link only on what-if turns.
     has_candidate_preference: bool = False
+    # True when this turn should route the customer to their investment
+    # preferences: they asked to change or clear the saved record, or named
+    # something we could not map. The client renders it as a pill.
+    show_preferences_pill: bool = False
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False

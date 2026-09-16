@@ -118,6 +118,10 @@ class ModuleOutput:
     additional_investment_cadence: str | None = None
     # True when the turn produced a savable candidate preference (a what-if).
     has_candidate_preference: bool = False
+    # True when the turn should route the customer to their investment
+    # preferences — they asked to change/clear the saved record, or named
+    # something we could not map. Chat never WRITES a preference.
+    show_preferences_pill: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
     side_effects: dict[str, Any] = field(default_factory=dict)
 
