@@ -40,6 +40,10 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         snapshot_id=result.snapshot_id,
         rebalancing_recommendation_id=result.rebalancing_recommendation_id,
         chart_payloads=result.chart_payloads,
+        # A preference-shaped ask relays PREFERENCE_REDIRECT_MESSAGE, which tells
+        # the customer to open their preferences "below" — this is the flag that
+        # puts the pill there. Dropping it makes the reply promise nothing.
+        show_preferences_pill=result.show_preferences_pill,
     )
 
 

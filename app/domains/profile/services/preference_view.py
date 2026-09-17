@@ -15,7 +15,10 @@ from app.domains.additional_investment.services.lumpsum_reasoning import subgrou
 
 _CHAT_KEYS = ("asset_class", "subgroups")
 
-_MAX_CATEGORY_PHRASES = 3  # + the class-mix phrase = 4 total
+# Budgeted separately (see `_category_phrases`): the pins the customer chose
+# lead, and every blank row collapses into a single "nothing in …" phrase.
+_MAX_PIN_PHRASES = 2
+_MAX_NAMED_EXCLUSIONS = 3  # beyond this they roll up as "and N others"
 # ``others`` is the engine's name for the third class; the customer's is
 # Commodity — the preferences screen validates with exactly that word.
 _CLASS_WORDS = {"equity": "equity", "debt": "debt", "others": "commodity"}
@@ -65,21 +68,38 @@ def _class_phrase(mix: Optional[dict]) -> Optional[str]:
 
 
 def _category_phrases(targets: dict) -> list[str]:
-    """Exclusions first (the most load-bearing fact), then the largest pins.
+    """What the customer CHOSE leads; what they left blank costs one phrase.
 
-    A pin is a share of the WHOLE portfolio, so the phrase carries its basis:
-    "30% large-cap equity" next to an equity figure would read as 30% OF equity.
+    The two kinds are budgeted separately on purpose. The preferences screen
+    writes a COMPLETE distribution over 11 settable categories, so a normal save
+    carries five to eight explicit zeros. Building exclusions first and slicing
+    the concatenation — as this did until 2026-09-17 — filled every slot with
+    blank rows and dropped every pin the customer actually set, in JSONB
+    insertion order. The reply then quoted that back as "the preferences you
+    saved".
+
+    A pin is a share of the WHOLE portfolio, so its phrase carries that basis:
+    a bare "30% large-cap equity" beside an equity figure reads as 30% OF equity.
     """
-    excluded = [f"no {subgroup_label(sg)}" for sg, pct in targets.items() if not pct]
     pinned = sorted(
         ((sg, pct) for sg, pct in targets.items() if pct),
         key=lambda kv: kv[1],
         reverse=True,
     )
     phrases = [
-        f"{round(pct)}% of your portfolio in {subgroup_label(sg)}" for sg, pct in pinned
+        f"{round(pct)}% of your portfolio in {subgroup_label(sg)}"
+        for sg, pct in pinned[:_MAX_PIN_PHRASES]
     ]
-    return (excluded + phrases)[:_MAX_CATEGORY_PHRASES]
+
+    excluded = [subgroup_label(sg) for sg, pct in targets.items() if not pct]
+    if excluded:
+        named = excluded[:_MAX_NAMED_EXCLUSIONS]
+        rest = len(excluded) - len(named)
+        listed = named[0] if len(named) == 1 else ", ".join(named[:-1]) + f" or {named[-1]}"
+        if rest:
+            listed += f", and {rest} other{'s' if rest > 1 else ''}"
+        phrases.append(f"nothing in {listed}")
+    return phrases
 
 
 def describe(row: Any) -> Optional[list[str]]:
@@ -132,11 +152,28 @@ def _active_row(user: Any) -> Any:
     return getattr(user, "saved_investment_preference", None)
 
 
-def describe_active(user: Any) -> Optional[list[str]]:
-    """The user's saved preference in customer words, for a readout."""
-    return describe(_active_row(user))
-
-
 def active_preferences_for(user: Any, practical: Any) -> Optional[dict]:
     """The facts-pack block for a plan the user's SAVED preference shaped."""
     return active_preferences_block(_active_row(user), practical)
+
+
+# ---------------------------------------------------------------------------
+# The chat answer for ANY preference-shaped ask (ruling 2026-09-17)
+# ---------------------------------------------------------------------------
+#
+# Chat no longer runs preference what-ifs. Every preference-shaped ask — a
+# readout, a change, an undo, or an exposure ask like "I want more equity" —
+# gets this one pointer instead. Three reasons it is better here than in each
+# module: the copy cannot drift across rebalancing / AA / AINV, the customer
+# gets one consistent answer, and chat carries no hallucination surface for a
+# stored record it cannot write.
+#
+# SAVED preferences still shape every plan and are still disclosed in the reply
+# (see `active_preferences_block`) — only the chat-side CHANGE path is retired.
+
+PREFERENCE_REDIRECT_MESSAGE = (
+    "Changing your investment preferences from chat is something we're still "
+    "building. For now they live on your preferences page — open it below to "
+    "see what's set and adjust it. Whatever you choose there, every plan I "
+    "build for you follows it."
+)

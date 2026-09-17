@@ -40,6 +40,10 @@ async def run(turn, ctx, prior: dict[str, ModuleOutput]) -> ModuleOutput:
         additional_investment_run_id=result.additional_investment_run_id,
         additional_investment_cadence=result.additional_investment_cadence,
         chart_payloads=result.chart_payloads,  # forward hook: the ainv engine does not populate this yet
+        # A preference-shaped ask relays PREFERENCE_REDIRECT_MESSAGE, which tells
+        # the customer to open their preferences "below" — this is the flag that
+        # puts the pill there. Dropping it makes the reply promise nothing.
+        show_preferences_pill=result.show_preferences_pill,
     )
 
 

@@ -28,9 +28,6 @@ class ClientContext(BaseModel):
     annual_income_inr: float | None = None
     total_liabilities_inr: float | None = None
     financial_goals: list[str] = Field(default_factory=list)
-    # The investment preferences the customer has SAVED, in their own words.
-    # EMPTY means they have saved none — never infer one from their holdings.
-    investment_preferences: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ turn_context); imported lazily by the module-service to trigger @register.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import uuid
@@ -59,6 +60,7 @@ from app.domains.asset_allocation.services.aa_engine.overrides import (
     with_chat_overrides,
 )
 from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
 from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
@@ -317,6 +319,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
+      pointer — the customer also asked to change their saved preferences,
+        which chat cannot do. Answer the deployment fully first, then CLOSE with
+        ONE short sentence in your own voice: changing preferences from chat is
+        something we're still building, and their preferences page is where to
+        set them (a control is shown beside your reply). Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in
                     one sentence that the split already reflects it.
@@ -437,6 +445,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
+      pointer — the customer also asked to change their saved preferences,
+        which chat cannot do. Answer the deployment fully first, then CLOSE with
+        ONE short sentence in your own voice: changing preferences from chat is
+        something we're still building, and their preferences page is where to
+        set them (a control is shown beside your reply). Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in
                     one sentence that the split already reflects it.
@@ -1132,8 +1146,20 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         return await _relay_ainv(ctx, _MSG_ASK_AMOUNT)
 
     if preference_asks:
-        return await _handle_preference_what_if_ainv(
-            ctx, amount, cadence, preference_asks, raw_category, category
+        # Chat runs no preference what-ifs (ruling 2026-09-17). But the customer
+        # DID ask to deploy money, so serve that — the same mixed-intent rule
+        # rebalancing's first turn follows — and let the formatter close with the
+        # pointer. `_handle_preference_what_if_ainv` is the re-enable seam.
+        capture_preference_unserved(
+            flow="additional_investment",
+            failure_class="redirected_to_preferences",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
         )
+        result = await _ordinary_deploy(
+            ctx, amount, cadence, raw_category, category,
+            preference={"pointer": PREFERENCE_REDIRECT_MESSAGE},
+        )
+        return dataclasses.replace(result, show_preferences_pill=True)
 
     return await _ordinary_deploy(ctx, amount, cadence, raw_category, category)

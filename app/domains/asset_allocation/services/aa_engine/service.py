@@ -311,6 +311,7 @@ def build_aa_facts_pack(
     annual_income: float | None = None,
     active_preferences: dict[str, Any] | None = None,
     preference_impact: dict[str, Any] | None = None,
+    preference_pointer: str | None = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM is allowed to cite.
 
@@ -428,6 +429,8 @@ def build_aa_facts_pack(
         facts["preference_impact"] = preference_impact
     elif active_preferences is not None:
         facts["active_preferences"] = active_preferences
+    if preference_pointer is not None:
+        facts["preference_pointer"] = preference_pointer
     return facts
 
 

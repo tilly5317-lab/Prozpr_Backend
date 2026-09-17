@@ -40,6 +40,7 @@ from app.domains.profile.services import preference_save_service as prefs
 from app.domains.profile.services import preference_view as pref_view
 from app.domains.profile.services import profile_finance as pf
 from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
 from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
@@ -309,15 +310,28 @@ CUSTOMER_RECORD shape (treat fields not present as unknown):
                    saved", never WHERE they saved them. ABSENT means you cannot
                    attribute this allocation to a saved preference — do not
                    credit one, and do not claim they have none either.
-
-  preference_impact: optional — present when the customer asked for a
-                   preference ON this allocation (a what-if, not a saved one).
-                     recommended_mix_pct / requested_mix_pct: {equity, debt,
-                       others} — the allocation we recommend vs the one they
-                       asked for. These two are the ONLY mixes you may cite for
-                       the contrast, verbatim.
-                     tilt_note: directive string — FOLLOW IT EXACTLY.
-                   Never present alongside active_preferences.
+  preference_pointer: optional string — the customer ALSO asked something
+                   preference-shaped (an exposure change, undo, or set),
+                   which chat cannot act on. Answer their OTHER, servable
+                   question in full first, using the facts above. Then CLOSE
+                   with ONE short sentence, in your own voice, carrying two
+                   facts: changing preferences from chat is something we're
+                   still building, and their preferences page is where to set
+                   them (a control is shown beside your reply). Do NOT quote
+                   the string verbatim, do NOT lead with it, do NOT apologise
+                   at length, never claim to have changed or saved a
+                   preference yourself — and do NOT ask a follow-up question
+                   about the preference ask itself (how much, which
+                   percentage, which fund). It needs no discussion from you;
+                   the closing sentence is the whole answer to that part, no
+                   matter how specific or vague their wording was. Do NOT
+                   compute, estimate, or cite ANY number — percentage, ₹
+                   amount, or allocation mix — for what the preference
+                   change would produce; you have not run that scenario, so
+                   any figure you state for it is invented. Do NOT offer to
+                   run a hypothetical for it either — the closing sentence
+                   ends your engagement with this part, it is not an
+                   opening to more.
 
 When the customer asks "is my allocation right?", "is my portfolio aligned
 with my goals?", or "what is my mix?", compare
@@ -394,15 +408,6 @@ by the classifier). Per-mode behavior:
                              plan; reference the saved plan as the
                              baseline but don't reprint it in full.
                              Length: 6-10 sentences.
-                             When preference_impact is present the customer
-                             asked for a PREFERENCE (more gold, no small caps).
-                             COMPLY FIRST: lead with the allocation they asked
-                             for and where it lands, stating the contrast with
-                             ONLY the two figures in preference_impact, and
-                             follow tilt_note exactly. Then ONE grounded
-                             caution. Never refuse, never push back with a
-                             clarifying question, and never invent a compromise
-                             split.
 """
 
 
@@ -495,7 +500,10 @@ def _class_mix_pct(output: Any) -> Optional[dict[str, float]]:
 async def _handle_preference_what_if_aa(
     ctx: TurnContext, action: ChatAction, last_alloc: AgentRunRecord
 ) -> ChatHandlerResult:
-    """Run an AA preference ask as a one-off, contrast it, save NOTHING (D4).
+    """RETIRED 2026-09-17 — UNREFERENCED, kept as the re-enable seam.
+    See `preference_view.PREFERENCE_REDIRECT_MESSAGE` for why.
+
+    Run an AA preference ask as a one-off, contrast it, save NOTHING (D4).
 
     ONE engine call: the baseline to contrast against is the snapshot the
     customer is already looking at, not a recompute.
@@ -569,11 +577,39 @@ async def _dispatch_action(
     last_alloc: AgentRunRecord,
     ctx: TurnContext,
 ) -> ChatHandlerResult:
-    # The extracted preference fields are authoritative regardless of the mode
-    # label the detector attached (same rule as rebalancing): a conversational
-    # "add some gold" is sometimes labelled clarify or redirect.
+    # Every preference-shaped ask points at the preferences page (ruling
+    # 2026-09-17) — chat runs no preference what-ifs. SAVED preferences still
+    # shape this allocation and are still disclosed; only the CHANGE path is
+    # retired. `_handle_preference_what_if_aa` is left as the re-enable seam.
     if action.preference_asks:
-        return await _handle_preference_what_if_aa(ctx, action, last_alloc)
+        capture_preference_unserved(
+            flow="asset_allocation",
+            failure_class="redirected_to_preferences",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
+        )
+        # Tax/corpus overrides may accompany a preference ask in the same
+        # action (detector prompt) — serve those, don't drop them silently.
+        servable = {
+            k: v
+            for k, v in (action.overrides or {}).items()
+            if k in _ALLOWED_OVERRIDE_KEYS
+        }
+        if servable:
+            return await _counterfactual_explore(
+                last_alloc,
+                ctx,
+                servable,
+                preference_pointer=PREFERENCE_REDIRECT_MESSAGE,
+            )
+        return ChatHandlerResult(
+            text=await format_relay_or_canned(
+                ctx=ctx,
+                module_name="asset_allocation",
+                message=PREFERENCE_REDIRECT_MESSAGE,
+            ),
+            show_preferences_pill=True,
+        )
 
     if action.mode in ("narrate", "educate"):
         try:
@@ -625,6 +661,7 @@ async def _reply_with_allocation_tables(
     action_mode: ActionMode,
     spine_mode: str,
     preference_impact: dict[str, Any] | None = None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
 
@@ -645,6 +682,7 @@ async def _reply_with_allocation_tables(
             action_mode=action_mode,
             spine_mode=spine_mode,
             preference_impact=preference_impact,
+            preference_pointer=preference_pointer,
         )
     except Exception:
         # Partial engine output (e.g. missing asset_class_breakdown on a stub run)
@@ -796,6 +834,7 @@ async def _counterfactual_explore(
     last_alloc: AgentRunRecord,
     ctx: TurnContext,
     overrides: dict[str, Any],
+    preference_pointer: Optional[str] = None,
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
@@ -829,8 +868,11 @@ async def _counterfactual_explore(
         output=outcome.result,
         action_mode="counterfactual_explore",
         spine_mode="counterfactual",
+        preference_pointer=preference_pointer,
     )
-    return ChatHandlerResult(text=text)
+    return ChatHandlerResult(
+        text=text, show_preferences_pill=preference_pointer is not None
+    )
 
 
 async def _recompute_full(ctx: TurnContext) -> ChatHandlerResult:
@@ -996,6 +1038,7 @@ async def _format_or_fallback(
     action_mode: ActionMode,
     spine_mode: str,
     preference_impact: dict[str, Any] | None = None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""
     current_mix = compute_current_asset_class_mix(ctx.user_ctx)
@@ -1020,6 +1063,7 @@ async def _format_or_fallback(
             annual_income=annual_income,
             active_preferences=active_preferences,
             preference_impact=preference_impact,
+            preference_pointer=preference_pointer,
         ),
         body_prompt=_AA_FORMATTER_BODY,
         module_name="asset_allocation",
