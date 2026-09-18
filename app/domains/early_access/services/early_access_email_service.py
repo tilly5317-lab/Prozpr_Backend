@@ -12,14 +12,14 @@ as the forgot-PIN code.
 
 The message is a **ticket**: the applicant claimed their way into something,
 and the mail should feel like the stub you keep rather than a receipt you
-delete. A horizontal ticket carries the identity — holder, reference, issue date,
+delete. A horizontal ticket carries the identity — holder, admission, issue date,
 barcode — and everything conversational sits *below* it, outside the ticket,
 where a letter belongs. The ticket is the object; the words are the covering
 note.
 
 It is built to read as a wealth advisory would: restraint over decoration.
 Instrument Serif for the two moments that matter (the holder's name and the
-ticket reference), small letterspaced capitals for everything structural, hairlines
+issue date), small letterspaced capitals for everything structural, hairlines
 rather than filled blocks, and a single gold rule doing the work a coloured
 panel would do badly. The palette is the /earlyaccess page's own, so the mail
 and the page are recognisably one thing.
@@ -40,7 +40,6 @@ and the page are recognisably one thing.
 
 from __future__ import annotations
 
-import hashlib
 import html
 import logging
 import uuid
@@ -250,10 +249,6 @@ _HTML_TEMPLATE = """\
                                       letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
                               Prozpr &middot; {{EDITION}}
                             </p>
-                            <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
-                                      letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                              Issued {{ISSUED}}
-                            </p>
                           </td>
                         </tr>
                       </table>
@@ -270,16 +265,12 @@ _HTML_TEMPLATE = """\
                     <td align="center" style="padding:24px 20px 28px 20px">
                       <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
                                 letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
-                        {{SEAT_LABEL}}
+                        Issued
                       </p>
                       <p class="tk-seat" style="margin:12px 0 0 0;font-family:'Instrument Serif',
-                                Georgia,'Times New Roman',serif;font-size:27px;line-height:1.1;
-                                letter-spacing:1.5px;color:__INK__">{{SEAT_VALUE}}</p>
-                      <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
-                                letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                        {{SEAT_SUB}}
-                      </p>
-                      <div style="margin-top:18px">{{BARCODE}}</div>
+                                Georgia,'Times New Roman',serif;font-size:26px;line-height:1.1;
+                                letter-spacing:1px;color:__INK__">{{ISSUED}}</p>
+                      <div style="margin-top:20px">{{BARCODE}}</div>
                     </td>
                   </tr>
                 </table>
@@ -358,24 +349,15 @@ _HTML_TEMPLATE = """\
 _PROGRAMME = "early access"
 _PROGRAMME_TITLE = "Early access"
 
-# Letters only, and no I or O (they read as 1 and 0). A reference that cannot
-# be mistaken for a number is the whole point — see _reference.
-_REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-
-
-def _reference(seat: int) -> str:
-    """The short ticket reference printed on the stub.
-
-    Derived from the seat, so one ticket always carries the same code and a
-    resend never issues a new one, but *hashed into letters* so it cannot be
-    read back as a position in the queue. That matters: the /earlyaccess page
-    deliberately reports a different figure from the register, so a code that
-    decoded to "you are number 37" would contradict the page — and would tell
-    two recipients who compare tickets exactly who arrived first.
-    """
-    digest = hashlib.sha256(f"prozpr-early-access:{seat}".encode()).digest()
-    code = "".join(_REF_ALPHABET[b % len(_REF_ALPHABET)] for b in digest[:4])
-    return f"PZ-{code}"
+# The stub carries the ISSUE DATE, and nothing else but the barcode.
+#
+# It briefly carried a generated reference ("PZ-RBSU") in place of the edition
+# number this mail used to print. That was a mistake worth naming: nobody could
+# do anything with it. The register is a Sheet keyed on email and seat, so the
+# team cannot look a code up; replies to this address are not monitored, so the
+# recipient cannot quote it; and on the standby ticket it landed directly above
+# a second "Standby". An identifier that identifies nothing is clutter dressed
+# as officialdom, and this mail is meant to read as a letter.
 
 
 def _step(n: int, title: str, body: str) -> str:
@@ -408,10 +390,10 @@ def _render(
     """Build (subject, text, html) for one applicant.
 
     `seat` and `seats_total` only decide WHICH ticket is sent (the script
-    waitlists anyone past the cap), seed the barcode, and derive the reference
-    code. Neither number is printed: the /earlyaccess page shows a smaller
-    seats-left count than the register holds, so a "Seat 037 of 100" in the
-    mail would contradict what the person saw when they applied.
+    waitlists anyone past the cap) and seed the barcode. Neither number is
+    printed, and nothing derived from them is either: the /earlyaccess page
+    shows a smaller seats-left count than the register holds, so a "Seat 037
+    of 100" would contradict what the person saw when they applied.
 
     Every interpolated value is either an int we produced or an HTML-escaped
     string. The name comes from a public form, so dropping it in raw would let
@@ -436,7 +418,6 @@ def _render(
         )
         admit, admit_color = "Standby", _MUTED
         role = "Next in line"
-        seat_sub = "Standby"
         heading = f"You're next in line, {safe_first}."
         heading_text = f"You're next in line, {first}."
         intro = (
@@ -469,9 +450,6 @@ def _render(
         )
         admit, admit_color = "Admit one", _RED
         role = "Founding tester"
-        # Reads under the reference on the stub, and again in the plain-text
-        # part. "Early access" there would repeat the line above it verbatim.
-        seat_sub = "Confirmed"
         heading = f"You're in, {safe_first}."
         heading_text = f"You're in, {first}."
         intro = (
@@ -513,9 +491,6 @@ def _render(
         .replace("{{ROLE}}", html.escape(role))
         .replace("{{ISSUED}}", html.escape(issued))
         .replace("{{EDITION}}", html.escape(_PROGRAMME_TITLE))
-        .replace("{{SEAT_LABEL}}", "Reference")
-        .replace("{{SEAT_VALUE}}", html.escape(_reference(seat)))
-        .replace("{{SEAT_SUB}}", html.escape(seat_sub))
         .replace("{{BARCODE}}", _barcode(seat))
         .replace("{{HEADING}}", heading)
         .replace("{{INTRO}}", html.escape(intro))
@@ -535,8 +510,7 @@ def _render(
             intro,
             "",
             f"{holder} - {role}",
-            f"Prozpr {_PROGRAMME} - {seat_sub}, ref {_reference(seat)}, "
-            f"issued {issued}",
+            f"Prozpr {_PROGRAMME} - issued {issued}",
             "",
             "WHAT HAPPENS NEXT",
             *(f"{i}. {t}: {b}" for i, (t, b) in enumerate(steps, 1)),

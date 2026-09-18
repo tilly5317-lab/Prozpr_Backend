@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from datetime import date
 
 import pytest
 
@@ -302,21 +303,31 @@ def test_ticket_names_the_holder_but_never_a_seat_number():
         assert "Beta" not in body
 
 
-def test_the_ticket_reference_is_stable_and_cannot_be_read_as_a_position():
-    """The stub carries a reference, not a seat. It has to be the same code on
-    a resend, and it must not decode to "you are number 37" — two recipients
-    comparing tickets would otherwise learn who arrived first, which the page's
-    own (deliberately different) seat figure is there to avoid."""
-    from app.domains.early_access.services.early_access_email_service import (
-        _reference,
-    )
+def test_the_stub_carries_the_date_and_says_nothing_twice():
+    """The stub is the half you keep, so what it prints has to mean something.
 
-    assert _reference(37) == _reference(37)
-    assert _reference(37) != _reference(38)
-    # Letters only after the prefix: nothing that can be mistaken for a number.
-    code = _reference(37)
-    assert code.startswith("PZ-")
-    assert code[3:].isalpha() and code[3:].isupper()
+    It briefly carried a generated reference ("PZ-RBSU") in place of the
+    edition number this mail used to print — an identifier nobody could look
+    up, sitting directly above a second "Standby" on the standby ticket. The
+    date is the one fact the stub can carry that is both real and useful, and
+    it appears there ONLY, not on both panels.
+    """
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    for waitlisted, admission in ((False, "Admit one"), (True, "Standby")):
+        _, _, html_body = _render(
+            full_name="Asha",
+            seat=7,
+            seats_total=100,
+            waitlisted=waitlisted,
+            issued_on=date(2026, 9, 18),
+        )
+        assert "PZ-" not in html_body
+        assert "Reference" not in html_body
+        # Printed once on the ticket, on the stub — not on both panels.
+        assert html_body.count("18 SEP 2026") == 1
+        # The admission word appears once, on the main panel.
+        assert html_body.count(admission) == 1
 
 
 def test_what_happens_next_sits_outside_the_ticket():
