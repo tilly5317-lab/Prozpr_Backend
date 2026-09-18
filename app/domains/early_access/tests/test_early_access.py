@@ -287,15 +287,36 @@ def test_ticket_names_the_holder_but_never_a_seat_number():
     subject, text, html_body = _render(
         full_name="Shreyash Dhakate", seat=37, seats_total=100, waitlisted=False
     )
-    assert "Beta 2.0" in subject
+    assert "early access" in subject.lower()
     # The ticket carries the full name as a holder, the note greets by first.
     assert "Shreyash Dhakate" in html_body and "Shreyash Dhakate" in text
     assert "You're in, Shreyash." in text
     assert "ADMIT ONE" in html_body.upper()
     for body in (subject, text, html_body):
         assert "037" not in body and "of 100" not in body
-        # Framed as early access / Beta 2.0, never our internal "MVP" name.
+        # The programme has a NAME, never a version: "Beta 2.0" once sat beside
+        # the wordmark and in every subject line, and "MVP" is our word for it.
+        # Neither belongs in a letter to a prospective customer.
         assert "MVP" not in body
+        assert "2.0" not in body
+        assert "Beta" not in body
+
+
+def test_the_ticket_reference_is_stable_and_cannot_be_read_as_a_position():
+    """The stub carries a reference, not a seat. It has to be the same code on
+    a resend, and it must not decode to "you are number 37" — two recipients
+    comparing tickets would otherwise learn who arrived first, which the page's
+    own (deliberately different) seat figure is there to avoid."""
+    from app.domains.early_access.services.early_access_email_service import (
+        _reference,
+    )
+
+    assert _reference(37) == _reference(37)
+    assert _reference(37) != _reference(38)
+    # Letters only after the prefix: nothing that can be mistaken for a number.
+    code = _reference(37)
+    assert code.startswith("PZ-")
+    assert code[3:].isalpha() and code[3:].isupper()
 
 
 def test_what_happens_next_sits_outside_the_ticket():

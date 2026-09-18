@@ -12,14 +12,14 @@ as the forgot-PIN code.
 
 The message is a **ticket**: the applicant claimed their way into something,
 and the mail should feel like the stub you keep rather than a receipt you
-delete. A horizontal ticket carries the identity — holder, edition, issue date,
+delete. A horizontal ticket carries the identity — holder, reference, issue date,
 barcode — and everything conversational sits *below* it, outside the ticket,
 where a letter belongs. The ticket is the object; the words are the covering
 note.
 
 It is built to read as a wealth advisory would: restraint over decoration.
 Instrument Serif for the two moments that matter (the holder's name and the
-seat number), small letterspaced capitals for everything structural, hairlines
+ticket reference), small letterspaced capitals for everything structural, hairlines
 rather than filled blocks, and a single gold rule doing the work a coloured
 panel would do badly. The palette is the /earlyaccess page's own, so the mail
 and the page are recognisably one thing.
@@ -40,6 +40,7 @@ and the page are recognisably one thing.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import logging
 import uuid
@@ -247,7 +248,7 @@ _HTML_TEMPLATE = """\
                           <td style="padding-top:16px">
                             <p class="tk-muted" style="margin:0;font-size:10px;font-weight:700;
                                       letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
-                              Prozpr &middot; Beta 2.0
+                              Prozpr &middot; {{EDITION}}
                             </p>
                             <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
                                       letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
@@ -271,9 +272,9 @@ _HTML_TEMPLATE = """\
                                 letter-spacing:2px;text-transform:uppercase;color:__MUTED__">
                         {{SEAT_LABEL}}
                       </p>
-                      <p class="tk-seat" style="margin:8px 0 0 0;font-family:'Instrument Serif',
-                                Georgia,'Times New Roman',serif;font-size:46px;line-height:1;
-                                color:__INK__">{{SEAT_VALUE}}</p>
+                      <p class="tk-seat" style="margin:12px 0 0 0;font-family:'Instrument Serif',
+                                Georgia,'Times New Roman',serif;font-size:27px;line-height:1.1;
+                                letter-spacing:1.5px;color:__INK__">{{SEAT_VALUE}}</p>
                       <p class="tk-muted" style="margin:6px 0 0 0;font-size:10px;font-weight:700;
                                 letter-spacing:1.6px;text-transform:uppercase;color:__MUTED__">
                         {{SEAT_SUB}}
@@ -317,8 +318,9 @@ _HTML_TEMPLATE = """\
                   {{STEPS}}
                   <p class="tk-muted" style="margin:22px 0 0 0;font-size:13px;line-height:1.7;
                             color:__MUTED__">
-                    Early access is free. Prozpr will never ask you for payment details
-                    or a one-time password over email or WhatsApp.
+                    Early access is free throughout. For your security, please remember
+                    that Prozpr asks for payment details or a one-time password only
+                    inside the app &mdash; never over email or WhatsApp.
                   </p>
                 </td>
               </tr>
@@ -345,11 +347,35 @@ _HTML_TEMPLATE = """\
 </html>"""
 
 
-# The release name printed on every ticket. "Early access" is the frame; "Beta
-# 2.0" is the edition, so someone who already uses Prozpr reads it as a major
-# new version they are being asked to judge, not a tweak to the app they have.
-# Never "MVP" — that is our word for it, not something a tester should see.
-_EDITION = "Beta 2.0"
+# What the ticket calls the programme. Deliberately a NAME, not a version.
+#
+# The mail used to print an edition ("Beta 2.0") beside the wordmark and in
+# every subject line. A version number tells the reader they have been handed
+# a numbered pre-release — our engineering vocabulary leaking into a letter
+# sent to prospective customers; "MVP" is worse still. What a recipient needs
+# to know is that they are early, which is exactly what "early access" says.
+# Keep version numbers out of anything a tester reads.
+_PROGRAMME = "early access"
+_PROGRAMME_TITLE = "Early access"
+
+# Letters only, and no I or O (they read as 1 and 0). A reference that cannot
+# be mistaken for a number is the whole point — see _reference.
+_REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def _reference(seat: int) -> str:
+    """The short ticket reference printed on the stub.
+
+    Derived from the seat, so one ticket always carries the same code and a
+    resend never issues a new one, but *hashed into letters* so it cannot be
+    read back as a position in the queue. That matters: the /earlyaccess page
+    deliberately reports a different figure from the register, so a code that
+    decoded to "you are number 37" would contradict the page — and would tell
+    two recipients who compare tickets exactly who arrived first.
+    """
+    digest = hashlib.sha256(f"prozpr-early-access:{seat}".encode()).digest()
+    code = "".join(_REF_ALPHABET[b % len(_REF_ALPHABET)] for b in digest[:4])
+    return f"PZ-{code}"
 
 
 def _step(n: int, title: str, body: str) -> str:
@@ -382,10 +408,10 @@ def _render(
     """Build (subject, text, html) for one applicant.
 
     `seat` and `seats_total` only decide WHICH ticket is sent (the script
-    waitlists anyone past the cap) and seed the barcode. Neither number is
-    printed: the /earlyaccess page shows a smaller seats-left count than the
-    register holds, so a "Seat 037 of 100" in the mail would contradict what
-    the person saw when they applied.
+    waitlists anyone past the cap), seed the barcode, and derive the reference
+    code. Neither number is printed: the /earlyaccess page shows a smaller
+    seats-left count than the register holds, so a "Seat 037 of 100" in the
+    mail would contradict what the person saw when they applied.
 
     Every interpolated value is either an int we produced or an HTML-escaped
     string. The name comes from a public form, so dropping it in raw would let
@@ -403,51 +429,55 @@ def _render(
     issued = (issued_on or datetime.now(IST).date()).strftime("%d %b %Y").upper()
 
     if waitlisted:
-        subject = f"You're on the standby list for Prozpr {_EDITION}"
+        subject = "You're on the standby list for Prozpr early access"
         preheader = (
-            "Early access is full for now. If a place opens, you hear from us first."
+            "Every seat in this round is taken. You are next in line, and you "
+            "hear from us first."
         )
         admit, admit_color = "Standby", _MUTED
-        role = "Next in line for a place"
+        role = "Next in line"
         seat_sub = "Standby"
-        heading = f"You're on the standby list, {safe_first}."
-        heading_text = f"You're on the standby list, {first}."
+        heading = f"You're next in line, {safe_first}."
+        heading_text = f"You're next in line, {first}."
         intro = (
-            f"Thank you for asking to test Prozpr {_EDITION}. Early access filled "
-            "up before your request reached us, so this is a standby ticket "
-            "rather than a confirmed place."
+            "Thank you for putting your hand up. Every seat in this round is "
+            "already taken, so this is a standby ticket: your place in line is "
+            "held, and places do open."
         )
         steps = [
             (
-                "We hold your place in line",
-                "Testers do drop out. When a place opens, we write to you before "
-                "anyone else.",
+                "Your place in line is held",
+                "Places free up most weeks as the round settles. When one opens, "
+                "we write to you before anyone else.",
             ),
             (
-                "Your invite arrives",
-                "If a place opens, your invite and the tester group link come to "
-                "this address.",
+                "Your invite follows",
+                "As soon as a place is yours, your invite and the tester group "
+                "link come to this address.",
             ),
             (
-                "Nothing to do until then",
-                "You do not need to reply or apply again. Your request is saved.",
+                "Everything is saved",
+                "Your request is on file, so you can leave this with us and "
+                "carry on.",
             ),
         ]
     else:
-        subject = f"You're in: Prozpr {_EDITION} early access"
+        subject = "You're in: Prozpr early access"
         preheader = (
-            f"Your early-access place for Prozpr {_EDITION} is confirmed. "
+            "Your place in Prozpr early access is confirmed. "
             "Here is what happens next."
         )
         admit, admit_color = "Admit one", _RED
         role = "Founding tester"
-        seat_sub = "Early access"
+        # Reads under the reference on the stub, and again in the plain-text
+        # part. "Early access" there would repeat the line above it verbatim.
+        seat_sub = "Confirmed"
         heading = f"You're in, {safe_first}."
         heading_text = f"You're in, {first}."
         intro = (
-            f"Thank you for putting your hand up. Prozpr {_EDITION} is a major "
-            "upgrade to Prozpr, and you will use it before anyone else. If you "
-            "already use Prozpr, expect a real change rather than a small update. "
+            "Thank you for putting your hand up. Your place in Prozpr early "
+            "access is confirmed, which means you see the new Prozpr well before "
+            "it opens to everyone, and your reading of it shapes what launches. "
             "This ticket is yours to keep."
         )
         steps = [
@@ -457,14 +487,14 @@ def _render(
                 "group link to this address.",
             ),
             (
-                f"Try {_EDITION} with your own portfolio",
-                "Use it the way you would for real. That is where the useful "
-                "rough edges show up.",
+                "Use it with your own portfolio",
+                "Work with it the way you would for real. That is where the most "
+                "useful observations come from.",
             ),
             (
                 "Tell us what you think",
-                "Your feedback decides what we fix and build next, before the "
-                "new version reaches everyone.",
+                "Your feedback decides what we refine and build next, while there "
+                "is still time to act on it.",
             ),
         ]
 
@@ -482,8 +512,9 @@ def _render(
         .replace("{{HOLDER}}", safe_holder)
         .replace("{{ROLE}}", html.escape(role))
         .replace("{{ISSUED}}", html.escape(issued))
-        .replace("{{SEAT_LABEL}}", "Edition")
-        .replace("{{SEAT_VALUE}}", "2.0")
+        .replace("{{EDITION}}", html.escape(_PROGRAMME_TITLE))
+        .replace("{{SEAT_LABEL}}", "Reference")
+        .replace("{{SEAT_VALUE}}", html.escape(_reference(seat)))
         .replace("{{SEAT_SUB}}", html.escape(seat_sub))
         .replace("{{BARCODE}}", _barcode(seat))
         .replace("{{HEADING}}", heading)
@@ -504,13 +535,15 @@ def _render(
             intro,
             "",
             f"{holder} - {role}",
-            f"Prozpr {_EDITION} - {seat_sub}, issued {issued}",
+            f"Prozpr {_PROGRAMME} - {seat_sub}, ref {_reference(seat)}, "
+            f"issued {issued}",
             "",
             "WHAT HAPPENS NEXT",
             *(f"{i}. {t}: {b}" for i, (t, b) in enumerate(steps, 1)),
             "",
-            "Early access is free. Prozpr will never ask you for payment details "
-            "or a one-time password over email or WhatsApp.",
+            "Early access is free throughout. For your security, please remember "
+            "that Prozpr asks for payment details or a one-time password only "
+            "inside the app - never over email or WhatsApp.",
             "",
             f"You are receiving this because you requested early access at {host}.",
             "Replies to this address are not monitored.",
