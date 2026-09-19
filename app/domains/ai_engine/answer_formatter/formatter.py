@@ -464,6 +464,19 @@ _GATHER_BODY = (
 )
 
 
+_CONFIRM_BODY = (
+    "You are confirming something Prozpr has just DONE for the customer, or "
+    "restating their current saved state.\n"
+    "\n"
+    "CUSTOMER_RECORD has a single field, `boundary_message`: the exact facts to "
+    "convey.\n"
+    "\n"
+    "Relay the message's facts faithfully in PI's voice, warm and brief (2-4 "
+    "sentences); no caveats about limits, no offers to do more, do not restate "
+    "the whole plan."
+)
+
+
 async def format_relay_or_canned(
     *,
     ctx: TurnContext,
@@ -476,12 +489,16 @@ async def format_relay_or_canned(
 
     Pass ``action_mode="gather"`` when the message asks the customer for an input
     we need — it selects a body prompt that leads with the question instead of a
-    limit. The default relays a genuine boundary.
+    limit; ``action_mode="compute"`` when the message confirms something we just
+    did or restates their saved state. The default relays a genuine boundary.
     """
+    body_prompt = {"gather": _GATHER_BODY, "compute": _CONFIRM_BODY}.get(
+        action_mode, _RELAY_BODY
+    )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack={"boundary_message": message},
-        body_prompt=_GATHER_BODY if action_mode == "gather" else _RELAY_BODY,
+        body_prompt=body_prompt,
         module_name=module_name,
         action_mode=action_mode,
         profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},

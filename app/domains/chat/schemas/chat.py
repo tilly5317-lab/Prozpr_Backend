@@ -75,6 +75,22 @@ class ChatSendMessageResponse(BaseModel):
     # already declares/reads this exact name; today the backend just never sent it.
     ideal_allocation_rebalancing_id: Optional[uuid.UUID] = None
     ideal_allocation_snapshot_id: Optional[uuid.UUID] = None
+    # The persisted additional-investment run the assistant just presented, so
+    # the client can offer "Save preference" → POST
+    # /additional-investment/{run_id}/save-preference. Sent ONLY on preference
+    # what-if turns (an ordinary deploy carries no candidate to save).
+    additional_investment_run_id: Optional[uuid.UUID] = None
+    # Cadence ("sip_monthly" | "lumpsum") of that run — the chat "View plan"
+    # button routes to the SIP vs Lump sum tab by it.
+    additional_investment_cadence: Optional[str] = None
+    # True when this turn produced a savable candidate preference (a "what-if").
+    # The rebalancing pill uses it to note the preference is kept on save and to
+    # show the "View preferences" link only on what-if turns.
+    has_candidate_preference: bool = False
+    # True when this turn should route the customer to their investment
+    # preferences: they asked to change or clear the saved record, or named
+    # something we could not map. The client renders it as a pill.
+    show_preferences_pill: bool = False
     # The question needed the user's holdings and none are imported yet — the
     # reply asks for a CAS statement, and the client shows an upload CTA.
     portfolio_data_missing: bool = False

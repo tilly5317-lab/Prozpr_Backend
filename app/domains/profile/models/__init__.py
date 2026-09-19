@@ -15,6 +15,9 @@ from app.domains.profile.models.other_investment import (
 )
 from app.domains.profile.models.review_preference import ReviewPreference
 from app.domains.profile.models.risk_profile import RISK_CATEGORIES, RiskProfile
+from app.domains.profile.models.saved_investment_preference import (
+    SavedInvestmentPreference,
+)
 from app.domains.profile.models.tax_profile import TaxProfile
 from app.domains.profile.models.personal_finance_profile import PersonalFinanceProfile
 from app.domains.profile.models.user_current_property import UserCurrentProperty
@@ -29,6 +32,7 @@ __all__ = [
     "RISK_CATEGORIES",
     "ReviewPreference",
     "RiskProfile",
+    "SavedInvestmentPreference",
     "TaxProfile",
     "PersonalFinanceProfile",
     "UserCurrentProperty",

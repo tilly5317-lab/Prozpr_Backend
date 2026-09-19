@@ -23,6 +23,7 @@ _ALLOWED_OVERRIDE_KEYS = frozenset(
         "monthly_household_expense",
         "emergency_fund_needed",
         "tax_regime",
+        "human_override_preferences",
     }
 )
 

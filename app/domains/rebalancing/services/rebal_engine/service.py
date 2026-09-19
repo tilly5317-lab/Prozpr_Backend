@@ -299,6 +299,8 @@ def build_rebal_facts_pack(
     *,
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
+    active_preferences: Optional[dict[str, Any]] = None,
+    preference_pointer: Optional[str] = None,
     is_rerun: bool = False,
     fund_house_view: Optional[str] = None,
     include_ideal: bool = True,
@@ -703,6 +705,17 @@ def build_rebal_facts_pack(
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
         pack["constraint_impact"] = constraint_impact
+    # A plan shaped by the customer's SAVED preference says so. Mutually
+    # exclusive with constraint_impact: that block's override is an unsaved
+    # candidate, and both at once would credit the customer with a save they
+    # have not made.
+    elif active_preferences is not None:
+        pack["active_preferences"] = active_preferences
+    # The turn also carried a preference ask, which chat does not act on. The
+    # FORMATTER closes with this — never string-concatenated onto its output,
+    # because answer_formatter owns every customer-facing word.
+    if preference_pointer is not None:
+        pack["preference_pointer"] = preference_pointer
     if is_rerun:
         pack["is_rerun"] = True
     if fund_house_view:

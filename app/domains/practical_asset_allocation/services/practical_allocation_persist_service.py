@@ -37,6 +37,7 @@ async def persist_practical_allocation_run(
     chat_session_id: uuid.UUID | None = None,
     user_question: str | None = None,
     input_payload: dict[str, Any] | None = None,
+    saved_investment_preference_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Write *output* into ``practical_asset_allocation_runs``; return the run id."""
     cs = output.client_summary
@@ -68,6 +69,7 @@ async def persist_practical_allocation_run(
         max_non_mf_equity_pct_computed=float(cb.max_non_mf_equity_pct_computed),
         input_payload=input_payload or {},
         result_payload=output.model_dump(mode="json"),
+        saved_investment_preference_id=saved_investment_preference_id,
     )
     db.add(run)
     await db.flush()  # assign run.id within the caller's transaction

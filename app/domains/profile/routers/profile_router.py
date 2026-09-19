@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_effective_user
+from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.domains.profile.models import (
     AssetAllocationConstraint,
     EffectiveRiskAssessment,
@@ -35,6 +35,9 @@ from app.domains.profile.schemas import (
     FullProfileResponse,
     InvestmentConstraintResponse,
     InvestmentConstraintUpdate,
+    ScreenPreferenceGetResponse,
+    ScreenPreferenceRequest,
+    ScreenSaveResponse,
     InvestmentProfileResponse,
     InvestmentProfileUpdate,
     PersonalFinanceResponse,
@@ -711,3 +714,36 @@ async def get_review_preference(
             status_code=status.HTTP_404_NOT_FOUND, detail="Review preferences not found"
         )
     return ReviewPreferenceResponse.model_validate(pref)
+
+
+# Section 9 - Investment preferences (S4 percentage screen — spec
+# 2026-09-10-investment-preferences-s4-pct-screen-backend-design)
+@router.get(
+    "/investment-preferences", response_model=ScreenPreferenceGetResponse
+)
+async def get_investment_preferences(
+    db: AsyncSession = Depends(get_db),
+    user_ctx: User = Depends(get_ai_user_context),
+):
+    from app.domains.profile.services.screen_preference_service import screen_read_model
+
+    return await screen_read_model(db, user_ctx)
+
+
+@router.put("/investment-preferences", response_model=ScreenSaveResponse)
+async def put_investment_preferences(
+    payload: ScreenPreferenceRequest,
+    db: AsyncSession = Depends(get_db),
+    user_ctx: User = Depends(get_ai_user_context),
+):
+    from app.domains.profile.services.screen_preference_service import (
+        ScreenPreferenceError,
+        save_screen_preference,
+    )
+
+    try:
+        return await save_screen_preference(
+            db, user_ctx, payload.class_mix, [p.model_dump() for p in payload.pins]
+        )
+    except ScreenPreferenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

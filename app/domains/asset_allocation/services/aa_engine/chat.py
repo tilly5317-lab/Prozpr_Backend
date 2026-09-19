@@ -35,7 +35,12 @@ from app.domains.ai_engine.answer_formatter import (
     format_with_telemetry,
 )
 from app.domains.ai_engine.classifier_llm import classify_action
+from app.core.observability import capture_preference_unserved
+from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services import preference_view as pref_view
 from app.domains.profile.services import profile_finance as pf
+from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
 from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
     compute_current_asset_class_mix,
@@ -86,6 +91,17 @@ class ChatAction(BaseModel):
         "monthly_household_expense, emergency_fund_needed, "
         "tax_regime.",
     )
+    preference_asks: Optional[list[PreferenceAsk]] = Field(
+        default=None,
+        description=(
+            "Every asset-class or fund-category exposure the customer wants "
+            "changed, one entry each: 'add gold' → [{target: gold, level: more}]; "
+            "'no small caps' → [{small_cap, none}]; 'take equity to 70%' → "
+            "[{equity, number, 70}]. Numbers ONLY when the customer stated one. "
+            "A BARE risk-appetite ask that names no asset class ('I can take "
+            "more risk') is NOT a preference — that is effective_risk_score."
+        ),
+    )
     clarification_question: Optional[str] = Field(
         default=None,
         description="When mode='clarify', the question to ask the customer.",
@@ -112,6 +128,20 @@ _INVALID_OVERRIDE_TEMPLATE = (
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific risk score (1–10), "
     "fund name, or amount you'd like to consider?"
+)
+
+_AA_UNMAPPED_PREFERENCE = (
+    "I can shape your allocation by asset class (equity, debt, gold) and by fund "
+    "category — large/mid/small cap, value, sector, US & international, "
+    "multi-asset, short-term debt, arbitrage — but not by {words}. Tell me the "
+    "category you'd like more or less of and I'll show you what it does."
+)
+
+# Deliberately does NOT name the preferences screen: that copy is gated on the
+# screen shipping (it is built but unmerged on the frontend branch). Add the
+# pointer here once it is live.
+_AA_PREFERENCE_TAIL = (
+    "This is a what-if on your allocation — nothing here is saved."
 )
 
 
@@ -141,11 +171,28 @@ goal-based asset allocation. Pick exactly one of six modes.
   test. This covers BOTH "what if" curiosity ("what if my risk were 7?")
   AND commit-shaped requests ("lock in risk 7", "save this with ₹1
   crore"). Don't try to disambiguate verb intent — always emit
-  counterfactual_explore here. Must specify `overrides`.
+  counterfactual_explore here. Must specify `overrides` or `preference_asks`.
   Multiple keys allowed in one action ("what if risk were 7 AND corpus
   were ₹1 crore" → both keys). Does NOT persist on this turn.
+
+  PREFERENCE ASKS are ALWAYS counterfactual_explore with `preference_asks`
+  filled — any request to change how much of an asset class or fund category
+  they hold ("add gold", "push my equity up", "no small caps", "lean toward mid
+  cap", "drop the US funds", "take equity to 70%", "less debt"). One entry per
+  thing named; the field's own description carries the target vocabulary and the
+  five levels. Tax/corpus `overrides` may accompany them in the same action.
+
+  RISK vs PREFERENCE — the one distinction that matters here. A BARE
+  risk-appetite ask that names NO asset class ("I can take more risk", "be more
+  aggressive", "make it safer", "I want to be conservative") is about their RISK
+  SCORE, which this screen owns: clarify (no number) or counterfactual_explore
+  with effective_risk_score (number given) — NOT a preference ask. The moment an
+  asset class or fund category is named it IS a preference ask, even alongside
+  risk talk ("I'm young so add more equity" → [{equity, more}]).
 - "clarify" — the customer signals a direction but does not give a usable
-  value ("I can take more risk", "less debt please", "be more conservative").
+  value ("I can take more risk", "be more conservative"). This is for RISK
+  APPETITE only — an ask that names an asset class or category ("less debt",
+  "more equity") is a preference ask, never a clarify.
   Compose a concrete clarification question in `clarification_question`,
   anchored to current values from the snapshot AND moved in the direction
   the customer signaled (higher for "more risk" / "more aggressive";
@@ -160,11 +207,15 @@ goal-based asset allocation. Pick exactly one of six modes.
   here. Set `redirect_reason` to a short description. Use this for:
     • adding/editing goals or profile fields
     • off-topic / out-of-scope (other asset classes, news, politics, etc.)
-    • inputs we can't override (anything outside the allow-list below)
+    • inputs we can't override (anything outside the allow-list below) — but
+      an asset-class or fund-category exposure ask is NEVER redirect for being
+      outside that list; it is a preference ask (see above)
   Note: fund-name swaps and specific fund picks ("switch from X to Y", "which large-cap fund should I pick?") should be classified as `rebalancing` upstream and should not normally reach this classifier; if such a question DOES slip through, redirect with reason "fund-level question — please ask explicitly to rebalance".
-  NEVER redirect risk or allocation tuning: "more risk", "less conservative", "higher risk allocation", "do allocation with more risk", "change my risk" → `clarify` (no number) or `counterfactual_explore` (number given). The word "which" in "allocation which more risk" does NOT mean fund-picking.
+  NEVER redirect risk or allocation tuning: "more risk", "less conservative", "higher risk allocation", "do allocation with more risk", "change my risk" → `clarify` (no number) or `counterfactual_explore` (number given). The word "which" in "allocation which more risk" does NOT mean fund-picking. And NEVER redirect an exposure ask ("add gold", "no small caps") — that is `preference_asks`.
 
-ALLOWED override keys and ranges (overrides outside this list → redirect):
+ALLOWED override keys and ranges. An exposure/category ask does NOT belong here
+— it goes in `preference_asks`, and is never redirected for being absent from
+this list (other unsupported override inputs → redirect):
   effective_risk_score:       number 1–10
   total_corpus:               number ≥ 0 (₹ — absolute corpus, replaces baseline)
   additional_cash_inr:        number ≥ 0 (₹ — relative, adds to current corpus; "what if I had ₹2L more?" → 200000)
@@ -243,6 +294,44 @@ CUSTOMER_RECORD shape (treat fields not present as unknown):
                    the plan target.
   your_actual_holdings_today_inr / your_actual_holdings_today_indian:
                    same as above, in ₹ / pre-formatted.
+  active_preferences: optional — present when the customer's SAVED investment
+                   preferences shaped the allocation shown. Fields:
+                     choices: list[str] — their preference in their own words
+                       ("60% equity / 30% debt / 10% commodity", "no small-cap
+                       equity", "30% of your portfolio in large-cap equity").
+                       Quote verbatim; never restate as engine categories, never
+                       re-base a percentage, never add one that is not listed.
+                     applied: true — the engine consumed it on THIS allocation.
+                     shortfall_reason: string|null — present when it could not
+                       be fully honoured; state it in ONE plain sentence.
+                   On a plan-presentation turn, ATTRIBUTE the allocation in the
+                   opening: "this reflects the preferences you saved — 60%
+                   equity / 30% debt / 10% commodity". Say "the preferences you
+                   saved", never WHERE they saved them. ABSENT means you cannot
+                   attribute this allocation to a saved preference — do not
+                   credit one, and do not claim they have none either.
+  preference_pointer: optional string — the customer ALSO asked something
+                   preference-shaped (an exposure change, undo, or set),
+                   which chat cannot act on. Answer their OTHER, servable
+                   question in full first, using the facts above. Then CLOSE
+                   with ONE short sentence, in your own voice, carrying two
+                   facts: changing preferences from chat is something we're
+                   still building, and their preferences page is where to set
+                   them (a control is shown beside your reply). Do NOT quote
+                   the string verbatim, do NOT lead with it, do NOT apologise
+                   at length, never claim to have changed or saved a
+                   preference yourself — and do NOT ask a follow-up question
+                   about the preference ask itself (how much, which
+                   percentage, which fund). It needs no discussion from you;
+                   the closing sentence is the whole answer to that part, no
+                   matter how specific or vague their wording was. Do NOT
+                   compute, estimate, or cite ANY number — percentage, ₹
+                   amount, or allocation mix — for what the preference
+                   change would produce; you have not run that scenario, so
+                   any figure you state for it is invented. Do NOT offer to
+                   run a hypothetical for it either — the closing sentence
+                   ends your engagement with this part, it is not an
+                   opening to more.
 
 When the customer asks "is my allocation right?", "is my portfolio aligned
 with my goals?", or "what is my mix?", compare
@@ -382,11 +471,146 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 # ---------------------------------------------------------------------------
 
 
+async def _relay_allocation(ctx: TurnContext, message: str) -> ChatHandlerResult:
+    """Canned copy through the formatter — PI's voice plus a telemetry row."""
+    return ChatHandlerResult(
+        text=await format_relay_or_canned(
+            ctx=ctx, module_name="asset_allocation", message=message
+        )
+    )
+
+
+def _class_mix_pct(output: Any) -> Optional[dict[str, float]]:
+    """{equity, debt, others} off an allocation output's own breakdown.
+
+    `preference_save_service.achieved_class_mix` cannot be reused here: it
+    returns None unless the output consumed an override, which the baseline by
+    definition did not.
+    """
+    block = getattr(getattr(output, "asset_class_breakdown", None), "recommended", None)
+    if block is None:
+        return None
+    return {
+        "equity": round(block.equity_total_pct, 1),
+        "debt": round(block.debt_total_pct, 1),
+        "others": round(block.others_total_pct, 1),
+    }
+
+
+async def _handle_preference_what_if_aa(
+    ctx: TurnContext, action: ChatAction, last_alloc: AgentRunRecord
+) -> ChatHandlerResult:
+    """RETIRED 2026-09-17 — UNREFERENCED, kept as the re-enable seam.
+    See `preference_view.PREFERENCE_REDIRECT_MESSAGE` for why.
+
+    Run an AA preference ask as a one-off, contrast it, save NOTHING (D4).
+
+    ONE engine call: the baseline to contrast against is the snapshot the
+    customer is already looking at, not a recompute.
+    """
+    chat_intent, unmapped = build_intent(action.preference_asks)
+    if unmapped:
+        capture_preference_unserved(
+            flow="asset_allocation",
+            failure_class="unmapped_category",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
+        )
+    if not chat_intent:
+        return await _relay_allocation(
+            ctx, _AA_UNMAPPED_PREFERENCE.format(words=", ".join(unmapped))
+        )
+    if ctx.db is None:
+        return await _relay_allocation(ctx, _INVALID_OVERRIDE_TEMPLATE)
+
+    _intent, resolved, _changed = await prefs.resolve_one_off(
+        ctx.db, ctx.user_ctx, chat_intent
+    )
+    overrides = {"human_override_preferences": prefs.one_off_override(resolved)}
+    requested = await compute_allocation_result(
+        ctx.user_ctx,
+        ctx.user_question,
+        db=None,  # NO writes
+        persist_recommendation=False,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        spine_mode="counterfactual",
+        chat_ctx=with_chat_overrides(ctx, overrides),
+        gate_on_zero_corpus=True,
+    )
+    if requested.blocking_message:
+        return ChatHandlerResult(text=requested.blocking_message)
+    if requested.result is None:
+        return await _relay_allocation(
+            ctx, "I couldn't work that one out right now — please try again."
+        )
+
+    try:
+        recommended_output = _rehydrate_last_alloc_output(last_alloc)
+    except Exception:
+        logger.warning("rehydrate for the preference contrast failed", exc_info=True)
+        recommended_output = None
+    impact = {
+        "recommended_mix_pct": _class_mix_pct(recommended_output),
+        "requested_mix_pct": _class_mix_pct(requested.result),
+        "tilt_note": (
+            "Contrast the requested allocation ONLY against the recommended one "
+            "using these two figures verbatim (equity/debt/commodity %). Never "
+            "state a third mix, never average them, never offer a compromise "
+            "split. requested_mix_pct is where the ask LANDS — give the real "
+            "figure even if it falls short of what they asked for. Close with: "
+            + _AA_PREFERENCE_TAIL
+        ),
+    }
+    text = await _reply_with_allocation_tables(
+        ctx=ctx,
+        output=requested.result,
+        action_mode="counterfactual_explore",
+        spine_mode="counterfactual",
+        preference_impact=impact,
+    )
+    return ChatHandlerResult(text=text)
+
+
 async def _dispatch_action(
     action: ChatAction,
     last_alloc: AgentRunRecord,
     ctx: TurnContext,
 ) -> ChatHandlerResult:
+    # Every preference-shaped ask points at the preferences page (ruling
+    # 2026-09-17) — chat runs no preference what-ifs. SAVED preferences still
+    # shape this allocation and are still disclosed; only the CHANGE path is
+    # retired. `_handle_preference_what_if_aa` is left as the re-enable seam.
+    if action.preference_asks:
+        capture_preference_unserved(
+            flow="asset_allocation",
+            failure_class="redirected_to_preferences",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
+        )
+        # Tax/corpus overrides may accompany a preference ask in the same
+        # action (detector prompt) — serve those, don't drop them silently.
+        servable = {
+            k: v
+            for k, v in (action.overrides or {}).items()
+            if k in _ALLOWED_OVERRIDE_KEYS
+        }
+        if servable:
+            return await _counterfactual_explore(
+                last_alloc,
+                ctx,
+                servable,
+                preference_pointer=PREFERENCE_REDIRECT_MESSAGE,
+            )
+        return ChatHandlerResult(
+            text=await format_relay_or_canned(
+                ctx=ctx,
+                module_name="asset_allocation",
+                message=PREFERENCE_REDIRECT_MESSAGE,
+            ),
+            show_preferences_pill=True,
+        )
+
     if action.mode in ("narrate", "educate"):
         try:
             output = _rehydrate_last_alloc_output(last_alloc)
@@ -436,6 +660,8 @@ async def _reply_with_allocation_tables(
     output: Any,
     action_mode: ActionMode,
     spine_mode: str,
+    preference_impact: dict[str, Any] | None = None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Return a natural-language allocation reply tailored to the customer's question.
 
@@ -455,6 +681,8 @@ async def _reply_with_allocation_tables(
             output=output,
             action_mode=action_mode,
             spine_mode=spine_mode,
+            preference_impact=preference_impact,
+            preference_pointer=preference_pointer,
         )
     except Exception:
         # Partial engine output (e.g. missing asset_class_breakdown on a stub run)
@@ -509,13 +737,20 @@ def _coerce_misclassified_redirect_action(
     if any(p in q for p in fund_phrases):
         return action
 
+    # Spec 2026-09-16 D5: a named asset class or fund category is a PREFERENCE,
+    # not a risk-score nudge — leave it for the detector's `preference_asks`.
+    # Five substrings, deliberately: this path is already double-gated (a
+    # redirect whose reason names a fund-level question) and the detector prompt
+    # is the real defence. Do not grow this into a category vocabulary — if the
+    # eval shows a category leaking to the risk score, fix the prompt.
+    if any(m in q for m in ("equity", "debt", "gold", "cap", "sector")):
+        return action
+
     tuning_markers = (
         "risk",
         "allocat",
         "conservative",
         "aggressive",
-        "equity",
-        "debt",
         "corpus",
         "income",
         "expense",
@@ -599,6 +834,7 @@ async def _counterfactual_explore(
     last_alloc: AgentRunRecord,
     ctx: TurnContext,
     overrides: dict[str, Any],
+    preference_pointer: Optional[str] = None,
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
@@ -632,8 +868,11 @@ async def _counterfactual_explore(
         output=outcome.result,
         action_mode="counterfactual_explore",
         spine_mode="counterfactual",
+        preference_pointer=preference_pointer,
     )
-    return ChatHandlerResult(text=text)
+    return ChatHandlerResult(
+        text=text, show_preferences_pill=preference_pointer is not None
+    )
 
 
 async def _recompute_full(ctx: TurnContext) -> ChatHandlerResult:
@@ -798,6 +1037,8 @@ async def _format_or_fallback(
     output: Any,
     action_mode: ActionMode,
     spine_mode: str,
+    preference_impact: dict[str, Any] | None = None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Run the formatter; fall back to the templated brief on failure."""
     current_mix = compute_current_asset_class_mix(ctx.user_ctx)
@@ -806,10 +1047,23 @@ async def _format_or_fallback(
     annual_income = pf.annual_income_pfp(
         getattr(ctx.user_ctx, "personal_finance_profile", None)
     )
+    # The displayed allocation is the PRACTICAL one, which honours the saved
+    # preference; the IDEAL fallback carries no override report, so the block
+    # comes back None there by construction — leave it that way.
+    active_preferences = (
+        None
+        if preference_impact is not None
+        else pref_view.active_preferences_for(ctx.user_ctx, output)
+    )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_aa_facts_pack(
-            output, current_mix=current_mix, annual_income=annual_income
+            output,
+            current_mix=current_mix,
+            annual_income=annual_income,
+            active_preferences=active_preferences,
+            preference_impact=preference_impact,
+            preference_pointer=preference_pointer,
         ),
         body_prompt=_AA_FORMATTER_BODY,
         module_name="asset_allocation",

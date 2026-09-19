@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -15,7 +16,11 @@ from app.domains.ai_engine.chat_dispatcher import (
     register,
     register_speculative_detector,
 )
-from app.domains.ai_engine.common import build_detect_history_block, ensure_ai_agents_path
+from app.domains.ai_engine.common import (
+    build_detect_history_block,
+    buy_changes_vs_recommended,
+    ensure_ai_agents_path,
+)
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.rebalancing.services.rebal_engine.service import (
     TAILORABLE_BLOCKERS,
@@ -49,9 +54,10 @@ from app.domains.mutual_funds.services.fund_ranking_lookup import (
     ranking_by_isin,
     resolve_ranked_fund,
 )
-from app.domains.mutual_funds.services.investment_preferences import (
-    normalize_tilt,
-)
+from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services import preference_view as pref_view
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
+from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
 from house_view import load_house_view  # noqa: E402  (bare import via ensure_ai_agents_path)
@@ -79,73 +85,39 @@ class RebalanceAction(BaseModel):
         description=(
             "For counterfactual_explore. Allowed keys: effective_tax_rate, "
             "stcg_offset_budget_inr, carryforward_st_loss_inr, "
-            "carryforward_lt_loss_inr, additional_cash_inr, asset_class_tilt, "
-            "pure_equity_only, market_cap_tilt. Never emit asset_class_tilt, "
-            "pure_equity_only or market_cap_tilt yourself — set the tilt_* / "
-            "scope_only_asset_classes / market_cap fields instead; the app "
-            "builds them."
+            "carryforward_lt_loss_inr, additional_cash_inr. Exposure / category "
+            "asks go in preference_asks, never here."
         ),
     )
     clarification_question: Optional[str] = Field(default=None)
     redirect_reason: Optional[str] = Field(default=None)
-    scope_only_asset_classes: Optional[list[Literal["equity", "debt", "others"]]] = Field(
+    preference_asks: Optional[list[PreferenceAsk]] = Field(
         default=None,
         description=(
-            "For counterfactual_explore. 'Only equity funds' → ['equity']; "
-            "'no gold' → ['equity', 'debt']. Asset-class level only — fund "
-            "categories like 'large cap' belong in allowed_categories."
+            "Every asset-class or fund-category exposure the customer wants "
+            "changed, one entry each: 'more equity' → [{target: equity, level: "
+            "more}]; 'small-cap heavy, drop US funds' → [{small_cap, heavy}, "
+            "{us_international, none}]; '100% equity' → [{equity, number, 100}]; "
+            "'make gold 30%' → [{gold, number, 30}]. Numbers ONLY when the "
+            "customer stated one. Set with mode counterfactual_explore."
         ),
-    )
-    tilt_asset_class: Optional[Literal["equity", "debt", "others"]] = Field(
-        default=None,
-        description=(
-            "For counterfactual_explore. The asset class whose exposure the "
-            "customer wants changed ('increase my equity exposure' → 'equity')."
-        ),
-    )
-    tilt_delta_pp: Optional[float] = Field(
-        default=None,
-        description=(
-            "Relative change in percentage points, ONLY when the customer "
-            "states one ('by 10 percent' → 10, 'reduce by 5' → -5). NEVER "
-            "invent a number — leave unset when none was said."
-        ),
-    )
-    tilt_target_pct: Optional[float] = Field(
-        default=None,
-        description=(
-            "Absolute target percent, ONLY when the customer states one "
-            "('take equity to 70%' → 70). NEVER invent a number."
-        ),
-    )
-    market_cap: Optional[Literal["large", "mid", "small"]] = Field(
-        default=None,
-        description=(
-            "The market-cap sleeve the customer wants MORE of ('more small cap', "
-            "'tilt to midcaps', 'small-cap heavy'). large/mid/small only."
-        ),
-    )
-    market_cap_heavy: Optional[bool] = Field(
-        default=False,
-        description="True for a 'heavy/mostly/lots of' qualifier ('small-cap heavy'); else False.",
     )
     excluded_categories: Optional[list[str]] = Field(
         default=None,
         description=(
-            "For consolidate. Categories to EXCLUDE from new buys — the "
-            "customer's words verbatim ('no ELSS', 'nothing with a lock-in' → "
-            "['elss'])."
+            "For consolidate. ONLY the ELSS / lock-in exclusion for NEW buys "
+            "('no ELSS', 'nothing with a lock-in' → ['elss']). Every other "
+            "category exclusion is a preference_asks entry with level none."
         ),
     )
     category_weights: Optional[dict[str, float]] = Field(
         default=None,
         description=(
-            "For consolidate. Weight new buys toward a NON-cap fund category "
-            "('more value funds', 'at least 30% in banking funds'): {customer's "
-            "category words: requested percent of buys 0-100}. A stated percent → "
-            "that number; NO stated percent → 0 (sentinel: the app applies its "
-            "documented default step and discloses it). Large/mid/small CAP asks "
-            "use the market_cap field instead, NOT this."
+            "For consolidate. Weight NEW BUYS toward a category we do not track "
+            "as a preference ('at least 30% in banking funds'): {customer's words: "
+            "percent 0-100, or 0 when none stated}. Large/mid/small cap, value, "
+            "sector, US, multi-asset, debt and gold asks are preference_asks, "
+            "NOT this."
         ),
     )
     named_fund: Optional[str] = Field(
@@ -166,16 +138,17 @@ class RebalanceAction(BaseModel):
     target_fund_count: Optional[int] = Field(
         default=None,
         description=(
-            "For consolidate. Max number of NEW-BUY funds the customer wants "
-            "(not the portfolio's total fund count)."
+            "Max number of NEW-BUY funds the customer wants (not the "
+            "portfolio's total fund count). May accompany preference_asks."
         ),
     )
     allowed_categories: Optional[list[str]] = Field(
         default=None,
         description=(
-            "For consolidate. The customer's fund-category words verbatim "
-            "(e.g. ['large cap', 'mid cap']) to restrict new buys to. Extract "
-            "the words as-is; do not guess internal keys."
+            "For consolidate. Where the NEW MONEY of this plan should go, in "
+            "the customer's words verbatim, ONLY when they talk about the new "
+            "buys ('put the new money only in index funds'). An ask about their "
+            "overall exposure is preference_asks."
         ),
     )
 
@@ -183,7 +156,8 @@ class RebalanceAction(BaseModel):
 _INVALID_OVERRIDE_TEMPLATE = (
     "I can only run 'what if' scenarios on a small set of inputs from chat "
     "right now (tax rate, STCG offset budget, carry-forward losses, additional "
-    "cash to deploy, or your equity/debt/gold exposure). Other changes — like "
+    "cash to deploy — or a preference about your asset-class or fund-category "
+    "exposure). Other changes — like "
     "deferring the rebalance — aren't supported yet. If you'd like a 'what if' "
     "on the supported inputs, just say so."
 )
@@ -214,48 +188,44 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   20%?") AND commit-shaped requests ("save with 20% tax rate", "lock
   this in with ₹2L more"). Don't try to disambiguate verb intent —
   always emit counterfactual_explore here. Must specify
-  `overrides`. Allowed override keys (others → redirect):
+  `overrides` or `preference_asks`. Allowed override keys (others → redirect):
     effective_tax_rate:        number 0-100 (% — overrides customer's tax bracket)
     stcg_offset_budget_inr:    number ≥ 0 (₹ — STCG offset budget for this run)
     carryforward_st_loss_inr:  number ≥ 0 (₹ — short-term carryforward losses)
     carryforward_lt_loss_inr:  number ≥ 0 (₹ — long-term carryforward losses)
     additional_cash_inr:       number ≥ 0 (₹ — relative, "what if I had ₹2L more to deploy?" → 200000; re-runs allocation at corpus + this, then rebalances against present holdings)
-    asset_class_tilt:          number map — INTERNAL, never emit it yourself; for exposure asks fill the tilt_* / scope_only_asset_classes FIELDS below and the app builds this key
-    pure_equity_only:          true — INTERNAL, never emit yourself; the app sets it for an "only/all/100% equity" ask
-    market_cap_tilt:           number map — INTERNAL, never emit it yourself; for large/mid/small-cap asks fill the market_cap / market_cap_heavy FIELDS below and the app builds this key
   Multiple keys are allowed in one action ("what if my tax rate were 20%
   AND I had ₹50K in carry-forward losses?"). Does NOT persist on this turn.
-  EXPOSURE ASKS are ALWAYS counterfactual_explore — any request to change how
-  much equity/debt/gold they hold ("increase my equity", "take equity to 70%",
-  "only/all equity", "make it 100% equity", "add some gold"), even mid-
-  conversation and even alongside risk-score talk. NEVER instead clarify about
-  their risk score, redirect to Profile, or call it a goal/profile conflict —
-  the tilt covers it. Fill tilt_asset_class (equity / debt / others — gold and
-  "safer" map here too): "make it safer / more conservative / less risky /
-  reduce risk" → tilt_asset_class="debt"; "make it aggressive / riskier / more
-  growth" → tilt_asset_class="equity"; "add gold / more gold" →
-  tilt_asset_class="others". Set tilt_delta_pp for a stated relative number OR
-  tilt_target_pct for a stated absolute one ("100%" → 100) — never invent one,
-  leave unset if none given (the app applies a documented step). "Only/all
-  <asset class>" → scope_only_asset_classes. A "which funds to switch?" tacked
-  on is still the tilt (the app returns the trades). A follow-up that ADJUSTS a
-  prior hypothetical is STILL an exposure tilt — "add gold to that" →
-  tilt_asset_class="others"; "now make it safer" → tilt_asset_class="debt"; "a
-  bit more equity than that" → tilt_asset_class="equity". Recompute it; NEVER
-  reply that you "can't adjust the plan on the fly" or "can only show what's
-  already computed" — you CAN, via the tilt.
-  MARKET-CAP ASKS (large/mid/small cap) are counterfactual_explore too — set
-  `market_cap` to the sleeve they want MORE of and `market_cap_heavy` for a
-  "heavy/mostly/lots of" qualifier. These re-run the plan toward that cap.
-  - "more small cap" / "tilt to small caps"   -> market_cap="small"
-  - "make it small-cap heavy" / "mostly small"-> market_cap="small", market_cap_heavy=true
-  - "increase mid caps"                        -> market_cap="mid"
-  A market-cap ask MAY co-occur with an asset-class ask ("only equity, more small cap")
-  and with a fund-count ask ("more small cap, max 4 funds") — set ALL the fields; do
-  not drop any.
-  For a large/mid/small-cap ask use `market_cap` — do NOT ALSO fill `category_weights`
-  for large/mid/small cap (the market-cap tilt supersedes that legacy buy-shuffle for
-  caps). `category_weights` remains only for non-cap category weighting.
+  PREFERENCE ASKS are ALWAYS counterfactual_explore — any request to change how
+  much of an asset class or fund category they hold, even mid-conversation and
+  even alongside risk-score talk. Fill `preference_asks`, one entry per thing
+  named, with the customer's level: more / heavy / less / none, or number when
+  they state a percentage. NEVER instead clarify about their risk score,
+  redirect to Profile, or call it a goal/profile conflict. Word map:
+    "more equity" / "be aggressive" / "push equity up"   -> [{equity, more}]
+    "make it safer" / "more conservative" / "reduce risk" -> [{debt, more}]
+    "equity heavy" / "mostly equity"                      -> [{equity, heavy}]
+    "only equity" / "all equity" / "100% equity"          -> [{equity, number, 100}]
+    "no debt" / "drop debt"                               -> [{debt, none}]
+    "take equity to 70%"                                  -> [{equity, number, 70}]
+    "add gold" / "more gold"                              -> [{gold, more}]
+    "more small cap" / "tilt to smallcaps"                -> [{small_cap, more}]
+    "small-cap heavy"                                     -> [{small_cap, heavy}]
+    "drop US funds" / "no international"                  -> [{us_international, none}]
+    "more value funds"                                    -> [{value, more}]
+    "no sectoral / thematic funds"                        -> [{sector, none}]
+    "drop the multi-asset funds"                          -> [{multi_asset, none}]
+    "more equity and drop US"                             -> [{equity, more}, {us_international, none}]
+  A category we don't track as a preference ("banking funds", "ESG", a fund
+  house) -> [{other, <level>, other_words: their words}]. A follow-up that
+  ADJUSTS a prior what-if is STILL a preference ask ("add gold to that",
+  "now make it safer", "a bit more equity than that") — recompute it; NEVER
+  reply that you can't adjust the plan on the fly. A fund-count ask alongside
+  ("more small cap, max 4 funds") also sets target_fund_count — set ALL fields.
+  Two conflicting asset-class asks in one turn ("more equity and more debt")
+  -> mode clarify naming the conflict, with preference_asks left UNSET (a
+  filled preference_asks always runs). Tax/cash `overrides` may accompany
+  preference_asks in the same action.
 - "compute" — they explicitly ask to re-run with current portfolio state
   ("rebalance again", "redo this with my latest holdings"). No overrides.
 - "clarify" — they want us to DO something to the plan but have not given the
@@ -268,30 +238,32 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
   label, which heading) — if their figure disagrees with ours, narrate ours and
   explain the difference. NEVER re-ask something the recent conversation shows
   we already asked; if they answered, use it, and if they didn't, answer anyway
-  with what we have.
+  with what we have. On clarify, leave preference_asks unset.
 - "consolidate" — they want FEWER new-buy funds, or the new money restricted
   to / weighted toward / kept out of specific fund categories. This reshapes
   only the BUY side of the plan (sells and tax are untouched). Optional fields:
-    category_weights: dict — weight new buys toward a NON-cap fund category
-      ("more value funds", "at least 30% in banking funds") →
-      {customer's words: percent 0-100}. A stated percent → that number; NO
-      stated percent → 0 (sentinel — the app applies its documented default
-      step and discloses it). Category words verbatim, never internal keys. For
-      large/mid/small CAP asks use `market_cap` (counterfactual_explore), not this.
-    excluded_categories: list[str] — "no ELSS", "nothing with a lock-in",
-      "skip sectoral funds" → the words verbatim (["elss"], ["sectoral"]).
+    category_weights: dict — weight NEW BUYS toward a category we do not track
+      as a preference ("at least 30% in banking funds") → {customer's words:
+      percent 0-100}; no stated percent → 0 (sentinel — the app applies its
+      documented default step and discloses it). Large/mid/small cap, value,
+      sector, US, multi-asset, debt sub-types and gold are preference_asks,
+      NOT this.
+    excluded_categories: list[str] — "no ELSS", "nothing with a lock-in" →
+      ["elss"]. "No sectoral funds" is a preference_asks entry {sector, none},
+      not this.
   CONTRADICTION: if the same turn excludes a category AND asks for more of it
   (or scopes to an asset class that excludes a requested category — "only debt
-  funds but more mid cap"), emit clarify instead, naming the conflict in
-  clarification_question.
+  funds but add more mid cap" — mid cap is equity), emit clarify instead,
+  naming the conflict in clarification_question.
     target_fund_count: int — "reduce my trades", "fewer funds", "keep it to 5
       funds" → the max number of NEW-BUY funds. If they say a number, set it.
       "exactly N funds for my whole portfolio" is NOT supported, but still emit
       consolidate with target_fund_count=N (the handler adds an honesty note).
-    allowed_categories: list[str] — "only largecap", "just mid and small cap",
-      "put it all in gold" → the customer's category WORDS verbatim
-      (["large cap"], ["mid cap", "small cap"]). Extract the words as-is; never
-      invent internal keys.
+    allowed_categories: list[str] — ONLY when the customer talks about where
+      the NEW MONEY / new buys of this plan should go ("put the new money
+      only in index funds") → their category words verbatim. An ask about
+      their overall exposure ("only large cap", "put it all in gold") is
+      preference_asks.
   If they clearly want fewer funds but give NO count and NO categories ("reduce
   my trades, too many"), emit consolidate with BOTH fields null — the handler
   asks once. HISTORY-FILL: if the recent conversation shows we JUST asked how
@@ -302,9 +274,19 @@ mutual fund rebalancing recommendation. Pick exactly one mode from the list belo
 - "redirect" — they want something we can't do from chat (lock specific funds,
   edit holdings, hypothetical "what if" with override inputs OUTSIDE the
   allow-list above — e.g. "what if I delayed by 3 months" — those aren't
-  supported yet). Also concepts we don't rank funds in at all (ESG,
-  international/overseas themes). Set `redirect_reason` to a short description.
-  (An equity/debt/gold exposure change is NEVER redirect — see EXPOSURE ASKS.)
+  supported yet). A category we don't track at all (ESG, a fund house) is a
+  preference_asks entry with target other, not redirect. Set `redirect_reason`
+  to a short description. (An exposure or category change is NEVER redirect —
+  see PREFERENCE ASKS.)
+  ONE narrow exception: a request to change the STORED PREFERENCE RECORD itself
+  — "remove my small cap preference", "clear my saved preference", "undo the
+  preference I set", "reset my preferences" — IS redirect. Set redirect_reason
+  to "change your saved preference" (the word "preference" MUST appear) and
+  leave preference_asks UNSET. Chat can reshape the plan but cannot write the
+  record. Keep this NARROW: an ask about the EXPOSURE is still a preference ask.
+  "Remove small caps" -> preference_asks [{small_cap, none}]; "remove my
+  small-cap PREFERENCE" -> redirect. One word apart, opposite modes — and
+  getting it wrong EXCLUDES the category instead of unsetting it.
 
 NAMED FUNDS: when the customer names a specific scheme, set named_fund (their
 words verbatim) + named_fund_intent — "use/switch to X" → include, "why not X /
@@ -326,40 +308,41 @@ educate (asking what a term or mechanism MEANS in general):
 - "what's STCG vs LTCG?"                    → educate
 - "why does tax matter for rebalancing?"    → educate
 
-counterfactual_explore (a value to test, or an exposure change — all
-counterfactual_explore; commit-shaped "save with…" still counts):
+counterfactual_explore (a value to test, or a preference ask — commit-shaped
+"save with…" still counts):
 - "what if my tax rate were 20%?"           → overrides={effective_tax_rate: 20}
 - "what if I had ₹2L more to deploy?"       → overrides={additional_cash_inr: 200000}
 - "tax 20% AND ₹50K short-term losses"      → overrides={effective_tax_rate: 20,
                                               carryforward_st_loss_inr: 50000}
-- "increase my equity by 10 percent"        → tilt_asset_class="equity", tilt_delta_pp=10
-- "take my equity exposure to 70%"          → tilt_asset_class="equity", tilt_target_pct=70
-- "increase my equity exposure"             → tilt_asset_class="equity" (no number set)
-- "only equity funds" / "all equity, no
-  debt" / "make it 100% equity"             → scope_only_asset_classes=["equity"]
-- "keep 100% equity, tell me which funds
-  to switch — I accept the risk"            → scope_only_asset_classes=["equity"]
+- "increase my equity exposure"             → preference_asks=[{equity, more}]
+- "take my equity exposure to 70%"          → preference_asks=[{equity, number, 70}]
+- "only equity funds" / "make it 100%
+  equity" / "keep 100% equity, I accept
+  the risk"                                 → preference_asks=[{equity, number, 100}]
                                               (NOT consolidate; do NOT clarify risk score)
-- "just make it safer"                      → tilt_asset_class="debt" (no number)
-- "add a little gold as well"               → tilt_asset_class="others" (no number)
+- "just make it safer"                      → preference_asks=[{debt, more}]
+- "add a little gold as well"               → preference_asks=[{gold, more}]
+- "I want more mid cap in this plan"        → preference_asks=[{mid_cap, more}]
+- "make it small-cap heavy"                 → preference_asks=[{small_cap, heavy}]
+- "more equity and drop the US funds"       → preference_asks=[{equity, more},
+                                              {us_international, none}]
+- "only equity, more mid cap, max 4 funds"  → preference_asks=[{equity, number, 100},
+                                              {mid_cap, more}], target_fund_count=4
+- "only banking funds please"               → preference_asks=[{other, more,
+                                              other_words: "banking funds"}]
+- "only ESG funds please"                   → preference_asks=[{other, more,
+                                              other_words: "ESG funds"}]
+
+- (after we asked "does that make sense?") "yes" → narrate
 
 consolidate (all mode consolidate — fewer buys, or buys restricted/reweighted/
 excluded by category):
 - "reduce my trades, too many"              → both fields null (handler asks once)
 - "consolidate into 5 funds"                → target_fund_count=5
 - (we just asked how many) "5"              → target_fund_count=5 (history-fill, don't re-ask)
-- "only invest in largecap and midcap"      → allowed_categories=["large cap","mid cap"]
-- "more value funds" / "at least 30% in
-  banking funds"                            → category_weights={"value fund": 0}
-                                              (NON-cap only; no percent → sentinel 0;
-                                              "30% banking" → {..:30}. Large/mid/small
-                                              cap → market_cap, NOT this.)
+- "put the new money only in index funds"   → allowed_categories=["index funds"]
+- "at least 30% in banking funds"           → category_weights={"banking funds": 30}
 - "nothing with a lock-in"                  → excluded_categories=["elss"]
-- "no sectoral funds"                       → excluded_categories=["sectoral"]
-- "only equity, more mid cap, max 4 funds"  → scope_only_asset_classes=["equity"],
-                                              market_cap="mid", target_fund_count=4
-                                              (market_cap makes this
-                                              counterfactual_explore; set ALL fields)
 
 named funds (mode narrate for both intents):
 - "use Parag Parikh Flexi Cap instead"      → narrate, named_fund="Parag
@@ -376,7 +359,6 @@ compute:
 redirect (out of scope, or override outside the allow-list):
 - "what if I delayed by 3 months?"          → redirect, "delay rebalance by N months"
 - "don't sell my HDFC Top 100"              → redirect, "lock specific holdings"
-- "only ESG funds please"                   → redirect, "we don't rank ESG funds"
 
 clarify (an action we can take, missing only its value — or a contradiction):
 - "I want to reduce tax"                    → clarify, "Your effective tax rate
@@ -453,6 +435,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   reconcile against it. If a block you need is absent, say you don't have that
   figure — never substitute one of the other two.
 
+  A preference is a fact ONLY when active_preferences or constraint_impact says
+  so. When neither block is present you cannot attribute this plan to a saved
+  preference — do not credit one, and equally do not claim they have none (the
+  block is also absent on what-if turns and on older plans). If asked directly,
+  say you don't have that on this turn and point them at their preferences.
+
   NEVER state an asset-class mix or percentage that is not present verbatim in
   CUSTOMER_RECORD. Do not average two mixes, do not interpolate a "middle
   ground", and never invent a compromise split (e.g. "we could trim to
@@ -526,20 +514,48 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     present) — do NOT re-add the columns yourself. Then the fund-level trade list,
     which gives the specific funds behind the groups. Any commentary about where
     money moves is ONE short lead-in sentence, not a per-group paragraph — the table
-    carries the numbers. When a market-cap tilt moved a shared subgroup, add ONE
+    carries the numbers. When a category preference moved a shared subgroup, add ONE
     light line (e.g. "this also nudges your flexi/multi-cap funds in the same
     bucket") — do not imply pin-point precision.
 
-  constraint_impact: optional — on a consolidate OR equity-tilt/scope turn. Fields:
+  active_preferences: optional — present when the customer has SAVED investment
+    preferences AND this plan was actually shaped by them. NEVER present on the
+    same turn as constraint_impact (that block is an unsaved what-if). Fields:
+      choices: list[str] — their preference in their own words ("60% equity /
+        30% debt / 10% commodity", "35% of your portfolio in large-cap equity",
+        "nothing in small-cap equity, value equity or sector equity"
+        in large-cap equity"). Quote these verbatim; never restate them as engine
+        categories, never re-base a percentage, and never add a category or a
+        percentage that is not in this list.
+      applied: true — the engine consumed the preference on THIS plan.
+      shortfall_reason: string|null — present when the engine could not fully
+        honour the ask.
+    Say "the preferences you saved" — never name WHERE they saved them. They may
+    have set this in chat or on a screen, and the pack does not tell you which.
+
+  preference_pointer: optional string — the customer ALSO asked to change their
+    investment preferences, which chat cannot do. When present, answer their
+    actual question in full first, then CLOSE with one short sentence carrying
+    these two facts in your own voice: changing preferences from chat is
+    something we're still building, and their preferences page is where to set
+    them (a control is shown beside your reply). Do NOT quote the string
+    verbatim, do NOT lead with it, do NOT apologise at length, never claim
+    to have changed or saved a preference yourself — and do NOT ask a
+    follow-up question about the preference ask itself (how much, which
+    percentage, which fund). It needs no discussion from you; the closing
+    sentence is the whole answer to that part, no matter how specific or
+    vague their wording was.
+
+  constraint_impact: optional — on a consolidate OR preference turn. Fields:
       recommended_mix_pct / requested_mix_pct: {equity, debt, others} — the
         recommended plan vs the plan reshaped to the customer's request. On a
-        tilt/scope turn these two are the ONLY asset-class figures you may cite
+        preference turn these two are the ONLY asset-class figures you may cite
         for the contrast — verbatim, never a third number. requested_mix_pct is
         where that plan LANDS (may fall short of a round 100% — give the real
         figure, don't round to what they asked).
       tilt_note: directive string — when present, FOLLOW IT EXACTLY.
       buy_changes_vs_recommended: [{fund, recommended_indian, requested_indian,
-        change_indian}] — on a tilt turn, the per-fund buy DIFFERENCE from the
+        change_indian}] — on a preference turn, the per-fund buy DIFFERENCE from the
         recommended plan (biggest first). Show change_indian ("+₹2.5 lakh into
         X") rather than the absolute requested buys.
       target_mix_pct: the ideal target mix. unconstrained_mix_pct /
@@ -550,20 +566,29 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
         are flat. risk_profile: label (may be null).
       defaulted_fund_count: int — present ONLY when WE picked the count. Own it:
         "you didn't say a number, so I spread it across 5 funds — say the word for 3."
-      applied_preferences: optional dict recording what the tilt/count actually did.
-        Disclosure keys the reply MUST surface when present:
+      applied_preferences: optional dict recording what the preference/count
+        actually did. Disclosure keys the reply MUST surface when present:
           fund_count_bumped_to: int — the customer asked for fewer new-buy funds
             than the plan's protected floor allows, so the count was bumped UP to
             this. Own it: "I couldn't go below N funds without dropping a category
             you're invested in."
-          market_cap_unavailable: str — the customer asked for more of a market-cap
-            sleeve they hold nothing in; state it plainly ("you hold no small-cap
-            funds today, so I couldn't tilt toward more of them") and still answer
-            the rest of the ask.
-      recommended_cap_mix_pct / requested_cap_mix_pct: {large, mid, small} — present
-        on a MARKET-CAP tilt turn. On those turns the asset-class mix barely moves,
-        so lead the contrast with THIS large/mid/small split (per tilt_note), citing
-        both verbatim — never a third number.
+          not_applied: list[str] — words the customer used that we could not
+            turn into a preference; per tilt_note, say so in one sentence.
+        customer_choices: the preference as understood, in our internal wire
+          format — context only; never quote its keys or "target_pct" verbatim,
+          restate it in customer words ("more equity", "no US funds").
+      recommended_category_mix_pct / requested_category_mix_pct: {subgroup: % of
+        equity} — present on a fund-CATEGORY ask. On those turns the asset-class
+        mix barely moves, so lead the contrast with THIS split (per tilt_note),
+        naming categories in customer words, citing both verbatim.
+      preference_shortfall: string — present when the engine could not fully
+        honour the ask (frozen ELSS, an emergency-buffer cut, an oversubscribed
+        set of category asks, a category with no holdings). State it in ONE
+        plain sentence; never hide it, never dramatise it.
+      save_offer: true — this is an UNSAVED what-if. End the reply with one
+        sentence telling the customer they can keep this plan, and the
+        preference behind it, with the Save plan button below the chat. Never
+        frame it as "just this once"; never offer to save it yourself.
 
   goal_buckets: optional list (present when goals drove the rebalance). Per bucket:
       horizon_label (use verbatim, e.g. "Long-term (> 5 yrs)"); goals [{name,
@@ -594,6 +619,15 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                "your portfolio is already aligned with your target mix") and
                briefly mention current_asset_class_mix_indian. Length: 8-12
                sentences (3-5 for trade_count=0).
+               When active_preferences is present, ATTRIBUTE the plan in the
+               opening: "this plan follows the preferences you saved — 30% of
+               your portfolio in large-cap equity, nothing in small-cap equity", quoting
+               `choices` verbatim. It is the customer's own instruction being
+               honoured: state it as fact, don't thank them for it and don't ask
+               whether they still want it. If shortfall_reason is present, add
+               ONE plain sentence that the plan could not go all the way, and
+               why — never hide it, never dramatise it. This replaces one
+               sentence of the budget above; it does not extend it.
                When CUSTOMER_RECORD carries `is_rerun: true` the customer asked
                us to run it again and has seen a plan before: open by
                acknowledging the re-run and lead with what changed since the
@@ -606,8 +640,13 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                English definition, then anchor it in at least one specific
                from CUSTOMER_RECORD (a sub_category, a trade, a tax/exit-load
                amount). Length: 4-7 sentences.
-  counterfactual_explore — a hypothetical plan the customer ASKED FOR (e.g. a
-               higher-equity tilt, "only equity", "make it 100% equity").
+
+  On narrate and educate, active_preferences is available but is NEVER the lead:
+  use it only when the question touches it ("why is there no small cap?", "is
+  this based on what I set?"). A question about tax gets an answer about tax.
+  counterfactual_explore — a hypothetical plan the customer ASKED FOR (a
+               preference ask: "more equity", "only equity", "small-cap heavy",
+               "drop US funds").
                COMPLY FIRST: lead with the plan they requested — the biggest
                buys/sells it makes and where its asset-class mix LANDS — framed
                as a hypothetical for comparison, not the saved plan. When
@@ -672,6 +711,17 @@ _NARRATE_DEGRADED_FALLBACK = (
     "from your current holdings."
 )
 
+_UNMAPPED_PREFERENCE_TEMPLATE = (
+    "I can shape your plan by asset class (equity, debt, gold) and by fund "
+    "category — large/mid/small cap, value, sector, US & international, "
+    "multi-asset, short-term debt, arbitrage — but not by {words}. Tell me "
+    "the category you'd like more or less of."
+)
+_PREFERENCE_UNCHANGED_TEMPLATE = (
+    "That's already your saved preference — the plan you're looking at "
+    "reflects it. Say what you'd like to change and I'll show you the "
+    "difference."
+)
 _CONSOLIDATE_CLARIFY = (
     "Happy to consolidate. How many funds would you like the new investments "
     "spread across — for example, up to 3 or up to 5?"
@@ -684,13 +734,62 @@ _DEFAULT_CONSOLIDATE_FUND_COUNT = 5
 
 # "More value funds" with no stated percent -> raise that (non-cap) category to
 # this share of the total buy budget (spec 2026-08-24 defaults table; always
-# disclosed). Large/mid/small cap asks route to market_cap, not category_weights.
+# disclosed). Large/mid/small cap asks route to preference_asks, not category_weights.
 _DEFAULT_WEIGHT_STEP = 0.10
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# Sentinel: this turn used the customer's ACTIVE preference. It exists so this
+# module never reads the `saved_investment_preference` relationship itself —
+# `test_contract_single_computation_reader` reserves that for the profile domain.
+_FRESH = object()
+
+_REHYDRATED_MODES = ("narrate", "educate")
+
+
+async def _preference_row_for_run(ctx: TurnContext, recommendation_id: str):
+    """The preference row THIS run was computed under, via the run's own FK.
+
+    Runs in a savepoint for the same reason ``_last_action_mode`` does: a failed
+    read would poison the outer session for the rest of the turn.
+    """
+    from sqlalchemy import select
+
+    from app.domains.rebalancing.models import RebalancingRun
+
+    # BOTH reads sit inside the one savepoint. An earlier version closed it
+    # after the first query, leaving the row fetch to poison the outer
+    # transaction on failure — the exact thing the savepoint is here to stop.
+    async with ctx.db.begin_nested():
+        stmt = select(RebalancingRun.saved_investment_preference_id).where(
+            RebalancingRun.id == uuid.UUID(recommendation_id)
+        )
+        pref_id = (await ctx.db.execute(stmt)).scalar_one_or_none()
+        if pref_id is None:
+            return None
+        return await prefs.candidate_row(ctx.db, ctx.effective_user_id, pref_id)
+
+
+async def _preference_row_for_turn(ctx: TurnContext, last_run, action_mode: str):
+    """Fresh runs used the ACTIVE preference; a rehydrated plan may predate it,
+    so that turn resolves the row the RUN itself points at — otherwise a newly
+    saved preference gets credited for an older plan."""
+    if action_mode in _REHYDRATED_MODES and last_run is not None and ctx.db is not None:
+        raw = ((last_run.output_payload or {}).get("correlation_ids") or {}).get(
+            "recommendation_id"
+        )
+        if not raw:
+            return None  # nothing to attribute this plan to
+        try:
+            return await _preference_row_for_run(ctx, raw)
+        except Exception:
+            logger.warning("preference row lookup failed", exc_info=True)
+            return None
+    return _FRESH
 
 
 async def _format_or_fallback_rebal(
@@ -702,18 +801,44 @@ async def _format_or_fallback_rebal(
     goal_buckets: Optional[list[dict[str, Any]]] = None,
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
+    last_run=None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     # Prozpr-only house view, gated on the classifier's tools_needed. A rebalance is
     # advice, so when the view is called it frames the trades; the flow sets scope.
     want_view = "fund_house_view" in (getattr(ctx, "tools_needed", ()) or ())
     fund_house_view = load_house_view(prozpr_only=True) if want_view else None
+    # Disclose a SAVED preference — but never beside a candidate's own contrast
+    # (constraint_impact), and not on a plain tax/cash what-if, which carries no
+    # disclosure rule in the prompt.
+    practical = getattr(response, "practical_allocation", None)
+    applied = getattr(practical, "human_override_applied", None)
+    # Cheapest gate first: if THIS run consumed no preference there is nothing
+    # to disclose, so skip the row lookup entirely (on a narrate turn that is
+    # two DB round trips saved on the critical path).
+    if (
+        constraint_impact is not None
+        or action_mode == "counterfactual_explore"
+        or applied is None
+        or not getattr(applied, "preference_applied", False)
+    ):
+        active_preferences = None
+    else:
+        row = await _preference_row_for_turn(ctx, last_run, action_mode)
+        active_preferences = (
+            pref_view.active_preferences_for(ctx.user_ctx, practical)
+            if row is _FRESH
+            else pref_view.active_preferences_block(row, practical)
+        )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_rebal_facts_pack(
             response,
             goal_buckets=goal_buckets,
             constraint_impact=constraint_impact,
+            active_preferences=active_preferences,
+            preference_pointer=preference_pointer,
             is_rerun=is_rerun,
             fund_house_view=fund_house_view,
             # Ship the goal-based ideal ONLY on the plan-presentation (compute) turn,
@@ -804,9 +929,7 @@ async def _speculative_detect(ctx: TurnContext) -> RebalanceAction | None:
     """Follow-up action detect, started by the brain concurrently with the
     intent classifier (audit F4). Pure read — same call `handle` would make."""
     last_run = ctx.last_agent_runs.get("rebalancing")
-    if last_run is None:
-        return None
-    return await _detect_rebal_action(last_run, ctx)
+    return await _detect_rebal_action(last_run, ctx)   # last_run may be None on a first turn (empty-snapshot detect, S2d)
 
 
 @register("rebalancing")
@@ -815,6 +938,21 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
 
     # First turn → run engine, format compute output.
     if last_run is None:
+        # A first-message preference ask is a what-if on the plan just computed (S2c ruling 3);
+        # detect first so only the candidate run is persisted this turn.
+        try:
+            action = await consume_speculative_detect(ctx)
+            if action is None:
+                action = await _detect_rebal_action(None, ctx)
+        except Exception as exc:
+            logger.warning("first-turn detect failed (%s); computing the plain plan", exc)
+            action = None
+        # A first-turn preference ask ("rebalance me, but more equity") is a
+        # MIXED intent: they want a plan. Withholding it to show only a pointer
+        # would be worse, so compute the plain plan and let the pill carry the
+        # preference half — see `_first_turn_preferences_pill` below.
+        first_turn_preference_ask = bool(action is not None and action.preference_asks)
+
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
             user_question=ctx.user_question,
@@ -835,12 +973,16 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             fallback_brief=outcome.formatted_text or "",
             action_mode="compute",
             goal_buckets=outcome.goal_buckets,
+            preference_pointer=(
+                PREFERENCE_REDIRECT_MESSAGE if first_turn_preference_ask else None
+            ),
         )
         return ChatHandlerResult(
             text=text,
             snapshot_id=outcome.allocation_snapshot_id,
             rebalancing_recommendation_id=outcome.recommendation_id,
             rebalancing_response=outcome.response,
+            show_preferences_pill=first_turn_preference_ask,
         )
 
     # Follow-up → classify. Prefer the brain's speculative detect result;
@@ -862,16 +1004,44 @@ async def _handle_action(
     last_run: AgentRunRecord,
 ) -> ChatHandlerResult:
     """Dispatch one detected follow-up action (mode ladder extracted from
-    ``handle``; preference routing added by the 2026-08-24 spec)."""
+    ``handle``)."""
     if action.named_fund:
         return await _handle_named_fund(ctx, action)
 
-    # Honor an extracted equity-exposure tilt/scope REGARDLESS of the mode label
-    # the detector attached. Conversational "100% equity" asks sometimes get
-    # labelled consolidate / clarify / redirect (and scope_only was then silently
-    # dropped); the extracted fields are authoritative — always comply-and-caution.
-    if action.tilt_asset_class or action.scope_only_asset_classes or action.market_cap:
-        return await _handle_preference_counterfactual(ctx, action)
+    # EVERY preference-shaped ask points at the preferences page (ruling
+    # 2026-09-17): an exposure ask ("more equity"), a readout, a change, an
+    # undo. Chat does not run preference what-ifs any more — it cannot write
+    # the stored record, and one consistent pointer beats a reshaped plan the
+    # customer then cannot keep. SAVED preferences still shape and are still
+    # disclosed on every plan; only this CHANGE path is retired.
+    #
+    # The detector still EXTRACTS preference_asks: it costs nothing, keeps the
+    # telemetry on what customers ask for, and leaves the seam to re-enable
+    # what-ifs (`_handle_preference_what_if`, now unreferenced) intact.
+    wants_record_change = action.mode == "redirect" and "preference" in (
+        action.redirect_reason or ""
+    ).lower()
+    if action.preference_asks or wants_record_change:
+        # The detector may pair a preference ask with a tax/cash override
+        # ("what if I had 2L more — and more equity?"). Those overrides ARE
+        # servable, so answer that half and let the formatter close with the
+        # pointer; returning the pointer alone dropped a real question.
+        servable = {
+            k: v
+            for k, v in (action.overrides or {}).items()
+            if k in _REBAL_ALLOWED_OVERRIDE_KEYS
+        }
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="redirected_to_preferences",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
+        if servable:
+            return await _counterfactual_explore(
+                ctx, servable, preference_pointer=PREFERENCE_REDIRECT_MESSAGE
+            )
+        return await _relay(
+            ctx, PREFERENCE_REDIRECT_MESSAGE, show_preferences_pill=True
+        )
 
     if action.mode == "clarify":
         # Ask at most ONCE in a row. A customer disputing a number ("that's not
@@ -887,14 +1057,10 @@ async def _handle_action(
             # artifact, so returning it directly skipped PI's voice AND wrote no
             # telemetry row — which is what made the loop invisible in the data
             # and left the guard above nothing to read.
-            text = await format_relay_or_canned(
-                ctx=ctx,
-                module_name="rebalancing",
-                message=action.clarification_question or _DEFAULT_CLARIFY_FALLBACK,
+            return await _relay(
+                ctx,
+                action.clarification_question or _DEFAULT_CLARIFY_FALLBACK,
                 action_mode="gather",
-            )
-            return ChatHandlerResult(
-                text=text, snapshot_id=None, rebalancing_recommendation_id=None
             )
 
     if action.mode == "redirect":
@@ -909,16 +1075,7 @@ async def _handle_action(
             message = _LOCK_NOT_SUPPORTED
         else:
             message = _REDIRECT_TEMPLATE.format(reason=reason)
-        text = await format_relay_or_canned(
-            ctx=ctx,
-            module_name="rebalancing",
-            message=message,
-        )
-        return ChatHandlerResult(
-            text=text,
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
+        return await _relay(ctx, message)
 
     if action.mode == "counterfactual_explore":
         return await _counterfactual_explore(ctx, action.overrides or {})
@@ -985,6 +1142,9 @@ async def _handle_action(
         fallback_brief=fallback,
         action_mode=action.mode,  # "narrate" or "educate"
         goal_buckets=persisted_goal_buckets,
+        # This plan is REHYDRATED and may predate a newer preference, so the
+        # disclosure resolves the row off this run rather than the active one.
+        last_run=last_run,
     )
     return ChatHandlerResult(
         text=text, snapshot_id=None, rebalancing_recommendation_id=None
@@ -1010,22 +1170,22 @@ def _current_target_mix_pct(response) -> dict[str, float]:
     return _planned_mix_pct(response)
 
 
-def _current_market_cap_mix_pct(response) -> dict[str, float]:
-    """Beta-sleeve split (large/mid/small %) of the plan's targets — the market-cap
-    tilt baseline. Buckets the three equity beta subgroups by their post-rebalance
-    holding (the subgroup-level counterpart of _planned_mix_pct)."""
-    sub_of_cap = {"low_beta_equities": "large",
-                  "medium_beta_equities": "mid",
-                  "high_beta_equities": "small"}
-    amt = {"large": 0.0, "mid": 0.0, "small": 0.0}
+def _equity_subgroup_mix_pct(response) -> dict[str, float]:
+    """Each equity subgroup's share of the plan's post-trade equity holding —
+    the contrast for a within-class ask, whose asset-class mix does not move."""
+    from practical_asset_allocation.human_override import CLASS_OF  # noqa: E402
+
+    amt: dict[str, float] = {}
     for sg in getattr(response, "subgroups", []) or []:
-        cap = sub_of_cap.get(getattr(sg, "asset_subgroup", None))
-        if cap:
-            amt[cap] += float(getattr(sg, "suggested_final_holding_inr", 0) or 0)
+        name = getattr(sg, "asset_subgroup", None)
+        if name and CLASS_OF.get(name) == "equity":
+            amt[name] = amt.get(name, 0.0) + float(
+                getattr(sg, "suggested_final_holding_inr", 0) or 0
+            )
     total = sum(amt.values())
     if total <= 0:
-        return {c: 0.0 for c in amt}
-    return {c: v * 100.0 / total for c, v in amt.items()}
+        return {}
+    return {k: round(v * 100.0 / total, 1) for k, v in amt.items()}
 
 
 def _buys_by_fund(response) -> dict[str, float]:
@@ -1036,29 +1196,6 @@ def _buys_by_fund(response) -> dict[str, float]:
         if name and buy > 0:
             out[name] = out.get(name, 0.0) + buy
     return out
-
-
-def _buy_changes_vs_recommended(recommended, requested, *, top: int = 6) -> list[dict]:
-    """Per-fund buy change from the recommended plan to the requested plan —
-    the DIFFERENCE the tilt makes, which is what the customer wants to see (not
-    the requested plan's absolute buys). Biggest moves first, pre-formatted."""
-    from common import format_inr_indian  # noqa: E402  (bare import via path hook)
-
-    rec, req = _buys_by_fund(recommended), _buys_by_fund(requested)
-    rows = []
-    for name in set(rec) | set(req):
-        delta = req.get(name, 0.0) - rec.get(name, 0.0)
-        if abs(delta) < 1000:  # ignore rounding noise
-            continue
-        rows.append({
-            "fund": name,
-            "recommended_indian": format_inr_indian(rec.get(name, 0.0)),
-            "requested_indian": format_inr_indian(req.get(name, 0.0)),
-            "change_indian": ("+" if delta > 0 else "−") + (format_inr_indian(abs(delta)) or "₹0"),
-            "_abs": abs(delta),
-        })
-    rows.sort(key=lambda x: x.pop("_abs"), reverse=True)
-    return rows[:top]
 
 
 async def _degraded_or_none(ctx: TurnContext, outcome) -> ChatHandlerResult | None:
@@ -1077,143 +1214,114 @@ async def _degraded_or_none(ctx: TurnContext, outcome) -> ChatHandlerResult | No
     return None
 
 
-async def _handle_preference_counterfactual(
-    ctx: TurnContext, action: RebalanceAction
+async def _relay(
+    ctx: TurnContext,
+    message: str,
+    action_mode: ActionMode = "redirect",
+    show_preferences_pill: bool = False,
 ) -> ChatHandlerResult:
-    """Two-run comply-and-caution for exposure preferences (spec 2026-08-24).
-
-    Run 1 = recommended plan. Run 2 = requested plan (tilt/scope applied).
-    Deviation between the two is the caution lens. Stateless: persist=False.
-    Magnitude defaults are policy, recorded in ``applied_preferences``.
-    """
-    baseline = await compute_rebalancing_result(
-        user=ctx.user_ctx,
-        user_question=ctx.user_question,
-        db=ctx.db,
-        acting_user_id=ctx.effective_user_id,
-        chat_session_id=ctx.session_id,
-        persist=False,
-        chat_ctx=ctx,
+    text = await format_relay_or_canned(
+        ctx=ctx, module_name="rebalancing", message=message, action_mode=action_mode
     )
-    early = await _degraded_or_none(ctx, baseline)
-    if early is not None:
-        return early
-
-    from app.domains.mutual_funds.services.investment_preferences import (
-        normalize_market_cap_tilt,
+    return ChatHandlerResult(
+        text=text,
+        snapshot_id=None,
+        rebalancing_recommendation_id=None,
+        show_preferences_pill=show_preferences_pill,
     )
+
+
+def _pending_candidate_id(last_run: AgentRunRecord | None) -> uuid.UUID | None:
+    """The candidate preference id the last rebalancing run correlated, if any."""
+    payload = getattr(last_run, "output_payload", None) or {}
+    raw = (payload.get("correlation_ids") or {}).get("candidate_preference_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError:
+        return None
+
+
+async def _handle_preference_what_if(
+    ctx: TurnContext, action: RebalanceAction, last_run: AgentRunRecord | None
+) -> ChatHandlerResult:
+    """RETIRED 2026-09-17 — UNREFERENCED, kept as the re-enable seam.
+
+    Chat-side preference what-ifs were switched off in favour of pointing the
+    customer at the preferences page (`PREFERENCE_REDIRECT_MESSAGE`): it removes
+    a hallucination surface, gives one consistent answer, and makes page usage
+    measurable. Changing preferences from chat is planned, so this handler, its
+    candidate-row machinery and `preference_save_service.resolve_one_off` are
+    deliberately left intact rather than deleted. To re-enable, call this from
+    `_handle_action` again.
+
+    Explore-then-offer (S2): run the ask as a one-off through the S1
+    human_override channel, show the reshaped plan against the recommended
+    one, then offer to save. The what-if is persisted as a CANDIDATE
+    preference row + a candidate rebalancing run FK'd to it; nothing applies
+    until the customer says yes."""
     from Rebalancing.consolidation import (  # type: ignore[import-not-found]
         ConsolidationConstraints,
         constraints_active,
         reshape_response,
     )
 
-    # ONE merged override dict: allow-listed tax/cash carry alongside the tilts.
+    # build_intent emits only wire-format-valid output (closed target list,
+    # range-checked numbers), so no schema validation is needed here.
+    chat_intent, unmapped = build_intent(action.preference_asks)
+    if unmapped:
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="unmapped_category",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
+        )
+    if not chat_intent:
+        return await _relay(
+            ctx,
+            _UNMAPPED_PREFERENCE_TEMPLATE.format(words=", ".join(unmapped)),
+            show_preferences_pill=True,
+        )
+    if ctx.db is None:
+        return ChatHandlerResult(
+            text=_NARRATE_DEGRADED_FALLBACK, snapshot_id=None,
+            rebalancing_recommendation_id=None,
+        )
+
+    # S2 ruling 15: a follow-up ask composes over the candidate the customer is
+    # looking at, so "add gold to that" keeps the unsaved "100% equity". Only a
+    # LIVE candidate (never activated) qualifies; anything else merges over the
+    # saved row.
+    base_row = None
+    cid = _pending_candidate_id(last_run)
+    if cid is not None:
+        row = await prefs.candidate_row(ctx.db, ctx.effective_user_id, cid)
+        if row is not None and not row.is_active and row.activated_at is None:
+            base_row = row
+
+    intent, resolved, changed = await prefs.resolve_one_off(
+        ctx.db, ctx.user_ctx, chat_intent, base_row=base_row
+    )
+    if not changed:
+        return await _relay(ctx, _PREFERENCE_UNCHANGED_TEMPLATE, action_mode="compute")
+
+    baseline = await compute_rebalancing_result(
+        user=ctx.user_ctx, user_question=ctx.user_question, db=ctx.db,
+        acting_user_id=ctx.effective_user_id, chat_session_id=ctx.session_id,
+        persist=False, chat_ctx=ctx,
+    )
+    early = await _degraded_or_none(ctx, baseline)
+    if early is not None:
+        return early
+
     overrides: dict[str, Any] = {
         k: v for k, v in (action.overrides or {}).items()
         if k in _REBAL_ALLOWED_OVERRIDE_KEYS
     }
-    applied: dict[str, Any] = {}
-
-    # asset-class tilt (math unchanged; now writes into the shared `overrides`)
-    current_mix = _current_target_mix_pct(baseline.response)
-    tilt = normalize_tilt(
-        current_mix,
-        scope_only=action.scope_only_asset_classes,
-        tilt_asset_class=action.tilt_asset_class,
-        tilt_delta_pp=action.tilt_delta_pp,
-        tilt_target_pct=action.tilt_target_pct,
-    )
-    if tilt.mix_pct is not None:
-        overrides["asset_class_tilt"] = tilt.mix_pct
-        applied["tilt"] = {
-            "source": "default_step" if tilt.default_step_applied
-            else "customer_number"
-        }
-        # Explicit "only/all/100% equity" (mix ≈ 100% equity) → drop hybrid funds
-        # so the plan is genuinely all-equity, not ~85% after the look-through.
-        if tilt.mix_pct.get("equity", 0.0) >= 99.0:
-            overrides["pure_equity_only"] = True
-            applied["tilt"]["pure_equity"] = True
-
-        requested_classes = list(action.scope_only_asset_classes or [])
-        if action.tilt_asset_class:
-            requested_classes.append(action.tilt_asset_class)
-        absent = [c for c in requested_classes if current_mix.get(c, 0.0) < 0.5]
-        if absent:
-            applied["shortfall_note"] = (
-                f"no {', '.join(absent)} holdings exist to scale — the request "
-                "was spread over the classes present in the plan"
-            )
-
-    # market-cap tilt (large/mid/small beta sleeve); zero-current -> ask, don't drop.
-    if action.market_cap:
-        mc = normalize_market_cap_tilt(
-            _current_market_cap_mix_pct(baseline.response),
-            cap=action.market_cap,
-            heavy=bool(action.market_cap_heavy),
-        )
-        if mc.zero_current:
-            # No holdings in that cap to scale up. If an asset-class tilt was ALSO
-            # expressed ("only equity, more small cap"), we must NOT drop it — run
-            # the requested plan with the asset-class tilt and just disclose that
-            # the cap couldn't be increased. Only when the cap is the SOLE ask do
-            # we bare-return and ask how much.
-            if "asset_class_tilt" in overrides:
-                applied["market_cap_unavailable"] = (
-                    f"no {action.market_cap}-cap holdings to increase"
-                )
-            else:
-                text = await format_relay_or_canned(
-                    ctx=ctx,
-                    module_name="rebalancing",
-                    message=(
-                        f"You don't hold any {action.market_cap}-cap funds today, so "
-                        f"I can't tilt toward more of them — how much would you like "
-                        f"in {action.market_cap} cap?"
-                    ),
-                    action_mode="gather",
-                )
-                return ChatHandlerResult(
-                    text=text, snapshot_id=None, rebalancing_recommendation_id=None
-                )
-        elif mc.mix_pct is not None:
-            overrides["market_cap_tilt"] = mc.mix_pct
-            applied["market_cap"] = {
-                "source": "default_step" if mc.default_step_applied
-                else "customer_number"
-            }
-
-    # No tilt expressed at all -> plain tax/cash counterfactual (carries the
-    # merged overrides). Reached only when the guard routed us here but neither
-    # tilt materialised (e.g. tilt_asset_class set yet normalize_tilt returned None).
-    if "asset_class_tilt" not in overrides and "market_cap_tilt" not in overrides:
-        return await _counterfactual_explore(ctx, overrides)
-
-    # Compose the subgroup-aware fund count on the requested plan (the tilt handler
-    # never read target_fund_count before). A count reshape touches only the BUY
-    # side; sells/tax are untouched. A count below the protected floor bumps up.
-    count_c = ConsolidationConstraints(target_fund_count=action.target_fund_count)
-    count_active = constraints_active(count_c)
-
-    # Persist the requested (tilted) plan as a CANDIDATE so the customer can Save
-    # it. It stays firewalled out of the committed/current reads until saved — a
-    # tilt they merely view never becomes their plan (see saved_plan_service).
-    #
-    # FW-1: when a count trim applies, the customer SEES the reshaped (<=N-fund)
-    # plan, so Save must commit THAT plan — not the un-consolidated one. We
-    # therefore run the requested plan WITHOUT persisting, reshape it, and persist
-    # the RESHAPED response ourselves as the candidate, so the returned
-    # recommendation_id points at exactly what the customer saw. With no count trim
-    # there is no divergence, so the plain persist-inside-compute path stands.
+    overrides["human_override_preferences"] = prefs.one_off_override(resolved)
     requested_run = await compute_rebalancing_result(
-        user=ctx.user_ctx,
-        user_question=ctx.user_question,
-        db=ctx.db,
-        acting_user_id=ctx.effective_user_id,
-        chat_session_id=ctx.session_id,
-        persist=not count_active,
-        origin=None if count_active else ORIGIN_CANDIDATE,
+        user=ctx.user_ctx, user_question=ctx.user_question, db=ctx.db,
+        acting_user_id=ctx.effective_user_id, chat_session_id=ctx.session_id,
+        persist=False,
         force_fresh_allocation=("additional_cash_inr" in overrides),
         chat_ctx=with_chat_overrides(ctx, overrides),
     )
@@ -1222,128 +1330,108 @@ async def _handle_preference_counterfactual(
         return early
 
     requested_response = requested_run.response
-    requested_rec_id = requested_run.recommendation_id
-    if count_active:
+    applied: dict[str, Any] = {"customer_choices": intent}
+    if unmapped:
+        applied["not_applied"] = unmapped
+    count_c = ConsolidationConstraints(target_fund_count=action.target_fund_count)
+    if constraints_active(count_c):
         reshaped, err = reshape_response(requested_response, count_c)
         if err is None:
             requested_response = reshaped
             applied["fund_count"] = action.target_fund_count
-            bumped = getattr(
-                getattr(reshaped, "totals", None), "funds_to_buy_count", None
-            )
-            if (action.target_fund_count and bumped
-                    and bumped > action.target_fund_count):
+            bumped = getattr(getattr(reshaped, "totals", None), "funds_to_buy_count", None)
+            if action.target_fund_count and bumped and bumped > action.target_fund_count:
                 applied["fund_count_bumped_to"] = bumped
-        # Persist the RESHAPED response (what the customer sees) as the candidate,
-        # replicating compute_rebalancing_result's persist call with the SAME run
-        # context so the saved row's totals (funds_to_buy_count), fund rows, and
-        # trades all reflect the reshaped buys. request is left unset to match the
-        # compute-path call, which also omits it.
-        requested_rec_id = await persist_rebalancing_recommendation(
-            ctx.db,
-            ctx.effective_user_id,
-            requested_response,
-            source_allocation_run_id=requested_run.source_allocation_id,
-            chat_session_id=ctx.session_id,
-            used_cached_allocation=requested_run.used_cached_allocation,
-            user_question=ctx.user_question,
-            origin=ORIGIN_CANDIDATE,
-        )
-        # FW-1b: the persist=True path inside compute also writes a ChatAiModuleRun
-        # telemetry row; since we ran the requested plan with persist=False, mirror
-        # that write here with the RESHAPED response so a follow-up detector/narrate
-        # reads the reshaped plan from last_agent_runs["rebalancing"] — not the
-        # stale pre-tilt plan. input_payload is unavailable in the handler (the
-        # engine request isn't returned) → None, as it isn't read on the follow-up
-        # path. Best-effort: a telemetry failure must never break the turn.
-        try:
-            await record_ai_module_run(
-                ctx.db,
-                user_id=ctx.effective_user_id,
-                session_id=ctx.session_id,
-                module="rebalancing",
-                reason="full_pipeline_run",
-                intent_detected="rebalancing",
-                spine_mode=None,
-                input_payload=None,
-                output_payload={
-                    "rebalancing_response": requested_response.model_dump(mode="json"),
-                    "goal_buckets": requested_run.goal_buckets,
-                    "correlation_ids": {
-                        "recommendation_id": str(requested_rec_id),
-                        "source_allocation_id": (
-                            str(requested_run.source_allocation_id)
-                            if requested_run.source_allocation_id
-                            else None
-                        ),
-                    },
-                },
-                emit_standard_log=False,
-            )
-        except Exception as exc:
-            logger.warning(
-                "rebal_tilt_ai_module_telemetry skipped (non-fatal): %s", exc
-            )
 
-    # LEAN impact: on a tilt turn the caution is requested-vs-RECOMMENDED, never
-    # vs the ideal mix. We deliberately do NOT build the consolidate lenses
-    # (target/ideal, largest_deviations) — "N points from ideal" made every tilt
-    # look catastrophic when the recommended plan is itself far from ideal.
-    recommended = {k: round(v, 1) for k, v in current_mix.items()}
-    requested = {
-        k: round(v, 1)
-        for k, v in _current_target_mix_pct(requested_response).items()
-    }
-    impact = {
+    practical = getattr(requested_response, "practical_allocation", None)
+    override_applied = getattr(practical, "human_override_applied", None)
+    # The achieved mix is the run's own class breakdown, not a field the
+    # engine carries (spec §6).
+    achieved = prefs.achieved_class_mix(practical)
+    shortfall = getattr(override_applied, "shortfall_reason", None)
+
+    # Candidate row first (the run FKs it), then the candidate run, then the
+    # module-run row the next what-if turn reads the candidate id from.
+    candidate = await prefs.insert_candidate(ctx.db, ctx.user_ctx, intent, resolved, achieved, shortfall)
+    rec_id = await persist_rebalancing_recommendation(
+        ctx.db, ctx.effective_user_id, requested_response,
+        source_allocation_run_id=requested_run.source_allocation_id,
+        chat_session_id=ctx.session_id,
+        used_cached_allocation=requested_run.used_cached_allocation,
+        user_question=ctx.user_question,
+        origin=ORIGIN_CANDIDATE,
+        saved_investment_preference_id=candidate.id,
+    )
+    try:
+        await record_ai_module_run(
+            ctx.db,
+            user_id=ctx.effective_user_id, session_id=ctx.session_id,
+            module="rebalancing", reason="preference_what_if",
+            intent_detected="rebalancing", spine_mode=None, input_payload=None,
+            output_payload={
+                "rebalancing_response": requested_response.model_dump(mode="json"),
+                "goal_buckets": requested_run.goal_buckets,
+                "correlation_ids": {
+                    "recommendation_id": str(rec_id),
+                    "source_allocation_id": (
+                        str(requested_run.source_allocation_id)
+                        if requested_run.source_allocation_id else None
+                    ),
+                    "candidate_preference_id": str(candidate.id),
+                },
+            },
+            emit_standard_log=False,
+        )
+    except Exception as exc:
+        logger.warning("rebal_what_if_ai_module_telemetry skipped (non-fatal): %s", exc)
+
+    recommended = {k: round(v, 1) for k, v in _current_target_mix_pct(baseline.response).items()}
+    requested = {k: round(v, 1) for k, v in _current_target_mix_pct(requested_response).items()}
+    impact: dict[str, Any] = {
         "applied_preferences": applied,
         "recommended_mix_pct": recommended,
         "requested_mix_pct": requested,
-        "buy_changes_vs_recommended": _buy_changes_vs_recommended(
-            baseline.response, requested_response
+        "buy_changes_vs_recommended": buy_changes_vs_recommended(
+            _buys_by_fund(baseline.response),
+            _buys_by_fund(requested_response),
+            noise_inr=1000,
         ),
-        "risk_profile": getattr(ctx.user_ctx, "risk_profile", None),
+        "save_offer": True,
         "tilt_note": (
             "Contrast the requested plan ONLY against the recommended plan — "
             f"recommended is {recommended}, requested is {requested} "
             "(equity/debt/others %); quote these verbatim. Do NOT compare to the "
-            "customer's 'ideal' mix or say the plan is 'N points above/below "
-            "ideal' — the recommended plan is the baseline, not the ideal, and an "
-            "ideal comparison makes every tilt look extreme. State the move as the "
-            "gap between these two (e.g. '10 points more equity than we "
-            "recommend'). For the funds, show the CHANGE your tilt makes, not the "
-            "requested plan's absolute buys: use buy_changes_vs_recommended (each "
-            "entry has fund, recommended_indian, requested_indian, change_indian) "
-            "— e.g. 'vs our recommendation this puts change_indian into <fund>' — "
-            "so the customer sees exactly what moved. Tax belongs to the requested "
-            "plan; its sells may differ. Never blend the two mixes."
+            "customer's 'ideal' mix. State the move as the gap between these two. "
+            "For the funds, show the CHANGE this makes vs the recommended plan "
+            "using buy_changes_vs_recommended (fund, recommended_indian, "
+            "requested_indian, change_indian). Tax belongs to the requested plan. "
+            "Never blend the two mixes."
         ),
     }
-    # FW-2: a PURE market-cap tilt holds the equity total fixed, so the
-    # recommended-vs-requested ASSET-CLASS mix above is identical and leading with
-    # it shows a zero-gap non-move. Add the large/mid/small CAP split (the real
-    # change) and steer the formatter to contrast THAT instead.
-    if action.market_cap:
-        rec_cap = {
-            k: round(v, 1)
-            for k, v in _current_market_cap_mix_pct(baseline.response).items()
-        }
-        req_cap = {
-            k: round(v, 1)
-            for k, v in _current_market_cap_mix_pct(requested_response).items()
-        }
-        impact["recommended_cap_mix_pct"] = rec_cap
-        impact["requested_cap_mix_pct"] = req_cap
+    if shortfall:
+        impact["preference_shortfall"] = shortfall
+    # Only an EQUITY-class category ask leaves the asset-class mix flat. A gold /
+    # short_debt / arbitrage ask moves the class mix itself, and the equity-only
+    # split below would answer the wrong question.
+    from practical_asset_allocation.human_override import CLASS_OF  # noqa: E402
+
+    equity_ask = any(
+        CLASS_OF.get(sg) == "equity" for sg in (changed.get("subgroups") or {})
+    )
+    rec_cat = _equity_subgroup_mix_pct(baseline.response) if equity_ask else {}
+    req_cat = _equity_subgroup_mix_pct(requested_response) if equity_ask else {}
+    if rec_cat and req_cat:
+        impact["recommended_category_mix_pct"] = rec_cat
+        impact["requested_category_mix_pct"] = req_cat
         impact["tilt_note"] += (
-            " This is a MARKET-CAP tilt: the equity total is held fixed, so the "
-            "asset-class mix above barely moves — do NOT lead with it. Lead the "
-            "contrast with the large/mid/small-cap split, the real change: "
-            f"recommended cap mix is {rec_cap}, requested is {req_cap} "
-            "(large/mid/small %); quote these verbatim and frame the move as the "
-            "shift between them."
+            " This ask is about fund CATEGORIES: the asset-class mix barely "
+            "moves, so do NOT lead with it. Lead the contrast with the category "
+            f"split of equity — recommended {rec_cat}, requested {req_cat} "
+            "(each category's % of equity); quote these verbatim, naming the "
+            "categories in customer words (large/mid/small cap, value, sector, "
+            "US & international, multi-asset)."
         )
-    # Rebuild the templated brief from the RESHAPED plan — requested_run.formatted_text
-    # narrates the pre-reshape buys. Guarded like the narrate path so a degraded
-    # response never surfaces an empty message.
+
     try:
         requested_brief = build_fallback_rebal_brief(
             requested_response, used_cached_allocation=False
@@ -1351,27 +1439,20 @@ async def _handle_preference_counterfactual(
     except (AttributeError, TypeError, ValueError):
         requested_brief = _NARRATE_DEGRADED_FALLBACK
     text = await _format_or_fallback_rebal(
-        ctx=ctx,
-        response=requested_response,
-        fallback_brief=requested_brief,
-        action_mode="counterfactual_explore",
-        # No goal_buckets on a tilt turn: the per-bucket equity splits
-        # (e.g. "49% in the medium-term bucket") get mixed with the overall
-        # comparison and confuse the customer. The contrast here is the whole-
-        # portfolio recommended vs requested mix, carried in constraint_impact.
-        goal_buckets=None,
+        ctx=ctx, response=requested_response, fallback_brief=requested_brief,
+        action_mode="counterfactual_explore", goal_buckets=None,
         constraint_impact=impact,
     )
     return ChatHandlerResult(
-        text=text,
-        snapshot_id=None,
-        rebalancing_recommendation_id=requested_rec_id,
+        text=text, snapshot_id=None, rebalancing_recommendation_id=rec_id,
+        has_candidate_preference=True,
     )
 
 
 async def _counterfactual_explore(
     ctx: TurnContext,
     overrides: dict[str, Any],
+    preference_pointer: Optional[str] = None,
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
@@ -1379,16 +1460,7 @@ async def _counterfactual_explore(
             flow="rebalancing", failure_class="invalid_override",
             session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
         )
-        text = await format_relay_or_canned(
-            ctx=ctx,
-            module_name="rebalancing",
-            message=_INVALID_OVERRIDE_TEMPLATE,
-        )
-        return ChatHandlerResult(
-            text=text,
-            snapshot_id=None,
-            rebalancing_recommendation_id=None,
-        )
+        return await _relay(ctx, _INVALID_OVERRIDE_TEMPLATE)
 
     chat_ctx = with_chat_overrides(ctx, overrides)
     # AA-affecting overrides (currently: additional_cash_inr) require the AA
@@ -1426,9 +1498,12 @@ async def _counterfactual_explore(
         fallback_brief=outcome.formatted_text or "",
         action_mode="counterfactual_explore",
         goal_buckets=outcome.goal_buckets,
+        constraint_impact=None,
+        preference_pointer=preference_pointer,
     )
     return ChatHandlerResult(
-        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        text=text, snapshot_id=None, rebalancing_recommendation_id=None,
+        show_preferences_pill=preference_pointer is not None
     )
 
 
@@ -1557,17 +1632,7 @@ async def _consolidate(ctx: TurnContext, action: RebalanceAction) -> ChatHandler
             )
             defaulted_fund_count = True
         else:
-            text = await format_relay_or_canned(
-                ctx=ctx,
-                module_name="rebalancing",
-                message=_CONSOLIDATE_CLARIFY,
-                action_mode="gather",
-            )
-            return ChatHandlerResult(
-                text=text,
-                snapshot_id=None,
-                rebalancing_recommendation_id=None,
-            )
+            return await _relay(ctx, _CONSOLIDATE_CLARIFY, action_mode="gather")
 
     # Run the engine ONCE, compute-only (no RebalancingRun written).
     outcome = await compute_rebalancing_result(
@@ -1679,14 +1744,6 @@ async def _handle_named_fund(
     res = resolve_ranked_fund(action.named_fund or "")
     intent = action.named_fund_intent or "why_not"
 
-    async def _relay(message: str) -> ChatHandlerResult:
-        text = await format_relay_or_canned(
-            ctx=ctx, module_name="rebalancing", message=message
-        )
-        return ChatHandlerResult(
-            text=text, snapshot_id=None, rebalancing_recommendation_id=None
-        )
-
     if intent == "include":
         capture_preference_unserved(
             flow="rebalancing", failure_class="named_include_deferred",
@@ -1694,6 +1751,7 @@ async def _handle_named_fund(
         )
         if res.status == "recommended":
             return await _relay(
+                ctx,
                 f"Swapping a specific fund into the plan from chat isn't "
                 f"supported yet — it's coming. For what it's worth, "
                 f"{res.fund_name} IS on our recommended list "
@@ -1702,11 +1760,13 @@ async def _handle_named_fund(
             )
         if res.status == "rejected":
             return await _relay(
+                ctx,
                 f"Swapping a specific fund into the plan isn't supported from "
                 f"chat yet. Also worth knowing: we evaluated {res.fund_name} "
                 f"and didn't pick it — {res.rejection_text}"
             )
         return await _relay(
+            ctx,
             "Swapping a specific fund into the plan isn't supported from chat "
             "yet — and I couldn't match that name to a fund we rank, so I'd "
             "rather not guess. The current plan stands."
@@ -1715,6 +1775,7 @@ async def _handle_named_fund(
     # why_not
     if res.status == "rejected":
         return await _relay(
+            ctx,
             f"We did evaluate {res.fund_name} ({res.sub_category}) and chose "
             f"not to recommend it: {res.rejection_text}"
         )
@@ -1722,12 +1783,14 @@ async def _handle_named_fund(
         row = ranking_by_isin(res.isin) if res.isin else None
         reason = (row.selection_reason if row else "") or "it ranks well in its category"
         return await _relay(
+            ctx,
             f"Actually, {res.fund_name} IS on our recommended list "
             f"({res.sub_category}) — {reason}"
         )
     if res.status == "ambiguous":
         options = "; ".join(res.candidates)
         return await _relay(
+            ctx,
             f"That name matches more than one fund we track ({options}) — "
             f"which one did you mean?"
         )
@@ -1736,6 +1799,7 @@ async def _handle_named_fund(
         session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
     )
     return await _relay(
+        ctx,
         "I couldn't match that name to a fund in our ranking universe, so I "
         "can't speak to it honestly — we only comment on funds we've "
         "actually evaluated."
@@ -1805,11 +1869,12 @@ def _classifier_digest(facts: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _detect_rebal_action(
-    last_run: AgentRunRecord,
+    last_run: AgentRunRecord | None,
     ctx: TurnContext,
 ) -> RebalanceAction:
-    """One Haiku call returning a RebalanceAction. Uses the shared classify_action."""
-    slim = _slim_snapshot(last_run.output_payload)
+    """One Haiku call returning a RebalanceAction. Uses the shared classify_action.
+    ``last_run`` is None on a first turn (no snapshot yet)."""
+    slim = _slim_snapshot(last_run.output_payload if last_run else None)
     snapshot_json = json.dumps(_classifier_digest(slim), default=str)
     if len(snapshot_json) > _DETECT_SNAPSHOT_BUDGET:
         logger.info(

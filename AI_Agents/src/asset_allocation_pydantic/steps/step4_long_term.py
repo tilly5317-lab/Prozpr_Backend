@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from ..models import (
     AllocationInput,
@@ -152,11 +153,39 @@ def _clamp_and_redistribute(
     return values
 
 
+def _int_pcts_summing_to_100(values: list[float]) -> tuple[int, int, int]:
+    """Round three shares to integers summing to exactly 100; the largest
+    share absorbs the rounding drift."""
+    ints = [int(round(v)) for v in values]
+    diff = 100 - sum(ints)
+    if diff != 0:
+        idx = max(range(3), key=lambda i: values[i])
+        ints[idx] += diff
+    return ints[0], ints[1], ints[2]
+
+
 def phase2_asset_class_pcts(
     bounds: ResolvedBounds,
     market_commentary: MarketCommentaryScores,
+    requested_class_pcts: Optional[dict[str, float]] = None,
 ) -> tuple[int, int, int]:
-    """Return (equities_pct, debt_pct, others_pct) — integers summing to 100."""
+    """Return (equities_pct, debt_pct, others_pct) — integers summing to 100.
+
+    ``requested_class_pcts`` ({"equity", "debt", "others"} → % of this step's
+    corpus) is a customer preference the caller has already reconciled to
+    this step. When present it IS the split: the market-view tilt and the
+    phase-1 bounds (including the others-gate) are bypassed — spec
+    2026-09-14 D3. ``None`` → the engine's own tilt-within-bounds, unchanged.
+    """
+    if requested_class_pcts is not None:
+        return _int_pcts_summing_to_100(
+            [
+                requested_class_pcts["equity"],
+                requested_class_pcts["debt"],
+                requested_class_pcts["others"],
+            ]
+        )
+
     mins = [float(bounds.eq_min), float(bounds.debt_min), float(bounds.others_min)]
     maxs = [float(bounds.eq_max), float(bounds.debt_max), float(bounds.others_max)]
     views = [
@@ -182,14 +211,7 @@ def phase2_asset_class_pcts(
 
     scaled = _clamp_and_redistribute(scaled, mins, maxs)
 
-    ints = [int(round(v)) for v in scaled]
-    diff = 100 - sum(ints)
-    if diff != 0:
-        # Adjust the largest (by scaled value) by the diff.
-        idx = max(range(3), key=lambda i: scaled[i])
-        ints[idx] += diff
-
-    return ints[0], ints[1], ints[2]
+    return _int_pcts_summing_to_100(scaled)
 
 
 # ── Phase 4 — multi-asset fund decomposition ──────────────────────────────────
@@ -200,7 +222,21 @@ def phase4_multi_asset(
     debt_amount: int,
     others_amount: int,
     composition: MultiAssetFundComposition,
+    requested_amount: Optional[int] = None,
 ) -> MultiAssetBlock:
+    """Size the multi-asset sleeve and decompose it across the three classes.
+
+    ``requested_amount`` is a caller-chosen sleeve size (rupees) that replaces
+    the auto-size (spec 2026-09-14 §4.2). It is still clamped by every class
+    room, because the class split is the outer truth (D-A4): each slice of the
+    sleeve is funded out of one class budget, so a sleeve that would over-draw
+    any of them is not affordable no matter who asked for it. The equity clamp
+    on this path is the FULL equity room, not the 0.50 cap — that cap is the
+    auto path's diversification policy, and a caller naming a size has already
+    made that call for itself.
+
+    ``None`` reproduces the pre-preference auto-size exactly.
+    """
     eq_pct = composition.equity_pct / 100.0
     dt_pct = composition.debt_pct / 100.0
     oth_pct = composition.others_pct / 100.0
@@ -211,7 +247,14 @@ def phase4_multi_asset(
     )
     max_x_dt = debt_amount / dt_pct if dt_pct > 0 else INF
 
-    candidate = min(max_x_eq, max_x_dt)
+    if requested_amount is None:
+        candidate = min(max_x_eq, max_x_dt)
+    else:
+        # One room per class the sleeve draws on; the tightest binds.
+        max_eq_room = equities_amount / eq_pct if eq_pct > 0 else INF
+        max_oth_room = others_amount / oth_pct if oth_pct > 0 else INF
+        candidate = min(float(requested_amount), max_x_dt, max_oth_room, max_eq_room)
+
     if candidate == INF or candidate <= 0 or equities_amount <= 0 or debt_amount <= 0:
         multi_asset_amount = 0
     else:
@@ -249,9 +292,34 @@ def phase5_equity_subgroups(
     total_equity_for_subgroups: int,
     score: float,
     market_commentary: MarketCommentaryScores,
+    requested_amounts: Optional[dict[str, int]] = None,
+    excluded: Optional[frozenset[str]] = None,
 ) -> dict[str, int]:
+    """Split the long-term equity pool across the equity subgroups.
+
+    ``requested_amounts`` are rupee pins the customer asked for, keyed by
+    equity subgroup and **already reconciled by the caller** to fit the pool
+    (spec 2026-09-14 §4.3). They are written into the result verbatim and take
+    no part in the market-view tilt — the slider and the bounds table exist to
+    stop the *engine* producing dust, and a number the customer typed is not
+    the engine's to police (D-A1). The tilt then splits only the room the pins
+    leave behind.
+
+    ``excluded`` subgroups are removed from ``active`` BEFORE any allocation
+    math, alongside the market-view gates. Zeroing them afterwards would not
+    hold: the tilt, the sum-to-100 pass and the exact-sum residual fix all
+    redistribute across ``active``, so a subgroup the customer zeroed would be
+    quietly refilled on the way out.
+
+    Both arguments ``None`` reproduces the pre-preference behaviour exactly.
+    """
+    pins: dict[str, int] = dict(requested_amounts or {})
+    excluded = excluded or frozenset()
+
     result: dict[str, int] = {sg: 0 for sg in EQUITY_SUBGROUPS}
-    if total_equity_for_subgroups <= 0:
+    # An empty pool with pins is an over-subscription the caller has to hear
+    # about, so only short-circuit when there is genuinely nothing to place.
+    if total_equity_for_subgroups <= 0 and not pins:
         return result
 
     row = PHASE5_EQUITY_SUBGROUP_BOUNDS[ceil_to_half(score)]
@@ -264,7 +332,30 @@ def phase5_equity_subgroups(
     # Also drop any subgroup whose max is 0 at this risk score — they cannot receive allocation.
     active = [sg for sg in active if row[sg][1] > 0]
 
-    if not active:
+    # Customer exclusions join the gates here, before the tilt (see docstring).
+    # An exclusion also beats a pin on the same subgroup — "none of this" is
+    # the stronger statement, and the two can only collide via caller error.
+    if excluded:
+        active = [sg for sg in active if sg not in excluded]
+        pins = {sg: amt for sg, amt in pins.items() if sg not in excluded}
+
+    # Pins are placed whether or not the gates would have admitted the
+    # subgroup (D-A1), then dropped from ``active`` so the result-writing loop
+    # at the bottom cannot overwrite them.
+    for sg, amt in pins.items():
+        result[sg] = amt
+    room = total_equity_for_subgroups - sum(pins.values())
+    if room < 0:
+        raise ValueError(
+            "phase5_equity_subgroups: pinned subgroups total "
+            f"{sum(pins.values())} but the equity pool is only "
+            f"{total_equity_for_subgroups}. Reconcile the pins to the pool "
+            "before calling — phase 5 will not silently truncate a customer's "
+            "own numbers."
+        )
+    active = [sg for sg in active if sg not in pins]
+
+    if not active or room <= 0:
         return result
 
     mins = [float(row[sg][0]) for sg in active]
@@ -317,11 +408,12 @@ def phase5_equity_subgroups(
         idx = max(range(len(ints)), key=lambda i: ints[i])
         ints[idx] += diff
 
-    # Convert to amounts.
-    amounts = [round_to_100(total_equity_for_subgroups * p / 100) for p in ints]
+    # Convert to amounts. The denominator is ``room``, not the whole pool —
+    # the pinned rupees are already sitting in ``result``.
+    amounts = [round_to_100(room * p / 100) for p in ints]
     # Exact-sum fix: adjust largest amount by any residual.
     S = sum(amounts)
-    residual = total_equity_for_subgroups - S
+    residual = room - S
     if residual != 0 and amounts:
         idx = max(range(len(amounts)), key=lambda i: amounts[i])
         amounts[idx] += residual
