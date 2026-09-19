@@ -1,7 +1,7 @@
 # Ask PI · Risk Profiling Thesis
 
 *Why we score risk the way we do — and what your number actually means*
-*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: 19 September 2026*
 
 ---
 
@@ -50,6 +50,16 @@ How much of your income you save is read as independent evidence of resilience a
 
 We also form a view on **occupation stability** — steadier, more predictable incomes can support more growth exposure than variable or commission-based ones. This view is recorded as context on your profile; it deliberately does not move the headline score, and today it does not alter the portfolio either. It is a signal we intend to put to work as the approach evolves.
 
+## Where an explicit instruction outranks the score
+
+The risk score decides what we *recommend*. It does not overrule what you *instruct*.
+
+If you set an explicit investment preference — a specific split across equity, debt and commodity — that split is what your practical plan is built to, even where it sits outside the range your risk score would otherwise have produced. We do not quietly clip your instruction back to the band and present the result as your plan. You asked for something specific; we build it.
+
+What we keep doing is telling you the truth about it. Our own recommendation continues to be computed from your risk score alone, as if you had said nothing, so the plan can show you both: what we would advise, and what you asked for. Where the two differ, the difference is stated rather than smoothed over. That is the whole point of separating the score from the instruction — the score stays an honest opinion precisely because it is not bent to match your preference.
+
+The one thing a preference does not do is change the score itself. Your risk profile continues to reflect your capacity and willingness as assessed, and it still drives everything we recommend the day you clear the preference.
+
 ## Why a customer should trust this approach
 
 | Question | Our answer |
@@ -68,4 +78,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Risk Profiling Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Risk Profiling Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

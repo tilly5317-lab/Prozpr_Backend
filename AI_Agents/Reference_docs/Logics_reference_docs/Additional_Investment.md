@@ -1,7 +1,7 @@
 # Ask PI · Additional Investment Thesis
 
 *Why fresh money goes where it goes — and why it never chases last quarter's winner*
-*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: 19 September 2026*
 
 ---
 
@@ -58,6 +58,12 @@ A lumpsum changes your portfolio *today*, so it's judged against your portfolio 
 
 Ask "should I put this in small-caps?" and we answer honestly against your plan: whether that category is part of your current deployment, already covered by other funds, or at target with no room for more. If it has a place, we'll name our picks in it. But we won't route an entire deployment into one category on request, and every category answer carries the same caveat: concentrating in one pocket isn't what we'd recommend — your plan spreads money across your goals for a reason.
 
+## Where your standing preferences fit
+
+New money is deployed against the plan your preferences already shaped — the split and the category choices you saved are baked into the targets this step fills, so fresh money is never quietly deployed to a shape you have already ruled out.
+
+Changing that record is a separate, deliberate act. If you state a preference while deploying money (*"put more of this into mid caps from now on"*), we deploy the money as asked against your current plan and point you at your preferences page for the standing part, rather than treating one sentence as a permanent instruction. A one-off question about *this* deployment and a permanent change to *every* deployment deserve different handling, and conflating them is how people end up with a portfolio shaped by remarks they don't remember making.
+
 ## Why a customer should trust this approach
 
 | Question | Our answer |
@@ -78,4 +84,4 @@ This document is a directional reference for the *why* of fresh-money deployment
 
 ---
 
-*Ask PI · Additional Investment Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-08-04*
+*Ask PI · Additional Investment Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

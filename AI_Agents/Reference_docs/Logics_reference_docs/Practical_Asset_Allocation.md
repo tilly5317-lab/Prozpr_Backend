@@ -1,7 +1,7 @@
 # Ask PI · Practical Asset Allocation Thesis
 
 *Why we translate the ideal portfolio into the portfolio you can actually own — and what we do about the holdings we cannot trade*
-*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: September 2026*
 
 ---
 
@@ -13,7 +13,7 @@
 
 The ideal allocation is a clean answer to *how* to invest a fresh rupee. The practical allocation is the messier, more honest answer to *how* to invest the rupees you already own — given that some are locked in tax-saving funds for a few more years, some sit in direct stocks we cannot trade fund-by-fund, and some are better left untouched because the tax cost of moving them would outweigh the benefit. We take the ideal targets, treat the immovable holdings as facts of the world rather than mistakes to correct, and produce a plan that fits the geometry of what you actually hold today.
 
-## Six principles that drive every practical recommendation
+## Seven principles that drive every practical recommendation
 
 | Principle | What it means in practice |
 | --- | --- |
@@ -22,7 +22,8 @@ The ideal allocation is a clean answer to *how* to invest a fresh rupee. The pra
 | **3. Direct stocks and PMS get a sensible ceiling, not a blanket allow or block** | Single-stock and PMS holdings can't be trimmed the precise, tax-efficient way mutual-fund units can. We treat them as a separate envelope and cap how much of your long-term growth allocation that envelope can occupy — with the cap set more generously for wealthier portfolios that can carry concentration, tighter for smaller ones — and an advisor can set a different ceiling for your specific situation, which then takes precedence over the wealth-based default. Anything above the ceiling is surfaced as an amount to reduce, never as a stock-by-stock instruction, because stock-picking is not our mandate. |
 | **4. The same growth-fund discipline, applied to what's left** | After the frozen and untradeable holdings are accounted for, the remaining growth allocation follows exactly the same sub-strategy as the ideal portfolio — the same eligible equity styles, the same valuation and market-view discipline. Smaller leftover pools naturally consolidate into fewer, more meaningful positions rather than a scatter of slivers. |
 | **5. One picture, holdings and all** | The practical output mirrors the ideal one so the two read interchangeably, with a few extra lines that make your frozen and untradeable holdings visible. You should be able to see, in one place, what is locked, what is being kept, and what is being put to work — without cross-referencing two documents. |
-| **6. This step decides *targets*, not trades** | The practical engine says where the money should sit. It does not decide which lots to sell, when to realise gains, or how to stagger trades — those are tax-aware decisions that belong to the rebalancing step (see the Rebalancing thesis). Excess concentration is surfaced as a number to act on; the trade mechanics happen later. |
+| **6. Your stated preferences shape this plan — and only this plan** | If you have told us how you want your money invested, this is the step that honours it. Two deliberate limits. First, your preference reshapes the *practical* plan, never the ideal one: our own recommendation is always computed as though you had said nothing, so "here is what we would advise, here is your version" is a real comparison rather than two views of the same adjusted number. Second, a preference is honoured at the point each decision is made, not bolted on at the end — an ask applied after the portfolio is already assembled cannot move the parts that are already fixed, and would quietly land you somewhere other than where you asked. |
+| **7. This step decides *targets*, not trades** | The practical engine says where the money should sit. It does not decide which lots to sell, when to realise gains, or how to stagger trades — those are tax-aware decisions that belong to the rebalancing step (see the Rebalancing thesis). Excess concentration is surfaced as a number to act on; the trade mechanics happen later. |
 
 We are a translation layer — not a tax optimiser, not a fund-picker, and not a substitute for the rebalancer. We take the ideal answer and round it into the shape of what you actually hold, so the rest of the process doesn't have to.
 
@@ -50,6 +51,16 @@ Whatever growth allocation is left after the core and the untradeable holdings i
 
 The final output mirrors the ideal allocation, with added lines showing what is frozen, what is kept, and what is deployed. All amounts are presented in clean, round figures.
 
+## What stating a preference changes
+
+A preference is a real instruction, so we apply it in full — and we are equally plain about what it costs.
+
+**It is expressed as a share of your whole portfolio.** Asking for a quarter in mid caps means a quarter of everything you hold, not a quarter of some sub-pool you would have to work out for yourself. Refusing a category removes it outright rather than shrinking it to a token holding; if you tell us no gold, the fund that holds gold does not appear at all.
+
+**It changes the order of priorities, not just the mix.** Ordinarily we carve out the protective layers first — a separate emergency fund, money earmarked for goals inside the next five years, and an amount held back against your borrowings — and only then invest what remains. When you set a preference, we stop making those carve-outs and invest the whole corpus to the shape you asked for. That is a genuine trade, so we name the ones that apply to *your* situation before you commit, and attach the same facts to the plan that follows. A customer with no borrowings is not warned about an offset they never had.
+
+**Where two instructions collide, we say so rather than silently picking one.** Your asset-class split and the holdings we cannot trade outrank a category-level ask — so if the categories you pinned together want more than their asset class can hold, they are scaled back to fit and the plan tells you that happened. A core diversified holding that is larger than your split can fund is reduced to the largest one that fits, for the same reason. Nothing is trimmed quietly.
+
 ## Why a customer should trust this approach
 
 | Question | Our answer |
@@ -66,4 +77,4 @@ This document is a directional reference. It is not a tax-planning tool, not a s
 
 ---
 
-*Ask PI · Practical Asset Allocation Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Practical Asset Allocation Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
