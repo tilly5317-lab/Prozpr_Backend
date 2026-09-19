@@ -797,7 +797,7 @@ async def test_an_exposure_ask_points_at_preferences_instead_of_reshaping(
     assert reshaped["called"] == 0
     assert relay_spy["pill"] is True
     assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
-    assert "still building" in relay_spy["message"]
+    assert "preferences page" in relay_spy["message"]
     assert result.show_preferences_pill is True
     assert result.rebalancing_recommendation_id is None, "nothing is persisted"
 

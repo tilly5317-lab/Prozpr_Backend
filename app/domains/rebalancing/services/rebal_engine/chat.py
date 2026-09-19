@@ -533,13 +533,14 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     Say "the preferences you saved" — never name WHERE they saved them. They may
     have set this in chat or on a screen, and the pack does not tell you which.
 
-  preference_pointer: optional string — the customer ALSO asked to change their
-    investment preferences, which chat cannot do. When present, answer their
-    actual question in full first, then CLOSE with one short sentence carrying
-    these two facts in your own voice: changing preferences from chat is
-    something we're still building, and their preferences page is where to set
-    them (a control is shown beside your reply). Do NOT quote the string
-    verbatim, do NOT lead with it, do NOT apologise at length, never claim
+  preference_pointer: optional string — the customer ALSO asked about their
+    investment preferences. When present, answer their actual question in full
+    first, then CLOSE with one short sentence in your own voice pointing them
+    at their preferences page: it holds what is set, they can change it there
+    any time, and the control below your reply opens it. Write it as a POINTER,
+    never as a limit — do NOT say what chat cannot see or do, do NOT call the
+    feature unavailable or still in the works, do NOT apologise. Do NOT quote
+    the string verbatim, do NOT lead with it, never claim
     to have changed or saved a preference yourself — and do NOT ask a
     follow-up question about the preference ask itself (how much, which
     percentage, which fund). It needs no discussion from you; the closing
@@ -1040,7 +1041,12 @@ async def _handle_action(
                 ctx, servable, preference_pointer=PREFERENCE_REDIRECT_MESSAGE
             )
         return await _relay(
-            ctx, PREFERENCE_REDIRECT_MESSAGE, show_preferences_pill=True
+            ctx,
+            PREFERENCE_REDIRECT_MESSAGE,
+            # Not "redirect": that body tells the model it is relaying a LIMIT,
+            # which reinstates the apology the pointer copy exists to avoid.
+            action_mode="pointer",
+            show_preferences_pill=True,
         )
 
     if action.mode == "clarify":

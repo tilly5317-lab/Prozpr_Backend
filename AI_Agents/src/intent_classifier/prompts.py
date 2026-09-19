@@ -334,8 +334,8 @@ These cases are easy to misclassify. Apply these rules explicitly:
      - Wiping the record WHOLESALE — "reset my preferences", "clear my saved
        preferences", "start over with my preferences" → `portfolio_query` too.
        Asking to clear the whole record is a question ABOUT that record, NOT
-       `out_of_scope`: the reply reads back what is stored and says where it is
-       edited.
+       `out_of_scope`: the reply points at the preferences page, where the
+       record is viewed and edited.
      Everything else about exposure belongs to the PLAN IN VIEW and keeps the
      active plan intent per §5 — including an ask naming ONE category, whether
      or not the customer says the word "preference": "remove small caps", "no

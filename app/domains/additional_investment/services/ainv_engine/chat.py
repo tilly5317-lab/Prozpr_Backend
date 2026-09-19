@@ -319,11 +319,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
-      pointer — the customer also asked to change their saved preferences,
-        which chat cannot do. Answer the deployment fully first, then CLOSE with
-        ONE short sentence in your own voice: changing preferences from chat is
-        something we're still building, and their preferences page is where to
-        set them (a control is shown beside your reply). Never quote it
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
         verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in
@@ -445,11 +446,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
-      pointer — the customer also asked to change their saved preferences,
-        which chat cannot do. Answer the deployment fully first, then CLOSE with
-        ONE short sentence in your own voice: changing preferences from chat is
-        something we're still building, and their preferences page is where to
-        set them (a control is shown beside your reply). Never quote it
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
         verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in

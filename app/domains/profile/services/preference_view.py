@@ -172,8 +172,7 @@ def active_preferences_for(user: Any, practical: Any) -> Optional[dict]:
 # (see `active_preferences_block`) — only the chat-side CHANGE path is retired.
 
 PREFERENCE_REDIRECT_MESSAGE = (
-    "Changing your investment preferences from chat is something we're still "
-    "building. For now they live on your preferences page — open it below to "
-    "see what's set and adjust it. Whatever you choose there, every plan I "
-    "build for you follows it."
+    "Your investment preferences live on your preferences page — tap below to "
+    "see what's set and change it anytime. Whatever you choose there, every "
+    "plan I build for you follows it."
 )

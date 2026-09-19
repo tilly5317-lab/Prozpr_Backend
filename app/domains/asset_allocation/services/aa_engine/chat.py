@@ -311,15 +311,16 @@ CUSTOMER_RECORD shape (treat fields not present as unknown):
                    attribute this allocation to a saved preference — do not
                    credit one, and do not claim they have none either.
   preference_pointer: optional string — the customer ALSO asked something
-                   preference-shaped (an exposure change, undo, or set),
-                   which chat cannot act on. Answer their OTHER, servable
-                   question in full first, using the facts above. Then CLOSE
-                   with ONE short sentence, in your own voice, carrying two
-                   facts: changing preferences from chat is something we're
-                   still building, and their preferences page is where to set
-                   them (a control is shown beside your reply). Do NOT quote
-                   the string verbatim, do NOT lead with it, do NOT apologise
-                   at length, never claim to have changed or saved a
+                   preference-shaped (an exposure change, undo, or set).
+                   Answer their OTHER, servable question in full first, using
+                   the facts above. Then CLOSE with ONE short sentence, in
+                   your own voice, pointing them at their preferences page: it
+                   holds what is set, they can change it there any time, and
+                   the control below your reply opens it. Write it as a
+                   POINTER, never as a limit — do NOT say what chat cannot see
+                   or do, do NOT call the feature unavailable or still in the
+                   works, do NOT apologise. Do NOT quote the string verbatim,
+                   do NOT lead with it, never claim to have changed or saved a
                    preference yourself — and do NOT ask a follow-up question
                    about the preference ask itself (how much, which
                    percentage, which fund). It needs no discussion from you;
@@ -607,6 +608,9 @@ async def _dispatch_action(
                 ctx=ctx,
                 module_name="asset_allocation",
                 message=PREFERENCE_REDIRECT_MESSAGE,
+                # Not the default "redirect" body — that one frames the message
+                # as a LIMIT and brings the apology back.
+                action_mode="pointer",
             ),
             show_preferences_pill=True,
         )
