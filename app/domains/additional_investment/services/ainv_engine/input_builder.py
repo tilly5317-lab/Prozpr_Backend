@@ -62,7 +62,7 @@ def _months_to(asof: date, goal_date: date) -> int:
     return (goal_date.year - asof.year) * 12 + (goal_date.month - asof.month)
 
 
-async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
+async def _goal_funding_flags(user, asof: date, db=None) -> tuple[bool, bool]:
     """Return ``(short_term_fulfilled, medium_term_fulfilled)``.
 
     short_term_fulfilled is True when every goal under MEDIUM_TERM_BOUNDARY_MONTHS
@@ -71,7 +71,7 @@ async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
     engine targets the nearest unfunded bucket (short → medium → long), so
     long-term needs no flag (it is always the fallback target).
     """
-    snapshot = await run_cashflow_projection_for_user(user, anchor_date=asof)
+    snapshot = await run_cashflow_projection_for_user(user, anchor_date=asof, db=db)
     short_goals = [
         g
         for g in snapshot.goals
@@ -127,7 +127,7 @@ async def build_additional_investment_input_for_user(
         short_term_fulfilled, medium_term_fulfilled = False, False
     else:
         short_term_fulfilled, medium_term_fulfilled = await _goal_funding_flags(
-            user, asof
+            user, asof, ctx.db
         )
 
     # 3. Ranked funds: flatten the per-subgroup ranking, carrying scheme_code (T2).

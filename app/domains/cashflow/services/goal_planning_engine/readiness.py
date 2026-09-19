@@ -175,12 +175,12 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
     ),
     FieldSpec(
         "current_portfolio_corpus",
-        "Current portfolio corpus",
+        "Current Net Worth Value",
         "Assets & liabilities",
         "money",
         "₹",
         _pfp_get("current_portfolio_corpus"),
-        help="Your current mutual-fund portfolio value — prefilled from your CAMS statement / portfolio page. Added to your cash & assets as the starting corpus. When a portfolio is linked, your live portfolio value is used automatically.",
+        help="Your Current Net Worth Value exactly as your portfolio page shows it — the funds in your latest CAMS statement at today's NAV (funds from older, replaced statements are not counted). Added to your cash & equities as the starting corpus.",
         optional=True,
     ),
     FieldSpec(
@@ -190,7 +190,7 @@ REQUIRED_CASHFLOW_FIELDS: List[FieldSpec] = [
         "money",
         "₹",
         _pfp_get("financial_assets"),
-        help="Your cash, savings and debt holdings (FDs, bonds, debt funds), synced from your financial profile. Equities go in the field below; excludes other assets (gold, unlisted shares) and your mutual-fund portfolio corpus (above). Optional — treated as ₹0 if left blank.",
+        help="Your cash, savings and debt holdings (FDs, bonds, debt funds), synced from your financial profile. Equities go in the field below; excludes other assets (gold, unlisted shares) and your Current Net Worth Value (above). Optional — treated as ₹0 if left blank.",
         optional=True,
     ),
     FieldSpec(

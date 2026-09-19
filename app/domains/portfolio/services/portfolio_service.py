@@ -75,6 +75,50 @@ def _owned_by_statement(row: object, snapshot_id: uuid.UUID | None) -> bool:
     return owner is None or owner == snapshot_id
 
 
+def net_worth_from_holdings(holdings: list) -> float:
+    """Current Net Worth Value = the sum of the given holdings' current value.
+
+    The one formula behind the portfolio page headline (``GET /portfolio``) and
+    the cashflow opening corpus, so the two can never disagree. Callers pass the
+    active statement's holdings only.
+    """
+    return round(sum(float(h.current_value or 0) for h in holdings), 2)
+
+
+async def get_current_net_worth_value(
+    db: AsyncSession, user_id: uuid.UUID
+) -> float | None:
+    """The user's Current Net Worth Value exactly as the portfolio page shows it.
+
+    Sums the primary portfolio's holdings from the LATEST CAS statement (plus rows
+    no statement owns) at their stored current value — which the NAV revaluation
+    keeps at today's price. Deliberately NOT ``portfolios.total_value``: that
+    column is written at ingest/revaluation time and is not scoped, so it can
+    still carry funds from superseded (archived) statements.
+
+    The active-statement rule is applied by hand, like the revaluation above, so
+    the answer does not depend on whether the CAS read hook is running for this
+    caller (chat turn, background job, script). Returns ``None`` when the user has
+    no portfolio or no value in it, so callers can fall back to a manual figure.
+    """
+    portfolio = (
+        await db.execute(
+            select(Portfolio)
+            .options(selectinload(Portfolio.holdings))
+            .where(Portfolio.user_id == user_id, Portfolio.is_primary == True)  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if portfolio is None:
+        return None
+
+    from app.core.cas_scope import effective_scope
+
+    snapshot_id = await effective_scope(db, user_id)
+    holdings = [h for h in portfolio.holdings if _owned_by_statement(h, snapshot_id)]
+    value = net_worth_from_holdings(holdings)
+    return value if value > 0 else None
+
+
 async def revalue_primary_portfolio_at_latest_nav(
     db: AsyncSession, user_id: uuid.UUID
 ) -> Portfolio | None:
@@ -163,7 +207,7 @@ async def revalue_primary_portfolio_at_latest_nav(
                 repriced = True
 
     # Recompute the portfolio rollup from the (now re-marked) holdings.
-    total_value = round(sum(float(h.current_value or 0) for h in holdings), 2)
+    total_value = net_worth_from_holdings(holdings)
 
     invested = 0.0
     for h in holdings:

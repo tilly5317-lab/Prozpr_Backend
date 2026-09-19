@@ -134,17 +134,13 @@ async def _compute_and_persist(
         run_cashflow_projection_for_user,
     )
     from app.domains.portfolio.services.portfolio_service import (
-        get_primary_portfolio,
+        get_current_net_worth_value,
     )
 
-    # The current portfolio value feeds the engine's starting corpus (single
-    # source of truth — the portfolio/CAMS data), summed with cash & assets.
-    portfolio = await get_primary_portfolio(db, user.id)
-    portfolio_value = (
-        float(portfolio.total_value)
-        if portfolio is not None and portfolio.total_value is not None
-        else None
-    )
+    # The portfolio page's Current Net Worth Value (latest CAS statement only)
+    # feeds the engine's starting corpus — never the unscoped
+    # portfolios.total_value, which can still include archived funds.
+    portfolio_value = await get_current_net_worth_value(db, user.id)
 
     snapshot = await run_cashflow_projection_for_user(
         user,

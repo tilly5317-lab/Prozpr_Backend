@@ -62,6 +62,7 @@ from app.domains.profile.services._effective_risk import (
 )
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
+    net_worth_from_holdings,
 )
 
 # A manual rebuild inside this window, with no new statement behind it, is
@@ -222,7 +223,7 @@ async def get_portfolio(
     # might be stale from an earlier ingest that included archived holdings.
     holdings = list(portfolio.holdings)
     if holdings:
-        current_total_value = sum(float(h.current_value or 0) for h in holdings)
+        current_total_value = net_worth_from_holdings(holdings)
         current_total_invested = sum(
             float(h.average_cost or 0) * float(h.quantity or 0)
             for h in holdings

@@ -168,14 +168,20 @@ async def _delete_archived_statements(
 
     deleted = 0
     try:
-        from app.domains.ingestion.services.cams_pdf_stage import delete_archived_cas
+        # Imported here, not at module scope: this module is pulled in by the
+        # privacy router at startup and the S3 helper builds a boto3 client.
+        from app.domains.ingestion.services.cams_pdf_stage import delete_cas_object
 
         for key in keys:
             try:
-                delete_archived_cas(key)
+                await delete_cas_object(key)
                 deleted += 1
             except Exception:
-                logger.warning("Could not delete archived statement during erasure.")
+                # exc_info: without it an outage and a bad key look identical,
+                # and the only signal that a PDF outlived its account is this line.
+                logger.warning(
+                    "Could not delete archived statement during erasure.", exc_info=True
+                )
     except Exception:
         logger.exception("Statement archive unavailable during erasure.")
     return deleted
