@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models import MfNavHistory
 from app.domains.portfolio.models.portfolio import Portfolio
+from app.domains.portfolio.services.networth.clock import ist_today
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,15 @@ async def _latest_nav_on_or_before(
     return float(nav) if nav is not None else None
 
 
+def _owned_by_statement(row: object, snapshot_id: uuid.UUID | None) -> bool:
+    """The CAS NULL rule, applied by hand: a row is visible when it belongs to the
+    active statement or to no statement at all (manual entries, SimBanks, legacy)."""
+    if snapshot_id is None:
+        return True
+    owner = getattr(row, "cas_upload_id", None)
+    return owner is None or owner == snapshot_id
+
+
 async def revalue_primary_portfolio_at_latest_nav(
     db: AsyncSession, user_id: uuid.UUID
 ) -> Portfolio | None:
@@ -94,11 +104,28 @@ async def revalue_primary_portfolio_at_latest_nav(
     if portfolio is None:
         return None
 
-    holdings = list(portfolio.holdings)
-    if not holdings:
+    all_holdings = list(portfolio.holdings)
+    if not all_holdings:
         return portfolio
 
-    today = date.today()
+    # Only the ACTIVE statement's holdings — plus rows no statement owns — may enter
+    # the headline. The CAS read hook applies that rule to the loads above *when it is
+    # running*; it is process-global state (listeners installed, ContextVar set), and a
+    # caller without it — a scheduler, a script, an older process — re-marked this row
+    # to the sum of EVERY statement the user ever uploaded: Rs 60,792 held read as
+    # Rs 15.1 crore. Repeating the rule here makes the headline independent of who
+    # called. An active statement with NO holdings left falls through to a zero
+    # roll-up (then the ledger fallback) instead of keeping the polluted total.
+    from app.core.cas_scope import effective_scope
+
+    snapshot_id = await effective_scope(db, user_id)
+    holdings = [h for h in all_holdings if _owned_by_statement(h, snapshot_id)]
+    allocations = [
+        a for a in portfolio.allocations if _owned_by_statement(a, snapshot_id)
+    ]
+
+    # IST, not the UTC box's calendar day - see services/networth/clock.py.
+    today = ist_today()
 
     # Resolve each held scheme's *latest* NAV. ``get_latest_nav_with_source_fallback``
     # reads local ``mf_nav_history`` and only reaches out to mfapi.in when the stored
@@ -158,13 +185,16 @@ async def revalue_primary_portfolio_at_latest_nav(
     # fallback when there are no priced holdings (e.g. transactions imported without a CAS
     # holdings snapshot), never to override a non-zero holdings total.
     if total_value <= 0:
-        from app.domains.portfolio.services.networth_history_service import (
+        from app.domains.portfolio.services.networth.asof import (
             compute_today_networth,
         )
 
         ledger = await compute_today_networth(db, user_id)
         if ledger is not None and ledger[0] > 0:
-            total_value, ledger_invested, _ = ledger
+            # The ledger path returns Decimals; the rest of this function is
+            # float arithmetic over ORM columns, so convert at the boundary.
+            total_value = float(ledger[0])
+            ledger_invested = float(ledger[1])
             if ledger_invested > 0:
                 total_invested = ledger_invested
 
@@ -177,7 +207,6 @@ async def revalue_primary_portfolio_at_latest_nav(
 
     # Re-scale the bucket allocation amounts so the donut rupee figures track today's
     # value (the asset-class *mix* is unchanged, so percentages stay put).
-    allocations = list(portfolio.allocations)
     old_alloc_total = sum(float(a.amount or 0) for a in allocations)
     if allocations and old_alloc_total > 0 and total_value > 0:
         scale = total_value / old_alloc_total

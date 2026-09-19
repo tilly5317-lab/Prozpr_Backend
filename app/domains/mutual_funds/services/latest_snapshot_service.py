@@ -9,10 +9,10 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cas_scope import effective_scope, scope_filter
+from app.core.cas_scope import effective_scope, scope_filter, scoped_to
 from app.domains.mutual_funds.models import (
     MfFundMetadata,
     MfNavHistory,
@@ -196,6 +196,36 @@ async def rebuild_user_latest_snapshot(
     *,
     _commit: bool = True,
 ) -> int:
+    """Rebuild the user's latest-holdings cache, entering their active snapshot.
+
+    Resolving the scope is not enough — the rebuild has to RUN inside it. The
+    ``before_flush`` stamper and the ``do_orm_execute`` filter both read the
+    scope from the context variable, not from any argument, so a caller with no
+    scope set (the nightly ``mfapi`` job) used to delete this snapshot's rows and
+    then insert the replacements unstamped. Against a user who also had legacy
+    ``cas_upload_id IS NULL`` rows that the scoped DELETE had left in place, the
+    INSERT hit ``uq_user_mf_latest_snapshot_user_scheme_legacy`` and the user was
+    skipped; the same mismatch made the transaction SELECT read across every
+    snapshot they had ever uploaded. Entering the scope makes the SELECT, the
+    DELETE and the INSERT agree on one statement.
+
+    Re-entrant: called from the ingest, already inside ``scoped_to(X)``,
+    ``effective_scope`` returns X and this re-enters the same scope.
+    """
+    snapshot_id = await effective_scope(db, user_id)
+    with scoped_to(snapshot_id):
+        return await _rebuild_user_latest_snapshot(
+            db, user_id, snapshot_id, _commit=_commit
+        )
+
+
+async def _rebuild_user_latest_snapshot(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    snapshot_id: Optional[uuid.UUID],
+    *,
+    _commit: bool = True,
+) -> int:
     txns = list(
         (
             await db.execute(
@@ -214,12 +244,31 @@ async def rebuild_user_latest_snapshot(
 
     # Scoped: this cache is rebuilt per snapshot, so an unqualified delete would
     # take the previous statement's rows with it. uq_user_mf_latest_snapshot_user_scheme
-    # is widened to include cas_upload_id for the same reason.
-    snapshot_id = await effective_scope(db, user_id)
+    # is widened to include cas_upload_id for the same reason. ``snapshot_id`` is
+    # resolved by the caller, which also enters it so the INSERT below is stamped
+    # with the very id this DELETE clears.
+    #
+    # Unstamped rows go too, not just this snapshot's. This table is DERIVED —
+    # ``rebuild_user_latest_snapshot`` is its only writer — so once a user has an
+    # active snapshot, everything the rebuild produces is stamped with it and a
+    # NULL row can only be residue from a run that wrote without entering the
+    # scope. Leaving it behind is not inert: THE NULL RULE makes it always
+    # visible, so it shows up beside the stamped row for the same fund and the
+    # holding is counted twice. A plain ``scope_filter`` would strand those rows
+    # forever, since no later scoped DELETE can ever match them.
     await db.execute(
         delete(UserMfLatestSnapshot).where(
             UserMfLatestSnapshot.user_id == user_id,
-            *scope_filter(UserMfLatestSnapshot, snapshot_id),
+            *(
+                [
+                    or_(
+                        UserMfLatestSnapshot.cas_upload_id == snapshot_id,
+                        UserMfLatestSnapshot.cas_upload_id.is_(None),
+                    )
+                ]
+                if scope_filter(UserMfLatestSnapshot, snapshot_id)
+                else []
+            ),
         )
     )
 

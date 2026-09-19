@@ -50,8 +50,6 @@ BY_USER_ID: tuple[str, ...] = (
     "portfolio_allocation_snapshots",
     "funds",
     "user_investment_lists",
-    "portfolio_networth_jobs",
-    "user_portfolio_nav_history",
     "asset_allocation_runs",
     "practical_asset_allocation_runs",
     "rebalancing_runs",
@@ -119,10 +117,19 @@ async def _adopt(
     return counts
 
 
-async def main(apply: bool) -> int:
+async def main(apply: bool, only: list[uuid.UUID] | None = None) -> int:
     conn = await asyncpg.connect(_dsn())
     try:
         users = await _users_with_unstamped_data(conn)
+        if only:
+            wanted = set(only)
+            missing = wanted - set(users)
+            users = [u for u in users if u in wanted]
+            if missing:
+                print(
+                    f"note: {len(missing)} requested user(s) have no unstamped rows "
+                    f"and need nothing: {', '.join(str(u) for u in sorted(missing))}"
+                )
         print(f"users with unstamped data: {len(users)}")
         adopted_users = 0
         skipped: list[uuid.UUID] = []
@@ -195,5 +202,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--apply", action="store_true", help="write changes (default: dry run)"
     )
+    # A full-fleet rollout is the intended use, but "adopt these accounts, not the
+    # other eighty" is what you actually want when repairing a reported problem —
+    # and running the whole sweep to fix three users is not a safe way to get there.
+    parser.add_argument(
+        "--user",
+        action="append",
+        dest="users",
+        metavar="UUID",
+        help="limit to this user id (repeatable); default: every user with unstamped rows",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(main(args.apply)))
+    only = [uuid.UUID(u) for u in (args.users or [])] or None
+    sys.exit(asyncio.run(main(args.apply, only)))

@@ -327,8 +327,7 @@ async def ensure_nav_history_for_chart(
     target row count is based on ``max(date_from, fund_inception)``..``date_to``.
 
     ``require_from_start``: set when the caller knows the fund was actually *held*
-    from ``date_from`` (e.g. the net-worth backfill passes the fund's first
-    transaction date). Then a leading gap — stored NAV that only starts well after
+    from ``date_from`` (e.g. the fund's first transaction date). Then a leading gap — stored NAV that only starts well after
     ``date_from``, typically because daily latest-NAV top-ups seeded a few recent
     rows but the older history was never fetched — forces a full-history backfill.
     Without this, ``coverage_start = max(date_from, g_earliest)`` would shrink the

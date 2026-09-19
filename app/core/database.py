@@ -116,8 +116,8 @@ def _get_engine() -> AsyncEngine:
                 "pool_recycle": 300,
                 # Explicit pool sizing (previously SQLAlchemy defaults: 5 + 10 = 15).
                 # This single uvicorn instance shares one pool across request handlers,
-                # the in-process APScheduler jobs, and net-worth backfills, so give some
-                # headroom — but keep it modest: prozpr-dev is a db.t3.micro
+                # and the in-process APScheduler jobs, so give some headroom — but
+                # keep it modest: prozpr-dev is a db.t3.micro
                 # (max_connections ~112) and every open connection costs RAM on a 1 GiB
                 # DB. 20 max stays well under the DB limit with room for other clients.
                 "pool_size": 10,
@@ -578,8 +578,85 @@ async def apply_postgres_schema_patches() -> None:
             )
         )
 
+        # ── Net-worth series ────────────────────────────────────────────────
+        # The series is NOT snapshot-scoped (see the model docstring). An older
+        # build carried a provenance-only ``cas_upload_id`` here plus a startup
+        # repair that nulled it for superseded snapshots; both are gone, and the
+        # column is dropped so it can never be mistaken for a scope key again.
+        await conn.execute(
+            text(
+                "ALTER TABLE user_portfolio_nav_history "
+                "DROP COLUMN IF EXISTS cas_upload_id"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_nav_hist_user_date "
+                "ON user_portfolio_nav_history (user_id, recorded_date)"
+            )
+        )
+        # Single-flight: a second live build for one user is impossible, so
+        # ``create_job`` can rely on the DB instead of a check-then-create race.
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_networth_job_active "
+                "ON portfolio_networth_jobs (user_id) "
+                "WHERE status IN ('pending', 'running')"
+            )
+        )
+        # Job rows were briefly CAS-scoped, which hid an in-flight build the moment
+        # a second upload superseded its snapshot. Drop the column if an older
+        # deploy created it, so nothing can filter on it.
+        await conn.execute(
+            text(
+                "ALTER TABLE portfolio_networth_jobs "
+                "DROP COLUMN IF EXISTS cas_upload_id"
+            )
+        )
+        # ORM/column drift: the job row gained a re-run flag, an attempt counter,
+        # degraded-data warnings and a trigger label. ``create_all`` only CREATEs —
+        # it never ALTERs — so on any database where this table already existed the
+        # INSERT in ``create_job`` fails with "column trigger does not exist" and
+        # the rebuild after a CAS upload is never queued. Which reads, from the
+        # outside, as "I uploaded a new statement and the chart still shows the old
+        # one": the ingest succeeds, only the follow-up dies.
+        await conn.execute(
+            text(
+                "ALTER TABLE portfolio_networth_jobs ADD COLUMN IF NOT EXISTS "
+                "supersede_requested BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE portfolio_networth_jobs ADD COLUMN IF NOT EXISTS "
+                "attempt INTEGER NOT NULL DEFAULT 1"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE portfolio_networth_jobs ADD COLUMN IF NOT EXISTS "
+                "warnings JSONB"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE portfolio_networth_jobs ADD COLUMN IF NOT EXISTS "
+                "trigger VARCHAR(20)"
+            )
+        )
+        # Pricing a holding whose ``scheme_code`` is actually an ISIN used to mean
+        # ``upper(isin) = :code``, which no index can serve — a sequential scan of a
+        # ~10M-row table, once per fund, per rebuild. ``nav_key`` resolution removes
+        # the need in the hot loop; this index covers the remaining fallbacks.
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_mf_nav_isin_upper "
+                "ON mf_nav_history (upper(isin), nav_date)"
+            )
+        )
+
     logger.info(
-        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps)"
+        "Postgres schema patches applied (chat_ai_module_runs, mf_fund_metadata, goals backfill, fp_exec_accounts kyc, fp raw encrypted-at-rest, cas_upload_id stamps, net-worth series)"
     )
 
 

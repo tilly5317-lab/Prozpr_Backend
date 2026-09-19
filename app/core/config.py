@@ -507,6 +507,116 @@ class Settings:
         v = (_getenv("SIGNUP_SHEET_TOKEN") or "").strip()
         return v or None
 
+    # ── Early access (early_access domain): closed signups + applications ───
+    @staticmethod
+    def signups_open() -> bool:
+        """Whether a brand-new phone number may create an account on `/`.
+
+        Closed by default: the product is in invite-only early access, so the
+        public entry point takes returning users only and sends everyone else
+        to `/earlyaccess`. Set ``SIGNUPS_OPEN=true`` to reopen the front door
+        for everyone (no redeploy — it is read per request).
+        """
+        return (_getenv("SIGNUPS_OPEN") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    @staticmethod
+    def get_early_access_allowed_phones() -> frozenset[str]:
+        """Numbers that may sign up while signups are closed.
+
+        Comma-separated full phone numbers (``+919876543210,+919000000001``)
+        in ``EARLY_ACCESS_ALLOWED_PHONES``. EMPTY BY DEFAULT, which means the
+        front door is shut for every new number — the intended launch state.
+        This exists so the team can let an approved early-access applicant in
+        by editing one env var, instead of shipping code for each of the 100.
+
+        Values are normalised to ``+<digits>`` so the stored format and a
+        hand-typed one (spaces, dashes, a missing ``+``) compare equal.
+        """
+        raw = (_getenv("EARLY_ACCESS_ALLOWED_PHONES") or "").strip()
+        if not raw:
+            return frozenset()
+        numbers = set()
+        for part in raw.replace(";", ",").split(","):
+            digits = "".join(c for c in part if c.isdigit())
+            if digits:
+                numbers.add("+" + digits)
+        return frozenset(numbers)
+
+    @staticmethod
+    def get_public_site_url() -> str:
+        """Absolute origin of the public site, no trailing slash.
+
+        Mail cannot use a relative path: the logo has to resolve from inside
+        someone's inbox, and the footer names the site the person applied on.
+        Override with ``PUBLIC_SITE_URL`` for staging.
+        """
+        raw = (_getenv("PUBLIC_SITE_URL") or "https://prozpr.com").strip()
+        return raw.rstrip("/")
+
+    @staticmethod
+    def get_early_access_seats() -> int:
+        """How many early-access places exist — the denominator of the seat
+        meter on `/earlyaccess`. Applications past this still get recorded;
+        they are simply flagged as waitlisted. ``EARLY_ACCESS_SEATS`` overrides
+        the launch number of 100 without a redeploy."""
+        raw = (_getenv("EARLY_ACCESS_SEATS") or "").strip()
+        try:
+            seats = int(raw)
+        except ValueError:
+            return 100
+        return seats if seats > 0 else 100
+
+    @staticmethod
+    def get_early_access_seats_baseline() -> int:
+        """Seats already taken by people who are NOT rows in the Sheet.
+
+        Added to the Sheet's row count to produce the number the meter shows.
+        Defaults to 0, i.e. the meter reports exactly what the register holds.
+
+        This exists for a real case — testers recruited before the page went
+        up, or invites handed out in person — so the public count is not wrong
+        by however many of those there are. It is NOT a dial for making the
+        beta look busier than it is: whatever is set here is stated to visitors
+        as a fact about how many places are gone, so it should correspond to
+        actual committed people. A count that outruns reality is the kind of
+        thing a prospective user can later discover was untrue.
+        """
+        raw = (_getenv("EARLY_ACCESS_SEATS_BASELINE") or "").strip()
+        try:
+            baseline = int(raw)
+        except ValueError:
+            return 0
+        return max(0, baseline)
+
+    @staticmethod
+    def get_early_access_sheet_webhook_url() -> str | None:
+        """Google Apps Script web-app URL that appends one row per early-access
+        application to the shared Google Sheet — the SOLE register for these
+        applications (there is no database table), so an unset value makes
+        `/early-access/apply` answer 503 rather than silently drop a lead."""
+        v = (_getenv("EARLY_ACCESS_SHEET_WEBHOOK_URL") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_early_access_sheet_token() -> str | None:
+        """Shared secret the early-access Apps Script checks so strangers
+        cannot post junk rows if the webhook URL ever leaks."""
+        v = (_getenv("EARLY_ACCESS_SHEET_TOKEN") or "").strip()
+        return v or None
+
+    @staticmethod
+    def get_slack_early_access_webhook_url() -> str | None:
+        """Optional Slack Incoming Webhook that pings the team on each
+        early-access application. Best-effort: unset skips the ping, and a
+        failure never fails the application (the Sheet is the register)."""
+        v = (_getenv("SLACK_EARLY_ACCESS_WEBHOOK_URL") or "").strip()
+        return v or None
+
     # ── Fintech Primitives (execution domain): sandbox order execution ──────
     @staticmethod
     def get_fp_base_url() -> str:

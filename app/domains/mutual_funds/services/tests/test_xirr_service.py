@@ -17,15 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.all_models  # noqa: F401  -- registers every ORM Table so FK targets resolve
 from financial_primitives.xirr import xirr
-from app.domains.benchmarks.models import BenchmarkIndex, BenchmarkIndexValue
 from app.domains.mutual_funds.models.enums import MfTransactionType
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
-from app.domains.portfolio.models.user_portfolio_nav_history import (
-    UserPortfolioNavHistory,
-)
 from app.domains.mutual_funds.services.xirr_service import compute_portfolio_xirr
-from app.domains.portfolio.services.twr_service import compute_twr_series
 
 
 @pytest_asyncio.fixture
@@ -34,11 +29,6 @@ async def db_session():
     async with engine.begin() as conn:
         await conn.run_sync(MfTransaction.__table__.create)
         await conn.run_sync(MfNavHistory.__table__.create)
-        # compute_twr_series also reads the daily value series + benchmark tables
-        # (the latter only need to exist; an empty Nifty series → nifty_index None).
-        await conn.run_sync(UserPortfolioNavHistory.__table__.create)
-        await conn.run_sync(BenchmarkIndex.__table__.create)
-        await conn.run_sync(BenchmarkIndexValue.__table__.create)
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with factory() as session:
         try:
@@ -59,13 +49,6 @@ def _nav(d, nav, scheme="SCH1"):
     return MfNavHistory(
         id=uuid.uuid4(), scheme_code=scheme, scheme_name="Test Fund",
         mf_type="EQUITY", nav=nav, nav_date=d,
-    )
-
-
-def _pnav(uid, d, value):
-    return UserPortfolioNavHistory(
-        id=uuid.uuid4(), user_id=uid, recorded_date=d,
-        total_value=value, total_invested=value, gain_percentage=0.0,
     )
 
 
@@ -92,23 +75,3 @@ async def test_portfolio_xirr_handles_negative_sell_signs(db_session: AsyncSessi
         (date(2025, 1, 1), 700.0),
     ])
     assert res.xirr == pytest.approx(expected, abs=1e-6)
-
-
-@pytest.mark.asyncio
-async def test_twr_response_includes_portfolio_xirr(db_session: AsyncSession):
-    """The /twr payload carries the since-inception portfolio XIRR headline."""
-    uid = uuid.uuid4()
-    # Daily value series drives TWR; >= 2 days makes has_data True.
-    db_session.add_all([_pnav(uid, date(2024, 1, 1), 1000.0), _pnav(uid, date(2025, 1, 1), 1100.0)])
-    # One BUY of 100 units for ₹1000; latest NAV 11 → current value ₹1100.
-    db_session.add(_txn(uid, MfTransactionType.BUY, date(2024, 1, 1), 1000.0, 100.0))
-    db_session.add(_nav(date(2025, 1, 1), 11.0))
-    await db_session.flush()
-
-    res = await compute_twr_series(db_session, uid)
-
-    assert res.has_data is True
-    expected = xirr([(date(2024, 1, 1), -1000.0), (date(2025, 1, 1), 1100.0)])
-    assert res.portfolio_xirr == pytest.approx(expected, abs=1e-6)
-    # The value is priced at the latest NAV date — surfaced so the UI can show "as of".
-    assert res.as_of_date == date(2025, 1, 1)

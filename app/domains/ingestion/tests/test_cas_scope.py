@@ -594,7 +594,26 @@ def test_every_cas_derived_table_is_classified():
         "portfolios",
     }
 
-    unclassified = reset_tables - scoped - children - user_owned
+    # (4) Rebuilt-from-scratch: derived from the ledger, but NOT versioned — a
+    #     full recompute replaces the whole thing on every upload, so there is no
+    #     older version to keep. Scoping the net-worth series was a real outage: a
+    #     second upload stamped the old rows with the now-superseded snapshot, the
+    #     read hook hid them, and users saw 3,529 rows stored and 0 visible. Its
+    #     grain is (user_id, recorded_date) — there is no room for two values on
+    #     the same day, and none needed, because it is recomputable at any time.
+    rebuilt_from_scratch = {
+        "user_portfolio_nav_history",
+        "user_scheme_position",
+        "user_networth_series_state",
+        # A job belongs to a user, not a statement. Scoped, it vanished from every
+        # read the instant a second upload superseded the snapshot it carried —
+        # exactly when a second upload is most likely — and `create_job` then 500'd.
+        "portfolio_networth_jobs",
+    }
+
+    unclassified = (
+        reset_tables - scoped - children - user_owned - rebuilt_from_scratch
+    )
     assert not unclassified, (
         f"CAS-derived tables with no snapshot decision: {sorted(unclassified)}. "
         "Give it the CasScoped mixin, or add it to `children`/`user_owned` here."
