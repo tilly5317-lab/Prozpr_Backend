@@ -58,15 +58,21 @@ def test_constrained_customer_discloses_shortfall():
     )
 
 
-def test_preference_moves_the_ainv_subgroup_split():
-    """The same preference that reshapes the practical allocation reshapes the
-    ADDITIONAL-INVESTMENT deploy split too — no AINV-side preference code.
+def test_preference_reaches_the_long_term_column():
+    """Engine contract, not a production-wiring test: `compute_targets`
+    weights subgroups by whichever bucket column it is handed. This harness
+    hard-codes `short_term_fulfilled=medium_term_fulfilled=True` for both
+    runs, so it always targets long_term; what it checks is that when the
+    foundation feeding that column came from a preference-shaped PAA run,
+    the long-term column already carries the stated split — the engine
+    just mirrors whatever it is handed.
 
-    Mirrors the one lift the app builder performs (input_builder.py: `subgroups =
-    [SubgroupBucketAmounts(**row.model_dump()) for row in
-    allocation_output.aggregated_subgroups]`, with `_EXCLUDE_SUBGROUPS` passed as
-    `exclude_subgroups`); ranked funds are synthetic here so the assertion rides
-    on `per_subgroup_target`, which the ranking never touches.
+    Builds `AdditionalInvestmentInput` by hand from PAA's own output — it
+    does not import `ainv_engine/input_builder.py`, so it proves nothing
+    about that production glue, only about the engine's response to the
+    same foundation shape the builder would hand it. Ranked funds are
+    synthetic here so the assertion rides on `per_subgroup_target`, which
+    the ranking never touches.
     """
     from additional_investment.models import (
         AdditionalInvestmentInput,
@@ -131,8 +137,11 @@ def test_preference_moves_the_ainv_subgroup_split():
     # N"), which went stale twice as the engine got more correct — once when
     # the sleeve began sizing itself to the requested debt, and again when the
     # commodity bound stopped it overshooting. The magnitude is a side-effect
-    # of sleeve sizing; the CONTRACT is that AINV has no preference code of its
-    # own and simply mirrors whatever foundation it is handed. Assert that.
+    # of sleeve sizing; what holds is DIRECTION, plus the mechanism the
+    # `_mirrors_the_foundation` helper below asserts directly: `compute_targets`
+    # has no preference branch of its own — it weights by whatever column
+    # values it is handed, so a preference only reaches it by reshaping those
+    # values upstream, in PAA.
     assert neutral < 0.25, "baseline deploy must not already be equity-dominated"
 
     # 1. Direction: the preference genuinely reaches the deploy.

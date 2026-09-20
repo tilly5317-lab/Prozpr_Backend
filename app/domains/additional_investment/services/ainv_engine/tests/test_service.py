@@ -478,9 +478,14 @@ async def test_sip_with_empty_target_bucket_still_names_funds():
 
 
 @pytest.mark.asyncio
-async def test_funded_sip_does_not_trigger_sized_fallback():
-    """A SIP that already names funds must NOT re-run the allocation — the sized
-    fallback fires only on an empty plan, so funded/CAMS users are unaffected."""
+async def test_funded_sip_with_a_real_corpus_does_not_trigger_sized_fallback():
+    """A SIP that already names funds, built from a no-preference allocation,
+    must NOT re-run the allocation. The sized fallback has two triggers since
+    2026-09-20: an empty plan (`not response.buys`), or a preference-shaped
+    SIP whose corpus falls under `_SIP_MIN_FAITHFUL_CORPUS_INR` (₹10,000).
+    Neither fires here — the plan already has buys and `_fake_alloc()` carries
+    no `human_override_applied` — so funded/CAMS users on a real corpus are
+    unaffected."""
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 
