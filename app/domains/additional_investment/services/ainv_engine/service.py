@@ -318,11 +318,8 @@ async def compute_additional_investment_result(
     # target-bucket subgroup ratios are scale-invariant, so this yields the ideal
     # split for the SIP amount instead of an empty plan. Only fires on the empty
     # case, so funded/CAMS SIPs are untouched.
-    # Second trigger (spec 2026-09-20): a preference-shaped SIP now targets the
-    # long_term column directly, so it produces buys even at a near-zero corpus —
-    # but too few rows to be a faithful split. Gated on `_pref_shaped` so
-    # no-preference customers are untouched (spec §6). Best-effort: any failure
-    # keeps the original plan rather than raising.
+    # Second trigger (2026-09-20): a preference SIP now always produces buys, so
+    # the corpus check catches the too-few-rows case instead.
     _pref_shaped = (
         getattr(paa_outcome.result, "human_override_applied", None) is not None
     )
