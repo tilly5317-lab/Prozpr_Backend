@@ -68,11 +68,12 @@ def test_preference_reaches_the_long_term_column():
     just mirrors whatever it is handed.
 
     Builds `AdditionalInvestmentInput` by hand from PAA's own output — it
-    does not import `ainv_engine/input_builder.py`, so it proves nothing
-    about that production glue, only about the engine's response to the
-    same foundation shape the builder would hand it. Ranked funds are
-    synthetic here so the assertion rides on `per_subgroup_target`, which
-    the ranking never touches.
+    imports only the `_EXCLUDE_SUBGROUPS` constant from
+    `ainv_engine/input_builder.py`, never its builder function, so it
+    proves nothing about that production glue, only about the engine's
+    response to the same foundation shape the builder would hand it.
+    Ranked funds are synthetic here so the assertion rides on
+    `per_subgroup_target`, which the ranking never touches.
     """
     from additional_investment.models import (
         AdditionalInvestmentInput,
