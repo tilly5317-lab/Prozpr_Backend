@@ -739,6 +739,46 @@ async def test_tiny_corpus_preference_sip_triggers_sized_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rescue_returns_sized_practical_result_not_discarded_original():
+    """Cross-task Finding 1: once the rescue fires, ``practical_result`` must be
+    the sized allocation the buys were actually built from, never the discarded
+    real-corpus one — the chat layer reads the preference disclosure off it."""
+    from additional_investment.models import Cadence
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    deploy = 100.0
+    user = SimpleNamespace(id=uuid.uuid4())
+    original_alloc = _fake_alloc(grand_total=100.0, with_preference=True)
+    sized_alloc = _fake_alloc(
+        grand_total=svc._SIP_RATIO_SIZING_CORPUS_INR, with_preference=True
+    )
+    paa_mock = AsyncMock(side_effect=[original_alloc, sized_alloc])
+    builder_mock = AsyncMock(
+        side_effect=[
+            (_sip_populated_input(deploy), {"mode": "real"}),
+            (_sip_populated_input(deploy), {"mode": "sized"}),
+        ]
+    )
+    with patch.object(
+        svc, "load_holdings_snapshot", new=_empty_snapshot_mock()
+    ), patch.object(
+        svc, "compute_practical_allocation_result", new=paa_mock
+    ), patch.object(
+        svc, "build_additional_investment_input_for_user", new=builder_mock
+    ), patch.object(
+        svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)
+    ):
+        outcome = await svc.compute_additional_investment_result(
+            user, "start a sip of 100", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=deploy,
+            cadence=Cadence.SIP_MONTHLY, chat_ctx=SimpleNamespace(), persist=False,
+        )
+
+    assert outcome.practical_result is sized_alloc.result
+    assert outcome.practical_result is not original_alloc.result
+
+
+@pytest.mark.asyncio
 async def test_no_preference_tiny_corpus_does_not_gain_a_new_trigger(monkeypatch):
     """Spec §6: no-preference customers are untouched. With buys present and no
     preference, the corpus floor must not fire."""

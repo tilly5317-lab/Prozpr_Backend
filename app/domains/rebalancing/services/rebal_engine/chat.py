@@ -530,6 +530,9 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
       applied: true — the engine consumed the preference on THIS plan.
       shortfall_reason: string|null — present when the engine could not fully
         honour the ask.
+      categories_set: bool — true when the customer also pinned sub-categories
+        inside the classes; false when they set only the equity/debt/gold
+        split and left categories to us.
     Say "the preferences you saved" — never name WHERE they saved them. They may
     have set this in chat or on a screen, and the pack does not tell you which.
 

@@ -346,7 +346,8 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
              choices: list[str] — their preference in their own words ("60%
                     equity / 30% debt / 10% commodity", "30% of your portfolio
                     in large-cap equity"). Quote verbatim; never restate as
-                    engine categories, never re-base a percentage.
+                    engine categories, never re-base a percentage, and never
+                    add a category or a percentage that is not in this list.
              applied: true — always true when this block is present.
              categories_set: bool — true when the customer also pinned
                     sub-categories inside the classes; false when they set
@@ -842,10 +843,12 @@ async def _format_or_fallback_ainv(
 
     ``practical_result`` is the run's practical allocation, used only to check
     whether a SAVED preference shaped this plan (both callers pass it, so the
-    check covers ordinary deploys and the preference what-if seam alike)."""
+    check covers ordinary deploys and the preference what-if seam alike). Gated
+    to SIP: the lumpsum body prompt never documents ``active_preferences``, and
+    a deficit-fill deploy targets gaps, not the saved split."""
     active_preferences = (
         pref_view.active_preferences_for(ctx.user_ctx, practical_result)
-        if practical_result is not None
+        if practical_result is not None and output.cadence is Cadence.SIP_MONTHLY
         else None
     )
     return await format_with_telemetry(

@@ -312,6 +312,10 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
+    # The allocation actually shown to the customer — the rescue below reassigns
+    # this so the chat facts never narrate a plan that was discarded.
+    effective_result = paa_outcome.result
+
     # No-CAMS cohort: a SIP whose target bucket comes back empty (corpus ≈ 0, so
     # the whole allocation sits in emergency and the horizon-targeted split deploys
     # nothing) is re-derived from an allocation sized to a notional corpus. The
@@ -353,6 +357,7 @@ async def compute_additional_investment_result(
                     rebal_buy_isins_by_subgroup=rebal_buys,
                 )
                 response = await asyncio.to_thread(run_additional_investment, inp)
+                effective_result = sized.result
                 trace_line(
                     "additional_investment SIP re-derived from sized allocation; "
                     f"buys={len(response.buys)}"
@@ -493,5 +498,5 @@ async def compute_additional_investment_result(
         output=response,
         run_id=run_id,
         deficit_facts=deficit_facts,
-        practical_result=paa_outcome.result,
+        practical_result=effective_result,
     )

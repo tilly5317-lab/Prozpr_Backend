@@ -766,7 +766,9 @@ def test_class_only_preference_marks_categories_unset():
     ):
         asyncio.run(
             ainv_chat._format_or_fallback_ainv(
-                ctx, _output(), practical_result=_applied_practical()
+                ctx,
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=_applied_practical(),
             )
         )
 
@@ -794,8 +796,68 @@ def test_subcategory_preference_marks_categories_set():
     ):
         asyncio.run(
             ainv_chat._format_or_fallback_ainv(
-                ctx, _output(), practical_result=_applied_practical()
+                ctx,
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=_applied_practical(),
             )
         )
 
     assert seen_facts["active_preferences"]["categories_set"] is True
+
+
+def test_lumpsum_run_omits_active_preferences_even_with_saved_preference():
+    """Cross-task Finding 2: the deficit body prompt never documents
+    active_preferences — a preference customer's LUMPSUM turn must not carry it,
+    even though practical_result reflects an applied preference."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    ctx = _ctx(
+        user_ctx=SimpleNamespace(
+            saved_investment_preference=_saved_row(categories_set=False),
+            first_name="Tilly",
+        )
+    )
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                ctx,
+                _output(cadence=Cadence.LUMPSUM),
+                practical_result=_applied_practical(),
+            )
+        )
+
+    assert "active_preferences" not in seen_facts
+
+
+def test_format_or_fallback_omits_active_preferences_when_none_applied():
+    """Finding 5: pins the formatter-level gate, not just build_ainv_facts_pack
+    directly — a run with no saved preference must not carry active_preferences
+    even when practical_result is present."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                _ctx(),
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=SimpleNamespace(human_override_applied=None),
+            )
+        )
+
+    assert "active_preferences" not in seen_facts
