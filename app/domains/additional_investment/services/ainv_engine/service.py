@@ -96,6 +96,11 @@ _MSG_INCOMPLETE_PROFILE = (
 # subgroup ratios are scale-invariant, so the exact figure doesn't matter.
 _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 
+# Below this the plan emits too few rows for a faithful split — measured, a
+# stated 50/30/20 lands at 100% equity at ₹100 corpus, and is correct from
+# ₹10,000 up.
+_SIP_MIN_FAITHFUL_CORPUS_INR = 10_000.0
+
 # Stamped onto every persisted AdditionalInvestmentRun.engine_version. Bump when
 # the additional-investment engine's output contract changes.
 # 2.0.0: lumpsum deployments switched from single-bucket targeting to
@@ -107,7 +112,10 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # 2026-07-06.
 # 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
 # (both deficit-fill and legacy modes) — same amendment.
-AINV_ENGINE_VERSION = "ainv-3.2.0"
+# 3.3.0: a SIP whose plan was shaped by a stated preference targets the
+# long-term column — the stated split — instead of the nearest unfunded goal
+# (spec 2026-09-20).
+AINV_ENGINE_VERSION = "ainv-3.3.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -309,9 +317,23 @@ async def compute_additional_investment_result(
     # nothing) is re-derived from an allocation sized to a notional corpus. The
     # target-bucket subgroup ratios are scale-invariant, so this yields the ideal
     # split for the SIP amount instead of an empty plan. Only fires on the empty
-    # case, so funded/CAMS SIPs are untouched. Best-effort: any failure keeps the
-    # original (empty) plan rather than raising.
-    if cadence is Cadence.SIP_MONTHLY and not response.buys:
+    # case, so funded/CAMS SIPs are untouched.
+    # Second trigger (spec 2026-09-20): a preference-shaped SIP now targets the
+    # long_term column directly, so it produces buys even at a near-zero corpus —
+    # but too few rows to be a faithful split. Gated on `_pref_shaped` so
+    # no-preference customers are untouched (spec §6). Best-effort: any failure
+    # keeps the original plan rather than raising.
+    _pref_shaped = (
+        getattr(paa_outcome.result, "human_override_applied", None) is not None
+    )
+    if cadence is Cadence.SIP_MONTHLY and (
+        not response.buys
+        or (
+            _pref_shaped
+            and getattr(paa_outcome.result, "grand_total", float("inf"))
+            < _SIP_MIN_FAITHFUL_CORPUS_INR
+        )
+    ):
         try:
             sized = await compute_practical_allocation_result(
                 user,
@@ -396,6 +418,11 @@ async def compute_additional_investment_result(
             _extras["deficit_facts"] = deficit_facts
     if focus_category:
         _extras["focus_category"] = focus_category
+    if cadence is Cadence.SIP_MONTHLY and _pref_shaped:
+        # The engine-input dump lands in request_input and ships in the DPDP
+        # export; it would otherwise assert this customer's near-term goals are
+        # funded.
+        _extras["goal_funding_flags_forced"] = "stated_preference_suspends_carve_outs"
     if rebal_run_id is not None:
         # str(), not the raw UUID: request_extras merges into the request_input
         # JSONB and json.dumps cannot serialise UUID (audit F4 — the best-effort

@@ -319,7 +319,8 @@ async def test_sip_persist_stamps_sip_rebal_run_id_as_str():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     for read_result, expected_extras in [

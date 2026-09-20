@@ -160,13 +160,18 @@ async def test_blocking_when_allocation_pre_check_fails():
     )
 
 
-def _fake_alloc():
-    return SimpleNamespace(
-        result=SimpleNamespace(
-            aggregated_subgroups=[], human_override_applied=None
+def _fake_alloc(*, grand_total=None, with_preference=False):
+    result = SimpleNamespace(
+        aggregated_subgroups=[],
+        human_override_applied=(
+            SimpleNamespace(preference_applied=True, shortfall_reason=None)
+            if with_preference
+            else None
         ),
-        blocking_message=None,
     )
+    if grand_total is not None:
+        result.grand_total = grand_total
+    return SimpleNamespace(result=result, blocking_message=None)
 
 
 async def _run_with_builder(svc, builder_mock, *, run_mock=None):
@@ -684,3 +689,131 @@ async def test_lumpsum_never_reads_rebalancing():
 
     read_mock.assert_not_called()
     assert builder_mock.call_args.kwargs["rebal_buy_isins_by_subgroup"] is None
+
+
+# ── tiny-corpus preference SIP: gated rescue floor (spec 2026-09-20) ────────
+@pytest.mark.asyncio
+async def test_tiny_corpus_preference_sip_triggers_sized_fallback(monkeypatch):
+    """corpus ₹100 with a preference now produces buys, so `not response.buys`
+    no longer fires. The sized re-derivation must still run."""
+    from additional_investment.models import Cadence
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    deploy = 100.0
+    user = SimpleNamespace(id=uuid.uuid4())
+    pins = []
+
+    async def _fake_paa(*args, **kwargs):
+        pins.append(kwargs.get("corpus_pin"))
+        return _fake_alloc(grand_total=100.0, with_preference=True)
+
+    builder_mock = AsyncMock(
+        side_effect=[
+            (_sip_populated_input(deploy), {"mode": "real"}),
+            (_sip_populated_input(deploy), {"mode": "sized"}),
+        ]
+    )
+    with patch.object(
+        svc, "load_holdings_snapshot", new=_empty_snapshot_mock()
+    ), patch.object(
+        svc, "compute_practical_allocation_result", new=_fake_paa
+    ), patch.object(
+        svc, "build_additional_investment_input_for_user", new=builder_mock
+    ), patch.object(
+        svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)
+    ):
+        outcome = await svc.compute_additional_investment_result(
+            user, "start a sip of 100", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=deploy,
+            cadence=Cadence.SIP_MONTHLY, chat_ctx=SimpleNamespace(), persist=False,
+        )
+
+    assert len(pins) == 2 and pins[0] is None
+    assert pins[1].total_corpus == svc._SIP_RATIO_SIZING_CORPUS_INR
+    assert outcome.output is not None
+
+
+@pytest.mark.asyncio
+async def test_no_preference_tiny_corpus_does_not_gain_a_new_trigger(monkeypatch):
+    """Spec §6: no-preference customers are untouched. With buys present and no
+    preference, the corpus floor must not fire."""
+    from additional_investment.models import Cadence
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    deploy = 100.0
+    user = SimpleNamespace(id=uuid.uuid4())
+    paa_mock = AsyncMock(return_value=_fake_alloc(grand_total=100.0))
+    builder = AsyncMock(return_value=(_sip_populated_input(deploy), {"mode": "real"}))
+    with patch.object(
+        svc, "load_holdings_snapshot", new=_empty_snapshot_mock()
+    ), patch.object(
+        svc, "compute_practical_allocation_result", new=paa_mock
+    ), patch.object(
+        svc, "build_additional_investment_input_for_user", new=builder
+    ), patch.object(
+        svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)
+    ):
+        outcome = await svc.compute_additional_investment_result(
+            user, "start a sip of 100", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=deploy,
+            cadence=Cadence.SIP_MONTHLY, chat_ctx=SimpleNamespace(), persist=False,
+        )
+
+    assert len(outcome.output.buys) >= 1
+    assert builder.await_count == 1
+    assert paa_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_preference_sip_records_forced_flags_in_request_extras():
+    """SIP + preference-shaped plan -> request_extras carries the record-honesty
+    key, so the persisted engine-input dump doesn't silently assert near-term
+    goals are funded (spec 2026-09-20 §6)."""
+    from additional_investment.models import Cadence
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    seen = {}
+
+    async def _fake_persist(db, uid, output, **kwargs):
+        seen.update(kwargs)
+        return uuid.uuid4()
+
+    sip_input = _fake_ainv_input(25000.0).model_copy(
+        update={"cadence": ib_cadence().SIP_MONTHLY}
+    )
+    with patch.object(
+        svc, "load_holdings_snapshot", new=_empty_snapshot_mock()
+    ), patch.object(
+        svc, "compute_practical_allocation_result",
+        new=AsyncMock(return_value=_fake_alloc(with_preference=True)),
+    ), patch.object(
+        svc, "build_additional_investment_input_for_user",
+        new=AsyncMock(return_value=(sip_input, {})),
+    ), patch.object(
+        svc, "persist_practical_allocation_run",
+        new=AsyncMock(return_value=uuid.uuid4()),
+    ), patch.object(
+        svc, "persist_additional_investment_recommendation", new=_fake_persist,
+    ), patch.object(
+        svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)
+    ), patch.object(
+        svc, "set_starting_monthly_investment", new=AsyncMock()
+    ), patch.object(
+        svc, "mark_cashflow_stale", new=AsyncMock()
+    ):
+        await svc.compute_additional_investment_result(
+            SimpleNamespace(id=uuid.uuid4()),
+            "start a sip of 25000",
+            db=SimpleNamespace(),
+            acting_user_id=uuid.uuid4(),
+            chat_session_id=uuid.uuid4(),
+            deploy_amount_inr=25000.0,
+            cadence=Cadence.SIP_MONTHLY,
+            chat_ctx=SimpleNamespace(),
+            persist=True,
+        )
+
+    assert (
+        seen["request_extras"]["goal_funding_flags_forced"]
+        == "stated_preference_suspends_carve_outs"
+    )
