@@ -137,6 +137,7 @@ def active_preferences_block(row: Any, practical: Any) -> Optional[dict]:
         "choices": choices,
         "applied": True,
         "shortfall_reason": getattr(applied, "shortfall_reason", None),
+        "categories_set": bool(getattr(row, "resolved_targets", None)),
     }
 
 
