@@ -76,6 +76,8 @@ htmlcov/
 # Superpowers (local only)
 docs/superpowers/
 **/docs/superpowers/
+# Subagent-driven-development scratch: per-plan ledgers, briefs, review packages.
+.superpowers/
 **/.claude/agents/
 **/.claude/hooks/
 
