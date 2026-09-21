@@ -78,6 +78,8 @@ docs/superpowers/
 **/docs/superpowers/
 # Subagent-driven-development scratch: per-plan ledgers, briefs, review packages.
 .superpowers/
+# Dev-only scenario ledgers: production-derived dumps, never committed.
+artefact/
 **/.claude/agents/
 **/.claude/hooks/
 

@@ -722,7 +722,6 @@ def _saved_row(*, categories_set: bool):
     """Preference-view row stand-in: class bars always set, sub-categories only
     when `categories_set` (the case-1/case-2 discriminator)."""
     return SimpleNamespace(
-        customer_choices=None,
         asset_class_requested={"equity": 60.0, "debt": 30.0, "others": 10.0},
         resolved_targets={"low_beta_equities": 30.0} if categories_set else None,
     )
@@ -806,7 +805,7 @@ def test_subcategory_preference_marks_categories_set():
 
 
 def test_lumpsum_run_omits_active_preferences_even_with_saved_preference():
-    """Cross-task Finding 2: the deficit body prompt never documents
+    """the deficit body prompt never documents
     active_preferences — a preference customer's LUMPSUM turn must not carry it,
     even though practical_result reflects an applied preference."""
     from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
@@ -838,7 +837,7 @@ def test_lumpsum_run_omits_active_preferences_even_with_saved_preference():
 
 
 def test_format_or_fallback_omits_active_preferences_when_none_applied():
-    """Finding 5: pins the formatter-level gate, not just build_ainv_facts_pack
+    """pins the formatter-level gate, not just build_ainv_facts_pack
     directly — a run with no saved preference must not carry active_preferences
     even when practical_result is present."""
     from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat

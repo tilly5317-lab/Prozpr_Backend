@@ -342,7 +342,7 @@ async def test_rebal_buys_passthrough_and_default(monkeypatch):
     assert inp2.rebal_buy_isins_by_subgroup is None
 
 
-# ── preference-shaped SIP targets the long-term column (spec 2026-09-20) ────
+# ── preference-shaped SIP targets the long-term column ────
 @pytest.mark.asyncio
 async def test_preference_sip_sets_both_flags_true(monkeypatch):
     monkeypatch.setattr(ib, "_goal_funding_flags", _fake_flags(short=False, medium=False))

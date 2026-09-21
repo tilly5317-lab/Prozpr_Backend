@@ -693,8 +693,8 @@ def build_ainv_facts_pack(
         # against OUR recommended split, plus the save hint.
         facts["preference"] = preference
     if active_preferences is not None:
-        # A SAVED preference shaped this run's target_bucket (Task 1) — the
-        # prompt must attribute the split to it, not to a goal horizon.
+        # A SAVED preference shaped this run's target_bucket — the prompt must
+        # attribute the split to it, not to a goal horizon.
         facts["active_preferences"] = active_preferences
     return facts
 
@@ -842,13 +842,12 @@ async def _format_or_fallback_ainv(
     ``preference`` rides the same way on a what-if turn.
 
     ``practical_result`` is the run's practical allocation, used only to check
-    whether a SAVED preference shaped this plan (both callers pass it, so the
-    check covers ordinary deploys and the preference what-if seam alike). Gated
-    to SIP: the lumpsum body prompt never documents ``active_preferences``, and
-    a deficit-fill deploy targets gaps, not the saved split."""
+    whether a SAVED preference shaped this plan. Gated to SIP: the lumpsum body
+    prompt never documents ``active_preferences``, and a deficit-fill deploy
+    targets gaps, not the saved split."""
     active_preferences = (
         pref_view.active_preferences_for(ctx.user_ctx, practical_result)
-        if practical_result is not None and output.cadence is Cadence.SIP_MONTHLY
+        if output.cadence is Cadence.SIP_MONTHLY
         else None
     )
     return await format_with_telemetry(

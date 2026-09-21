@@ -561,7 +561,7 @@ def test_sizing_corpus_populates_the_target_bucket():
 
 # ── focus_category → request_extras (spec 2026-07-04) ──────────────────────
 @pytest.mark.asyncio
-async def test_focus_category_lands_in_request_extras(monkeypatch):
+async def test_focus_category_lands_in_request_extras():
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 
@@ -696,9 +696,9 @@ async def test_lumpsum_never_reads_rebalancing():
     assert builder_mock.call_args.kwargs["rebal_buy_isins_by_subgroup"] is None
 
 
-# ── tiny-corpus preference SIP: gated rescue floor (spec 2026-09-20) ────────
+# ── tiny-corpus preference SIP: gated rescue floor ─────────────────────────
 @pytest.mark.asyncio
-async def test_tiny_corpus_preference_sip_triggers_sized_fallback(monkeypatch):
+async def test_tiny_corpus_preference_sip_triggers_sized_fallback():
     """corpus ₹100 with a preference now produces buys, so `not response.buys`
     no longer fires. The sized re-derivation must still run."""
     from additional_investment.models import Cadence
@@ -740,7 +740,7 @@ async def test_tiny_corpus_preference_sip_triggers_sized_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_rescue_returns_sized_practical_result_not_discarded_original():
-    """Cross-task Finding 1: once the rescue fires, ``practical_result`` must be
+    """once the rescue fires, ``practical_result`` must be
     the sized allocation the buys were actually built from, never the discarded
     real-corpus one — the chat layer reads the preference disclosure off it."""
     from additional_investment.models import Cadence
@@ -779,7 +779,7 @@ async def test_rescue_returns_sized_practical_result_not_discarded_original():
 
 
 @pytest.mark.asyncio
-async def test_no_preference_tiny_corpus_does_not_gain_a_new_trigger(monkeypatch):
+async def test_no_preference_tiny_corpus_does_not_gain_a_new_trigger():
     """Spec §6: no-preference customers are untouched. With buys present and no
     preference, the corpus floor must not fire."""
     from additional_investment.models import Cadence
@@ -813,7 +813,7 @@ async def test_no_preference_tiny_corpus_does_not_gain_a_new_trigger(monkeypatch
 async def test_preference_sip_records_forced_flags_in_request_extras():
     """SIP + preference-shaped plan -> request_extras carries the record-honesty
     key, so the persisted engine-input dump doesn't silently assert near-term
-    goals are funded (spec 2026-09-20 §6)."""
+    goals are funded."""
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 

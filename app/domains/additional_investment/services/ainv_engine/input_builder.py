@@ -130,8 +130,7 @@ async def build_additional_investment_input_for_user(
             user, asof
         )
         # A stated preference suspends the bucket carve-outs, so this plan's
-        # long_term column IS the stated split (spec 2026-09-20 §2).
-        # getattr: this parameter is duck-typed and stubs omit the attribute.
+        # long_term column IS the stated split.
         if cadence is Cadence.SIP_MONTHLY and (
             getattr(allocation_output, "human_override_applied", None) is not None
         ):
