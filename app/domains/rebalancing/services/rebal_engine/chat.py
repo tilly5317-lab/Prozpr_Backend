@@ -419,8 +419,7 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   paper, the target is what THIS plan can reach given what they already hold and
   what it is willing to trade (chiefly, it avoids short-term capital-gains tax by
   selling only long-held units, and keeps holdings still worth owning). ONLY when
-  ideal_asset_class_mix_pct is present (the first answer) AND the target sits well
-  away from it on equity (more than ~5 points),
+  ``bridge_ideal_and_target`` is true (never judge the gap yourself),
   PROACTIVELY bridge the two in ONE sentence — quote both and frame the target as
   a STEP TOWARD the ideal, not a rival number, naming the reason it stops short
   from the tax figures / ``warnings`` (e.g. "your long-term ideal is ~40% equity;
@@ -489,10 +488,11 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     verbatim), sub_category, and current/buy/sell/planned_final as pre-formatted
     _indian amounts (planned_final = current + buy − sell).
     On any turn that PRESENTS A PLAN (compute, counterfactual_explore, consolidate)
-    always include a fund-level trade list: if the plan has FEWER THAN 10 trades
-    (see trade_count) show the FULL list — every buy and every sell by fund_name +
-    _indian amount; otherwise show the largest ~5 buys and ~5 sells. So the
-    customer sees concrete funds, not only categories. For a "what will I hold
+    always include a fund-level trade list, so the customer sees concrete funds and
+    not only categories. If ``top_buys``/``top_sells`` are present, render EXACTLY
+    those (fund_name + amount_indian, already ranked) and nothing more; if absent,
+    list every buy and sell from fund_actions. Never rank fund_actions by trade
+    size — it is ordered by holding size. For a "what will I hold
     after?" view, list planned_final > 0, biggest first. For narrate/educate, fund
     detail only when the question is fund-specific.
     ALSO on any turn that PRESENTS A PLAN (compute, counterfactual_explore,

@@ -98,6 +98,12 @@ class RebalancingRunOutcome:
 
 
 FUND_ACTIONS_LIMIT = 30
+# At or above this many trades the plan is too long to list fund by fund, so the
+# pack ships pre-ranked top_buys/top_sells instead.
+_FULL_TRADE_LIST_MAX_TRADES = 10
+_TOP_TRADES_LIMIT = 5
+# Equity gap (percentage points) beyond which a reply bridges ideal vs target.
+_IDEAL_BRIDGE_GAP_PCT = 5
 
 
 _BUCKET_HORIZON_LABELS = {
@@ -395,6 +401,19 @@ def build_rebal_facts_pack(
         # (only present when truncated).
         "more_holdings_count": <int>,
 
+        # The largest trades, already ranked. Present ONLY when the plan has
+        # >= _FULL_TRADE_LIST_MAX_TRADES trades — the formatter renders these
+        # instead of a full fund-level list, so the block's presence is the
+        # branch. fund_actions is ordered by HOLDING size, not trade size.
+        "top_buys":  [{"fund_name": <str>, "sub_category": <str>, "amount_indian": <str>}, ...],
+        "top_sells": [{"fund_name": <str>, "sub_category": <str>, "amount_indian": <str>}, ...],
+
+        # Present with ideal_asset_class_mix_pct. Whether this plan's target
+        # sits far enough from the ideal that the reply should bridge the two;
+        # decided here so the formatter never judges the gap itself.
+        "ideal_vs_target_equity_gap_pct": <int>,   # target − ideal, signed
+        "bridge_ideal_and_target": <bool>,
+
         # Optional — present when AA output drove this rebalance. Lets the LLM
         # tie trades back to goals + horizon + planned equity/debt/others split.
         # See ``build_goal_buckets_block`` for shape.
@@ -611,6 +630,26 @@ def build_rebal_facts_pack(
         fa["planned_final_indian"] = format_inr_indian(fa["planned_final_inr"])
     more_holdings_count = max(0, len(fund_actions_all) - FUND_ACTIONS_LIMIT)
 
+    # Largest trades, pre-ranked. fund_actions is ordered by EXPOSURE and ships
+    # amounts as _indian strings only (_ROW_DROP), so asking the formatter for
+    # "the largest ~5 buys and sells" made it rank up to 30 rows by parsing
+    # "₹1.2 lakh" against "₹95,000" — against an ordering that disagreed with
+    # the answer. Shipped only on plans too long to list in full, so the block's
+    # presence IS the branch the formatter used to compute from trade_count.
+    def _top_trades(amount_key: str) -> list[dict[str, Any]]:
+        traded = sorted(
+            (f for f in fund_actions_all if f[amount_key] > 0),
+            key=lambda f: -f[amount_key],
+        )
+        return [
+            {
+                "fund_name": f["fund_name"],
+                "sub_category": f["sub_category"],
+                "amount_indian": format_inr_indian(f[amount_key]),
+            }
+            for f in traded[:_TOP_TRADES_LIMIT]
+        ]
+
     # Surface the actual tax rates / exemption the engine used, so the formatter
     # can cite them instead of falling back on training-data priors (Haiku tends
     # to narrate the pre-July-2024 10% LTCG + ₹1 lakh exemption otherwise).
@@ -632,6 +671,15 @@ def build_rebal_facts_pack(
             ),
         }
 
+    trade_count = sum(
+        1
+        for r in rows
+        if (
+            float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
+            or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
+        )
+    )
+
     pack: dict[str, Any] = {
         "total_portfolio_inr": total_portfolio,
         "total_portfolio_indian": format_inr_indian(total_portfolio),
@@ -649,14 +697,7 @@ def build_rebal_facts_pack(
             "stcg_offset_by_losses_inr": stcg_offset_by_losses,
             "stcg_offset_by_losses_indian": format_inr_indian(stcg_offset_by_losses),
         },
-        "trade_count": sum(
-            1
-            for r in rows
-            if (
-                float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
-                or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
-            )
-        ),
+        "trade_count": trade_count,
         "current_asset_class_mix_pct": asset_class_pct,
         "current_asset_class_mix_indian": asset_class_indian,
         "target_asset_class_mix_pct": target_class_pct,
@@ -691,14 +732,26 @@ def build_rebal_facts_pack(
     if include_ideal:
         ideal_mix = ideal_asset_class_mix_pct(response)
         if ideal_mix is not None:
-            pack["ideal_asset_class_mix_pct"] = {
-                cls: round(value) for cls, value in ideal_mix.items()
-            }
+            ideal_pct = {cls: round(value) for cls, value in ideal_mix.items()}
+            pack["ideal_asset_class_mix_pct"] = ideal_pct
+            # Whether this plan's target sits far enough from the ideal to be
+            # worth bridging in the reply. Decided here because the formatter
+            # otherwise had to subtract two percentages and judge the result
+            # against "~5 points" before a whole paragraph fired.
+            ideal_equity = ideal_pct.get("equity")
+            target_equity = target_class_pct.get("equity")
+            if ideal_equity is not None and target_equity is not None:
+                gap = target_equity - ideal_equity
+                pack["ideal_vs_target_equity_gap_pct"] = gap
+                pack["bridge_ideal_and_target"] = abs(gap) > _IDEAL_BRIDGE_GAP_PCT
 
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
     if more_holdings_count > 0:
         pack["more_holdings_count"] = more_holdings_count
+    if trade_count >= _FULL_TRADE_LIST_MAX_TRADES:
+        pack["top_buys"] = _top_trades("buy_inr")
+        pack["top_sells"] = _top_trades("sell_inr")
     if goal_buckets:
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
