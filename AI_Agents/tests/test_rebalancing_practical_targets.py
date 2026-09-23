@@ -59,10 +59,10 @@ def _row(subgroup, rank, pre_cap, present="0", is_recommended=True):
     )
 
 
-def _assign(rows, practical=None):
+def _assign(rows, practical=None, n_funds=1):
     from Rebalancing.pipeline import _assign_subgroup_targets
 
-    out = _assign_subgroup_targets(rows, practical or _practical(), 100)
+    out = _assign_subgroup_targets(rows, practical or _practical(), 100, n_funds)
     return {r.isin: r for r in out}
 
 

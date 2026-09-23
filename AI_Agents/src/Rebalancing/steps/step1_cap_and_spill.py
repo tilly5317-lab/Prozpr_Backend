@@ -1,13 +1,16 @@
-"""Step 1 — per-fund cap & spill.
+"""Step 1 — round the assigned target.
 
 Spreadsheet refs (workbook "Allocation 2"): cols F (`allocation_1`),
 G (`target_pre_cap_pct`), H (`max_pct`), I (`target_own_capped_pct`),
 J (`final_target_pct`), K (`final_target_amount`).
 
-Walks ranks 1, 2, 3, … within each `asset_subgroup`. Caps each fund at
-`max_pct × corpus`; pushes any overflow forward to the next rank's
-pre-cap target. Residual after the last rank surfaces as a warning + an
-`unrebalanced_remainder_inr` total — never silently dropped.
+The module keeps its historical name, but since spec 2026-09-20 it neither caps
+nor spills: `pipeline._assign_subgroup_targets` decides which 1-2 ranked funds
+share a subgroup and in what amounts, and this step rounds that to the request's
+rounding step. The per-fund cap no longer bounds deployment, so nothing
+overflows and `UNREBALANCED_REMAINDER` is unreachable — the warning list and the
+remainder total stay in the signature (the pipeline and step6 bind to them) and
+are always empty / zero.
 """
 
 from __future__ import annotations
@@ -15,18 +18,20 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
-# Per-fund cap lookup moved to tables.cap_pct_for; config constants are still
-# read inside that helper.
 from ..config import FORCE_EXIT_RANK
 from ..models import (
     FundRowAfterStep1,
     FundRowInput,
     RebalancingComputeRequest,
     RebalancingWarning,
-    WarningCode,
 )
-from ..tables import cap_pct_for, effective_cap_for
 from ..utils import round_to_step
+
+
+# No cap bounds deployment any more (spec 2026-09-20). `max_pct` is retained on
+# the model for the audit view; 100.0 says "unbounded" rather than naming a
+# percentage nothing enforces.
+_NO_CAP_PCT: float = 100.0
 
 
 def _pct_of_corpus(amount: Decimal, corpus: Decimal) -> float:
@@ -59,59 +64,22 @@ def apply(
         neutral = [r for r in group if r.rank == 0]
         force_exit = [r for r in group if r.rank == FORCE_EXIT_RANK]
 
-        spill_in = [Decimal(0)] * len(ranked)
-
-        for i, r in enumerate(ranked):
-            # Per-fund cap = max(pct × corpus, rupee floor) — the floor keeps
-            # a small portfolio out of sub-₹1L fund fragments (amendment
-            # 2026-07-06). max_pct reports the EFFECTIVE cap when the floor
-            # wins, so the audit trail matches the amounts.
-            # The per-fund cap governs where NEW money is deployed, not what the
-            # customer is forced to sell (design note 2026-07-19, decision 1).
-            # A protected holding raises the ceiling for its own row only —
-            # `protected_floor_inr` is set by the pipeline's target assignment
-            # and is zero for anything the rank band declines to protect, so an
-            # unprotected over-cap holding is still trimmed exactly as before.
-            cap_amount = max(
-                effective_cap_for(r.asset_subgroup, corpus), r.protected_floor_inr
+        for r in ranked:
+            # The per-fund cap no longer bounds deployment (spec 2026-09-20):
+            # `pipeline._assign_subgroup_targets` has already decided which 1-2
+            # funds share this subgroup and in what amounts.
+            alloc_3_amount = round_to_step(
+                r.target_amount_pre_cap, request.rounding_step
             )
-            # `max_pct` reports the EFFECTIVE cap, matching the precedent set by
-            # the rupee floor (see the module docstring and CLAUDE.md) — the
-            # audit column must not contradict the amounts beside it.
-            max_pct = _pct_of_corpus(cap_amount, corpus)
-
-            own_capped = min(r.target_amount_pre_cap, cap_amount)
-            with_spill = r.target_amount_pre_cap + spill_in[i]
-
-            if with_spill > cap_amount:
-                alloc_3_raw = cap_amount
-                overflow = with_spill - cap_amount
-                if i + 1 < len(ranked):
-                    spill_in[i + 1] += overflow
-                else:
-                    unrebalanced_total += overflow
-                    warnings.append(
-                        RebalancingWarning(
-                            code=WarningCode.UNREBALANCED_REMAINDER,
-                            message=(
-                                f"Subgroup '{sg}' has ₹{overflow} above "
-                                f"available rank caps."
-                            ),
-                            affected_isins=[r.isin],
-                        )
-                    )
-            else:
-                alloc_3_raw = with_spill
-
-            alloc_3_amount = round_to_step(alloc_3_raw, request.rounding_step)
+            alloc_3_pct = _pct_of_corpus(alloc_3_amount, corpus)
 
             out.append(
                 FundRowAfterStep1(
                     **r.model_dump(),
-                    max_pct=max_pct,
+                    max_pct=_NO_CAP_PCT,
                     target_pre_cap_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
-                    target_own_capped_pct=_pct_of_corpus(own_capped, corpus),
-                    final_target_pct=_pct_of_corpus(alloc_3_amount, corpus),
+                    target_own_capped_pct=alloc_3_pct,
+                    final_target_pct=alloc_3_pct,
                     final_target_amount=alloc_3_amount,
                 )
             )
@@ -123,7 +91,7 @@ def apply(
             out.append(
                 FundRowAfterStep1(
                     **r.model_dump(),
-                    max_pct=cap_pct_for(r.asset_subgroup),
+                    max_pct=_NO_CAP_PCT,
                     target_pre_cap_pct=_pct_of_corpus(r.target_amount_pre_cap, corpus),
                     target_own_capped_pct=_pct_of_corpus(
                         r.target_amount_pre_cap, corpus
@@ -139,7 +107,7 @@ def apply(
             out.append(
                 FundRowAfterStep1(
                     **r.model_dump(),
-                    max_pct=cap_pct_for(r.asset_subgroup),
+                    max_pct=_NO_CAP_PCT,
                     target_pre_cap_pct=0.0,
                     target_own_capped_pct=0.0,
                     final_target_pct=0.0,

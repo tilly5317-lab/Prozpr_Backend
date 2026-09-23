@@ -29,6 +29,20 @@ ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", 
 # For corpora ≥ ₹10L at the 10% default the floor never binds.
 FUND_CAP_FLOOR_INR: Decimal = Decimal(os.getenv("REBAL_FUND_CAP_FLOOR_INR", "100000"))
 REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
+# Subgroup fund-count selection (spec 2026-09-20). Below this line one fund takes
+# an asset_subgroup's deployable money; at or above it, two share it. Replaces
+# the old rule where the fund count was an emergent property of the per-fund cap.
+#
+# Measured on `total_corpus - non_mf_equity_corpus` — NOT `mf_corpus`, which is
+# an independent input and excludes cash (practical pipeline: `cash =
+# total_corpus - mf_corpus - non_mf_equity_corpus`). The two agree only when the
+# customer holds no cash, which is true of every sim profile.
+#
+# One knob, not three: where the line sits is ops tuning, but the counts 1 and 2
+# are the rule itself and are hardcoded in `pipeline._funds_per_subgroup`.
+SUBGROUP_FUND_COUNT_THRESHOLD_INR: Decimal = Decimal(
+    os.getenv("REBAL_SUBGROUP_FUND_COUNT_THRESHOLD_INR", "5000000")
+)
 # Step 2b: cancel matched debt sell/buy intents so one debt fund is never sold
 # to buy another (design note 2026-07-18). Kill-switch for ops, and the seam
 # for A/B-ing the change against the simulation harnesses.
@@ -113,4 +127,9 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #         `arbitrage` becomes a long-term subgroup, reachable only by asking
 #         for it (§4); the long-term debt residual splits pro-rata across the
 #         rows the customer named instead of landing in one (§7).
-ENGINE_VERSION: str = "1.10.0"
+# 1.11.0: subgroup fund-count selection (spec 2026-09-20). A subgroup's
+#         deployable money is split across its top 1 or 2 ranked funds — 1 below
+#         ₹50L net of non-MF equity, 2 at or above — rather than cascading down
+#         the rank ladder under the per-fund cap. The per-fund cap no longer
+#         bounds deployment anywhere in the engine.
+ENGINE_VERSION: str = "1.11.0"

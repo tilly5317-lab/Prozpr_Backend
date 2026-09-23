@@ -18,6 +18,7 @@ from ..config import (
     DEBT_SWITCH_NETTING_ENABLED,
     ENGINE_VERSION,
     EXIT_FLOOR_RATING,
+    FORCE_EXIT_RANK,
     FUND_CAP_FLOOR_INR,
     HOLDINGS_AWARE_TARGETS_ENABLED,
     LTCG_ANNUAL_EXEMPTION_INR,
@@ -154,7 +155,9 @@ def _row_has_action(r: FundRowAfterStep5) -> bool:
     return r.pass1_buy_amount > 0 or (r.pass1_sell_amount + r.pass2_sell_amount) > 0
 
 
-def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
+def _trade_action_for(
+    r: FundRowAfterStep5, split_isins: set[str]
+) -> TradeAction | None:
     sold = r.pass1_sell_amount + r.pass2_sell_amount
     bought = r.pass1_buy_amount
     if sold > 0:
@@ -185,7 +188,9 @@ def _trade_action_for(r: FundRowAfterStep5) -> TradeAction | None:
         fund_reason = r.rejection_reason or r.selection_reason
     elif bought > 0:
         action = "BUY"
-        reason = "cap_spill_buy" if r.rank > 1 else "add_to_target"
+        # Not `rank > 1`: the top two recipients are not always ranks 1 and 2,
+        # so the caller resolves which buyer is the junior one per subgroup.
+        reason = "split_across_top_funds" if r.isin in split_isins else "add_to_target"
         amt = bought
         fund_reason = r.selection_reason or r.rejection_reason
     else:
@@ -337,9 +342,26 @@ def apply(
         request_id=request.request_id,
     )
 
+    # Which buying rows are the JUNIOR recipient of their subgroup's split —
+    # they get `split_across_top_funds`, the best-ranked buyer keeps
+    # `add_to_target` (spec 2026-09-20).
+    best_buyer_rank: dict[str, int] = {}
+    for r in rows:
+        if r.pass1_buy_amount > 0 and 1 <= r.rank < FORCE_EXIT_RANK:
+            cur = best_buyer_rank.get(r.asset_subgroup)
+            if cur is None or r.rank < cur:
+                best_buyer_rank[r.asset_subgroup] = r.rank
+    split_isins = {
+        r.isin
+        for r in rows
+        if r.pass1_buy_amount > 0
+        and 1 <= r.rank < FORCE_EXIT_RANK
+        and r.rank != best_buyer_rank.get(r.asset_subgroup)
+    }
+
     trade_list: list[TradeAction] = []
     for r in rows:
-        ta = _trade_action_for(r)
+        ta = _trade_action_for(r, split_isins)
         if ta:
             trade_list.append(ta)
     sds = _sell_direct_stocks_action(practical)

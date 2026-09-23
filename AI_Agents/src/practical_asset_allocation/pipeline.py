@@ -53,6 +53,7 @@ from asset_allocation_pydantic.tables import (
     SUBGROUP_TO_ASSET_CLASS,
 )
 from asset_allocation_pydantic.utils import round_to_100
+from practical_asset_allocation.allocation_snap import apply_current_allocation_snap
 from practical_asset_allocation.human_override import (
     ASSET_CLASSES,
     excludes,
@@ -149,6 +150,12 @@ class PracticalAllocationInput(AllocationInput):
     """Standing/one-off customer preference. None → the human_override step is
     a strict no-op (golden-test guarantee). Loaded ONLY by the app-side PAA
     input builder — engines never read the DB."""
+
+    current_subgroup_allocation: Optional[dict[str, float]] = None
+    """Customer's present MF holdings per `asset_subgroup`, in rupees. Feeds the
+    snap-to-current step (spec 2026-09-21). None → the snap is a strict no-op,
+    which keeps the golden/contract suite byte-identical. Populated by every real
+    caller (app input builder, sim, sweep) from the customer's holdings."""
 
 
 class CorpusBreakdown(BaseModel):
@@ -1260,9 +1267,14 @@ def run_practical_allocation(
         # customer. Empty when nothing was at risk, and nothing is said.
         carve_outs_suspended=carve_outs_at_risk(inp) if preference_set else [],
     )
-    if applied is None:
-        return built
-    return reshaped.model_copy(update={"human_override_applied": applied})
+    result = built if applied is None else reshaped.model_copy(
+        update={"human_override_applied": applied}
+    )
+    # Last step (spec 2026-09-21): keep the current amount where the proposed
+    # move is under threshold, so the customer is not churned for a tiny drift.
+    return apply_current_allocation_snap(
+        result, inp.current_subgroup_allocation, inp.total_corpus
+    )
 
 
 def _practical_lt_result_to_dict(r: _PracticalLongTermResult) -> dict:

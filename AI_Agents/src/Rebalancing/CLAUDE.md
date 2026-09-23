@@ -1,6 +1,6 @@
 # AI_Agents/src/Rebalancing — tax-aware rebalancing engine
 
-Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits per-fund target / buy / sell amounts under per-fund caps with tax-aware sell prioritisation (STCG offset budget + carryforward losses). Mirrors the layout of `asset_allocation_pydantic`.
+Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits per-fund target / buy / sell amounts with tax-aware sell prioritisation (STCG offset budget + carryforward losses). Each subgroup's deployable money goes to its top 1 or 2 ranked funds — 1 below ₹50L of `total_corpus - non_mf_equity_corpus`, 2 at or above (spec 2026-09-20). Mirrors the layout of `asset_allocation_pydantic`.
 
 ## Entry / contract
 - Entry `run_rebalancing(request) → RebalancingComputeResponse` (`pipeline.py`).
@@ -8,16 +8,18 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - Output: rows after step 5, totals, trade list, warnings, metadata.
 
 ## Files
-- `pipeline.py` — orchestrator; runs the practical allocation, then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`).
+- `pipeline.py` — orchestrator; runs the practical allocation, splits each subgroup's residual across its top-N ranked rows (`_funds_per_subgroup`, `_residual_shares`), then `steps/` 1–6 (`step1_cap_and_spill` … `step6_presentation`).
 - `models.py` — pydantic I/O; per-step `FundRowAfterStepN` models inherit down the chain so each step's added fields are non-Optional.
-- `config.py` — knobs: per-fund caps, tax rates/thresholds (env-overrideable), plus hardcoded `FORCE_EXIT_RANK` and `ENGINE_VERSION`.
-- `tables.py` — per-subgroup cap lookup (`cap_pct_for`, default `OTHERS_FUND_CAP_PCT`); also read cross-domain by the additional-investment input builder — do not rename blind.
+- `config.py` — knobs: `SUBGROUP_FUND_COUNT_THRESHOLD_INR`, per-fund caps (now read only cross-domain), tax rates/thresholds (env-overrideable), plus hardcoded `FORCE_EXIT_RANK` and `ENGINE_VERSION`.
+- `tables.py` — per-subgroup cap lookup (`cap_pct_for`, default `OTHERS_FUND_CAP_PCT`) plus `DEBT_NETTING_POOL`. Since 2026-09-20 the rebalancing engine no longer caps, so `cap_pct_for` survives ONLY for the additional-investment input builder that reads it cross-domain — do not rename blind, and do not assume it constrains a rebalance.
 - `utils.py` — Decimal rounding (`round_to_step`, `floor_to_step`), gross STCG/LTCG, and `estimate_tax`; no state, no I/O.
 - `rationales.py` — customer-facing reason-code strings.
 - `consolidation.py` — F3-B buy-side reshape over a `RebalancingComputeResponse`: redistributes only the buy budget across allowed funds (total buy + every sell preserved); pure/stateless, consumed app-side by `rebal_engine`. Preference constraints (2026-08 spec) add `excluded_categories` + `category_weight_targets`, composed filters→weights→count (count bumps up to the protected-category count) via `_reshape_extended`. `_reshape_legacy` handles the two paths free of exclusions/weights, and they no longer behave alike: `allowed_categories` keeps the original portfolio-wide "redeploy the whole budget into these categories" arithmetic byte-for-byte, but a bare `target_fund_count` is now SUBGROUP-AWARE — it preserves each `asset_subgroup`'s own buy total and floors the kept count at the number of subgroups with buys, so a fund-count trim can never undo a market-cap tilt.
 - `Reference_docs/` — design docs + source workbook (planning, not code).
 
 ## Gotchas & invariants
+- **The per-fund cap does NOT bound a rebalance.** Since spec 2026-09-20 `_assign_subgroup_targets` decides amounts and `step1_cap_and_spill` only rounds them — it neither caps nor spills, `max_pct` reports a flat `100.0`, and `UNREBALANCED_REMAINDER` is unreachable (the module keeps its historical name). Nothing in the engine now limits single-fund concentration: a subgroup's whole residual can land in one fund. Deliberate — the cap was setting the fund count as a side effect, and the count is now explicit (`pipeline.py`, `steps/step1_cap_and_spill.py`).
+- **Equal split is of the RESIDUAL, not the holding.** Protected floors are reserved first, and only `target - Σ floors` divides across the top-N rows, so a protected fund can end far larger than its peer. Customer copy must never promise an equal split — `split_across_top_funds` in `rationales.py` is worded around this, and a test asserts the word "equal" stays out of it.
 - **Subgroup targets are lifted in the pipeline, not supplied.** `_assign_subgroup_targets` splits each MF subgroup's practical-engine total across its ranked rows, less (floored at 0) the ST value of that subgroup's NEUTRAL (`rank = 0`) rows — locked ST is already exposure, so skipping the offset double-allocates. Whatever the input builder set is discarded; frozen subgroups are exempt. Keep the rule here only, or the two builders drift (`pipeline.py`). **Absent means ZERO** (2026-09-15): `step5_aggregation` drops zero rows, so a subgroup the practical plan gives nothing to is missing rather than 0 — left missing it kept the target the input builder seeded from the IDEAL output, buying into a subgroup the customer's plan excludes. Non-frozen ranked rows in an absent subgroup are zeroed.
 - **ELSS is scalar, not row.** ELSS exposure lives on `practical_allocation_input.elss_corpus`; ELSS rows are filtered out upstream. `step6` emits a frozen `SubgroupSummary` for `tax_efficient_equities` so the view shows the allocation, but never a BUY/SELL/EXIT trade for it (SEBI 3-year lock-in).
 - **Non-MF equity is scalar, not row.** Direct-stock / PMS holdings live on `practical_allocation_input.non_mf_equity_corpus`. When the practical NFA-banded cap forces a trim, `step6` emits a single `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — no per-stock trades.

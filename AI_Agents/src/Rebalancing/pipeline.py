@@ -21,6 +21,7 @@ from .config import (
     FORCE_EXIT_RANK,
     HOLDINGS_AWARE_TARGETS_ENABLED,
     RANK_PROTECT_BAND,
+    SUBGROUP_FUND_COUNT_THRESHOLD_INR,
 )
 from .models import (
     FundRowInput,
@@ -48,6 +49,19 @@ _FROZEN_SUBGROUPS: frozenset[str] = frozenset(
         "non_mf_equities",
     }
 )
+
+
+def _funds_per_subgroup(
+    total_corpus: Decimal, non_mf_equity_corpus: Decimal
+) -> int:
+    """How many funds share one subgroup's deployable money.
+
+    Two at or above `SUBGROUP_FUND_COUNT_THRESHOLD_INR`, one below it. The test
+    runs on total corpus less non-MF equity, so idle cash counts toward it.
+    """
+    if total_corpus - non_mf_equity_corpus >= SUBGROUP_FUND_COUNT_THRESHOLD_INR:
+        return 2
+    return 1
 
 
 def _protected_floors(
@@ -121,16 +135,48 @@ def _protected_floors(
     return floors
 
 
+def _residual_shares(
+    ranked: list[FundRowInput],
+    residual: Decimal,
+    n_funds: int,
+    rounding_step: int,
+) -> dict[str, Decimal]:
+    """Split `residual` equally across the best `n_funds` eligible rows.
+
+    Eligible means the row will survive step2: rows rated below
+    `EXIT_FLOOR_RATING` are exit-flagged there, so funding one would buy and
+    liquidate it in the same run. If every candidate is low-rated we fall back
+    to the best-ranked row rather than leaving the money undeployed.
+
+    Each share is floored to the rounding step and the remainder lands on the
+    best-ranked recipient, so the shares sum to `residual` exactly.
+    """
+    if residual <= 0 or not ranked:
+        return {}
+
+    eligible = [r for r in ranked if r.fund_rating >= EXIT_FLOOR_RATING] or ranked[:1]
+    recipients = eligible[: max(1, n_funds)]
+
+    share = floor_to_step(residual / Decimal(len(recipients)), rounding_step)
+    shares = {r.isin: share for r in recipients}
+    shares[recipients[0].isin] += residual - share * Decimal(len(recipients))
+    return shares
+
+
 def _assign_subgroup_targets(
     rows: list[FundRowInput],
     practical: PracticalAllocationOutput,
     rounding_step: int,
+    n_funds: int,
 ) -> list[FundRowInput]:
     """Split each MF subgroup's practical total across its ranked rows.
 
     RESERVE-THEN-RESIDUAL (design note 2026-07-19). Each held fund inside the
     rank band first reserves what it already holds; only the leftover is fresh
-    money, and that lands on the best-ranked row to cascade down step1's ladder.
+    money, and that is split equally across the subgroup's top `n_funds` ranked
+    rows (spec 2026-09-20) — it used to land wholly on the best-ranked row and
+    cascade down step1's per-fund cap ladder, which made the fund count an
+    emergent property of the cap rather than a decision.
 
     Before this change every rank >= 2 row got `target_amount_pre_cap = 0` and
     was therefore sold to fund a rank-1 buy — ₹16.5L of paired churn in a single
@@ -183,15 +229,19 @@ def _assign_subgroup_targets(
     # rather than competing with it.
     floors = _protected_floors(rows, target_by_subgroup, rounding_step)
 
+    ranked_by_sg: dict[str, list[FundRowInput]] = defaultdict(list)
     floor_total: dict[str, Decimal] = defaultdict(Decimal)
-    best_rank: dict[str, int] = {}
     for r in rows:
-        if not (1 <= r.rank < FORCE_EXIT_RANK) or r.asset_subgroup not in target_by_subgroup:
-            continue
-        floor_total[r.asset_subgroup] += floors.get(r.isin, Decimal(0))
-        cur = best_rank.get(r.asset_subgroup)
-        if cur is None or r.rank < cur:
-            best_rank[r.asset_subgroup] = r.rank
+        if 1 <= r.rank < FORCE_EXIT_RANK and r.asset_subgroup in target_by_subgroup:
+            ranked_by_sg[r.asset_subgroup].append(r)
+            floor_total[r.asset_subgroup] += floors.get(r.isin, Decimal(0))
+
+    # RESIDUAL: only what is not already spoken for by a protected holding.
+    shares: dict[str, Decimal] = {}
+    for sg, ranked in ranked_by_sg.items():
+        ranked.sort(key=lambda r: (r.rank, r.isin))
+        residual = max(target_by_subgroup[sg] - floor_total[sg], Decimal(0))
+        shares.update(_residual_shares(ranked, residual, n_funds, rounding_step))
 
     out: list[FundRowInput] = []
     for r in rows:
@@ -201,12 +251,10 @@ def _assign_subgroup_targets(
             continue
 
         floor = floors.get(r.isin, Decimal(0))
-        # RESIDUAL: only what is not already spoken for by a protected holding.
-        # It lands on the best-ranked row and cascades down the ladder in step1,
-        # which is what makes NEW allocation dilute an over-weight rank-1 rather
-        # than topping it up further.
-        residual = max(target_by_subgroup[sg] - floor_total[sg], Decimal(0))
-        target = floor + residual if r.rank == best_rank[sg] else floor
+        # A protected holding keeps its floor whether or not it is a recipient;
+        # only the residual is distributed, so no protected fund is ever sold to
+        # fund another (RANK_PROTECT_BAND, design note 2026-07-19).
+        target = floor + shares.get(r.isin, Decimal(0))
 
         out.append(
             r.model_copy(
@@ -227,8 +275,12 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
 
     # 2. Split per-subgroup MF targets across ranked rows: held funds inside the
     #    rank band reserve what they hold, the residual goes to the best rank.
+    n_funds = _funds_per_subgroup(
+        Decimal(str(request.practical_allocation_input.total_corpus)),
+        Decimal(str(request.practical_allocation_input.non_mf_equity_corpus)),
+    )
     rows_with_targets = _assign_subgroup_targets(
-        request.rows, practical, request.rounding_step
+        request.rows, practical, request.rounding_step, n_funds
     )
 
     # 3. Six-step rebalancing engine (interface unchanged).

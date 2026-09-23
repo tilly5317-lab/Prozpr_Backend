@@ -71,9 +71,10 @@ def _cap_spill_buy_reductions(
     """Reduce the buy side by re-spilling the surviving demand down the ladder.
 
     Pro-rata shrinks every buyer in proportion to its own demand — a rule that
-    exists nowhere else in the engine. This reuses step1's philosophy instead:
-    whatever buy demand survives the cancellation is walked down the rank ladder,
-    best fund first, under the per-fund cap.
+    exists nowhere else in the engine. This reuses the engine's philosophy
+    instead: whatever buy demand survives the cancellation is walked down the
+    rank ladder, best fund first. Since spec 2026-09-20 no per-fund cap bounds
+    that walk, so the best-ranked buyer absorbs the whole surviving budget.
 
     The surviving budget is deliberately `buy_total - cancel_total` rather than
     anything derived from the subgroup target. Deriving it from the target lets
@@ -85,14 +86,14 @@ def _cap_spill_buy_reductions(
     Returns the REDUCTION per buyer isin, so the caller applies it exactly as it
     applies the pro-rata result.
     """
-    corpus = request.total_corpus
     remaining = max(sum((r.diff for r in buys), Decimal(0)) - cancel_total, Decimal(0))
 
     out: dict[str, Decimal] = {}
     for r in sorted(buys, key=lambda x: (x.rank, x.isin)):
-        cap_amount = effective_cap_for(r.asset_subgroup, corpus)
-        # Never grant more than step1 wanted here, nor more than the fund may hold.
-        grant = min(remaining, cap_amount, r.diff)
+        # Never grant more than step1 wanted here. The per-fund cap no longer
+        # bounds deployment (spec 2026-09-20) — leaving it in would re-fragment
+        # the surviving debt buy down ranks the fund-count rule excluded.
+        grant = min(remaining, r.diff)
         remaining -= grant
         out[r.isin] = r.diff - grant
     return out

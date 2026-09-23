@@ -20,12 +20,15 @@ RATIONALES: dict[str, dict[str, str]] = {
             "your investments aligned with our recommendation."
         ),
     },
-    "cap_spill_buy": {
-        "title": "Diversifying via alternate fund",
+    # Deliberately does NOT say "equally": the equal division is of the
+    # residual, not of the holding, so a protected fund's final position can be
+    # far larger than its peer's (spec 2026-09-20).
+    "split_across_top_funds": {
+        "title": "Spreading across your top funds",
         "text": (
-            "Your top-ranked fund in this category has reached its per-fund "
-            "concentration limit. We're routing the additional amount to our "
-            "next top-ranked fund in the same category to maintain diversification."
+            "Your portfolio is large enough to hold more than one fund in this "
+            "category, so we're directing part of this allocation to our next "
+            "top-ranked fund rather than putting it all in one."
         ),
     },
     "trim_over_target": {

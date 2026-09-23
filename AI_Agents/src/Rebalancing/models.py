@@ -95,7 +95,10 @@ class FundRowInput(BaseModel):
 
 
 class FundRowAfterStep1(FundRowInput):
-    max_pct: float  # cap that applies to this fund (% of corpus)
+    # Audit column only. Since spec 2026-09-20 no per-fund cap bounds
+    # deployment, so step1 reports 100.0 ("unbounded") rather than a percentage
+    # nothing enforces.
+    max_pct: float
     target_pre_cap_pct: float  # original pre-cap target / corpus
     target_own_capped_pct: float  # post-own-cap, before spill received
     final_target_pct: float  # final after spill cascade
