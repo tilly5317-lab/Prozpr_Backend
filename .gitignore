@@ -112,6 +112,12 @@ AI_Agents/src/market_commentary/market_commentary_latest.md
 
 # Dev-only scripts (seed helpers, one-offs) — keep local, do not push
 scripts/
+
+# Artifact sources: generators, their captured data, and the HTML published to
+# claude.ai. Never pushed. Unlike scripts/ above — which was ignored only after
+# 13 files were already tracked, so the rule does not cover them — nothing here
+# has ever been tracked. Keep it that way: no `git add -f` under this folder.
+artefact/
 /MF_Logics/Mututal_Funds_data_extraction/NAV_level_data
 MF_Logics/MF_fund_view_data/MF_evaluation framework.xlsx
 MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt
