@@ -411,11 +411,19 @@ class TestLoadHumanOverrideForUser:
 
 
 def test_contract_single_computation_reader():
-    """The future-module contract: only the profile domain may import the
-    preferences MODEL, and only the sanctioned load/parity points may read
-    the ``user.saved_investment_preference`` relationship. (Run tables carry
-    a ``saved_investment_preference_id`` FK column — a string FK, no model
-    import — so they are exempt by construction.)"""
+    """The future-module contract: outside the profile domain, only the
+    sanctioned points below may import the preferences MODEL, and only the
+    sanctioned load/parity points may read the ``user.saved_investment_preference``
+    relationship. (Run tables carry a ``saved_investment_preference_id`` FK
+    column — a string FK, no model import — so they are exempt by construction.)
+
+    The two checks guard different things. The RELATIONSHIP read is the
+    computation-time one: that is what would put a DB fetch inside an engine
+    and stop a historical run being reproducible, so its list stays tight. A
+    MODEL import is weaker — joining a run's FK back to the frozen row is the
+    designed way to recover what shaped it (see ``preference_tagging``'s
+    "the values are one join away") — so a read-only, non-computation join may
+    be sanctioned here with a reason."""
     import subprocess
 
     grep_args = [
@@ -432,14 +440,32 @@ def test_contract_single_computation_reader():
         "app/domains/identity/models/user.py",
         # Sanctioned load point — names the class in its docstring only.
         "app/domains/practical_asset_allocation/services/paa_engine/input_builder.py",
+        # Sanctioned read-only join, NOT a computation-time read: GET
+        # /additional-investment/current joins a run's FK back to its frozen
+        # row for one column (``activated_at``) to decide whether the chat
+        # still owes a "Save preference" pill. No engine consumes it, and the
+        # single-query shape is deliberate (see the function's docstring).
+        "app/domains/additional_investment/services/additional_investment_read_service.py",
     )
     offenders = [p for p in class_out if not any(f in p for f in class_allowed)]
     assert not offenders, f"modules must not import the preferences model: {offenders}"
 
-    attr_out = subprocess.run(
-        ["grep", *grep_args, r"\.saved_investment_preference\b", "app/"],
+    # -rn, not -rln: the raw pattern also matches the MODULE PATH in
+    # ``from app.domains.profile.models.saved_investment_preference import …``,
+    # which is an import, not a relationship read. Filter those out before
+    # reducing to file paths, so importing the model does not read as reading
+    # the relationship off a User.
+    attr_hits = subprocess.run(
+        ["grep", "-rn", *grep_args[1:], r"\.saved_investment_preference\b", "app/"],
         capture_output=True, text=True,
     ).stdout.splitlines()
+    attr_out = sorted(
+        {
+            line.split(":", 2)[0]
+            for line in attr_hits
+            if "models.saved_investment_preference" not in line
+        }
+    )
     attr_allowed = (
         "app/domains/profile/",
         "app/domains/identity/",

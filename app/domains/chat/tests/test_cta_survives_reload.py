@@ -16,6 +16,7 @@ history read must not resurrect it.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest_asyncio
 from sqlalchemy import select
@@ -86,6 +87,31 @@ async def _seed(db: AsyncSession, **fields) -> ChatSession:
     ).scalar_one()
 
 
+async def _seed_two(db: AsyncSession, first: str, second: str) -> ChatSession:
+    """One session carrying two assistant replies, each with its own cta."""
+    session = ChatSession(user_id=USER_ID, title="Two turns")
+    db.add(session)
+    await db.flush()
+    for cta in (first, second):
+        db.add(
+            ChatMessage(
+                session_id=session.id,
+                role=ChatMessageRole.assistant,
+                content=f"reply carrying {cta}",
+                intent="portfolio_query",
+                cta=cta,
+            )
+        )
+    await db.commit()
+    return (
+        await db.execute(
+            select(ChatSession)
+            .options(selectinload(ChatSession.messages))
+            .where(ChatSession.id == session.id)
+        )
+    ).scalar_one()
+
+
 async def test_the_cta_round_trips_through_the_message_row(db_session):
     """Persisted, not turn-only — the whole point of the column."""
     session = await _seed(db_session, cta=CTA_PREFERENCES)
@@ -115,8 +141,11 @@ async def test_a_pointer_never_goes_stale(db_session, monkeypatch):
 
     Holdings present or not, "your preferences live on that page" stays true —
     so the pill must not borrow the card's suppression.
+
+    The session MUST also hold an add_cams turn, or the suppression loop never
+    runs and this passes without touching the code it guards.
     """
-    session = await _seed(db_session, cta=CTA_PREFERENCES)
+    session = await _seed_two(db_session, CTA_ADD_CAMS, CTA_PREFERENCES)
 
     async def _has_holdings(db, user_id):
         return True
@@ -124,7 +153,8 @@ async def test_a_pointer_never_goes_stale(db_session, monkeypatch):
     monkeypatch.setattr(chat_router, "has_mf_holdings", _has_holdings)
     out = await chat_router._history_messages(db_session, USER_ID, session)
 
-    assert any(m.cta == CTA_PREFERENCES for m in out)
+    assert any(m.cta == CTA_PREFERENCES for m in out), "the pointer was suppressed"
+    assert not any(m.cta == CTA_ADD_CAMS for m in out), "the stale card survived"
 
 
 async def test_the_cas_card_survives_while_holdings_are_still_missing(
@@ -186,3 +216,36 @@ async def test_no_holdings_query_runs_when_no_message_raised_the_card(
     await chat_router._history_messages(db_session, USER_ID, session)
 
     assert calls["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The write half. Without these, reverting both `cta=` assignments in
+# chat_router leaves the whole suite green.
+# ---------------------------------------------------------------------------
+
+
+def _brain_result(*, pill: bool = False, missing: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
+        show_preferences_pill=pill, portfolio_data_missing=missing
+    )
+
+
+def test_a_preference_turn_is_stored_as_the_preferences_cta():
+    assert chat_router._cta_for(_brain_result(pill=True)) == CTA_PREFERENCES
+
+
+def test_a_no_holdings_turn_is_stored_as_the_cams_cta():
+    assert chat_router._cta_for(_brain_result(missing=True)) == CTA_ADD_CAMS
+
+
+def test_an_ordinary_turn_stores_no_cta():
+    assert chat_router._cta_for(_brain_result()) is None
+
+
+def test_the_statement_ask_wins_if_both_ever_co_occur():
+    """Unreachable today — the no-holdings gate returns before any flow runs, so
+    a turn cannot raise both. Pinned so the precedence is a decision, not an
+    accident, if that gate ever moves."""
+    assert (
+        chat_router._cta_for(_brain_result(pill=True, missing=True)) == CTA_ADD_CAMS
+    )

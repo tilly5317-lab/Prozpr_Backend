@@ -796,6 +796,9 @@ async def test_an_exposure_ask_points_at_preferences_instead_of_reshaping(
 
     assert reshaped["called"] == 0
     assert relay_spy["pill"] is True
+    # "pointer", not the default "redirect": that body opens "You are relaying a
+    # LIMIT", which brings back the apology the copy exists to avoid.
+    assert relay_spy["mode"] == "pointer"
     assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
     assert "preferences page" in relay_spy["message"]
     assert result.show_preferences_pill is True
@@ -813,6 +816,9 @@ async def test_a_record_change_ask_gets_the_same_answer(relay_spy):
     )
 
     assert relay_spy["pill"] is True
+    # "pointer", not the default "redirect": that body opens "You are relaying a
+    # LIMIT", which brings back the apology the copy exists to avoid.
+    assert relay_spy["mode"] == "pointer"
     assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
 
 
@@ -828,6 +834,9 @@ async def test_an_unmappable_ask_gets_the_same_answer(relay_spy):
     )
 
     assert relay_spy["pill"] is True
+    # "pointer", not the default "redirect": that body opens "You are relaying a
+    # LIMIT", which brings back the apology the copy exists to avoid.
+    assert relay_spy["mode"] == "pointer"
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +926,9 @@ async def test_a_preference_ask_with_no_servable_override_still_just_points(rela
     )
 
     assert relay_spy["pill"] is True
+    # "pointer", not the default "redirect": that body opens "You are relaying a
+    # LIMIT", which brings back the apology the copy exists to avoid.
+    assert relay_spy["mode"] == "pointer"
     assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
 
 

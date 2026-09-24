@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +22,11 @@ import app.all_models  # noqa: F401  - registers every mapper before ORM use
 from app.core.database import get_db
 from app.core.dependencies import get_ai_user_context, get_effective_user
 from app.domains.ai_engine.streaming import current_token_stream
-from app.domains.chat.models.chat import ChatMessageRole, ChatSessionStatus
+from app.domains.chat.models.chat import (
+    CTA_PREFERENCES,
+    ChatMessageRole,
+    ChatSessionStatus,
+)
 from app.domains.chat.routers import chat_router as mod
 
 USER_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -57,9 +62,10 @@ class _FakeBrain:
     turn result. Deliberately returns text DIFFERENT from the deltas to prove
     the done event is authoritative rather than a replay of what was streamed."""
 
-    def __init__(self, *, final_text=FULL_ANSWER, raise_exc=None):
+    def __init__(self, *, final_text=FULL_ANSWER, raise_exc=None, pill=False):
         self._final = final_text
         self._raise = raise_exc
+        self._pill = pill
 
     async def run_turn(self, _turn):
         if self._raise:
@@ -77,18 +83,27 @@ class _FakeBrain:
             asset_allocation_run_id=None,
             ideal_allocation_rebalancing_id=None,
             ideal_allocation_snapshot_id=None,
+            additional_investment_run_id=None,
+            additional_investment_cadence=None,
+            has_candidate_preference=False,
             portfolio_data_missing=False,
+            show_preferences_pill=self._pill,
         )
 
 
-def _client(brain):
+def _client(brain, db=None):
     app = FastAPI()
     app.include_router(mod.router)
     user = SimpleNamespace(id=USER_ID)
-    app.dependency_overrides[get_db] = lambda: _FakeDB()
+    db = db or _FakeDB()
+    app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_effective_user] = lambda: user
     app.dependency_overrides[get_ai_user_context] = lambda: user
-    session = SimpleNamespace(id=SESSION_ID, status=ChatSessionStatus.active)
+    # `title` is settable and required: the route assigns the auto-title onto the
+    # session in the same commit, so a fake without it raises mid-stream.
+    session = SimpleNamespace(
+        id=SESSION_ID, status=ChatSessionStatus.active, title="New Chat"
+    )
 
     async def _no_session_lookup(*_a, **_k):
         return session
@@ -197,3 +212,26 @@ def test_anti_buffering_headers_are_set(header):
     finally:
         for p in reversed(stack):
             p.stop()
+
+
+def test_the_streaming_route_stores_the_turns_cta_on_the_assistant_row():
+    """The write half of the CTA round trip, on the endpoint the app actually
+    calls. Without this, dropping `cta=` from the streaming handler is silent:
+    the pill still renders live and only goes missing after a reload."""
+    brain = _FakeBrain(pill=True)
+    db = _FakeDB()
+    client, stack = _client(brain, db=db)
+    with ExitStack() as es:
+        for p in stack:
+            es.enter_context(p)
+        resp = client.post(
+            f"/chat/sessions/{SESSION_ID}/messages/stream",
+            json={"content": "what preferences have I set?"},
+        )
+    assert resp.status_code == 200
+
+    assistant = [
+        o for o in db.added if getattr(o, "role", None) == ChatMessageRole.assistant
+    ]
+    assert assistant, "no assistant row was persisted"
+    assert assistant[0].cta == CTA_PREFERENCES
