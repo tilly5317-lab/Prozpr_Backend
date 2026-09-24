@@ -132,4 +132,8 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #         ₹50L net of non-MF equity, 2 at or above — rather than cascading down
 #         the rank ladder under the per-fund cap. The per-fund cap no longer
 #         bounds deployment anywhere in the engine.
-ENGINE_VERSION: str = "1.11.0"
+# 1.12.0: medium-term horizon bucket removed (spec 2026-09-24). A single 24-month
+#         line: short < 24mo, long >= 24mo; former medium goals (24-59mo) now
+#         allocate as long-term. The medium_term field is kept at 0; step7 / the
+#         practical output no longer emit a medium bucket.
+ENGINE_VERSION: str = "1.12.0"

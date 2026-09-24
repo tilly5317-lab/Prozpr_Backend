@@ -94,15 +94,6 @@
      "others_pct": 0.0
     },
     {
-     "bucket": "medium_term",
-     "debt": 0,
-     "debt_pct": 0.0,
-     "equity": 0,
-     "equity_pct": 0.0,
-     "others": 0,
-     "others_pct": 0.0
-    },
-    {
      "bucket": "long_term",
      "debt": 8667975,
      "debt_pct": 43.9998730964467,
@@ -140,15 +131,6 @@
      "others_pct": 0.0
     },
     {
-     "bucket": "medium_term",
-     "debt": 0,
-     "debt_pct": 0.0,
-     "equity": 0,
-     "equity_pct": 0.0,
-     "others": 0,
-     "others_pct": 0.0
-    },
-    {
      "bucket": "long_term",
      "debt": 8667975,
      "debt_pct": 43.9998730964467,
@@ -174,10 +156,6 @@
     },
     {
      "bucket": "short_term",
-     "subgroups": []
-    },
-    {
-     "bucket": "medium_term",
      "subgroups": []
     },
     {
@@ -234,10 +212,6 @@
     },
     {
      "bucket": "short_term",
-     "subgroups": []
-    },
-    {
-     "bucket": "medium_term",
      "subgroups": []
     },
     {
@@ -299,16 +273,6 @@
   {
    "allocated_amount": 0.0,
    "bucket": "short_term",
-   "future_investment": null,
-   "goal_rationales": {},
-   "goals": [],
-   "rationale": null,
-   "subgroup_amounts": {},
-   "total_goal_amount": 0.0
-  },
-  {
-   "allocated_amount": 0.0,
-   "bucket": "medium_term",
    "future_investment": null,
    "goal_rationales": {},
    "goals": [],

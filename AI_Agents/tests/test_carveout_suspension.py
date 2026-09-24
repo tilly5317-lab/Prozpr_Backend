@@ -89,7 +89,6 @@ class TestCarveOutSuspension:
 
         assert b["emergency"] == 0
         assert b["short_term"] == 0
-        assert b["medium_term"] == 0
 
     def test_the_long_term_bucket_takes_the_whole_corpus(self):
         out = _run(
@@ -113,8 +112,8 @@ class TestCarveOutSuspension:
         assert b["emergency"] == 0 and b["short_term"] == 0
         assert b["long_term"] == pytest.approx(CORPUS, abs=200)
 
-    def test_the_four_bucket_output_shape_survives(self):
-        """§3.3: `_build_output` still emits four rows, three of them at zero."""
+    def test_the_three_bucket_output_shape_survives(self):
+        """medium removed (spec 2026-09-24): three bucket rows, two at zero."""
         out = _run(
             **_CARVEOUT_PROFILE,
             human_override=_prefs(subgroup_emphasis={"low_beta_equities": 20.0}),
@@ -123,7 +122,6 @@ class TestCarveOutSuspension:
         assert [b.bucket for b in out.bucket_allocations] == [
             "emergency",
             "short_term",
-            "medium_term",
             "long_term",
         ]
 

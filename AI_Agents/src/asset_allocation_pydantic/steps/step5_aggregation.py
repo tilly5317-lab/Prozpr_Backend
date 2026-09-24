@@ -4,7 +4,6 @@ from ..models import (
     AggregatedRow,
     Step1Output,
     Step2Output,
-    Step3Output,
     Step4Output,
     Step5Output,
 )
@@ -30,7 +29,6 @@ def run(
     total_corpus: float,
     step1: Step1Output,
     step2: Step2Output,
-    step3: Step3Output,
     step4: Step4Output,
 ) -> Step5Output:
     rows: list[AggregatedRow] = []
@@ -38,7 +36,7 @@ def run(
     for sg in CANONICAL_SUBGROUP_ORDER:
         emergency = step1.subgroup_amounts.get(sg, 0)
         short_term = step2.subgroup_amounts.get(sg, 0)
-        medium_term = step3.subgroup_amounts.get(sg, 0)
+        medium_term = 0  # medium bucket removed (spec 2026-09-24); field kept at 0
         long_term = step4.subgroup_amounts.get(sg, 0)
         total = emergency + short_term + medium_term + long_term
         if total > 0:

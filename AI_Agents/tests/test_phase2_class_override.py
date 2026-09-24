@@ -138,9 +138,9 @@ class TestOverallToLongTerm:
         assert out["equity"] == 0.0
         assert out["others"] == 0.0
 
-    def test_committed_accounts_for_everything_steps_1_3_consumed(self):
+    def test_committed_accounts_for_everything_steps_1_2_consumed(self):
         """Guard the conversion's premise: ``subgroup_amounts`` must capture
-        EVERY rupee steps 1-3 removed from the corpus. If a future carve lands
+        EVERY rupee steps 1-2 removed from the corpus. If a future carve lands
         outside it, the overall->LT split would silently skew — fail here."""
         from practical_asset_allocation.pipeline import run_practical_allocation
 
@@ -149,7 +149,7 @@ class TestOverallToLongTerm:
         run_practical_allocation(inp, trace=trace)
         committed = sum(
             sum(trace[k]["subgroup_amounts"].values())
-            for k in ("step1_emergency", "step2_short_term", "step3_medium_term")
+            for k in ("step1_emergency", "step2_short_term")
         )
         consumed = trace["rebalancing_corpus"] - trace["lt_corpus_entering"]
         assert abs(committed - consumed) < 1.0

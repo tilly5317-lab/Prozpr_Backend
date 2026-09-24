@@ -27,10 +27,6 @@ _FALLBACK_RATIONALES: Dict[str, str] = {
         "For goals coming up soon, the money stays in steady, predictable "
         "options so it's ready when you need it."
     ),
-    "medium_term": (
-        "For goals a few years out, we mix steady savings with some growth so "
-        "your money keeps up without taking big swings."
-    ),
     "long_term": (
         "With many years to go, more of the money can aim for growth since "
         "short-term ups and downs have time to even out."
@@ -71,13 +67,6 @@ def default_goal_rationale(bucket: str, goal: Goal) -> str:
             f"This close to the deadline, protecting the capital matters more "
             f"than chasing returns."
         )
-    if bucket == "medium_term":
-        return (
-            f"For {goal.goal_name} ({context}) — {horizon}, earmarking "
-            f"{amount_str} — we split between steady savings and moderate "
-            f"growth. The horizon is long enough for markets to help, short "
-            f"enough that we don't want to ride big swings."
-        )
     if bucket == "long_term":
         return (
             f"For {goal.goal_name} ({context}) — {horizon}, earmarking "
@@ -94,14 +83,14 @@ _RATIONALE_BODY = (
     "- Avoid these words entirely: alpha, beta, duration, NAV, asset class, volatility, liquidity, "
     "corpus, portfolio rebalancing.\n"
     "- Emergency bucket: why the safety cushion and how many months it covers.\n"
-    "- For short_term / medium_term / long_term, write ONE rationale PER goal (keyed by goal_name), "
+    "- For short_term / long_term, write ONE rationale PER goal (keyed by goal_name), "
     "referencing the goal by name, its time horizon, and why the chosen mix fits that horizon and "
     "goal type (education, retirement, home, etc.).\n"
     "- Future-investment messages: EXACTLY ONE sentence, max 25 words, naming a specific goal; make "
     "clear the picture is based on current investments/corpus today and encourage keeping up regular "
     "monthly investing. Do NOT use 'shortfall'/'deficit'/'lack'/'not enough'; do NOT invent SIP "
     "amounts; do NOT list alternative levers. This overrides the 1-3 sentence rule.\n"
-    "- For goal_rationales the inner dict (short/medium/long_term) is keyed by each goal's goal_name; "
+    "- For goal_rationales the inner dict (short/long_term) is keyed by each goal's goal_name; "
     "future_investment_messages keys are bucket names (emergency excluded)."
 )
 _SYSTEM_PROMPT = build_system_prompt(

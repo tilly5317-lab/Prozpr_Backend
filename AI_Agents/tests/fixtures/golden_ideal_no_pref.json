@@ -94,15 +94,6 @@
      "others_pct": 0.0
     },
     {
-     "bucket": "medium_term",
-     "debt": 0,
-     "debt_pct": 0.0,
-     "equity": 0,
-     "equity_pct": 0.0,
-     "others": 0,
-     "others_pct": 0.0
-    },
-    {
      "bucket": "long_term",
      "debt": 8668000,
      "debt_pct": 44.0,
@@ -140,15 +131,6 @@
      "others_pct": 0.0
     },
     {
-     "bucket": "medium_term",
-     "debt": 0,
-     "debt_pct": 0.0,
-     "equity": 0,
-     "equity_pct": 0.0,
-     "others": 0,
-     "others_pct": 0.0
-    },
-    {
      "bucket": "long_term",
      "debt": 8668000,
      "debt_pct": 44.0,
@@ -174,10 +156,6 @@
     },
     {
      "bucket": "short_term",
-     "subgroups": []
-    },
-    {
-     "bucket": "medium_term",
      "subgroups": []
     },
     {
@@ -234,10 +212,6 @@
     },
     {
      "bucket": "short_term",
-     "subgroups": []
-    },
-    {
-     "bucket": "medium_term",
      "subgroups": []
     },
     {
@@ -303,16 +277,6 @@
    "goal_rationales": {},
    "goals": [],
    "rationale": "For goals coming up soon, the money stays in steady, predictable options so it's ready when you need it.",
-   "subgroup_amounts": {},
-   "total_goal_amount": 0.0
-  },
-  {
-   "allocated_amount": 0.0,
-   "bucket": "medium_term",
-   "future_investment": null,
-   "goal_rationales": {},
-   "goals": [],
-   "rationale": "For goals a few years out, we mix steady savings with some growth so your money keeps up without taking big swings.",
    "subgroup_amounts": {},
    "total_goal_amount": 0.0
   },

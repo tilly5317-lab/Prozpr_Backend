@@ -14,7 +14,6 @@ from ..models import (
     GoalAllocationOutput,
     Step1Output,
     Step2Output,
-    Step3Output,
     Step4Output,
     Step5Output,
     SubgroupBreakdown,
@@ -47,7 +46,6 @@ def _bucket_allocations(
     inp: AllocationInput,
     step1: Step1Output,
     step2: Step2Output,
-    step3: Step3Output,
     step4: Step4Output,
 ) -> List[BucketAllocation]:
     emergency = BucketAllocation(
@@ -68,17 +66,6 @@ def _bucket_allocations(
         subgroup_amounts=dict(step2.subgroup_amounts),
     )
 
-    mt_names = {g.goal_name for g in step3.goals_allocated}
-    mt_goal_objects = [g for g in inp.goals if g.goal_name in mt_names]
-    medium_term = BucketAllocation(
-        bucket="medium_term",
-        goals=list(mt_goal_objects),
-        total_goal_amount=step3.total_goal_amount,
-        allocated_amount=step3.allocated_amount,
-        future_investment=step3.future_investment,
-        subgroup_amounts=dict(step3.subgroup_amounts),
-    )
-
     long_term = BucketAllocation(
         bucket="long_term",
         goals=list(step4.goals_allocated),
@@ -88,7 +75,7 @@ def _bucket_allocations(
         subgroup_amounts=dict(step4.subgroup_amounts),
     )
 
-    return [emergency, short_term, medium_term, long_term]
+    return [emergency, short_term, long_term]
 
 
 def _pct(numer: float, denom: float) -> float:
@@ -140,26 +127,22 @@ def _subgroup_bucket(bucket: str, amounts: dict[str, int]) -> SubgroupBucketSpli
 def _subgroup_breakdown(
     step1: Step1Output,
     step2: Step2Output,
-    step3: Step3Output,
     step4: Step4Output,
 ) -> SubgroupBreakdown:
     emergency_subs = dict(step1.subgroup_amounts)
     short_subs = dict(step2.subgroup_amounts)
-    medium_subs = dict(step3.subgroup_amounts)
     long_recommended = dict(step4.subgroup_amounts)
     long_planned = dict(step4.planned_subgroup_amounts or step4.subgroup_amounts)
 
-    # Emergency/short/medium: planned == recommended at subgroup level.
+    # Emergency/short: planned == recommended at subgroup level.
     planned = [
         _subgroup_bucket("emergency", emergency_subs),
         _subgroup_bucket("short_term", short_subs),
-        _subgroup_bucket("medium_term", medium_subs),
         _subgroup_bucket("long_term", long_planned),
     ]
     recommended = [
         _subgroup_bucket("emergency", emergency_subs),
         _subgroup_bucket("short_term", short_subs),
-        _subgroup_bucket("medium_term", medium_subs),
         _subgroup_bucket("long_term", long_recommended),
     ]
     return SubgroupBreakdown(planned=planned, recommended=recommended)
@@ -169,7 +152,6 @@ def _asset_class_breakdown(
     inp: AllocationInput,
     step1: Step1Output,
     step2: Step2Output,
-    step3: Step3Output,
     step4: Step4Output,
     grand_total: int,
 ) -> AssetClassBreakdown:
@@ -187,25 +169,6 @@ def _asset_class_breakdown(
         others=0,
     )
 
-    # ── PLANNED ────────────────────────────────────────────────────────────
-    # Medium-term planned: pure equity + pure debt per the horizon/risk split
-    # table, before multi-asset routing blends things.
-    mt_planned_eq = sum(g.equity_amount for g in step3.goals_allocated)
-    mt_planned_dt = sum(g.debt_amount for g in step3.goals_allocated)
-    # Reconcile against allocated_amount if step3 scaled down for a shortfall.
-    mt_planned_raw = mt_planned_eq + mt_planned_dt
-    mt_alloc = step3.allocated_amount
-    if mt_planned_raw > 0 and mt_planned_raw != mt_alloc:
-        scale = mt_alloc / mt_planned_raw
-        mt_planned_eq = int(round(mt_planned_eq * scale))
-        mt_planned_dt = mt_alloc - mt_planned_eq
-    medium_planned = BucketAssetClassSplit(
-        bucket="medium_term",
-        equity=mt_planned_eq,
-        debt=mt_planned_dt,
-        others=0,
-    )
-
     # Long-term planned: Phase-2 output (before multi-asset/overage).
     ac_planned = step4.planned_asset_class_allocation or step4.asset_class_allocation
     long_planned = BucketAssetClassSplit(
@@ -215,24 +178,7 @@ def _asset_class_breakdown(
         others=ac_planned.others_amount,
     )
 
-    # ── RECOMMENDED (post-adjustment deployment plan) ──────────────────────
-    # Medium-term: multi-asset slice decomposed via inp composition.
-    mt_multi = step3.subgroup_amounts.get("multi_asset", 0)
-    mt_pure_debt = step3.subgroup_amounts.get(
-        "short_debt", 0
-    ) + step3.subgroup_amounts.get("arbitrage_plus_income", 0)
-    comp = inp.multi_asset_composition
-    mt_eq = int(round(mt_multi * comp.equity_pct / 100.0))
-    mt_oth = int(round(mt_multi * comp.others_pct / 100.0))
-    mt_dt_from_multi = mt_multi - mt_eq - mt_oth
-    medium_recommended = BucketAssetClassSplit(
-        bucket="medium_term",
-        equity=mt_eq,
-        debt=mt_pure_debt + mt_dt_from_multi,
-        others=mt_oth,
-    )
-
-    # Long-term: Step-4 post-overage split.
+    # Long-term recommended: Step-4 post-overage split.
     ac_recommended = step4.asset_class_allocation
     long_recommended = BucketAssetClassSplit(
         bucket="long_term",
@@ -241,10 +187,8 @@ def _asset_class_breakdown(
         others=ac_recommended.others_amount,
     )
 
-    planned_block = _split_block([emergency, short_term, medium_planned, long_planned])
-    recommended_block = _split_block(
-        [emergency, short_term, medium_recommended, long_recommended],
-    )
+    planned_block = _split_block([emergency, short_term, long_planned])
+    recommended_block = _split_block([emergency, short_term, long_recommended])
     recommended_sum = (
         recommended_block.equity_total
         + recommended_block.debt_total
@@ -255,7 +199,7 @@ def _asset_class_breakdown(
         planned=planned_block,
         recommended=recommended_block,
         recommended_sum_matches_grand_total=(recommended_sum == grand_total),
-        subgroups=_subgroup_breakdown(step1, step2, step3, step4),
+        subgroups=_subgroup_breakdown(step1, step2, step4),
     )
 
 
@@ -277,13 +221,12 @@ def run(
     inp: AllocationInput,
     step1: Step1Output,
     step2: Step2Output,
-    step3: Step3Output,
     step4: Step4Output,
     step5: Step5Output,
     rationale_fn: Optional[RationaleFn] = None,
 ) -> GoalAllocationOutput:
     client_summary = _client_summary(inp, step1)
-    bucket_allocations = _bucket_allocations(inp, step1, step2, step3, step4)
+    bucket_allocations = _bucket_allocations(inp, step1, step2, step4)
     aggregated_subgroups = _aggregated_subgroups(step5)
 
     future_investments_summary: List[FutureInvestment] = [
@@ -315,7 +258,7 @@ def run(
     )
 
     asset_class_breakdown = _asset_class_breakdown(
-        inp, step1, step2, step3, step4, step5.grand_total
+        inp, step1, step2, step4, step5.grand_total
     )
 
     return GoalAllocationOutput(

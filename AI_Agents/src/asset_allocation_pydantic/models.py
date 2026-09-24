@@ -218,29 +218,6 @@ class Step2Output(BaseModel):
     subgroup_amounts: dict[str, int]
 
 
-class MediumTermGoalAllocation(BaseModel):
-    goal_name: str
-    time_to_goal_months: int
-    amount_needed: float
-    goal_priority: str
-    horizon_years: int
-    equity_pct: int
-    debt_pct: int
-    equity_amount: int
-    debt_amount: int
-
-
-class Step3Output(BaseModel):
-    risk_bucket: Literal["Low", "Medium", "High"]
-    asset_subgroup: Literal["arbitrage_plus_income", "short_debt"]
-    goals_allocated: List[MediumTermGoalAllocation]
-    total_goal_amount: int
-    allocated_amount: int
-    remaining_corpus: int
-    future_investment: Optional[FutureInvestment] = None
-    subgroup_amounts: dict[str, int]
-
-
 class AssetClassAllocation(BaseModel):
     equities_pct: int
     debt_pct: int

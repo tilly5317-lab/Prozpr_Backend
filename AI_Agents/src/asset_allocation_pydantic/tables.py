@@ -87,22 +87,6 @@ PHASE5_EQUITY_SUBGROUP_BOUNDS: dict[float, dict[str, tuple[int, int]]] = {
 }
 
 
-# ── Medium-term horizon × risk bucket → (equity_pct, debt_pct) ─────────────────
-# Source: references/medium-term-goals.md lines 34-38
-# Horizon (clamped years) → month band: 2 → 24-35mo, 3 → 36-47mo, 4 → 48-59mo.
-MEDIUM_TERM_SPLIT: dict[tuple[int, str], tuple[int, int]] = {
-    (2, "Low"): (0, 100),
-    (2, "Medium"): (0, 100),
-    (2, "High"): (0, 100),
-    (3, "Low"): (35, 65),
-    (3, "Medium"): (50, 50),
-    (3, "High"): (65, 35),
-    (4, "Low"): (50, 50),
-    (4, "Medium"): (70, 30),
-    (4, "High"): (80, 20),
-}
-
-
 # ── Subgroup → asset class roll-up ────────────────────────────────────────────
 # Used by step6 guardrail messaging and any future internal subgroup→class
 # roll-up. Specific fund/ISIN suggestions live elsewhere (Rebalancing's
@@ -158,23 +142,20 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
     "primary_income_from_portfolio": 6,
 }
 
-# Bucket boundaries (in months) used when classifying goals.
-# short-term:   months <  MEDIUM_TERM_BOUNDARY_MONTHS
-# medium-term:  MEDIUM_TERM_BOUNDARY_MONTHS <= months <  LONG_TERM_BOUNDARY_MONTHS
-# long-term:    months >= LONG_TERM_BOUNDARY_MONTHS
+# Bucket boundaries (in months). Since 2026-09-24 there is a SINGLE horizon line
+# at 24 months (medium-term removed): short < 24, long >= 24. Both constant names
+# are kept only because step2 and app-side additional_investment import
+# MEDIUM_TERM_BOUNDARY_MONTHS; the clean rename to a single HORIZON_BOUNDARY_MONTHS
+# is deferred to land atomically with the app import update.
 MEDIUM_TERM_BOUNDARY_MONTHS: int = 24
-LONG_TERM_BOUNDARY_MONTHS: int = 60
-# Medium-term horizon (years) clamp used to pick a row from MEDIUM_TERM_SPLIT.
-# Bands: 24-35mo → 2, 36-47mo → 3, 48-59mo → 4 (60mo+ is long-term).
-MEDIUM_TERM_HORIZON_MIN: int = 2
-MEDIUM_TERM_HORIZON_MAX: int = 4
+LONG_TERM_BOUNDARY_MONTHS: int = 24
 
 # Tax-rate thresholds (%) for routing debt allocations.
 #
 # Emergency + short-term: strict `>` comparison against 20%. Above 20% → pure
 # arbitrage (short-duration, equity-taxed); 20% or below → short_debt.
 #
-# Medium + long-term: `>=` comparison against 15%. At or above 15% →
+# Long-term: `>=` comparison against 15%. At or above 15% →
 # arbitrage_plus_income (FoF, equity-taxed); strictly below → short_debt.
 TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD: float = 20.0
 TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
@@ -188,12 +169,6 @@ TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD: float = 15.0
 # share falls below this percent is rolled into the others (applied up to twice).
 PHASE5_MIN_SUBGROUP_SHARE_PCT: int = 2
 
-# Medium-term risk-bucket thresholds (on the effective_risk_score 1-10 scale).
-# lower < score <= LOW_MAX_INCLUSIVE → Low
-# LOW_MAX_INCLUSIVE < score <= MEDIUM_MAX → Medium
-# score > MEDIUM_MAX → High
-MEDIUM_TERM_RISK_LOW_MAX_INCLUSIVE: float = 4.0
-MEDIUM_TERM_RISK_MEDIUM_MAX: float = 7.0
 
 
 # Phase 1 others-gate: at high risk with a tepid view on others, zero it out.

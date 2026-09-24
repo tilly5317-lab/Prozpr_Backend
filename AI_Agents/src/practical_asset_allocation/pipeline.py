@@ -22,7 +22,6 @@ from asset_allocation_pydantic.models import (
     MultiAssetBlock,
     Step1Output,
     Step2Output,
-    Step3Output,
     Step4Output,
     Step5Output,
     SubgroupBreakdown,
@@ -32,7 +31,6 @@ from asset_allocation_pydantic.models import (
 from asset_allocation_pydantic.steps import (
     step1_emergency,
     step2_short_term,
-    step3_medium_term,
     step5_aggregation,
 )
 from asset_allocation_pydantic.equity_subgroup_slider import (
@@ -310,15 +308,14 @@ def _split_pro_rata(total: int, asks: dict[str, int]) -> dict[str, int]:
 
 def _no_carveout_buckets(
     rebalancing_corpus: float,
-) -> tuple[Step1Output, Step2Output, Step3Output]:
-    """Zeroed emergency / short / medium outputs carrying the whole corpus
-    forward — spec 2026-09-15 §3.
+) -> tuple[Step1Output, Step2Output]:
+    """Zeroed emergency / short outputs carrying the whole corpus forward —
+    spec 2026-09-15 §3.
 
-    `asset_subgroup` (steps 2 and 3) and `risk_bucket` (step 3) are required
-    `Literal` fields with no defaults, so a zeroed instance has to name one.
-    The values below are INERT: nothing is allocated, so no row can receive
-    them. They surface only in the `trace` dict, which no production caller
-    passes.
+    `asset_subgroup` (step 2) is a required `Literal` field with no default, so a
+    zeroed instance has to name one. The value below is INERT: nothing is
+    allocated, so no row can receive it. It surfaces only in the `trace` dict,
+    which no production caller passes.
     """
     # int(), not round(): step 1 derives its own remaining_corpus with
     # `int(inp.total_corpus)`, and a fractional ELSS corpus makes the two differ
@@ -342,21 +339,12 @@ def _no_carveout_buckets(
             remaining_corpus=corpus,
             subgroup_amounts={},
         ),
-        Step3Output(
-            risk_bucket="Low",
-            asset_subgroup="short_debt",
-            goals_allocated=[],
-            total_goal_amount=0,
-            allocated_amount=0,
-            remaining_corpus=corpus,
-            subgroup_amounts={},
-        ),
     )
 
 
 def _committed_by_class(*steps) -> dict[str, float]:
-    """Rupees already allocated per asset class by the emergency / short /
-    medium steps (their ``subgroup_amounts``), rolled up via the subgroup→class
+    """Rupees already allocated per asset class by the emergency / short
+    steps (their ``subgroup_amounts``), rolled up via the subgroup→class
     table. Direct indexing is deliberate: an unmapped subgroup must fail loud,
     not be silently counted as commodity and skew the split. NOTE: the table
     maps ``multi_asset`` flatly to equity; safe here because steps 1-3 only
@@ -1041,7 +1029,7 @@ def _run_practical_long_term(
         long_term_subgroup_amounts[sg] = amt
     # Spec §B.5 step 11: the long-term debt residual routes to
     # arbitrage_plus_income BY DEFAULT; the tax-rate gate on debt routing
-    # applies to medium-term only (asset_allocation Part A.4).
+    # is the long-term threshold (asset_allocation Part A.4; medium removed 2026-09-24).
     #
     # D-A5 (spec 2026-09-14), AS AMENDED by spec 2026-09-15 §7: a debt pin is
     # still not written in directly — it sizes the sleeve and the rows are left
@@ -1129,7 +1117,7 @@ def run_practical_allocation(
     Pipeline:
       1. ELSS freeze — subtract elss_corpus to get rebalancing_corpus.
       2. Build sub-AllocationInput with total_corpus = rebalancing_corpus.
-      3. Run upstream steps 1-3 (emergency, short-term, medium-term) verbatim.
+      3. Run upstream steps 1-2 (emergency, short-term) verbatim (medium removed 2026-09-24).
       4. Convert a class preference from an OVERALL-portfolio ask into the
          long-term split, subtracting what steps 1-3 already committed
          (_lt_class_targets_from_overall) — spec 2026-09-14.
@@ -1178,22 +1166,21 @@ def run_practical_allocation(
         # (step 4 only selects >= 60 months), and a leveraged customer loses the
         # liability offset. Both are disclosed — see human_override's
         # suspended-buffer reason and `carve_outs_at_risk` on the screen.
-        s1, s2, s3 = _no_carveout_buckets(rebalancing_corpus)
+        s1, s2 = _no_carveout_buckets(rebalancing_corpus)
     else:
         s1 = step1_emergency.run(sub_inp)
         s2 = step2_short_term.run(sub_inp, s1.remaining_corpus)
-        s3 = step3_medium_term.run(sub_inp, s2.remaining_corpus)
 
     # Spec 2026-09-14 §4.1: the class preference targets the OVERALL portfolio.
-    # Steps 1-3 have already committed rupees per class (emergency / short /
-    # medium buckets), so the long-term step is asked for the REMAINDER; a
+    # Steps 1-2 have already committed rupees per class (emergency / short
+    # buckets), so the long-term step is asked for the REMAINDER; a
     # class a bucket already over-holds gets 0 here and is disclosed downstream.
     requested_lt_class_pcts: Optional[dict[str, float]] = None
     if inp.human_override is not None and inp.human_override.asset_class_requested:
         requested_lt_class_pcts = _lt_class_targets_from_overall(
             inp.human_override.asset_class_requested,
             float(inp.total_corpus),
-            _committed_by_class(s1, s2, s3),
+            _committed_by_class(s1, s2),
         )
 
     # Spec 2026-09-14 §5: a sub-group ask is an INPUT to the phase that decides
@@ -1209,7 +1196,7 @@ def run_practical_allocation(
 
     s4_practical = _run_practical_long_term(
         inp=sub_inp,
-        remaining_corpus=s3.remaining_corpus,
+        remaining_corpus=s2.remaining_corpus,
         elss_amount=inp.elss_corpus,
         non_mf_equity_input=inp.non_mf_equity_corpus,
         nfa=inp.net_financial_assets,
@@ -1224,7 +1211,6 @@ def run_practical_allocation(
         total_corpus=inp.total_corpus,
         s1=s1,
         s2=s2,
-        s3=s3,
         s4_practical=s4_practical,
         elss_amount=inp.elss_corpus,
         non_mf_equity_actual=s4_practical.non_mf_equity_actual,
@@ -1234,7 +1220,7 @@ def run_practical_allocation(
         trace.update(
             {
                 "rebalancing_corpus": rebalancing_corpus,
-                "lt_corpus_entering": s3.remaining_corpus,
+                "lt_corpus_entering": s2.remaining_corpus,
                 "inputs": {
                     "elss_corpus": float(inp.elss_corpus),
                     "non_mf_equity_corpus": float(inp.non_mf_equity_corpus),
@@ -1248,13 +1234,12 @@ def run_practical_allocation(
                 },
                 "step1_emergency": s1.model_dump(mode="json"),
                 "step2_short_term": s2.model_dump(mode="json"),
-                "step3_medium_term": s3.model_dump(mode="json"),
                 "step4_long_term": _practical_lt_result_to_dict(s4_practical),
                 "step5_aggregation": s5.model_dump(mode="json"),
             }
         )
 
-    built = _build_output(inp, s1, s2, s3, s4_practical, s5)
+    built = _build_output(inp, s1, s2, s4_practical, s5)
     reshaped, applied = apply_human_override(
         built,
         inp.human_override,
@@ -1373,7 +1358,6 @@ def _step5_aggregation_with_frozen(
     total_corpus: float,
     s1: Step1Output,
     s2: Step2Output,
-    s3: Step3Output,
     s4_practical: _PracticalLongTermResult,
     elss_amount: float,
     non_mf_equity_actual: int,
@@ -1388,7 +1372,7 @@ def _step5_aggregation_with_frozen(
     # Call upstream against total_corpus, not rebalancing_corpus, so the
     # match-flag uses the correct denominator. The upstream function does not
     # subtract anything; it just sums the four bucket dicts.
-    base = step5_aggregation.run(total_corpus, s1, s2, s3, s4_adapter)
+    base = step5_aggregation.run(total_corpus, s1, s2, s4_adapter)
 
     rows = list(base.rows)
     elss_int = int(round(elss_amount))
@@ -1429,7 +1413,6 @@ def _build_asset_class_breakdown(
     inp: PracticalAllocationInput,
     s1: Step1Output,
     s2: Step2Output,
-    s3: Step3Output,
     s4_practical: _PracticalLongTermResult,
 ) -> AssetClassBreakdown:
     """Roll up subgroup amounts to (equity, debt, others) per bucket and
@@ -1454,7 +1437,6 @@ def _build_asset_class_breakdown(
     bucket_dicts = {
         "emergency": s1.subgroup_amounts,
         "short_term": s2.subgroup_amounts,
-        "medium_term": s3.subgroup_amounts,
         "long_term": lt_subs,
     }
 
@@ -1545,7 +1527,6 @@ def _build_asset_class_breakdown(
     buckets_block = [
         _subgroup_bucket("emergency", s1.subgroup_amounts),
         _subgroup_bucket("short_term", s2.subgroup_amounts),
-        _subgroup_bucket("medium_term", s3.subgroup_amounts),
         _subgroup_bucket("long_term", lt_subs),
     ]
     subgroups_block = SubgroupBreakdown(
@@ -1565,7 +1546,6 @@ def _build_output(
     inp: PracticalAllocationInput,
     s1: Step1Output,
     s2: Step2Output,
-    s3: Step3Output,
     s4_practical: _PracticalLongTermResult,
     s5: Step5Output,
 ) -> PracticalAllocationOutput:
@@ -1599,14 +1579,6 @@ def _build_output(
         future_investment=s2.future_investment,
         subgroup_amounts=s2.subgroup_amounts,
     )
-    medium_bucket = BucketAllocation(
-        bucket="medium_term",
-        goals=[],  # MediumTermGoalAllocation is not the Goal type; keep empty
-        total_goal_amount=s3.total_goal_amount,
-        allocated_amount=s3.allocated_amount,
-        future_investment=s3.future_investment,
-        subgroup_amounts=s3.subgroup_amounts,
-    )
     long_bucket = BucketAllocation(
         bucket="long_term",
         goals=s4_practical.goals_allocated,
@@ -1633,7 +1605,7 @@ def _build_output(
 
     # 4. future_investments_summary
     future_summary: List[FutureInvestment] = []
-    for step_out in (s1, s2, s3):
+    for step_out in (s1, s2):
         if step_out.future_investment is not None:
             future_summary.append(step_out.future_investment)
     if s4_practical.future_investment is not None:
@@ -1646,7 +1618,6 @@ def _build_output(
         for d in (
             s1.subgroup_amounts,
             s2.subgroup_amounts,
-            s3.subgroup_amounts,
             s4_practical.long_term_subgroup_amounts,
         )
         for v in d.values()
@@ -1657,7 +1628,6 @@ def _build_output(
         inp,
         s1,
         s2,
-        s3,
         s4_practical,
     )
 
@@ -1682,7 +1652,7 @@ def _build_output(
 
     return PracticalAllocationOutput(
         client_summary=client_summary,
-        bucket_allocations=[emergency_bucket, short_bucket, medium_bucket, long_bucket],
+        bucket_allocations=[emergency_bucket, short_bucket, long_bucket],
         aggregated_subgroups=aggregated,
         future_investments_summary=future_summary,
         grand_total=grand_total,
