@@ -21,7 +21,7 @@ from ..tables import (
     EQUITY_SUBGROUPS,
     INTERGEN_SCORE_BOOST,
     INTERGEN_SCORE_CAP,
-    LONG_TERM_BOUNDARY_MONTHS,
+    HORIZON_BOUNDARY_MONTHS,
     MARKET_VIEW_CENTER,
     MARKET_VIEW_HALF_RANGE,
     MULTI_ASSET_EQUITY_CAP_PCT,
@@ -456,7 +456,7 @@ def _drop_small_equity_subgroups(
 def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     lt_goals = [
         g for g in inp.goals
-        if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
+        if g.time_to_goal_months >= HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
 

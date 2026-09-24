@@ -45,7 +45,7 @@ from asset_allocation_pydantic.steps.step4_long_term import (
 )
 from asset_allocation_pydantic.tables import (
     EQUITY_SUBGROUPS,
-    LONG_TERM_BOUNDARY_MONTHS,
+    HORIZON_BOUNDARY_MONTHS,
     MULTI_ASSET_EQUITY_CAP_PCT,
     STEP4_SUBGROUPS,
     SUBGROUP_TO_ASSET_CLASS,
@@ -281,7 +281,7 @@ def carve_outs_at_risk(inp: AllocationInput) -> list[str]:
     if inp.emergency_fund_needed:
         at_risk.append("emergency_fund")
     if any(
-        g.time_to_goal_months < LONG_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
+        g.time_to_goal_months < HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
         for g in inp.goals
     ):
         # Not merely a lost bucket linkage: step 4 only selects goals at or past
@@ -576,12 +576,12 @@ def _run_practical_long_term(
     the switch between the default path — which must stay byte-identical — and
     the preference path, so it gates the sleeve request, never the pins alone.
     """
-    # R-pre: filter long-term goals using LONG_TERM_BOUNDARY_MONTHS (same
+    # R-pre: filter long-term goals using HORIZON_BOUNDARY_MONTHS (same
     # operator as upstream step4_long_term.run). Emit FutureInvestment when
     # corpus is short of the goal sum (spec §B.7 edge case β).
     lt_goals = [
         g for g in inp.goals
-        if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
+        if g.time_to_goal_months >= HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
     future_investment: Optional[FutureInvestment] = None
@@ -1166,8 +1166,8 @@ def run_practical_allocation(
         # % of total_corpus with no subtraction of what steps 1-3 placed in the
         # same subgroups — can no longer double-count.
         #
-        # Deliberately accepted: a goal under 60 months leaves the plan entirely
-        # (step 4 only selects >= 60 months), and a leveraged customer loses the
+        # Deliberately accepted: a goal under 24 months leaves the plan entirely
+        # (step 4 only selects >= 24 months), and a leveraged customer loses the
         # liability offset. Both are disclosed — see human_override's
         # suspended-buffer reason and `carve_outs_at_risk` on the screen.
         s1, s2 = _no_carveout_buckets(rebalancing_corpus)

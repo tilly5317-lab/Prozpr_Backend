@@ -4,7 +4,7 @@ from typing import Literal
 
 from ..models import AllocationInput, FutureInvestment, Step2Output
 from ..tables import (
-    MEDIUM_TERM_BOUNDARY_MONTHS,
+    HORIZON_BOUNDARY_MONTHS,
     TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD,
 )
 from ..utils import round_to_100
@@ -17,12 +17,12 @@ def _route(
 
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
-    # A.1: short-term bucket is months < MEDIUM_TERM_BOUNDARY_MONTHS (24). Goals
-    # from 24 months up are medium-term; the whole short-term bucket routes
-    # through a single tax threshold (arbitrage when tax > 20%, else short_debt).
+    # A.1: short-term bucket is months < HORIZON_BOUNDARY_MONTHS (24). Goals from
+    # 24 months up are long-term; the whole short-term bucket routes through a
+    # single tax threshold (arbitrage when tax > 20%, else short_debt).
     goals_allocated = [
         g for g in inp.goals
-        if g.time_to_goal_months < MEDIUM_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
+        if g.time_to_goal_months < HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     subgroup = _route(inp.effective_tax_rate, TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD)
 

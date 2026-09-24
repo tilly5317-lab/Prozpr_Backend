@@ -37,8 +37,7 @@ from additional_investment.models import (  # type: ignore[import-not-found]  # 
     SubgroupBucketAmounts,
 )
 from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]  # noqa: E402
-    LONG_TERM_BOUNDARY_MONTHS,
-    MEDIUM_TERM_BOUNDARY_MONTHS,
+    HORIZON_BOUNDARY_MONTHS,
 )
 from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
     AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
@@ -65,28 +64,21 @@ def _months_to(asof: date, goal_date: date) -> int:
 async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
     """Return ``(short_term_fulfilled, medium_term_fulfilled)``.
 
-    short_term_fulfilled is True when every goal under MEDIUM_TERM_BOUNDARY_MONTHS
-    (24) is funded — or there are none. medium_term_fulfilled is True when every
-    goal in [24, LONG_TERM_BOUNDARY_MONTHS=60) is funded — or there are none. The
-    engine targets the nearest unfunded bucket (short → medium → long), so
-    long-term needs no flag (it is always the fallback target).
+    short_term_fulfilled is True when every goal under HORIZON_BOUNDARY_MONTHS (24)
+    is funded — or there are none. The medium bucket was removed (spec 2026-09-24):
+    goals from 24 months up are long-term, so medium_term_fulfilled is always True
+    and ``select_target_bucket`` falls through to the long-term target (whose
+    subgroup column is populated; the medium column is zero everywhere). The flag is
+    kept in the return tuple so ``select_target_bucket`` stays untouched.
     """
     snapshot = await run_cashflow_projection_for_user(user, anchor_date=asof)
     short_goals = [
         g
         for g in snapshot.goals
-        if _months_to(asof, g.goal_date) < MEDIUM_TERM_BOUNDARY_MONTHS
-    ]
-    medium_goals = [
-        g
-        for g in snapshot.goals
-        if MEDIUM_TERM_BOUNDARY_MONTHS
-        <= _months_to(asof, g.goal_date)
-        < LONG_TERM_BOUNDARY_MONTHS
+        if _months_to(asof, g.goal_date) < HORIZON_BOUNDARY_MONTHS
     ]
     short_term_fulfilled = all(g.is_funded for g in short_goals)
-    medium_term_fulfilled = all(g.is_funded for g in medium_goals)
-    return short_term_fulfilled, medium_term_fulfilled
+    return short_term_fulfilled, True
 
 
 async def build_additional_investment_input_for_user(

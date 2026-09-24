@@ -105,11 +105,10 @@ async def compute_practical_allocation_result(
 # Chat formatting
 # ---------------------------------------------------------------------------
 
-_BUCKET_ORDER = ["emergency", "short_term", "medium_term", "long_term"]
+_BUCKET_ORDER = ["emergency", "short_term", "long_term"]
 _BUCKET_TITLES = {
     "emergency": "Emergency",
     "short_term": "Short-term",
-    "medium_term": "Medium-term",
     "long_term": "Long-term",
 }
 

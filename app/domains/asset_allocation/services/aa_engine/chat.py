@@ -341,7 +341,7 @@ NEVER quote plan_target numbers in a sentence that says "you're holding",
 "you have", or "your current" — those numbers are the engine's plan, not
 their holdings. Use your_actual_holdings_today_* for any "you're holding"
 phrasing.
-  by_horizon: list of {horizon: emergency|short_term|medium_term|long_term,
+  by_horizon: list of {horizon: emergency|short_term|long_term,
               amount_inr, amount_indian, mix_pct: {equity, debt, others}}
   goals: list of {name, amount_needed_inr, amount_needed_indian,
                   horizon_months, bucket, rationale}
@@ -378,9 +378,8 @@ Plain-language translation for any engine jargon:
 - short_debt              → "short-duration debt (ultra-short / low-duration)"
 - arbitrage / arbitrage_plus_income → "arbitrage (debt-like, equity-taxed)"
 - gold_commodities        → "gold and commodities"
-- emergency / short_term / medium_term / long_term → spell out as
-  "emergency reserve", "short-term goals", "medium-term goals",
-  "long-term goals" respectively.
+- emergency / short_term / long_term → spell out as
+  "emergency reserve", "short-term goals", "long-term goals" respectively.
 
 ACTION_MODE tells you the situation. ACTION_MODE may also be `compute`,
 which is set by the system on a fresh first-turn plan (it is not produced

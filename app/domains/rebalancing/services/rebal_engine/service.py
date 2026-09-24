@@ -102,9 +102,8 @@ FUND_ACTIONS_LIMIT = 30
 
 _BUCKET_HORIZON_LABELS = {
     "emergency": "Emergency reserve",
-    "short_term": "Short-term (< 3 yrs)",
-    "medium_term": "Medium-term (3-5 yrs)",
-    "long_term": "Long-term (> 5 yrs)",
+    "short_term": "Short-term (< 2 yrs)",
+    "long_term": "Long-term (2 yrs+)",
 }
 
 
@@ -120,7 +119,7 @@ def build_goal_buckets_block(
     Shape (one entry per bucket):
       {
         "bucket": "long_term",
-        "horizon_label": "Long-term (> 5 yrs)",
+        "horizon_label": "Long-term (2 yrs+)",
         "goals": [{
           "name": <str>,
           "horizon_months": <int>,

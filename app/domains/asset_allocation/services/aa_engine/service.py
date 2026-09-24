@@ -91,7 +91,6 @@ def _short_json(obj: object, limit: int = 450) -> str:
 _STEP_MAP = [
     ("Step 1 (emergency)", "step1_emergency"),
     ("Step 2 (short-term)", "step2_short_term"),
-    ("Step 3 (medium-term)", "step3_medium_term"),
     ("Step 4 (long-term)", "step4_long_term"),
     ("Step 5 (aggregation)", "step5_aggregation"),
     ("Step 6 (guardrails)", "step6_guardrails"),
@@ -114,7 +113,7 @@ def _summarize_step(label: str, key: str, blob: Any) -> str:
             f"{label}: emergency={data.get('total_emergency')} "
             f"remaining={data.get('remaining_corpus')}"
         )
-    if key in {"step2_short_term", "step3_medium_term"}:
+    if key == "step2_short_term":
         return (
             f"{label}: goals={len(data.get('goals_allocated', []))} "
             f"allocated={data.get('allocated_amount')} "
@@ -149,11 +148,10 @@ def _summarize_step(label: str, key: str, blob: Any) -> str:
 # Chat formatting
 # ---------------------------------------------------------------------------
 
-_BUCKET_ORDER = ["emergency", "short_term", "medium_term", "long_term"]
+_BUCKET_ORDER = ["emergency", "short_term", "long_term"]
 _BUCKET_TITLES = {
     "emergency": "Emergency",
     "short_term": "Short-term",
-    "medium_term": "Medium-term",
     "long_term": "Long-term",
 }
 
@@ -203,7 +201,7 @@ def build_fallback_brief(output: GoalAllocationOutput, spine_mode: str | None) -
     )
     lines.append("")
 
-    _BUCKET_ORDER_FOR_BREAKDOWN = ["short_term", "medium_term", "long_term"]
+    _BUCKET_ORDER_FOR_BREAKDOWN = ["short_term", "long_term"]
     bucket_splits = {b.bucket: b for b in recommended.per_bucket}
     breakdown_rows = [
         (bucket_name, bucket_splits.get(bucket_name))

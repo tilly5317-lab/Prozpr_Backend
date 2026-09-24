@@ -142,13 +142,9 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
     "primary_income_from_portfolio": 6,
 }
 
-# Bucket boundaries (in months). Since 2026-09-24 there is a SINGLE horizon line
-# at 24 months (medium-term removed): short < 24, long >= 24. Both constant names
-# are kept only because step2 and app-side additional_investment import
-# MEDIUM_TERM_BOUNDARY_MONTHS; the clean rename to a single HORIZON_BOUNDARY_MONTHS
-# is deferred to land atomically with the app import update.
-MEDIUM_TERM_BOUNDARY_MONTHS: int = 24
-LONG_TERM_BOUNDARY_MONTHS: int = 24
+# Bucket boundary (in months). Since 2026-09-24 there is a SINGLE horizon line
+# at 24 months (medium-term removed): short < 24, long >= 24.
+HORIZON_BOUNDARY_MONTHS: int = 24
 
 # Tax-rate thresholds (%) for routing debt allocations.
 #

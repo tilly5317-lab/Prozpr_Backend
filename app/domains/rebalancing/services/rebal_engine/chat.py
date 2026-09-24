@@ -592,7 +592,7 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
         frame it as "just this once"; never offer to save it yourself.
 
   goal_buckets: optional list (present when goals drove the rebalance). Per bucket:
-      horizon_label (use verbatim, e.g. "Long-term (> 5 yrs)"); goals [{name,
+      horizon_label (use verbatim, e.g. "Long-term (2 yrs+)"); goals [{name,
       horizon_months, amount_needed_indian, priority}] — priority "non_negotiable"/
       "negotiable" → say "must-meet"/"flexible"; total_goal_amount_indian /
       allocated_amount_indian; planned_split_pct {equity,debt,others} the engine

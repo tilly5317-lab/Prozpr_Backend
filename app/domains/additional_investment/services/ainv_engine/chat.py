@@ -286,14 +286,12 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   cadence: always "sip_monthly" on this surface — the same plan repeats every
            month; frame amounts per-month (use each buy's
            monthly_amount_indian).
-  target_bucket: "short_term", "medium_term", or "long_term" — the horizon the
-           deploy amount was weighted toward, i.e. the customer's NEAREST UNFUNDED
-           goal. "short_term" means a goal under ~3 years is still unfunded, so the
-           money leans toward short-term subgroups; "medium_term" means short-term
-           is covered but a ~3-6 year goal is unfunded; "long_term" means the short
-           and medium goals are funded (or there are none) so the money builds the
-           long-term subgroups. This is engine context — explain the WHY in plain
-           English; never surface the raw label.
+  target_bucket: "short_term" or "long_term" — the horizon the deploy amount was
+           weighted toward, i.e. the customer's NEAREST UNFUNDED goal. "short_term"
+           means a goal under ~2 years is still unfunded, so the money leans toward
+           short-term subgroups; "long_term" means the short-term goals are funded
+           (or there are none) so the money builds the long-term subgroups. This is
+           engine context — explain the WHY in plain English; never surface the raw label.
   undeployed_inr / undeployed_indian — money that could NOT be placed (per-fund
            caps bound, or a subgroup lacked eligible funds). 0 when fully placed.
   under_deploy_note — present only when a MATERIAL amount couldn't be deployed
@@ -417,7 +415,7 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
 
   deploy_amount_inr / deploy_amount_indian — total fresh money being deployed
            (one-time; cadence is always a one-time deployment on this surface).
-  target_bucket: "short_term" | "medium_term" | "long_term" — which horizon
+  target_bucket: "short_term" | "long_term" — which horizon
            received the MOST of this money (derived from where it actually
            went). Context only — never surface the raw label.
   deficit_rows: list, one entry per subgroup the money went into:
