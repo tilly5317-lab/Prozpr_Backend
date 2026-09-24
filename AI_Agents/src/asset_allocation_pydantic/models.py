@@ -67,6 +67,11 @@ class AllocationInput(BaseModel):
     intergenerational_transfer: bool = False
     effective_tax_rate: float = Field(..., ge=0.0, le=100.0)
     goals: List[Goal] = []
+    # Months from "today" to the current Indian FY-end (Mar 31 on/after today),
+    # pre-computed by the caller. Anchors the short/long horizon split to the
+    # FY-end rather than today: a goal is short-term within LONG_TERM_BOUNDARY_MONTHS
+    # of the FY-end (spec 2026-09-24). 0 (default) = anchored to today, unchanged.
+    months_to_fy_end: int = Field(default=0, ge=0)
     market_commentary: MarketCommentaryScores = Field(
         default_factory=MarketCommentaryScores
     )

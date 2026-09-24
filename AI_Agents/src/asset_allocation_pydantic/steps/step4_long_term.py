@@ -455,7 +455,8 @@ def _drop_small_equity_subgroups(
 
 def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     lt_goals = [
-        g for g in inp.goals if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS
+        g for g in inp.goals
+        if g.time_to_goal_months >= LONG_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
 

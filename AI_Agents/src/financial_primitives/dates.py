@@ -19,6 +19,18 @@ def fy_end_after(d: date) -> date:
     return date(fy, 3, 31)
 
 
+def months_to_fy_end(today: date) -> int:
+    """Whole months from `today` to the current FY-end (`fy_end_after`), floored
+    at 0. Same calendar-month convention as goal horizons (minus one when the end
+    day precedes the start day) so the two are directly comparable; 0 when today
+    is at the FY-end day."""
+    end = fy_end_after(today)
+    months = (end.year - today.year) * 12 + (end.month - today.month)
+    if end.day < today.day:
+        months -= 1
+    return max(0, months)
+
+
 def eomonth(d: date, months_offset: int = 0) -> date:
     """End-of-month date, offset by `months_offset` months. Excel's EOMONTH equivalent."""
     total_months = d.month - 1 + months_offset

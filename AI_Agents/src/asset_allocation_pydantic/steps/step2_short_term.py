@@ -21,7 +21,8 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
     # from 24 months up are medium-term; the whole short-term bucket routes
     # through a single tax threshold (arbitrage when tax > 20%, else short_debt).
     goals_allocated = [
-        g for g in inp.goals if g.time_to_goal_months < MEDIUM_TERM_BOUNDARY_MONTHS
+        g for g in inp.goals
+        if g.time_to_goal_months < MEDIUM_TERM_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     subgroup = _route(inp.effective_tax_rate, TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD)
 

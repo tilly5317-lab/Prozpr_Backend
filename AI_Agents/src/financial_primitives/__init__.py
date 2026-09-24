@@ -3,7 +3,7 @@
 from .time_value import future_value, present_value, compound
 from .annuity import pmt, rate, ipmt, RATEConvergenceError
 from .inflation import inflate, real_rate
-from .dates import fy_for_date, fy_end_after, eomonth, year_fraction
+from .dates import fy_for_date, fy_end_after, months_to_fy_end, eomonth, year_fraction
 from .retirement import retirement_corpus_pv
 from .xirr import xirr
 from .twr import twr_wealth_index
@@ -21,6 +21,7 @@ __all__ = [
     "real_rate",
     "fy_for_date",
     "fy_end_after",
+    "months_to_fy_end",
     "eomonth",
     "year_fraction",
     "retirement_corpus_pv",
