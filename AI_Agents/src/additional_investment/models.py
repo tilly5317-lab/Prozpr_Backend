@@ -65,6 +65,9 @@ class AdditionalInvestmentInput(BaseModel):
     deploy_amount_inr: float = Field(gt=0)
     cadence: Cadence
     subgroups: list[SubgroupBucketAmounts]
+    # Investable corpus at deploy time (= total_corpus − non_mf_equity), pre-computed
+    # by the caller; decides 1 vs 2 funds per subgroup (spec 2026-09-24). 0 → N=1.
+    investable_corpus_inr: float = Field(default=0.0, ge=0)
     # Goal-funding status (from the caller). Drives ONLY the legacy single-bucket
     # path (SIP, or lumpsum without a holdings map): the deposit targets the
     # nearest unfunded goal. Defaults exist because the deficit path ignores
@@ -79,9 +82,8 @@ class AdditionalInvestmentInput(BaseModel):
     # default) preserves legacy behavior exactly.
     current_value_by_subgroup: Optional[dict[str, float]] = None
     ranked_funds: list[RankedFund]
-    # Per-fund concentration cap, as a percent of the DEPLOY amount (this SIP/lumpsum),
-    # keyed by subgroup (e.g. debt 30, multi_asset 20, others 10). A subgroup's share
-    # spreads across its top funds so no single fund exceeds its cap of the deposit.
+    # VESTIGIAL (spec 2026-09-24): per-fund caps no longer bound selection — top-1/2
+    # by corpus replaced them. Retained, still populated by the builder, ignored here.
     cap_pct_by_subgroup: dict[str, float] = Field(default_factory=dict)
     default_cap_pct: float = 10.0
     rounding_multiple_inr: int = 100
@@ -89,23 +91,14 @@ class AdditionalInvestmentInput(BaseModel):
     # split entirely, so their share renormalises onto the remaining subgroups —
     # e.g. non_mf_equities (direct stocks, no funds) and tax_efficient_equities (ELSS lock-in).
     exclude_subgroups: set[str] = Field(default_factory=set)
-    # SIP-only (spec 2026-07-05): BUY-trade ISINs of the customer's latest
-    # persisted rebalancing run, keyed by asset subgroup, ordered by BUY amount
-    # desc. The SIP selector mirrors these funds (equal split per subgroup);
-    # a missing subgroup — or None — falls back to that subgroup's rank-1
-    # ranked fund. Ignored on the LUMPSUM paths.
+    # VESTIGIAL (spec 2026-09-24): the SIP-mirrors-rebalancing selector is retired,
+    # so nothing sets this any more. Retained only because it round-trips through the
+    # persisted request_input JSON (no typed column) — cleanly removable in a later pass.
     rebal_buy_isins_by_subgroup: Optional[dict[str, list[str]]] = None
-    # SIP per-fund cap floor in rupees (amendment 2026-07-06): each SIP buy is
-    # capped at max(cap_pct × deploy_amount, this floor). The floor keeps a
-    # small monthly amount concentrated in few funds; the percentage keeps a
-    # large one from over-concentrating. 0 disables the floor (cap is then
-    # just the percentage). Caller sources the value from Rebalancing config
-    # (AINV_SIP_FUND_CAP_FLOOR_INR). Ignored on the LUMPSUM paths.
+    # VESTIGIAL (spec 2026-09-24): per-fund cap floors no longer apply — top-1/2 by
+    # corpus replaced them. Retained, still populated by the builder from Rebalancing
+    # config (AINV_{SIP,LUMPSUM}_FUND_CAP_FLOOR_INR), ignored here.
     sip_fund_cap_floor_inr: float = Field(default=0.0, ge=0)
-    # Lumpsum per-fund cap floor in rupees (amendment 2026-07-06): same
-    # max(cap_pct × deploy_amount, floor) rule for BOTH lumpsum modes
-    # (deficit-fill and legacy no-holdings). Caller sources
-    # AINV_LUMPSUM_FUND_CAP_FLOOR_INR. Ignored on the SIP path.
     lumpsum_fund_cap_floor_inr: float = Field(default=0.0, ge=0)
 
 
@@ -138,6 +131,6 @@ class AdditionalInvestmentOutput(BaseModel):
     cadence: Cadence
     deploy_amount_inr: float = Field(ge=0)
     deployed_inr: float = Field(ge=0)    # sum of buy amounts actually placed
-    undeployed_inr: float = Field(ge=0)  # deploy_amount_inr - deployed_inr (>0 when caps/fund-scarcity bind)
+    undeployed_inr: float = Field(ge=0)  # deploy_amount_inr - deployed_inr (>0 when fund scarcity binds)
     per_subgroup_target: list[SubgroupTarget]
     buys: list[FundBuy]

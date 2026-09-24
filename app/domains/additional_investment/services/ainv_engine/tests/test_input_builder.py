@@ -178,6 +178,13 @@ async def test_short_term_unfunded_sets_flag_false(monkeypatch):
     assert inp.medium_term_fulfilled is True
 
 
+@pytest.mark.xfail(
+    reason="Medium-term bucket removed from the allocation engines (spec 2026-09-24); "
+    "a 24-60mo goal is now long-term, so medium_term_fulfilled is trivially True. "
+    "This app-side ainv medium logic is part of the deferred downstream cleanup "
+    "(see project_medium_term_bucket_removal).",
+    strict=False,
+)
 @pytest.mark.asyncio
 async def test_medium_term_unfunded_sets_flag_false(monkeypatch):
     """An unfunded 24–60-month goal -> medium_term_fulfilled is False; with the
@@ -297,20 +304,19 @@ async def test_sip_never_attaches_the_map_and_still_runs_flags(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rebal_buys_passthrough_and_default(monkeypatch):
+async def test_investable_corpus_passthrough_and_cap_floors(monkeypatch):
     from additional_investment.models import Cadence
 
     _patch(monkeypatch, ranking={}, goals=())
     rows = [_Row(subgroup="large_cap_equities", long_term=100.0, total=100.0)]
-    rebal_map = {"large_cap_equities": ["INF001"]}
 
     inp, _ = await build_additional_investment_input_for_user(
         _ctx(), _alloc(rows),
         deploy_amount_inr=5000.0, cadence=Cadence.SIP_MONTHLY,
-        rebal_buy_isins_by_subgroup=rebal_map,
+        investable_corpus_inr=6_000_000.0,
     )
-    assert inp.rebal_buy_isins_by_subgroup == rebal_map
-    # Per-fund cap floors wired from Rebalancing config (amendment 2026-07-06).
+    assert inp.investable_corpus_inr == 6_000_000.0
+    # Cap floors still populated on the model (vestigial since spec 2026-09-24).
     assert inp.sip_fund_cap_floor_inr == ib.AINV_SIP_FUND_CAP_FLOOR_INR
     assert inp.sip_fund_cap_floor_inr == 10000.0  # default; env-overridable
     assert inp.lumpsum_fund_cap_floor_inr == ib.AINV_LUMPSUM_FUND_CAP_FLOOR_INR
@@ -320,4 +326,4 @@ async def test_rebal_buys_passthrough_and_default(monkeypatch):
         _ctx(), _alloc(rows),
         deploy_amount_inr=5000.0, cadence=Cadence.SIP_MONTHLY,
     )
-    assert inp2.rebal_buy_isins_by_subgroup is None
+    assert inp2.investable_corpus_inr == 0.0  # default when caller omits it

@@ -107,7 +107,8 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # 2026-07-06.
 # 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
 # (both deficit-fill and legacy modes) — same amendment.
-AINV_ENGINE_VERSION = "ainv-3.2.0"
+# 3.3.0: top-1/2 funds per subgroup by corpus; per-fund cap and SIP mirror retired.
+AINV_ENGINE_VERSION = "ainv-3.3.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -235,24 +236,36 @@ async def compute_additional_investment_result(
             blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
         )
 
-    # SIP mirrors the customer's latest rebalancing plan (spec 2026-07-05).
-    # Enhancement, never a gate: any read failure degrades to the rank-1
-    # fallback instead of blocking the recommendation.
+    # Investable corpus that decides 1 vs 2 funds per subgroup (spec 2026-09-24):
+    # total_corpus − non_mf_equity, off the practical result already computed for
+    # this cadence. Lumpsum's PAA ran on the corpus_pin (corpus + deploy), so the
+    # deploy is already folded in; SIP's ran on the real portfolio. The empty-SIP
+    # re-derivation below rebuilds on a NOTIONAL corpus, so this real figure must
+    # be captured here and reused — never re-read off the notional-sized result.
+    # max(0.0, …): the two fields are rounded independently, so an all-direct-equity
+    # customer (total ≈ non-MF) can round to a small negative, which the input model
+    # rejects (ge=0) and would spuriously gate the SIP.
+    cb = paa_outcome.result.corpus_breakdown
+    investable_corpus_inr = max(0.0, float(cb.total_corpus_inr - cb.non_mf_equity_input_inr))
+
+    # The latest rebalancing run is read only for the audit linkage
+    # (sip_rebal_run_id below). Since spec 2026-09-24 the SIP no longer mirrors
+    # that run — it deploys top-1/2 per subgroup by corpus like the lumpsum.
+    # Best-effort: a read failure just drops the linkage, never gates.
     rebal_run_id: Optional[uuid.UUID] = None
-    rebal_buys: Optional[dict[str, list[str]]] = None
     if cadence is Cadence.SIP_MONTHLY:
         try:
             rebal = await latest_buy_trades_by_subgroup(db, acting_user_id)
         except Exception:  # noqa: BLE001 — degrade, never gate
             logger.exception(
                 "additional_investment: latest rebalancing-run read failed — "
-                "falling back to rank-1 SIP selection"
+                "SIP proceeds without the rebalancing-run audit linkage"
             )
             rebal = None
         if rebal is not None:
-            rebal_run_id, rebal_buys = rebal
+            rebal_run_id, _ = rebal
             trace_line(
-                f"additional_investment SIP mirrors rebalancing run {rebal_run_id}"
+                f"additional_investment SIP audit-linked to rebalancing run {rebal_run_id}"
             )
 
     if progress:
@@ -267,7 +280,7 @@ async def compute_additional_investment_result(
             current_value_by_subgroup=(
                 snapshot.by_subgroup if snapshot is not None else None
             ),
-            rebal_buy_isins_by_subgroup=rebal_buys,
+            investable_corpus_inr=investable_corpus_inr,
         )
     except ValueError as exc:
         # The goal-funding step (cashflow) HARD-REFUSES an incomplete profile,
@@ -331,7 +344,7 @@ async def compute_additional_investment_result(
                     deploy_amount_inr=deploy_amount_inr,
                     cadence=cadence,
                     current_value_by_subgroup=None,
-                    rebal_buy_isins_by_subgroup=rebal_buys,
+                    investable_corpus_inr=investable_corpus_inr,
                 )
                 response = await asyncio.to_thread(run_additional_investment, inp)
                 trace_line(

@@ -75,7 +75,9 @@ async def test_e2e_buys_name_funds_and_deploy_accounting_balances():
     deploy = 100_000.0
     fake_input = _fake_ainv_input(deploy)
     fake_alloc = SimpleNamespace(
-        result=SimpleNamespace(aggregated_subgroups=[]),
+        result=SimpleNamespace(
+            aggregated_subgroups=[], corpus_breakdown=_fake_corpus_breakdown()
+        ),
         blocking_message=None,
     )
     user = SimpleNamespace(id=uuid.uuid4())
@@ -160,10 +162,21 @@ async def test_blocking_when_allocation_pre_check_fails():
     )
 
 
+def _fake_corpus_breakdown(total_corpus_inr=1_000_000, non_mf_equity_input_inr=0):
+    """Minimal corpus_breakdown stand-in — the service reads total_corpus_inr and
+    non_mf_equity_input_inr off it to size investable_corpus_inr (spec 2026-09-24)."""
+    return SimpleNamespace(
+        total_corpus_inr=total_corpus_inr,
+        non_mf_equity_input_inr=non_mf_equity_input_inr,
+    )
+
+
 def _fake_alloc():
     return SimpleNamespace(
         result=SimpleNamespace(
-            aggregated_subgroups=[], human_override_applied=None
+            aggregated_subgroups=[],
+            human_override_applied=None,
+            corpus_breakdown=_fake_corpus_breakdown(),
         ),
         blocking_message=None,
     )
@@ -593,7 +606,10 @@ async def test_focus_category_lands_in_request_extras(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sip_passes_rebal_buys_to_builder():
+async def test_sip_reads_latest_rebal_run_for_audit_linkage():
+    """SIP still reads the latest rebalancing run — but only for the audit linkage
+    (sip_rebal_run_id), not to mirror its funds (spec 2026-09-24). The builder no
+    longer receives a rebal-buys kwarg."""
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 
@@ -622,12 +638,14 @@ async def test_sip_passes_rebal_buys_to_builder():
 
     read_mock.assert_awaited_once()
     assert read_mock.call_args.args[1] == user.id  # acting user id
-    assert builder_mock.call_args.kwargs["rebal_buy_isins_by_subgroup"] == rebal_map
+    assert "rebal_buy_isins_by_subgroup" not in builder_mock.call_args.kwargs
     assert outcome.output is not None
 
 
 @pytest.mark.asyncio
-async def test_sip_rebal_read_failure_degrades_to_fallback_not_a_gate():
+async def test_sip_rebal_read_failure_does_not_gate():
+    """A failed latest-rebal read just drops the audit linkage; the SIP still
+    recommends (never gates), since the run no longer drives selection."""
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 
@@ -654,7 +672,6 @@ async def test_sip_rebal_read_failure_degrades_to_fallback_not_a_gate():
 
     assert outcome.output is not None
     assert outcome.blocking_message is None
-    assert builder_mock.call_args.kwargs["rebal_buy_isins_by_subgroup"] is None
 
 
 @pytest.mark.asyncio
@@ -683,4 +700,4 @@ async def test_lumpsum_never_reads_rebalancing():
         )
 
     read_mock.assert_not_called()
-    assert builder_mock.call_args.kwargs["rebal_buy_isins_by_subgroup"] is None
+    assert "rebal_buy_isins_by_subgroup" not in builder_mock.call_args.kwargs

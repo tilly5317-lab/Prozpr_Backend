@@ -34,7 +34,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - `asset_allocation_pydantic/`'s `AllocationInput` carries fields from `risk_profiling/` and a `market_commentary` score block, but imports neither — the caller wires them in.
 - `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1. Since 2026-09-14 the edge runs both ways in spirit: `phase2_asset_class_pcts` carries an optional `requested_class_pcts` that only the practical orchestrator passes, so the ideal engine stays preference-free but is no longer diff-free against its caller.
 - `Rebalancing/` imports `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec); `run_rebalancing` calls it first.
-- `additional_investment/` imports no peer agent — its `AdditionalInvestmentInput` is the contract; the app-layer adapter lifts that data from `practical_asset_allocation/`, `cashflow_statement/`, and the fund-ranking CSV.
+- `additional_investment/` imports one constant from `Rebalancing.config` (the shared 1-vs-2 fund-count threshold, spec 2026-09-24) but no peer-agent logic — its `AdditionalInvestmentInput` is the contract; the app-layer adapter lifts that data from `practical_asset_allocation/`, `cashflow_statement/`, and the fund-ranking CSV.
 - All other agents are import-independent. (`financial_primitives` is a library importable by any agent; today only `cashflow_statement/engine` does.)
 
 ## Conventions

@@ -67,7 +67,13 @@ _DERIVED_SENTINEL = uuid.uuid4()
 def _run_compute(monkeypatch, *, saved_investment_preference_id=service_mod.DERIVE_PREFERENCE_ID, persist=True, builder_error=None):
     """Patch every seam ``compute_additional_investment_result`` touches and
     run it once; returns ``(outcome, paa_persist_kwargs, ainv_persist_kwargs, paa_result)``."""
-    paa_result = SimpleNamespace(human_override_applied=None, aggregated_subgroups=[])
+    paa_result = SimpleNamespace(
+        human_override_applied=None,
+        aggregated_subgroups=[],
+        corpus_breakdown=SimpleNamespace(
+            total_corpus_inr=1_000_000, non_mf_equity_input_inr=0
+        ),
+    )
     paa_outcome = SimpleNamespace(result=paa_result, blocking_message=None)
     inp_fake = SimpleNamespace()
     response_fake = SimpleNamespace(

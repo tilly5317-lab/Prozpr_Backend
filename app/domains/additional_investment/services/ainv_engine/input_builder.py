@@ -96,7 +96,7 @@ async def build_additional_investment_input_for_user(
     deploy_amount_inr: float,
     cadence: Cadence,
     current_value_by_subgroup: dict[str, float] | None = None,
-    rebal_buy_isins_by_subgroup: dict[str, list[str]] | None = None,
+    investable_corpus_inr: float = 0.0,
 ) -> tuple[AdditionalInvestmentInput, dict[str, Any]]:
     """Return ``(input, debug_dict)`` for ``run_additional_investment(...)``.
 
@@ -167,10 +167,11 @@ async def build_additional_investment_input_for_user(
         current_value_by_subgroup=(
             current_value_by_subgroup if deficit_mode else None
         ),
-        # SIP-only: latest rebalancing run's BUY ISINs per subgroup (None on
-        # lumpsum and when the read found nothing — engine falls back to rank-1).
-        rebal_buy_isins_by_subgroup=rebal_buy_isins_by_subgroup,
-        # Per-fund cap floors — cap is max(pct × deploy, floor) per cadence.
+        # 1 vs 2 funds per subgroup by corpus (spec 2026-09-24); pre-computed by
+        # the caller as total_corpus − non_mf_equity, cadence-aware.
+        investable_corpus_inr=investable_corpus_inr,
+        # Vestigial cap knobs — retained on the model, ignored by selection since
+        # spec 2026-09-24 (kept like medium_term/max_pct to avoid builder churn).
         sip_fund_cap_floor_inr=AINV_SIP_FUND_CAP_FLOOR_INR,
         lumpsum_fund_cap_floor_inr=AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     )

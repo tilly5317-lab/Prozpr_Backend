@@ -9,8 +9,21 @@ from .models import (
     FundBuy,
     SubgroupTarget,
 )
+from Rebalancing.config import SUBGROUP_FUND_COUNT_THRESHOLD_INR  # type: ignore[import-not-found]
+
 from .ratio import compute_deficit_targets, compute_targets, dominant_bucket
-from .selection import select_funds, select_funds_sip
+from .selection import select_funds
+
+
+def _funds_per_subgroup(investable_corpus: float) -> int:
+    """1 or 2 funds per subgroup by corpus — same threshold as rebalancing.
+
+    Same NAME as Rebalancing.pipeline._funds_per_subgroup deliberately (same
+    rule), but this takes the pre-subtracted investable corpus (1 arg) where the
+    rebalancing one takes (total_corpus, non_mf_equity). Different modules,
+    different arity — kept parallel in name to signal the shared rule.
+    """
+    return 2 if investable_corpus >= float(SUBGROUP_FUND_COUNT_THRESHOLD_INR) else 1
 
 
 def _reconcile_rounding_dust(
@@ -23,8 +36,8 @@ def _reconcile_rounding_dust(
     buy so a lumpsum deploys to the exact requested amount.
 
     Bounded to at most one rounding step per subgroup target: a shortfall larger
-    than that is a genuine cap / fund-scarcity gap and must stay in
-    ``undeployed_inr`` (the caller relies on that signal), not be masked here.
+    than that is a genuine fund-scarcity gap and must stay in ``undeployed_inr``
+    (the caller relies on that signal), not be masked here.
     """
     if not buys:
         return buys
@@ -42,7 +55,8 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     """Deploy fresh money into specific funds: split by subgroup, select BUYs, frame SIP cadence.
 
     Returns the BUY list plus deployed/undeployed accounting; `undeployed_inr` is
-    non-zero when caps or fund scarcity prevent fully deploying the requested amount.
+    non-zero when fund scarcity (a subgroup with too few ranked funds, or a share
+    rounding below one multiple) prevents fully deploying the requested amount.
     """
     if inp.cadence is Cadence.LUMPSUM and inp.current_value_by_subgroup is not None:
         # Deficit fill (spec 2026-07-03): deploy into the gaps between the
@@ -59,34 +73,16 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
             inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
             inp.deploy_amount_inr, inp.exclude_subgroups,
         )
+    # Each subgroup's target goes to its top-N ranked funds, N by corpus
+    # (spec 2026-09-24); SIP and lumpsum now select identically.
+    n_funds = _funds_per_subgroup(inp.investable_corpus_inr)
+    buys = select_funds(targets, inp.ranked_funds, n_funds, inp.rounding_multiple_inr)
     if inp.cadence is Cadence.SIP_MONTHLY:
-        # SIP mirrors the latest rebalancing plan's BUY funds (spec 2026-07-05):
-        # equal split per subgroup, rank-walk fallback/overflow, per-fund cap
-        # of max(cap_pct × deploy, sip_fund_cap_floor_inr) — amendment 2026-07-06.
-        buys = select_funds_sip(
-            targets,
-            inp.ranked_funds,
-            inp.rebal_buy_isins_by_subgroup,
-            inp.deploy_amount_inr,
-            inp.cap_pct_by_subgroup,
-            inp.default_cap_pct,
-            inp.sip_fund_cap_floor_inr,
-            inp.rounding_multiple_inr,
-        )
         # deploy_amount_inr is the MONTHLY amount; per-fund amounts are monthly.
         buys = [b.model_copy(update={"monthly_amount_inr": b.amount_inr}) for b in buys]
     else:
-        buys = select_funds(
-            targets,
-            inp.ranked_funds,
-            inp.deploy_amount_inr,
-            inp.cap_pct_by_subgroup,
-            inp.default_cap_pct,
-            inp.rounding_multiple_inr,
-            cap_floor_inr=inp.lumpsum_fund_cap_floor_inr,
-        )
         # Reconcile nearest-₹100 rounding dust so the lumpsum deploys to the exact
-        # requested amount; genuine cap/scarcity shortfalls stay in undeployed_inr.
+        # requested amount; genuine fund-scarcity shortfalls stay in undeployed_inr.
         buys = _reconcile_rounding_dust(
             buys, targets, inp.deploy_amount_inr, inp.rounding_multiple_inr
         )
