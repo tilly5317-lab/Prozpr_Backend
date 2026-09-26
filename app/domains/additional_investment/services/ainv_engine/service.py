@@ -108,7 +108,9 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
 # (both deficit-fill and legacy modes) — same amendment.
 # 3.3.0: top-1/2 funds per subgroup by corpus; per-fund cap and SIP mirror retired.
-AINV_ENGINE_VERSION = "ainv-3.3.0"
+# 3.4.0: FY-end horizon anchoring live — the short-goal funding boundary counts to
+# the financial-year end (months_to_fy_end), matching the allocation engine.
+AINV_ENGINE_VERSION = "ainv-3.4.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat

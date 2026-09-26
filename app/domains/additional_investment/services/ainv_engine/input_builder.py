@@ -39,6 +39,7 @@ from additional_investment.models import (  # type: ignore[import-not-found]  # 
 from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]  # noqa: E402
     HORIZON_BOUNDARY_MONTHS,
 )
+from financial_primitives.dates import months_to_fy_end  # type: ignore[import-not-found]  # noqa: E402
 from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
     AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     AINV_SIP_FUND_CAP_FLOOR_INR,
@@ -64,18 +65,21 @@ def _months_to(asof: date, goal_date: date) -> int:
 async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
     """Return ``(short_term_fulfilled, medium_term_fulfilled)``.
 
-    short_term_fulfilled is True when every goal under HORIZON_BOUNDARY_MONTHS (24)
-    is funded — or there are none. The medium bucket was removed (spec 2026-09-24):
-    goals from 24 months up are long-term, so medium_term_fulfilled is always True
-    and ``select_target_bucket`` falls through to the long-term target (whose
-    subgroup column is populated; the medium column is zero everywhere). The flag is
-    kept in the return tuple so ``select_target_bucket`` stays untouched.
+    short_term_fulfilled is True when every short-term goal is funded — or there are
+    none. The short/long line is the 24-month horizon boundary anchored to the
+    financial-year end (``HORIZON_BOUNDARY_MONTHS + months_to_fy_end``), matching the
+    allocation engine. The medium bucket was removed (spec 2026-09-24): goals at or
+    beyond the boundary are long-term, so medium_term_fulfilled is always True and
+    ``select_target_bucket`` falls through to the long-term target (whose subgroup
+    column is populated; the medium column is zero everywhere). The flag is kept in
+    the return tuple so ``select_target_bucket`` stays untouched.
     """
     snapshot = await run_cashflow_projection_for_user(user, anchor_date=asof)
+    boundary = HORIZON_BOUNDARY_MONTHS + months_to_fy_end(asof)
     short_goals = [
         g
         for g in snapshot.goals
-        if _months_to(asof, g.goal_date) < HORIZON_BOUNDARY_MONTHS
+        if _months_to(asof, g.goal_date) < boundary
     ]
     short_term_fulfilled = all(g.is_funded for g in short_goals)
     return short_term_fulfilled, True

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 ensure_ai_agents_path()
 
 from asset_allocation_pydantic.models import AllocationInput, Goal
+from financial_primitives.dates import months_to_fy_end
 
 
 _DEFAULT_RISK_SCORE = 7.0
@@ -235,6 +236,7 @@ def build_goal_allocation_input_for_user(
     # the assertion. Sheds at most ₹99.
     total_corpus = float(int(max(total_corpus, 0.0) // 100 * 100))
 
+    today = date.today()
     goals = _map_goals(financial_goals)
     if not goals:
         defaults_applied.append("goals_empty")
@@ -260,6 +262,8 @@ def build_goal_allocation_input_for_user(
         intergenerational_transfer=False,
         effective_tax_rate=max(0.0, min(100.0, effective_tax_rate)),
         goals=goals,
+        # FY-end anchoring: engine adds this to the 24-month horizon boundary.
+        months_to_fy_end=months_to_fy_end(today),
         risk_willingness=risk_willingness,
         risk_capacity_score=risk_capacity_score,
         net_financial_assets=net_financial_assets,

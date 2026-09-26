@@ -136,4 +136,7 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #         line: short < 24mo, long >= 24mo; former medium goals (24-59mo) now
 #         allocate as long-term. The medium_term field is kept at 0; step7 / the
 #         practical output no longer emit a medium bucket.
-ENGINE_VERSION: str = "1.12.0"
+# 1.13.0: FY-end horizon anchoring wired into production (spec 2026-09-25). The
+#         input builder threads months_to_fy_end from today, so the short/long
+#         boundary counts to the financial-year end, not a flat 24 months.
+ENGINE_VERSION: str = "1.13.0"
