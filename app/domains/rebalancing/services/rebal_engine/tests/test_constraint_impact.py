@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
 
 from app.domains.ai_engine.common import ensure_ai_agents_path
 

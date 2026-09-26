@@ -13,7 +13,6 @@ composition because the plan has not chosen the funds to fill it yet.
 import pytest
 
 from app.domains.rebalancing.services.asset_class_breakdown import (
-    asset_class_mix_from_rows,
     current_mix_from_rows,
     plan_rows_from_run,
     target_asset_class_mix,

@@ -14,9 +14,6 @@ from __future__ import annotations
 
 import asyncio  # noqa: F401  (asyncio_mode=auto runs the async test below)
 import os
-import uuid
-from datetime import date
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 # Importing the app package installs the AI_Agents/src sys.path hook, so the
