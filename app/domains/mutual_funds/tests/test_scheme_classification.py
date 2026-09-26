@@ -172,3 +172,65 @@ def test_add_to_asset_class_mix_accumulates_and_conserves_total():
     # Equity: 100 + 0.725*200 = 245; Debt: 0.125*200 = 25; Others: 0.15*200 = 30. Total 300.
     assert mix == pytest.approx({"Equity": 245.0, "Debt": 25.0, "Others": 30.0})
     assert sum(mix.values()) == pytest.approx(300.0)
+
+
+# ---------------------------------------------------------------------------
+# AMFI-spelled raw labels — the second vocabulary ``mf_fund_metadata.sub_category``
+# carries next to the SEBI "Duration" names. Each must land on the same canonical
+# bucket as its SEBI twin, or the holding counts as unknown value in every rollup.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sub_category", "scheme_name", "expected"),
+    [
+        # Real dev-smoke holding: fell through to (None, None).
+        ("Short Term Fund", "HDFC Short Term Fund - Regular Plan - Growth", ("Debt", "short_debt")),
+        ("Ultra Short Term Fund", "DSP Ultra Short Term Fund - Regular Plan - IDCW Payout", ("Debt", "near_debt")),
+        ("Ultra Short to Short Term Fund", "Kotak Ultra Short to Short Term Fund - Direct Plan", ("Debt", "short_debt")),
+        ("Medium Term Fund", "DSP Medium Term Fund - Regular Plan - Monthly IDCW", ("Debt", "medium_debt")),
+        ("Medium to Long Term Fund", "HDFC Medium to Long Term Fund - Regular Plan - Growth Option", ("Debt", "medium_debt")),
+        ("Long Term Fund", "UTI Long Term Fund - Direct Plan - Growth", ("Debt", "long_duration_debt")),
+        ("10-year Constant Maturity Gilt Fund", "UTI 10 year Constant Maturity Gilt Fund - Direct Plan - Growth", ("Debt", "long_duration_debt")),
+        ("ELSS- Tax Saver Fund", "Mirae Asset ELSS Tax Saver Fund - Regular Plan - Growth", ("Equity", "tax_efficient_equities")),
+        ("Balanced Advantage Fund/ Dynamic Asset Allocation", "UTI Balanced Advantage Fund - Direct Plan - Growth", ("Equity", "medium_beta_equities")),
+        ("Multi Asset Allocation Fund", "UTI Multi Asset Allocation Fund - Direct Plan - IDCW", ("Equity", "medium_beta_equities")),
+        ("Silver ETF", "Mirae Asset Silver ETF", ("Others", "silver_commodities")),
+        ("Debt ETF", "UTI Nifty 10 yr Benchmark G-Sec ETF - Direct Plan - Growth", ("Debt", "debt_subgroup")),
+    ],
+)
+def test_term_style_raw_labels_classify_like_their_sebi_twins(sub_category, scheme_name, expected):
+    assert classify_holding(sub_category, scheme_name) == expected
+
+
+@pytest.mark.parametrize(
+    ("sub_category", "scheme_name", "expected"),
+    [
+        # Index/ETF spellings dispatch by name exactly like "Index Funds" / "Other  ETFs".
+        ("Equity ETF", "Aditya Birla Sun Life Nifty 50 ETF", ("Equity", "low_beta_equities")),
+        ("Equity ETF", "Mirae Asset Nifty EV and New Age Automotive ETF", ("Equity", "sector_equities")),
+        ("Other ETF", "Groww Nifty 50 ETF", ("Equity", "low_beta_equities")),
+        ("Other ETF", "Groww BSE Power ETF", ("Equity", "sector_equities")),
+        # FoF spellings look through to the wrapped scheme like "FoF Domestic" / "FoF Overseas".
+        ("Fund of Funds Scheme (Domestic)", "HSBC Gold ETF Fund of Fund - Regular Plan - Growth", ("Others", "gold_commodities")),
+        ("Fund of Funds Scheme (Domestic)", "Groww Nifty India Defence ETF FOF - Regular Plan", ("Equity", "sector_equities")),
+        ("Fund of Funds investing overseas", "Axis Greater China Equity Fund of Fund - Regular Plan - IDCW Option", ("Equity", "china_equities")),
+        ("Fund of Funds investing overseas", "HSBC Global Emerging Markets Fund - Direct Plan - Growth", ("Others", "others_fofs")),
+    ],
+)
+def test_term_style_index_etf_and_fof_labels_dispatch_by_name(sub_category, scheme_name, expected):
+    assert classify_holding(sub_category, scheme_name) == expected
+
+
+def test_lookthrough_accepts_term_style_hybrid_labels():
+    # The same raw labels must also split in the asset-class rollup, or the
+    # donut and chat count a balanced-advantage fund as 100% equity.
+    assert asset_class_lookthrough("Balanced Advantage Fund/ Dynamic Asset Allocation") == {
+        "Equity": 0.50,
+        "Debt": 0.50,
+    }
+    assert asset_class_lookthrough("Multi Asset Allocation Fund") == {
+        "Equity": 0.725,
+        "Debt": 0.125,
+        "Others": 0.15,
+    }
