@@ -222,3 +222,102 @@ async def test_save_returns_blocked_when_engine_blocks(monkeypatch):
     )
     assert resp.blocked == "Zero corpus."
     assert resp.ok is False
+
+
+# ---------------------------------------------------------------------------
+# Read model — where the customer sits today (frontend spec 2026-09-20 §3.1)
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(by_subgroup=None, unknown_inr=0.0):
+    from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+        HoldingsSnapshot,
+    )
+
+    return HoldingsSnapshot(by_subgroup=dict(by_subgroup or {}), unknown_inr=unknown_inr)
+
+
+def _current(by_subgroup=None, unknown_inr=0.0):
+    from app.domains.profile.services.screen_preference_service import current_block
+
+    return current_block(_snapshot(by_subgroup, unknown_inr))
+
+
+def test_current_holdings_are_shares_of_the_settable_part_and_sum_to_100():
+    # D6: the frozen ELSS is dropped and the rest rescaled — 300k + 100k held
+    # in settable rows reads 75 / 25, not 60 / 20 of the 500k portfolio.
+    cur = _current(
+        {"low_beta_equities": 300_000, "short_debt": 100_000, "tax_efficient_equities": 100_000}
+    )
+    pct = {h.subgroup: h.pct_of_total for h in cur.holdings}
+    assert pct["low_beta_equities"] == 75.0
+    assert pct["short_debt"] == 25.0
+    assert sum(pct.values()) == pytest.approx(100.0)
+
+
+def test_excluded_pct_is_the_frozen_share_of_the_whole_portfolio():
+    # ...BEFORE the rescale: 100k of the 500k held, not of the 400k kept.
+    cur = _current(
+        {
+            "low_beta_equities": 300_000,
+            "short_debt": 100_000,
+            "tax_efficient_equities": 60_000,
+            "non_mf_equities": 40_000,
+        }
+    )
+    assert cur.excluded_pct == 20.0
+
+
+def test_current_lists_every_settable_row_and_reads_zero_for_one_not_held():
+    from app.domains.profile.services.screen_preference_service import (
+        _settable_subcategory_ids,
+    )
+
+    cur = _current({"low_beta_equities": 100_000})
+    assert [h.subgroup for h in cur.holdings] == _settable_subcategory_ids()
+    pct = {h.subgroup: h.pct_of_total for h in cur.holdings}
+    assert pct["low_beta_equities"] == 100.0
+    assert pct["gold_commodities"] == 0.0
+
+
+def test_held_categories_the_screen_cannot_set_count_as_excluded():
+    # Decision 2026-09-26: a dividend-yield fund (settable nowhere on this
+    # screen) and value whose metadata never classified are excluded like the
+    # frozen rows, not dropped. Dropping them would inflate every settable row
+    # and report nothing excluded for a customer 40% in such a fund.
+    cur = _current(
+        {"low_beta_equities": 200_000, "dividend_equities": 200_000}, unknown_inr=100_000
+    )
+    pct = {h.subgroup: h.pct_of_total for h in cur.holdings}
+    assert pct["low_beta_equities"] == 100.0
+    assert cur.excluded_pct == 60.0
+
+
+def test_current_is_empty_when_nothing_settable_is_held():
+    # 100% ELSS: no settable part to distribute, so `holdings` is empty (the
+    # screen reads that as "nothing to show") and everything is excluded.
+    cur = _current({"tax_efficient_equities": 100_000})
+    assert cur.holdings == []
+    assert cur.excluded_pct == 100.0
+
+
+def test_current_is_empty_and_excludes_nothing_when_nothing_is_held():
+    cur = _current({})
+    assert cur.holdings == []
+    assert cur.excluded_pct == 0.0
+
+
+def test_current_shares_are_rounded_to_a_tenth():
+    # The catalog's precision; the frontend re-spreads the tenths to 100.
+    cur = _current({"low_beta_equities": 1, "short_debt": 1, "gold_commodities": 1})
+    pct = {h.subgroup: h.pct_of_total for h in cur.holdings}
+    assert pct["low_beta_equities"] == 33.3
+
+
+def test_current_is_optional_on_the_get_response():
+    # Frontend spec 2026-09-20 D8: absent, null and empty all read as "no today".
+    from app.domains.profile.schemas import ScreenPreferenceGetResponse
+
+    resp = ScreenPreferenceGetResponse(recommendation={"class_mix": {}}, subcategories=[])
+    assert resp.current is None
+    assert "current" in resp.model_dump()

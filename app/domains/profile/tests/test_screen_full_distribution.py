@@ -57,6 +57,16 @@ def _user(goals=None):
     )
 
 
+async def _no_holdings(db, user_id):
+    """A customer holding nothing. `screen_read_model` reads the holdings
+    snapshot for the today block; the tests below are not about it."""
+    from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+        HoldingsSnapshot,
+    )
+
+    return HoldingsSnapshot()
+
+
 # A near-term goal is the carve-out this path can actually produce:
 # `emergency_fund_needed` is hardcoded False in the input builder (not yet a DB
 # column), so a 17-month goal is what makes the neutral run's short-term bucket
@@ -258,12 +268,13 @@ class TestZerosRoundTripOnGet:
                 activated_at=None,
             )
 
-        original = svc.active_preference_row
+        originals = (svc.active_preference_row, svc.load_holdings_snapshot)
         svc.active_preference_row = fake_active
+        svc.load_holdings_snapshot = _no_holdings
         try:
             resp = asyncio.run(svc.screen_read_model(None, _user()))
         finally:
-            svc.active_preference_row = original
+            svc.active_preference_row, svc.load_holdings_snapshot = originals
         return {p.subgroup: p.pct_of_total for p in resp.saved.pins}
 
     def test_a_saved_zero_comes_back_as_zero(self):
@@ -443,12 +454,13 @@ class TestCarveOutsAtRiskOnTheGetResponse:
         async def no_saved_row(db, user_id):
             return None
 
-        original = svc.active_preference_row
+        originals = (svc.active_preference_row, svc.load_holdings_snapshot)
         svc.active_preference_row = no_saved_row
+        svc.load_holdings_snapshot = _no_holdings
         try:
             return asyncio.run(svc.screen_read_model(None, _user(goals)))
         finally:
-            svc.active_preference_row = original
+            svc.active_preference_row, svc.load_holdings_snapshot = originals
 
     def test_it_is_empty_when_nothing_is_at_risk(self):
         """The screen then renders nothing. `emergency_fund_needed` is hardcoded
@@ -496,3 +508,65 @@ class TestCarveOutsAtRiskOnTheGetResponse:
         recorded = carve_outs_at_risk(_screen_input(_NEAR_TERM_GOALS))
 
         assert warned == recorded
+
+
+class TestWhereTheCustomerSitsTodayOnTheGetResponse:
+    """Frontend spec 2026-09-20 §3.1 (D1): the today bar and the TODAY column
+    read one additive `current` block off this GET — no second endpoint. It is
+    built from the same holdings snapshot the lump-sum deficit fill already
+    reads, so the two surfaces cannot value the same holdings differently."""
+
+    def _get(self, loader):
+        import asyncio
+
+        from app.domains.profile.services import screen_preference_service as svc
+
+        async def no_saved_row(db, user_id):
+            return None
+
+        originals = (svc.active_preference_row, svc.load_holdings_snapshot)
+        svc.active_preference_row = no_saved_row
+        svc.load_holdings_snapshot = loader
+        try:
+            user = _user()
+            return user, asyncio.run(svc.screen_read_model(None, user))
+        finally:
+            svc.active_preference_row, svc.load_holdings_snapshot = originals
+
+    def test_the_snapshot_is_read_for_this_user_and_placed_on_the_response(self):
+        from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+            HoldingsSnapshot,
+        )
+
+        seen = {}
+
+        async def fake_loader(db, user_id):
+            seen["user_id"] = user_id
+            return HoldingsSnapshot(
+                by_subgroup={
+                    "low_beta_equities": 300_000,
+                    "short_debt": 100_000,
+                    "tax_efficient_equities": 100_000,
+                }
+            )
+
+        user, resp = self._get(fake_loader)
+        assert seen["user_id"] == user.id
+        pct = {h.subgroup: h.pct_of_total for h in resp.current.holdings}
+        assert pct["low_beta_equities"] == 75.0
+        assert resp.current.excluded_pct == 20.0
+
+    def test_a_snapshot_failure_degrades_to_no_today_block(self, caplog):
+        """The block is an adornment the screen degrades gracefully without
+        (D8). The split, recommendation and catalog it exists to be compared
+        against must still arrive — and the failure must not be silent to us."""
+        import logging
+
+        async def broken_loader(db, user_id):
+            raise RuntimeError("holdings unavailable")
+
+        with caplog.at_level(logging.WARNING):
+            _, resp = self._get(broken_loader)
+        assert resp.current is None
+        assert resp.subcategories
+        assert any(r.levelno == logging.WARNING for r in caplog.records)

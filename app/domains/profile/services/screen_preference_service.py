@@ -12,12 +12,19 @@ run back out for the screen. No engine or DB change — see
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Optional
 
+from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+    HoldingsSnapshot,
+    load_holdings_snapshot,
+)
 from app.domains.additional_investment.services.lumpsum_reasoning import subgroup_label
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.mutual_funds.services.investment_preferences import ResolvedPreferences
 from app.domains.profile.schemas import (
+    ScreenCurrent,
+    ScreenCurrentHolding,
     ScreenPreferenceGetResponse,
     ScreenSaved,
     ScreenSaveResponse,
@@ -40,6 +47,8 @@ from practical_asset_allocation.human_override import (  # noqa: E402
     FROZEN_SUBGROUPS,
     SETTABLE_SUBGROUPS,
 )
+
+logger = logging.getLogger(__name__)
 
 _CLASSES = ("equity", "debt", "others")
 _SUM_TOLERANCE = 0.5
@@ -147,6 +156,41 @@ def subcategory_catalog(out) -> list[ScreenSubcategory]:
     return items
 
 
+def current_block(snapshot: HoldingsSnapshot) -> ScreenCurrent:
+    """Where the customer sits today, in the screen's own rows (frontend spec
+    2026-09-20 §3.1, D6).
+
+    ``holdings`` carries every settable row as a share of the SETTABLE part of
+    what they hold, so it sums to 100 (to the tenth — the frontend re-spreads
+    the rounding). Everything else is ``excluded_pct``, a share of the WHOLE
+    portfolio before that rescale: the frozen rows (ELSS, direct stock) the
+    caption names, AND any held category this screen cannot set — dividend
+    yield, silver, China, value whose metadata never classified (decision
+    2026-09-26). Folding those in with the frozen rows keeps the figures
+    honest: dropping them would inflate every settable row and report nothing
+    excluded, so a customer 40% in a dividend fund would read as holding none
+    of it.
+
+    Nothing settable held → ``holdings`` is empty, which the screen reads as
+    "nothing to show" (D8).
+    """
+    total = snapshot.total_inr
+    settable = {sg: snapshot.by_subgroup.get(sg, 0.0) for sg in _settable_subcategory_ids()}
+    settable_total = sum(settable.values())
+    holdings = (
+        [
+            ScreenCurrentHolding(
+                subgroup=sg, pct_of_total=round(amt * 100.0 / settable_total, 1)
+            )
+            for sg, amt in settable.items()
+        ]
+        if settable_total > 0
+        else []
+    )
+    excluded = round((total - settable_total) * 100.0 / total, 1) if total > 0 else 0.0
+    return ScreenCurrent(holdings=holdings, excluded_pct=excluded)
+
+
 async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
     """GET payload: the saved split, the class-level recommendation, and the
     subcategory catalog — from one neutral run. Everything is already % of
@@ -182,6 +226,21 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
             pins.append({"subgroup": sg, "pct_of_total": float(pct_of_total)})
         saved = ScreenSaved(class_mix=mix, pins=pins, saved_at=row.activated_at)
 
+    # Frontend spec 2026-09-20 D1: today's holdings ride on this GET, off the
+    # same snapshot the lump-sum deficit fill reads. The block is an adornment
+    # the screen degrades gracefully without (D8), and the split it exists to
+    # be compared against must still arrive — so a failed read costs the today
+    # bar, not the screen. WARNING, so the failure reaches us, not just them.
+    snapshot: Optional[HoldingsSnapshot]
+    try:
+        snapshot = await load_holdings_snapshot(db, user.id)
+    except Exception:
+        logger.warning(
+            "investment-preferences: holdings snapshot failed; sending no today block",
+            exc_info=True,
+        )
+        snapshot = None
+
     return ScreenPreferenceGetResponse(
         saved=saved,
         recommendation={"class_mix": class_rec},
@@ -190,6 +249,7 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
         # from, through the engine's own helper — so this warning and the §9
         # record attached after the run can never name different facts.
         carve_outs_at_risk=carve_outs_at_risk(inp),
+        current=current_block(snapshot) if snapshot is not None else None,
     )
 
 

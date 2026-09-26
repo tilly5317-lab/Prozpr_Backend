@@ -114,6 +114,24 @@ class ScreenSaved(BaseModel):
 CarveOutAtRisk = Literal["emergency_fund", "near_term_goals", "liability_offset"]
 
 
+class ScreenCurrentHolding(BaseModel):
+    """One settable subcategory's share of what the customer holds TODAY — a
+    % of the settable part of the portfolio, so the list sums to 100."""
+
+    subgroup: str
+    pct_of_total: float
+
+
+class ScreenCurrent(BaseModel):
+    """Where the customer sits today, in the screen's own rows (frontend spec
+    2026-09-20 §3.1). ``excluded_pct`` is what ``holdings`` leaves out, as a
+    share of the WHOLE portfolio before the rescale — see
+    ``screen_preference_service.current_block`` for what is excluded and why."""
+
+    holdings: list[ScreenCurrentHolding]
+    excluded_pct: float
+
+
 class ScreenPreferenceGetResponse(BaseModel):
     """GET payload: the customer's saved split (or null), Prozpr's class-level
     recommendation, and the settable-subcategory list."""
@@ -132,6 +150,10 @@ class ScreenPreferenceGetResponse(BaseModel):
     Defaults to empty, so the frontend can ship its panel ahead of this and
     degrade to showing nothing — silence, not a warning shown to people it does
     not apply to."""
+    current: Optional[ScreenCurrent] = None
+    """Where the customer sits today (frontend spec 2026-09-20 §3.1). Null when
+    the holdings could not be read: the screen then shows no today bar and no
+    TODAY column, exactly as it does for a customer holding nothing (D8)."""
 
 
 class ScreenSaveResponse(BaseModel):
