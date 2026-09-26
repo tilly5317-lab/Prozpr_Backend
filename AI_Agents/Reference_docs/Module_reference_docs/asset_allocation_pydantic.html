@@ -289,14 +289,13 @@ The module lives at [`AI_Agents/src/asset_allocation_pydantic/`](../../src/asset
 
 "Ideal" because it plans the *target* portfolio from first principles — what a customer with this risk score and these goals *should* hold — independent of what they actually own today. The holdings-aware variant ([`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py)) wraps this engine; rebalancing wraps that. This is the bottom of that stack.
 
-The pipeline ([`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py)) runs seven steps in strict order, each consuming the previous step's leftover corpus:
+The pipeline ([`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py)) runs six steps in strict order (the files keep their historical numbers, so there is no step 3 — the medium-term bucket was removed 2026-09-24), each consuming the previous step's leftover corpus:
 
 ```mermaid
 flowchart TB
     IN([AllocationInput<br/>risk score · corpus · goals · market view]) --> S1
     S1["<b>Step 1 · emergency</b><br/>carve out cushion + negative-NFA"] -->|remaining_corpus| S2
-    S2["<b>Step 2 · short-term</b><br/>goals &lt; 24 mo → one debt bucket"] -->|remaining_corpus| S3
-    S3["<b>Step 3 · medium-term</b><br/>24–59 mo → equity/debt split by horizon×risk"] -->|remaining_corpus| S4
+    S2["<b>Step 2 · short-term</b><br/>goals below the FY-anchored boundary → one debt bucket"] -->|remaining_corpus| S4
     S4["<b>Step 4 · long-term</b><br/>Phase 1–5: asset classes → multi-asset → equity subgroups"] --> S5
     S5["<b>Step 5 · aggregation</b><br/>roll subgroups up across buckets"] --> S6
     S6["<b>Step 6 · guardrails</b><br/>validate only — flags, never mutates"] -.state.-> OUT
@@ -340,11 +339,11 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 
 | Field | Type | Notes |
 |---|---|---|
-| `effective_risk_score` | `float` 1–10 | drives Phase-1/Phase-5 bounds (looked up via `ceil_to_half`) and the medium-term risk bucket (direct threshold, `≤4`→Low, `≤7`→Medium, else High) |
+| `effective_risk_score` | `float` 1–10 | drives Phase-1/Phase-5 bounds (looked up via `ceil_to_half`) |
 | `total_corpus` | `float ≥ 0` | the money being allocated; coerced to `int` in step 1 |
 | `goals` | `list[Goal]` | each has `time_to_goal_months`, `amount_needed`, `goal_priority`, `investment_goal`; horizon decides its bucket |
 | `monthly_household_expense` | `float ≥ 0` | emergency cushion = months × this |
-| `effective_tax_rate` | `float` 0–100 | routes debt: arbitrage vs short_debt (short-term `>20%`, medium/long `≥15%`) |
+| `effective_tax_rate` | `float` 0–100 | routes debt: arbitrage vs short_debt (short-term `>20%`, long `≥15%`) |
 | `market_commentary` | `MarketCommentaryScores` | 1–10 views per asset class + equity subgroup; **defaults to neutral 5.0** so a caller that supplies nothing gets the un-tilted plan |
 | `multi_asset_composition` | `MultiAssetFundComposition` | equity/debt/others split of the multi-asset fund; default `(65, 25, 10)` |
 | `net_financial_assets` | `float?` | if **negative**, its magnitude is carved into the emergency bucket (debt) |
@@ -361,7 +360,7 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 | Field | Type | Notes |
 |---|---|---|
 | `client_summary` | `ClientSummary` | echoed inputs (age, score, corpus, goals, cushion months) |
-| `bucket_allocations` | `list[BucketAllocation]` | one per bucket (emergency / short / medium / long): goals, `allocated_amount`, `subgroup_amounts`, plus `rationale` + per-goal `goal_rationales` (step-7 prose) |
+| `bucket_allocations` | `list[BucketAllocation]` | one per bucket (emergency / short / long): goals, `allocated_amount`, `subgroup_amounts`, plus `rationale` + per-goal `goal_rationales` (step-7 prose) |
 | `aggregated_subgroups` | `list[AggregatedSubgroupRow]` | the money-by-subgroup grid, one row per non-zero subgroup, in canonical order |
 | `future_investments_summary` | `list[FutureInvestment]` | per bucket where goals exceeded available corpus — "wealth to create through monthly investing", never framed as a shortfall |
 | `grand_total` | `float` | equals step 5's `grand_total`, which reconciles against `round_to_100(total_corpus)` |
@@ -376,17 +375,18 @@ Each step also has its own `StepNOutput` model, which is what makes single-step 
 
 ## 5. How it thinks
 
-Seven steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py). `run_allocation_with_state` returns both the final output **and** a `state` dict keyed by step name — invaluable for tracing.
+Six steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py) — there is no step 3 (the medium-term bucket was removed 2026-09-24; step files keep their historical numbers). `run_allocation_with_state` returns both the final output **and** a `state` dict keyed by step name — invaluable for tracing.
 
 | Step | File | What it decides |
 |---|---|---|
 | **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); adds the magnitude of any **negative** `net_financial_assets`; always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
-| **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals `< 24 mo`; the whole bucket routes through **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Corpus runs out mid-bucket ⇒ `FutureInvestment`. |
-| **3 · medium-term** | [`step3_medium_term.py`](../../src/asset_allocation_pydantic/steps/step3_medium_term.py) | goals `24–59 mo`; per goal, `MEDIUM_TERM_SPLIT[(horizon_years, risk_bucket)]` gives equity/debt %. A very bearish equities view (`≤3`) forces the conservative `Low` column. Equity → `multi_asset`, debt → `arbitrage_plus_income` (tax `≥15%`) or `short_debt`. |
+| **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals below the FY-anchored short/long boundary (`HORIZON_BOUNDARY_MONTHS + months_to_fy_end`); the whole bucket routes through **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Corpus runs out mid-bucket ⇒ `FutureInvestment`. |
 | **4 · long-term** | [`step4_long_term.py`](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | the heavy step (see below) — five phases from asset-class bounds down to the equity-subgroup split. |
 | **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == round_to_100(total_corpus)`). It flags — it does not assert. |
 | **6 · guardrails** | [`step6_guardrails.py`](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | **validation only** — checks Phase-1 asset-class bounds, Phase-5 equity-subgroup shares, and subgroup→asset-class mapping. Collects `violations_found`; **never mutates the plan.** |
 | **7 · presentation** | [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | assembles `GoalAllocationOutput`, builds the planned-vs-recommended breakdowns, and calls `rationale_fn` for the prose. |
+
+> **The short/long boundary is FY-anchored.** Steps 2 and 4 split goals at `HORIZON_BOUNDARY_MONTHS + months_to_fy_end` — the flat 24-month line pushed out to the current financial-year end. `AllocationInput.months_to_fy_end` defaults to 0 (engine tests and the no-preference goldens see the flat line); the production `aa_engine/input_builder.py` threads the real offset from today, so the boundary is live for customers (spec 2026-09-25).
 
 ### Inside step 4 (the core)
 
@@ -491,7 +491,7 @@ The LLM seam is `rationale_fn` — a `Callable` passed into `run_allocation`. Wh
 | [`__init__.py`](../../src/asset_allocation_pydantic/__init__.py) | flat public API: `run_allocation`, `AllocationInput`, `Goal`, `GoalAllocationOutput` |
 | [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py) | `run_allocation` + `run_allocation_with_state` — runs steps 1–7, returns output (+ state dict) |
 | [`models.py`](../../src/asset_allocation_pydantic/models.py) | all pydantic I/O: `AllocationInput`, `Goal`, `GoalAllocationOutput`, and every `StepNOutput` |
-| [`tables.py`](../../src/asset_allocation_pydantic/tables.py) | static lookups + tuneable constants: `PHASE1_RISK_BOUNDS`, `PHASE5_EQUITY_SUBGROUP_BOUNDS`, `MEDIUM_TERM_SPLIT`, tax thresholds, LLM settings. **Asset-class only — no fund/ISIN mappings.** |
+| [`tables.py`](../../src/asset_allocation_pydantic/tables.py) | static lookups + tuneable constants: `PHASE1_RISK_BOUNDS`, `PHASE5_EQUITY_SUBGROUP_BOUNDS`, `HORIZON_BOUNDARY_MONTHS`, tax thresholds, LLM settings. **Asset-class only — no fund/ISIN mappings.** |
 | [`utils.py`](../../src/asset_allocation_pydantic/utils.py) | `round_to_100` (round-half-up, negatives→0), `ceil_to_half` (risk-score lookup key), `proportional_scale` |
 | [`equity_subgroup_slider.py`](../../src/asset_allocation_pydantic/equity_subgroup_slider.py) | single source of truth for the v2 average-based equity-subgroup slider; **shared with the practical engine** |
 | [`steps/step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) … [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | one file per step |
@@ -521,7 +521,7 @@ App-layer companions (not part of the engine, but its chat-flow caller):
 - **The LLM must never state a computed number.** The rationale payload ships pre-formatted `*_indian` strings for the model to copy; the prompt bans it from converting amounts. Keep that when editing `_rationale_llm.py`.
 - **`recommended` ≠ current holdings.** The `AliasChoices("recommended", "actual")` alias is historical; it is the deployment plan, not what the customer owns.
 - **Symbols are re-used cross-agent.** `practical_asset_allocation` imports steps 1–3 + 5, step-4 helpers, the slider, `tables`, `utils.round_to_100`, and the public models. Renaming any of them needs a cross-`src/` sweep — this is the one blessed cross-agent edge, so it is easy to break silently.
-- **`market_commentary` defaults to neutral.** The current gateway leaves the view at `5.0` across the board, so the shipped plan is the un-tilted one. If you wire a live house view in, remember `equities ≤ 3` forces medium-term to the conservative column and Phase-5 gates drop `value`/`sector` equities at views `≤ 7` — a change to the view materially changes the plan, and the Logics thesis doc must move with it.
+- **`market_commentary` defaults to neutral.** The current gateway leaves the view at `5.0` across the board, so the shipped plan is the un-tilted one. If you wire a live house view in, remember it tilts the Phase-2 asset-class split and the Phase-5 gates drop `value`/`sector` equities at views `≤ 7` — a change to the view materially changes the plan, and the Logics thesis doc must move with it.
 
 ---
 

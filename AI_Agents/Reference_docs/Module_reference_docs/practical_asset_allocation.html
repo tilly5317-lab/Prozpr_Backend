@@ -385,14 +385,15 @@ One more parity subtlety: `aggregated_subgroups` can gain **up to two extra rows
 
 ## 5. How it thinks
 
-`run_practical_allocation` is a five-move pipeline. Moves 1–3 and 5 are thin; **move 4 (`_run_practical_long_term`, Excel R157–R222) is the whole point of the module.**
+`run_practical_allocation` wraps thin upstream carve-out moves and aggregation around one heavy step, then snaps the plan to current holdings. **Move 4 (`_run_practical_long_term`, Excel R157–R222) is the whole point of the module.**
 
 | # | Step | Where | What it does |
 |---|---|---|---|
 | 0 | **ELSS freeze** | [`pipeline.py` `run_practical_allocation`](../../src/practical_asset_allocation/pipeline.py) | `rebalancing_corpus = total_corpus − elss_corpus`; if negative → `InfeasibleGoalError` (edge α). Build a sub-`AllocationInput` with `total_corpus = rebalancing_corpus`. |
-| 1–3 | **emergency / short / medium** | `step1_emergency` · `step2_short_term` · `step3_medium_term` (upstream, verbatim) | run on the *rebalancing* corpus — locked ELSS is never available to fund the near-term buckets. |
+| 1–2 | **emergency / short** | `step1_emergency` · `step2_short_term` (upstream, verbatim) | run on the *rebalancing* corpus — locked ELSS is never available to fund the near-term buckets. No medium bucket (removed 2026-09-24); goals at/beyond the FY-anchored boundary fall to the long-term step. |
 | 4 | **long-term, rewritten** | [`_run_practical_long_term`](../../src/practical_asset_allocation/pipeline.py) | ELSS floor → practical others-gate → amounts → **NFA-banded non-MF cap** → multi-asset block → **v2 average-based equity slider**. See below. |
 | 5 | **aggregate + freeze** | [`_step5_aggregation_with_frozen`](../../src/practical_asset_allocation/pipeline.py) | wraps upstream `step5_aggregation.run` (against `total_corpus`, not the rebalancing corpus) and appends the two frozen rows so `grand_total` reconciles to the *full* corpus. |
+| 6 | **snap-to-current** | [`allocation_snap.py`](../../src/practical_asset_allocation/allocation_snap.py) | final pass (spec 2026-09-21): a subgroup whose move is under 0.5% of the portfolio keeps its current amount; the freed residual lands on the largest un-snapped mover, conserving `grand_total`. Frozen sleeves never snapped; strict no-op without a current allocation (goldens byte-identical). Rewrites only `aggregated_subgroups`. |
 
 ### The three holdings-aware moves inside step 4
 
@@ -522,10 +523,11 @@ App-layer companions (not part of the engine, but where its inputs come from and
 ## 8. Invariants & landmines
 
 - **Emit plain `int`/`float`, never `Decimal`.** Practical amounts are int/float-rounded. Downstream Rebalancing rows are `Decimal`; the bridge coerces each lifted subgroup total with `Decimal(str(r.total))` (`Rebalancing/pipeline.py`, `_assign_subgroup_targets`). Pre-wrapping in `Decimal` here breaks that seam. (Per module CLAUDE.md.)
-- **Rebalancing runs on the *rebalancing* corpus; step 5 reconciles on the *total*.** Steps 1–3 and step 4 see `total_corpus − elss_corpus`. But `_step5_aggregation_with_frozen` calls upstream `step5_aggregation.run(total_corpus, …)` and appends the two frozen rows, so `grand_total` matches the *full* corpus (± ₹500 tolerance). Don't "simplify" either denominator — they are deliberately different.
+- **Rebalancing runs on the *rebalancing* corpus; step 5 reconciles on the *total*.** Steps 1–2 and step 4 see `total_corpus − elss_corpus`. But `_step5_aggregation_with_frozen` calls upstream `step5_aggregation.run(total_corpus, …)` and appends the two frozen rows, so `grand_total` matches the *full* corpus (± ₹500 tolerance). Don't "simplify" either denominator — they are deliberately different.
 - **ELSS is frozen, never a fresh buy.** `elss_amount_frozen` is counted toward the long-term equity budget (as a floor) and surfaced as `tax_efficient_equities`, but the engine never routes new money into it, and it is *excluded* from the slider's share denominator.
 - **The NFA-band default (33%) fires when `net_financial_assets is None`.** `_nfa_banded_max_non_mf_equity_pct(None)` returns the bottom band defensively. If your caller can pass a real NFA, pass it — a `None` silently gives the tightest cap.
 - **Advisor override wins (Option A).** When `max_non_mf_equity_pct_client_input` is set, it replaces the computed band outright — the internal `_computed` still records the band, but `_considered` (the override) is what's used and echoed into `corpus_breakdown.max_non_mf_equity_pct_computed`.
+- **The short/long horizon boundary is FY-anchored.** Inherited from `AllocationInput.months_to_fy_end`: step 2 and the long-term step split goals at `HORIZON_BOUNDARY_MONTHS + months_to_fy_end` (`pipeline.py`), pushing the flat 24-month line out to the current financial-year end. Defaults to 0 for engine-only callers and the no-preference goldens; the production builder threads the real offset from today (spec 2026-09-25).
 - **The slider's share denominator is the TOTAL equity pool, not the MF residual.** `residual_equity_corpus_final + multi_asset_amount + non_mf_equity_actual` (Excel R194+R187+R181). Using just the residual would drop the wrong subgroups. This is the practical engine's key divergence from the ideal slider — the shared helper takes it as `share_denominator`.
 - **First blessed cross-agent import — upstream names are a contract.** A rename of any imported `asset_allocation_pydantic` symbol (steps, phase helpers, slider, `round_to_100`) is a cross-module change requiring a sweep here and in Rebalancing.
 - **Persist is best-effort, never blocking** (app layer). `paa_engine/chat.py` swallows a persistence failure so it can't block the reply or the downstream rebalancing step.

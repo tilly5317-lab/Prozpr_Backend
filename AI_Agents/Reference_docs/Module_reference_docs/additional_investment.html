@@ -305,8 +305,8 @@ flowchart TD
     LEG --> BUCKET2["select_target_bucket<br/>→ split-driving horizon"]
     BUCKET --> CAD{cadence?}
     BUCKET2 --> CAD
-    CAD -->|LUMPSUM| SEL["<b>select_funds</b><br/>rank-1 first, spill down,<br/>per-fund cap"]
-    CAD -->|SIP_MONTHLY| SIP["<b>select_funds_sip</b><br/>mirror rebal BUY ISINs,<br/>rank-walk fallback"]
+    CAD -->|LUMPSUM| SEL["<b>select_funds</b><br/>top 1-2 funds/subgroup<br/>by corpus"]
+    CAD -->|SIP_MONTHLY| SIP["<b>select_funds</b> (same)<br/>identical top 1-2 split<br/>on the monthly amount"]
     SEL --> REC["_reconcile_rounding_dust<br/>(lumpsum only)"]
     SIP --> OUT([AdditionalInvestmentOutput<br/>buys + per-subgroup targets<br/>+ deployed / undeployed])
     REC --> OUT
@@ -356,7 +356,7 @@ The engine's own input is a plain pydantic object, but the app gateway is chat-t
 | `cap_pct_by_subgroup` / `default_cap_pct` | `dict` / `float` | per-fund concentration cap as a **percent of the deploy amount** (`default_cap_pct` defaults to `10.0`) |
 | `exclude_subgroups` | `set[str]` | ineligible subgroups get zero weight/deficit; their share renormalises onto the rest |
 | `rebal_buy_isins_by_subgroup` | `dict[str, list[str]]?` | **SIP-only:** the latest persisted rebalancing run's BUY ISINs per subgroup, BUY-amount desc. Ignored on lumpsum |
-| `sip_fund_cap_floor_inr` / `lumpsum_fund_cap_floor_inr` | `float` | per-fund rupee floor: the cap becomes `max(cap_pct × deploy, floor)`. `0` (engine default) disables it; the caller sources `₹10k` / `₹40k` from `Rebalancing/config` |
+| `sip_fund_cap_floor_inr` / `lumpsum_fund_cap_floor_inr` | `float` | **vestigial** (spec 2026-09-24): still accepted on the model but ignored — selection no longer caps |
 
 > **Money is `float`, not `Decimal`.** This engine follows the allocation family (`asset_allocation_pydantic` / `practical_asset_allocation`), not Rebalancing's `Decimal` — there is no tax-lot arithmetic, and buys round to the nearest ₹100, so float precision is bounded. Do not "upgrade" it to `Decimal`.
 
@@ -376,7 +376,7 @@ The engine's own input is a plain pydantic object, but the app gateway is chat-t
 | `per_subgroup_target` | `list[SubgroupTarget]` | each subgroup's renormalised `ratio` and `target_inr` (identity: `target_inr = ratio × deploy` in *both* modes) |
 | `buys` | `list[FundBuy]` | the substance: `recommended_fund`, `isin`, `sub_category`, `asset_subgroup`, `amount_inr`, `monthly_amount_inr?` (set for SIP), and a `reason` string |
 
-The `reason` on each `FundBuy` is one of three deterministic strings, so downstream code can tell *why* a fund was chosen: `"Recommended fund for this category"` (lumpsum), `"Matches your rebalancing plan"` (SIP mirror stage), `"Top-ranked fund for this category"` (SIP rank-walk stage).
+The `reason` on each `FundBuy` is the deterministic string `"Recommended fund for this category"` (both cadences now share `select_funds`). For lumpsum the app layer replaces it with holdings-aware reasoning downstream; the engine's own string is a plain ranked-pick marker.
 
 ---
 
@@ -388,10 +388,9 @@ The whole engine is three small pure modules orchestrated by [`pipeline.py`](../
 |---|---|---|
 | **1 · Mode switch** | [`pipeline.py`](../../src/additional_investment/pipeline.py) `run_additional_investment` | `LUMPSUM` + `current_value_by_subgroup` set ⇒ deficit-fill; else legacy bucket targeting |
 | **2a · Deficit split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_deficit_targets` | `deficit_i = max(0, ideal_i − current_i)` over eligible subgroups; split the deploy proportionally to positive deficits. All at/above ideal ⇒ fall back to the ideal ratios |
-| **2b · Legacy split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_targets` + `select_target_bucket` | pick the nearest unfunded horizon (short → medium → long, long is the fallback); weight subgroups by that bucket's column. Emergency is never a target |
+| **2b · Legacy split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_targets` + `select_target_bucket` | pick the nearest unfunded horizon (short → long — the medium branch is vestigial since the bucket was removed; long is the fallback); weight subgroups by that bucket's column. Emergency is never a target |
 | **3 · Horizon label** | [`ratio.py`](../../src/additional_investment/ratio.py) `dominant_bucket` | deficit mode only: apportion each target's rupees to short/medium/long by its subgroup composition; the biggest wins (long-term breaks ties) |
-| **4a · Lumpsum select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds` | per subgroup, rank-1 first, spill down; each buy `≤ max(cap_pct × deploy, cap_floor)`, rounded to nearest ₹100 |
-| **4b · SIP select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds_sip` | **Stage 1** equal-split across the rebalancing BUY ISINs that exist in *this* subgroup's ranking; **Stage 2** walk the ranking with any remainder. Same per-fund cap |
+| **4 · Fund select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds` | per subgroup, split the target equally across the top 1 or 2 ranked funds (`_funds_per_subgroup` by `investable_corpus_inr`: 2 at/above ₹50L, else 1), rounded to nearest ₹100. No per-fund cap. **Both cadences use this** (spec 2026-09-24) |
 | **5 · Dust reconcile** | [`pipeline.py`](../../src/additional_investment/pipeline.py) `_reconcile_rounding_dust` | lumpsum only: push the sub-₹100-per-subgroup rounding residual into the largest buy so the lumpsum deploys to the exact requested amount. A larger gap stays in `undeployed_inr` |
 
 ### A lumpsum deploy, end to end (worked example)
@@ -425,20 +424,20 @@ ratio_i = deficit_i / total_deficit ;  target = ratio × 200000
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
-  <div class="label">Step 4a · select_funds → buys  (per-fund cap ≈ ₹80,000, illustrative)</div>
-<pre><code>high_beta_equities  ₹1,20,000 → Fund A ₹80,000 (cap) + Fund B ₹40,000
-low_beta_equities     ₹60,000 → Fund C ₹60,000
-debt                  ₹20,000 → Fund D ₹20,000
+  <div class="label">Step 4 · select_funds → buys  (top 2 funds/subgroup, investable ≥ ₹50L)</div>
+<pre><code>high_beta_equities  ₹1,20,000 → Fund A ₹60,000 + Fund B ₹60,000
+low_beta_equities     ₹60,000 → Fund C ₹30,000 + Fund D ₹30,000
+debt                  ₹20,000 → Fund E ₹10,000 + Fund F ₹10,000
 
 deployed_inr = 2,00,000   undeployed_inr = 0
 target_bucket = long_term   (dominant_bucket label)</code></pre>
 </div>
 
-Every buy is a rank-ordered fund from `ranked_funds`; nothing was invented. The biggest *gap* (high-beta, ₹1.2L below ideal) drew the most money, and the per-fund cap forced it across two funds instead of one. The horizon label is derived *after* the split, purely for the customer-facing narrative.
+Every buy is a rank-ordered fund from `ranked_funds`; nothing was invented. The biggest *gap* (high-beta, ₹1.2L below ideal) drew the most money; the top-2 fund count splits each subgroup's target equally across its two best-ranked funds. The horizon label is derived *after* the split, purely for the customer-facing narrative.
 
-### The SIP path differs only in the selector
+### The SIP path uses the same selector
 
-SIP applies the **same** subgroup split (legacy bucket targeting on the profile corpus), then `select_funds_sip` mirrors the latest rebalancing run: it equal-splits each subgroup's target across the rebalancing BUY ISINs that also appear in that subgroup's ranking (`reason = "Matches your rebalancing plan"`), and walks the ranking for any remainder or when there are no matches (`reason = "Top-ranked fund for this category"`). A stale or wrong-subgroup ISIN simply drops out. The cadence switches the selector and the `monthly_amount_inr` framing — **never the ratio**.
+SIP applies the **same** subgroup split (legacy bucket targeting on the profile corpus), then the **same** `select_funds` as lumpsum: it splits each subgroup's target equally across the top 1 or 2 ranked funds by corpus. The old SIP-mirrors-rebalancing path (`select_funds_sip`, matching the latest rebalancing run's BUY ISINs) was retired with the per-fund cap (spec 2026-09-24). The cadence now switches only the `monthly_amount_inr` framing — **never the ratio, and no longer the selector**.
 
 ---
 
@@ -466,7 +465,7 @@ The LLM lives strictly **outside** this package, in the app-layer gateway:
 |---|---|
 | [`pipeline.py`](../../src/additional_investment/pipeline.py) | entry `run_additional_investment` — split-mode switch, SIP cadence framing, dust reconcile, output assembly |
 | [`ratio.py`](../../src/additional_investment/ratio.py) | the two subgroup splits: `compute_deficit_targets` / `dominant_bucket` (deficit), `compute_targets` / `select_target_bucket` (legacy) |
-| [`selection.py`](../../src/additional_investment/selection.py) | BUY-only fund selection: `select_funds` (lumpsum) and `select_funds_sip` (SIP), plus `_cap_amount` and nearest-₹100 `_round_to_multiple` |
+| [`selection.py`](../../src/additional_investment/selection.py) | BUY-only fund selection: `select_funds` (both cadences, top 1-2 per subgroup) + nearest-₹100 `_round_to_multiple` |
 | [`models.py`](../../src/additional_investment/models.py) | pydantic I/O: `AdditionalInvestmentInput`/`Output`, `SubgroupBucketAmounts`, `RankedFund`, `SubgroupTarget`, `FundBuy`, `Cadence`, `TargetBucket` |
 | [`__init__.py`](../../src/additional_investment/__init__.py) | public re-exports (entry + I/O models) — the app-layer contract surface |
 | [`CLAUDE.md`](../../src/additional_investment/CLAUDE.md) | the context-layer note for this engine (invariants, gotchas) |
@@ -485,14 +484,14 @@ App-layer companions (not part of the engine, but where its input is built and o
 
 ## 8. Invariants & landmines
 
-- **Pure engine — keep it that way.** No LLM, no DB, no file/network I/O, no `import` of a peer agent. Cap percentages *and* floors are passed **in** (`models.py`); the caller sources the percentages from `Rebalancing/tables.py` (`cap_pct_for`, with the `OTHERS_FUND_CAP_PCT` default from `config.py`) and the floors from `Rebalancing/config`. One source of truth, and the engine stays unit-testable without a fixture.
+- **Pure engine — keep it that way.** No LLM, no DB, no file/network I/O; the only peer import is the `SUBGROUP_FUND_COUNT_THRESHOLD_INR` constant from `Rebalancing.config` (the shared 1-vs-2 fund-count threshold). Cap percentages and floors are still passed **in** (`models.py`) but are **vestigial since spec 2026-09-24** — selection ignores them; the fund count decides how many funds a subgroup buys. The engine stays unit-testable without a fixture.
 - **Two split modes, one switch** ([`pipeline.py`](../../src/additional_investment/pipeline.py) `run_additional_investment`). `LUMPSUM` **and** `current_value_by_subgroup is not None` ⇒ deficit-fill; everything else ⇒ legacy bucket targeting. `None` holdings preserves legacy behaviour *exactly* — don't change that default's meaning.
 - **Deficit-fill iterates the IDEAL rows, not holdings** ([`ratio.py`](../../src/additional_investment/ratio.py) `compute_deficit_targets`). Look up current with `current_by_subgroup.get(sg, 0.0)` — never the reverse. A held subgroup with no ideal row gets no buy and no error (it's overweight by construction). All-at/above-ideal ⇒ fall back to ideal ratios, never deploy nothing.
 - **`target_bucket` is a *label* in deficit mode, not the split driver.** The split is by gap; `dominant_bucket` only names the horizon that received the most money (long-term breaks ties). Don't wire it back into the split.
-- **Per-fund cap keys off the DEPLOY amount, not the corpus** ([`selection.py`](../../src/additional_investment/selection.py) `_cap_amount`). Both cadences: `cap = max(cap_pct × deploy, floor)`. Engine floor default is `0` (percentage-only); the caller injects ₹10k (SIP) / ₹40k (lumpsum) so a small deployment never fragments down the ranking. Deliberate divergence from Rebalancing.
+- **Fund count keys off `investable_corpus_inr`, not the deploy amount** ([`pipeline.py`](../../src/additional_investment/pipeline.py) `_funds_per_subgroup`): 2 funds/subgroup at/above ₹50L, else 1 — the same threshold and constant as Rebalancing. The per-fund cap and its `_cap_amount` helper were retired (spec 2026-09-24); a subgroup's target now splits equally across those 1-2 funds.
 - **`exclude_subgroups` get zero weight/deficit and the share renormalises** ([`ratio.py`](../../src/additional_investment/ratio.py)). Caller policy excludes `non_mf_equities` (direct stocks, no funds) and `tax_efficient_equities` (ELSS lock-in). They are handed to the engine, **not** hand-dropped from the subgroup list.
-- **Under-deployment is a signal, not a bug.** Caps or fund scarcity leave a gap in `undeployed_inr`; `_reconcile_rounding_dust` only absorbs the sub-₹100-per-subgroup rounding residual, never a genuine cap/scarcity shortfall — the caller relies on that distinction.
-- **SIP equal-split can slightly overshoot the monthly amount** ([`selection.py`](../../src/additional_investment/selection.py) `select_funds_sip`). Each mirror share rounds independently, so the total can edge over the target. **Accepted, characterization-tested** — do not "fix" it.
+- **Under-deployment is a signal, not a bug.** Fund scarcity (too few ranked funds, or a per-fund share rounding below ₹100) leaves a gap in `undeployed_inr`; `_reconcile_rounding_dust` only absorbs the sub-₹100-per-subgroup rounding residual, never a genuine scarcity shortfall — the caller relies on that distinction.
+- **Equal-split can slightly overshoot on SIP** ([`selection.py`](../../src/additional_investment/selection.py) `select_funds`). Each per-fund share rounds independently, so the total can edge over the target; the lumpsum path absorbs this in `_reconcile_rounding_dust`, but SIP does not. **Accepted, characterization-tested** — do not "fix" it.
 - **Money is `float`.** Follows the allocation family, not Rebalancing's `Decimal`. No tax-lot math here; buys round to the nearest ₹100 (`_round_to_multiple`, halves up), so precision is bounded.
 
 ---
@@ -505,7 +504,7 @@ App-layer companions (not part of the engine, but where its input is built and o
   |---|---|
   | [`test_ratio.py`](../../src/additional_investment/Testing/test_ratio.py) | both splits: deficit proportions + fallback, legacy bucket weighting, exclude-renormalise, `dominant_bucket` |
   | [`test_selection.py`](../../src/additional_investment/Testing/test_selection.py) | lumpsum caps, rank-spill, nearest-₹100 rounding, cap floor |
-  | [`test_selection_sip.py`](../../src/additional_investment/Testing/test_selection_sip.py) | SIP mirror stage, rank-walk fallback, dust consolidation, the accepted overshoot |
+  | [`test_selection_sip.py`](../../src/additional_investment/Testing/test_selection_sip.py) | SIP fund selection, dust consolidation, the accepted overshoot |
   | [`test_pipeline.py`](../../src/additional_investment/Testing/test_pipeline.py) | end-to-end mode switch, dust reconcile, `undeployed_inr` accounting |
   | [`test_models.py`](../../src/additional_investment/Testing/test_models.py) | pydantic contract (constraints, defaults) |
 

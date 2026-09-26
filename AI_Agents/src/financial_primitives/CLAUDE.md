@@ -7,7 +7,7 @@ Pure functions, no LLM calls and no I/O. The public API is flat — consumers im
 - `time_value.py` — time-value-of-money primitives (`future_value`, `present_value`, `compound`).
 - `annuity.py` — annuity/loan primitives over `numpy_financial` (`pmt`, `rate`, `ipmt`, `RATEConvergenceError`).
 - `inflation.py` — inflation primitives (`inflate`, `real_rate`).
-- `dates.py` — Indian Financial Year date helpers (`fy_for_date`, `fy_end_after`, `eomonth`, `year_fraction`).
+- `dates.py` — Indian Financial Year date helpers (`fy_for_date`, `fy_end_after`, `months_to_fy_end`, `eomonth`, `year_fraction`). `months_to_fy_end(today)` is the FY-anchor offset the allocation input builders add to the short/long horizon boundary.
 - `retirement.py` — closed-form retirement corpus (`retirement_corpus_pv`).
 - `xirr.py` — extended IRR for irregular dated cashflows (`xirr`).
 - `twr.py` — time-weighted-return wealth index (`twr_wealth_index`).

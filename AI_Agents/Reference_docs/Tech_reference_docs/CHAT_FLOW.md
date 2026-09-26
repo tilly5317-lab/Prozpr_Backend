@@ -1,6 +1,6 @@
 # How the Prozpr AI Chat Works — A Flow Guide
 
-> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder. *(Last reconciled with the code: 2026-09-19.)*
+> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder. *(Last reconciled with the code: 2026-09-25.)*
 
 ---
 
@@ -116,7 +116,7 @@ Reads the question and recent history and labels it as one of the nine types, wi
 ### Asset Allocation
 Answers **"what should I invest in?"** It looks at the customer's financial profile — income, savings, goals, time horizons, and risk tolerance — and produces a target **mix of asset classes** (how much in equity, debt, gold, cash).
 
-It works goal-by-goal: it sets aside an emergency fund, puts short-term goals (money needed in 1–3 years) into safer/liquid assets, medium-term goals into balanced choices, and long-term goals into growth assets. The customer's **risk score** (calculated separately as part of their profile) is a key input here.
+It works goal-by-goal: it sets aside an emergency fund, puts short-term goals (money needed within about two years — the line is drawn at the end of the financial year) into safer/liquid assets, and longer-term goals into growth assets. The customer's **risk score** (calculated separately as part of their profile) is a key input here.
 
 The customer sees a clear recommended mix — typically a **pie chart plus a table** — with a short explanation of the reasoning. The result is **saved** so it can be referenced later (for example, by rebalancing).
 

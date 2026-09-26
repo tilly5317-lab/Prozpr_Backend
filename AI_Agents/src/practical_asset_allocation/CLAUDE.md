@@ -1,6 +1,6 @@
 # AI_Agents/src/practical_asset_allocation — holdings-aware goal-based allocation
 
-Wraps `asset_allocation_pydantic` with four extra corpus inputs (`mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`) and reimplements the long-term step with ELSS freeze, non-MF equity NFA-banded cap, and the v2 sliding equity-subgroup threshold. The one engine that honours standing customer preferences.
+Wraps `asset_allocation_pydantic` with four extra corpus inputs (`mf_corpus`, `non_mf_equity_corpus`, `elss_corpus`, `max_non_mf_equity_pct_client_input`) and reimplements the long-term step with ELSS freeze, non-MF equity NFA-banded cap, and the v2 sliding equity-subgroup threshold. The short/long horizon boundary it inherits from `AllocationInput` is FY-anchored (`months_to_fy_end`). The one engine that honours standing customer preferences.
 
 ## Entry / contract
 - Entry `run_practical_allocation(input) → PracticalAllocationOutput`.
@@ -11,6 +11,7 @@ Wraps `asset_allocation_pydantic` with four extra corpus inputs (`mf_corpus`, `n
 - `__init__.py` — public re-exports (entry, I/O models, `CorpusBreakdown`, `InfeasibleGoalError`).
 - `pipeline.py` — all models, the orchestrator, and the long-term R157–R222 math in one file (not yet split per step).
 - `human_override.py` — preference model, exclusion rule, post-run report. Pure: no I/O, DB or LLM.
+- `allocation_snap.py` — snap-to-current, the last practical step: a subgroup whose move is under `SNAP_THRESHOLD_PCT` (0.5%) of the portfolio keeps its current amount; the freed residual lands on the largest un-snapped mover. Pure; strict no-op without a current allocation.
 - `Master_testing/`, `Testing/` — dev harness + pytest suite (both gitignored).
 
 ## Gotchas & invariants
@@ -23,6 +24,7 @@ Wraps `asset_allocation_pydantic` with four extra corpus inputs (`mf_corpus`, `n
 - **`asset_allocation_pydantic` is no longer diff-free** — `phase2_asset_class_pcts` takes an optional `requested_class_pcts` this orchestrator supplies. The ideal engine stays Prozpr's preference-free recommendation; preferences shape only the practical plan.
 - **FIRST explicit cross-agent import** under `AI_Agents/src/` (spec §B.1): steps 1–3 + step5, selected `step4_long_term` helpers, `equity_subgroup_slider`, `tables`, `utils`. Those upstream names are a contract — a rename in any is a cross-module change. (`Rebalancing` then imports from here.)
 - **Practical amounts are int/float-rounded, not `Decimal`.** The `Rebalancing` bridge coerces each lifted subgroup total with `Decimal(str(r.total))` — emit plain numbers here, do not pre-wrap.
+- **Snap-to-current runs last and conserves the tradable total** (`allocation_snap.py`, spec 2026-09-21). A subgroup whose proposed move is under 0.5% of the portfolio keeps its current amount (no trade for tiny drift); the freed residual is absorbed by the single largest un-snapped mover, not spread proportionally, so `grand_total` is unchanged. Frozen sleeves are never snapped, and with no current allocation it is a strict no-op — the golden/contract suite stays byte-identical. It rewrites only `aggregated_subgroups` (what rebalancing and the sim read); `asset_class_breakdown` / `bucket_allocations` still show the pre-snap plan.
 
 ## Testing
 - `PYTHONPATH=AI_Agents/src pytest AI_Agents/src/practical_asset_allocation/Testing -v` — the spec §B.9 scenarios.
