@@ -16,6 +16,7 @@ turn_context); imported lazily by the module-service to trigger @register.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import uuid
@@ -59,6 +60,8 @@ from app.domains.asset_allocation.services.aa_engine.overrides import (
     with_chat_overrides,
 )
 from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services import preference_view as pref_view
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
 from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
@@ -291,7 +294,10 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
            is covered but a ~3-6 year goal is unfunded; "long_term" means the short
            and medium goals are funded (or there are none) so the money builds the
            long-term subgroups. This is engine context — explain the WHY in plain
-           English; never surface the raw label.
+           English; never surface the raw label. EXCEPTION: when active_preferences
+           is present, target_bucket is NOT why the split looks the way it does —
+           do not use it, or the goal-funded story above, to explain the split; see
+           active_preferences below for the real reason.
   undeployed_inr / undeployed_indian — money that could NOT be placed (per-fund
            caps bound, or a subgroup lacked eligible funds). 0 when fully placed.
   under_deploy_note — present only when a MATERIAL amount couldn't be deployed
@@ -317,6 +323,13 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in
                     one sentence that the split already reflects it.
@@ -325,6 +338,22 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     requested_indian, change_indian (the difference the lean
                     makes against our own recommended split).
       save_hint — the customer can keep this lean as a standing preference.
+
+  active_preferences — optional; present when the customer's SAVED investment
+           preference (set on the preferences page, not this turn) shaped this
+           deploy. This is what actually decided the split — see the compute
+           mode instructions below for how to attribute it. Fields:
+             choices: list[str] — their preference in their own words ("60%
+                    equity / 30% debt / 10% commodity", "30% of your portfolio
+                    in large-cap equity"). Quote verbatim; never restate as
+                    engine categories, never re-base a percentage, and never
+                    add a category or a percentage that is not in this list.
+             applied: true — always true when this block is present.
+             categories_set: bool — true when the customer also pinned
+                    sub-categories inside the classes; false when they set
+                    only the equity/debt/gold split and left categories to us.
+             shortfall_reason: string|null — present when the preference could
+                    not be fully honoured; state it in one plain sentence.
 
 When CUSTOMER_RECORD contains `category_ask`, the customer asked for a specific fund
 category — address it EXPLICITLY (never ignore it):
@@ -344,10 +373,13 @@ category — address it EXPLICITLY (never ignore it):
     excluded_by_policy           — we never deploy fresh chat money there (e.g.
                                    ELSS 3-year lock-in): name the picks, state
                                    the policy.
-    plan_by_goals                — (SIP) the plan deploys by goals; name the
-                                   category picks alongside.
+    plan_by_goals                — (SIP) the plan deploys by goals — unless
+                                   active_preferences is present, in which case
+                                   it follows the split they saved instead; name
+                                   the category picks alongside either way.
   ALWAYS close the category topic with the caveat: concentrating in one
-  category is not what we'd recommend — the plan spreads by their goals.
+  category is not what we'd recommend — the plan spreads by their goals (or,
+  when active_preferences is present, follows the split they saved).
   When `buys` exist, the deployment plan is STILL the substance of the reply —
   lead with the headline and NAME the buys as usual; the category discussion
   supplements the plan, never replaces it. NEVER offer to execute a
@@ -367,13 +399,19 @@ classifier). Per-mode behavior:
                ₹50,000 a month." State deploy_amount_indian and the per-month
                cadence inside that first sentence, then NAME the 1-3 biggest
                buys with their monthly_amount_indian, and give one
-               plain-English line on why the split leans the way it does
-               (derived from target_bucket). Name at least the largest fund(s)
-               when there are any — the customer asked where their money is
-               going; if buys is empty, nothing could be deployed right now, so
-               relay the under_deploy_note plainly and do NOT fabricate funds.
-               When under_deploy_note is present, close with it. Length: 6-10
-               sentences (fewer when there is a single buy).
+               plain-English line on why the split leans the way it does. When
+               active_preferences is present, that line attributes the split
+               to the preferences they saved (quoting `choices`), never to
+               target_bucket; if `categories_set` is false, add that they set
+               the equity/debt/gold split and we chose the categories inside
+               each, settable any time on their preferences page. Otherwise
+               derive the line from target_bucket as described above. Name at
+               least the largest fund(s) when there are any — the customer
+               asked where their money is going; if buys is empty, nothing
+               could be deployed right now, so relay the under_deploy_note
+               plainly and do NOT fabricate funds. When under_deploy_note is
+               present, close with it. Length: 6-10 sentences (fewer when
+               there is a single buy).
 
                When `preference` is present the customer asked for a different
                lean: lead with the buys as usual, then in one or two sentences
@@ -437,6 +475,13 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     format — context only; never quote its keys or `target_pct`
                     verbatim, restate it in customer words ("more equity", "no
                     US funds").
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
       not_applied — words we could not map to anything we shape by.
       already_saved — true: the customer restated their saved preference; say in
                     one sentence that the split already reflects it.
@@ -571,6 +616,7 @@ def build_ainv_facts_pack(
     deficit_rows: list[dict[str, Any]] | None = None,
     category_ask: dict[str, Any] | None = None,
     preference: dict[str, Any] | None = None,
+    active_preferences: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Curated facts the formatter LLM may cite. Customer-tellable only — no ISIN.
 
@@ -646,6 +692,10 @@ def build_ainv_facts_pack(
         # A preference what-if turn (S2c): what the customer's lean changed
         # against OUR recommended split, plus the save hint.
         facts["preference"] = preference
+    if active_preferences is not None:
+        # A SAVED preference shaped this run's target_bucket — the prompt must
+        # attribute the split to it, not to a goal horizon.
+        facts["active_preferences"] = active_preferences
     return facts
 
 
@@ -782,13 +832,24 @@ async def _format_or_fallback_ainv(
     deficit_facts: list[dict[str, Any]] | None = None,
     category_ask: dict[str, Any] | None = None,
     preference: dict[str, Any] | None = None,
+    practical_result: Any = None,
 ) -> str:
     """Run the SHARED formatter on the engine output; fall back to the
     deterministic fund-naming brief on FormatterFailure. Deficit runs (lumpsum)
     get the gap-fill body prompt + deficit_rows facts. When the customer asked
     about a specific category, ``category_ask`` is threaded into both the facts
     pack and the deterministic fallback so neither path ever ignores it;
-    ``preference`` rides the same way on a what-if turn."""
+    ``preference`` rides the same way on a what-if turn.
+
+    ``practical_result`` is the run's practical allocation, used only to check
+    whether a SAVED preference shaped this plan. Gated to SIP: the lumpsum body
+    prompt never documents ``active_preferences``, and a deficit-fill deploy
+    targets gaps, not the saved split."""
+    active_preferences = (
+        pref_view.active_preferences_for(ctx.user_ctx, practical_result)
+        if output.cadence is Cadence.SIP_MONTHLY
+        else None
+    )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_ainv_facts_pack(
@@ -796,6 +857,7 @@ async def _format_or_fallback_ainv(
             deficit_rows=deficit_facts,
             category_ask=category_ask,
             preference=preference,
+            active_preferences=active_preferences,
         ),
         body_prompt=(
             _AINV_DEFICIT_FORMATTER_BODY
@@ -945,6 +1007,7 @@ async def _ordinary_deploy(
         deficit_facts=outcome.deficit_facts,
         category_ask=category_ask,
         preference=preference,
+        practical_result=outcome.practical_result,
     )
     # Surface the cadence so the chat "View plan" button can open the matching
     # SIP / lump-sum popup — but NO run id: the "Save preference" pill (the run
@@ -1088,6 +1151,7 @@ async def _handle_preference_what_if_ainv(
         deficit_facts=requested.deficit_facts,
         category_ask=category_ask,
         preference=preference,
+        practical_result=requested.practical_result,
     )
     return ChatHandlerResult(
         text=text,
@@ -1132,8 +1196,20 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         return await _relay_ainv(ctx, _MSG_ASK_AMOUNT)
 
     if preference_asks:
-        return await _handle_preference_what_if_ainv(
-            ctx, amount, cadence, preference_asks, raw_category, category
+        # Chat runs no preference what-ifs (ruling 2026-09-17). But the customer
+        # DID ask to deploy money, so serve that — the same mixed-intent rule
+        # rebalancing's first turn follows — and let the formatter close with the
+        # pointer. `_handle_preference_what_if_ainv` is the re-enable seam.
+        capture_preference_unserved(
+            flow="additional_investment",
+            failure_class="redirected_to_preferences",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
         )
+        result = await _ordinary_deploy(
+            ctx, amount, cadence, raw_category, category,
+            preference={"pointer": PREFERENCE_REDIRECT_MESSAGE},
+        )
+        return dataclasses.replace(result, show_preferences_pill=True)
 
     return await _ordinary_deploy(ctx, amount, cadence, raw_category, category)

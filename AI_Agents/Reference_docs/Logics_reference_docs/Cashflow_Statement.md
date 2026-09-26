@@ -1,7 +1,7 @@
 # Ask PI · Cashflow & Goal-Planning Thesis
 
 *Why we project the way we do — and what the corpus picture is really telling you*
-*Thesis version 1.2 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.3 · Internal & client reference · Last updated: July 2026*
 
 ---
 

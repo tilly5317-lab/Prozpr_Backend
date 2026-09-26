@@ -81,6 +81,25 @@ def _alloc(rows) -> SimpleNamespace:
     return SimpleNamespace(aggregated_subgroups=rows)
 
 
+def _alloc_with_preference(rows) -> SimpleNamespace:
+    """`_alloc` for a plan a stated preference shaped."""
+    return SimpleNamespace(
+        aggregated_subgroups=rows,
+        human_override_applied=SimpleNamespace(
+            preference_applied=True, shortfall_reason=None
+        ),
+    )
+
+
+def _fake_flags(*, short: bool, medium: bool):
+    """An async `_goal_funding_flags` stand-in returning fixed flags."""
+
+    async def _flags(user, asof):
+        return short, medium
+
+    return _flags
+
+
 def _patch(monkeypatch, *, ranking=None, goals=()):
     """Patch the only two real collaborators: the fund-ranking CSV loader and the
     cashflow projection. No ledger / NAV / classifier — the engine is
@@ -321,3 +340,34 @@ async def test_rebal_buys_passthrough_and_default(monkeypatch):
         deploy_amount_inr=5000.0, cadence=Cadence.SIP_MONTHLY,
     )
     assert inp2.rebal_buy_isins_by_subgroup is None
+
+
+# ── preference-shaped SIP targets the long-term column ────
+@pytest.mark.asyncio
+async def test_preference_sip_sets_both_flags_true(monkeypatch):
+    monkeypatch.setattr(ib, "_goal_funding_flags", _fake_flags(short=False, medium=False))
+    inp, _ = await build_additional_investment_input_for_user(
+        _ctx(), _alloc_with_preference([_Row("large_cap", long_term=1.0, total=1.0)]),
+        deploy_amount_inr=25_000.0, cadence=ib.Cadence.SIP_MONTHLY,
+    )
+    assert (inp.short_term_fulfilled, inp.medium_term_fulfilled) == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_no_preference_sip_keeps_the_goal_funding_flags(monkeypatch):
+    monkeypatch.setattr(ib, "_goal_funding_flags", _fake_flags(short=False, medium=False))
+    inp, _ = await build_additional_investment_input_for_user(
+        _ctx(), _alloc([_Row("large_cap", long_term=1.0, total=1.0)]),
+        deploy_amount_inr=25_000.0, cadence=ib.Cadence.SIP_MONTHLY,
+    )
+    assert (inp.short_term_fulfilled, inp.medium_term_fulfilled) == (False, False)
+
+
+@pytest.mark.asyncio
+async def test_lumpsum_with_preference_keeps_the_goal_funding_flags(monkeypatch):
+    monkeypatch.setattr(ib, "_goal_funding_flags", _fake_flags(short=False, medium=False))
+    inp, _ = await build_additional_investment_input_for_user(
+        _ctx(), _alloc_with_preference([_Row("large_cap", long_term=1.0, total=1.0)]),
+        deploy_amount_inr=25_000.0, cadence=ib.Cadence.LUMPSUM,
+    )
+    assert (inp.short_term_fulfilled, inp.medium_term_fulfilled) == (False, False)

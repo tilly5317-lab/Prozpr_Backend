@@ -290,6 +290,15 @@ async def apply_postgres_schema_patches() -> None:
         await conn.execute(
             text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS rating SMALLINT")
         )
+        # ORM/column drift: ChatMessage.cta (see alembic b8e2f4a6c103) — which
+        # control a reply offered, so a reopened session still renders it.
+        # Needed here as well as in alembic: the shared RDS is stamped at a
+        # revision whose file no longer exists, so `alembic upgrade head` cannot
+        # run there, and create_all never ADDs a column to an existing table —
+        # without this patch every chat read 500s on the missing column.
+        await conn.execute(
+            text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS cta VARCHAR(32)")
+        )
         # ORM/column drift: MfFundMetadata.isin* (see alembic f1a2b3c4d5e6)
         await conn.execute(
             text(

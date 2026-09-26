@@ -428,24 +428,39 @@ async def test_an_already_saved_session_candidate_is_ignored(spy, monkeypatch):
     assert spy["resolve_base"] == [None]
 
 
-async def test_handle_routes_a_preference_ask_to_the_what_if(spy, monkeypatch):
-    seen = {}
+async def test_handle_deploys_and_points_a_preference_ask(spy, monkeypatch):
+    """Ruling 2026-09-17: chat runs no preference what-ifs. A preference ask on
+    a deploy turn is MIXED intent — they asked to invest money, so the deploy
+    plan is served and the FORMATTER closes with the preferences pointer (the
+    same rule rebalancing's first turn follows). `_handle_preference_what_if_ainv`
+    survives as the re-enable seam."""
+    called = {"what_if": 0, "deploy": []}
 
-    async def fake_what_if(ctx, amount, cadence, asks, raw_category, category):
-        seen.update(amount=amount, cadence=cadence, asks=asks,
-                    raw_category=raw_category, category=category)
-        return "WHATIF"
+    async def never(ctx, amount, cadence, asks, raw_category, category):
+        called["what_if"] += 1
+        raise AssertionError("the what-if path is retired")
 
-    monkeypatch.setattr(chat_mod, "_handle_preference_what_if_ainv", fake_what_if)
+    async def spy_deploy(ctx, amount, cadence, raw_category, category, preference=None):
+        called["deploy"].append((amount, cadence, preference))
+        return chat_mod.ChatHandlerResult(text="formatted")
+
+    monkeypatch.setattr(chat_mod, "_handle_preference_what_if_ainv", never)
+    monkeypatch.setattr(chat_mod, "_ordinary_deploy", spy_deploy)
     monkeypatch.setattr(chat_mod, "resolve_category", lambda raw: "RESOLVED")
     monkeypatch.setattr(
         chat_mod, "extract_deploy_request",
         AsyncMock(return_value=(25000.0, chat_mod.Cadence.SIP_MONTHLY, "smallcap",
                                 [_ask("small_cap", "heavy")])),
     )
-    assert await chat_mod.handle(_ainv_ctx()) == "WHATIF"
-    assert seen["amount"] == 25000.0 and seen["asks"][0].target == "small_cap"
-    assert (seen["raw_category"], seen["category"]) == ("smallcap", "RESOLVED")
+
+    result = await chat_mod.handle(_ainv_ctx())
+
+    assert called["what_if"] == 0
+    assert len(called["deploy"]) == 1, "they asked to invest — serve that"
+    amount, _cadence, preference = called["deploy"][0]
+    assert amount == 25000.0
+    assert preference == {"pointer": chat_mod.PREFERENCE_REDIRECT_MESSAGE}
+    assert result.show_preferences_pill is True
 
 
 async def test_a_preference_ask_without_an_amount_still_asks_for_the_amount(spy, monkeypatch):

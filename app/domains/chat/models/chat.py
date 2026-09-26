@@ -87,6 +87,12 @@ class ChatSession(Base):
     )
 
 
+# Vocabulary of ``ChatMessage.cta`` — the control a reply offered. The client
+# maps these to the "Open preferences" pill and the "Add CAMS statement" card.
+CTA_PREFERENCES = "preferences"
+CTA_ADD_CAMS = "add_cams"
+
+
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
@@ -109,6 +115,21 @@ class ChatMessage(Base):
     # message-text prefixes, and picked up by ChatMessageResponse.intent so
     # reloaded sessions keep per-message intent.
     intent: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # Which control this reply offered, or NULL for none. The live turn gets the
+    # same fact off the send-response envelope; it is persisted because the
+    # client rebuilds a reopened session from these rows alone, so a turn-only
+    # flag is gone the moment the customer navigates away and back — and the
+    # reply's own copy ("tap below") reads as broken without its control.
+    #
+    # ONE column, not one per control: a turn raises at most one CTA. The
+    # no-holdings path returns before any flow runs, so a turn can never be both
+    # `add_cams` and `preferences` (`ai_engine/services/brain.py`). A new CTA is
+    # a new value here, not another column.
+    #
+    # It cannot ride `intent` instead — a turn can carry a real plan AND a CTA,
+    # and the client reads the intent tag as a fetch gate for that plan.
+    cta: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

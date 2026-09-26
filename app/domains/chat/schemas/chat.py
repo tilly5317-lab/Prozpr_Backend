@@ -61,6 +61,10 @@ class ChatMessageResponse(BaseModel):
     intent_confidence: Optional[float] = None
     intent_reasoning: Optional[str] = None
     chart_payloads: Optional[list[dict[str, Any]]] = None
+    # Which control this reply offered ("preferences" | "add_cams" | None), so a
+    # reopened session re-renders it. The live turn reads the same fact off the
+    # send envelope's own flags below; history reads it from here.
+    cta: Optional[str] = None
     created_at: datetime
 
 

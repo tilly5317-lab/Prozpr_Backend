@@ -16,7 +16,6 @@ from app.domains.profile.services.preference_view import (
     active_preferences_for,
     canonical_intent,
     describe,
-    describe_active,
 )
 
 
@@ -246,7 +245,7 @@ def test_describe_renders_class_mix_and_categories_in_customer_words():
     # own validation says "Equity + Debt + Commodity must total 100%").
     assert choices[0] == "60% equity / 30% debt / 10% commodity"
     assert "others" not in choices[0]
-    assert "no small-cap equity" in choices
+    assert "nothing in small-cap equity" in choices
     # resolved_targets is a share of the WHOLE portfolio — the phrase must say
     # so, or 30% beside an equity figure reads as 30% OF equity.
     assert "30% of your portfolio in large-cap equity" in choices
@@ -267,9 +266,11 @@ def test_describe_caps_the_category_list():
 
     choices = describe(row)
 
-    assert len(choices) <= 4, "a chat sentence cannot carry twelve categories"
-    # Exclusions are the most load-bearing fact, so they are never the ones cut.
-    assert any(c.startswith("no ") for c in choices)
+    assert len(choices) <= 3, "a chat sentence cannot carry twelve categories"
+    # The pins the customer SET lead; every blank row costs one phrase between
+    # them (see the complete-distribution test below).
+    assert choices[0].startswith("25% of your portfolio in")
+    assert sum(1 for c in choices if c.startswith("nothing in")) == 1
 
 
 def test_describe_is_none_when_there_is_nothing_to_say():
@@ -315,10 +316,11 @@ def test_block_is_none_for_an_output_without_the_field():
 # ---------------------------------------------------------------------------
 
 
-def test_the_user_level_accessors_read_the_relationship_here():
+def test_the_user_level_accessor_reads_the_relationship_here():
     """`test_contract_single_computation_reader` reserves reads of
     `user.saved_investment_preference` for sanctioned modules; chat modules call
-    these instead."""
+    this instead. (`describe_active` was removed 2026-09-17 — with the readout
+    retired, the disclosure block is the only user-level consumer left.)"""
     row = _row(
         {"class_mix": {}, "pins": []},
         mix={"equity": 60.0, "debt": 30.0, "others": 10.0},
@@ -326,9 +328,74 @@ def test_the_user_level_accessors_read_the_relationship_here():
     )
     user = SimpleNamespace(saved_investment_preference=row)
 
-    assert describe_active(user)[0] == "60% equity / 30% debt / 10% commodity"
     assert active_preferences_for(user, _practical())["applied"] is True
 
     no_pref = SimpleNamespace(saved_investment_preference=None)
-    assert describe_active(no_pref) is None
     assert active_preferences_for(no_pref, _practical()) is None
+
+
+def test_a_complete_screen_distribution_leads_with_what_the_customer_SET():
+    """Review finding (2026-09-17, major): the 3-phrase cap was sized for the
+    chat era (one or two exclusions). The screen now writes a COMPLETE
+    distribution — 11 settable categories, so a normal save carries 5-8 explicit
+    zeros — and exclusions were built first, so they filled every slot and every
+    pin the customer actually set was dropped. The prompt then quotes this
+    verbatim as "the preferences you saved"."""
+    row = _row(
+        {"class_mix": {}, "pins": []},
+        mix={"equity": 65.0, "debt": 25.0, "others": 10.0},
+        targets={
+            "low_beta_equities": 35.0,
+            "medium_beta_equities": 20.0,
+            "arbitrage_plus_income": 25.0,
+            "us_equities": 10.0,
+            "gold_commodities": 10.0,
+            # the six they left blank — explicit zeros from the screen
+            "high_beta_equities": 0.0,
+            "value_equities": 0.0,
+            "sector_equities": 0.0,
+            "multi_asset": 0.0,
+            "short_debt": 0.0,
+            "arbitrage": 0.0,
+        },
+    )
+
+    choices = describe(row)
+    blob = " | ".join(choices)
+
+    assert choices[0] == "65% equity / 25% debt / 10% commodity"
+    # The largest thing they chose must be present — it was being dropped.
+    assert "35% of your portfolio in large-cap equity" in choices, (
+        f"the biggest pin the customer set is missing: {choices}"
+    )
+    assert "25% of your portfolio in arbitrage & income" in choices
+    # Exclusions may appear, but must not crowd out the pins: they cost ONE slot.
+    assert sum(1 for c in choices if c.startswith("nothing in")) <= 1
+    assert len(choices) <= 4, f"too long for one chat sentence: {choices}"
+    assert "high_beta" not in blob and "beta_equities" not in blob
+
+
+def test_exclusions_are_collapsed_into_one_phrase():
+    row = _row(
+        {"class_mix": {}, "pins": []},
+        mix=None,
+        targets={
+            "high_beta_equities": 0.0,
+            "sector_equities": 0.0,
+            "us_equities": 0.0,
+            "multi_asset": 0.0,
+        },
+    )
+
+    choices = describe(row)
+
+    assert len(choices) == 1, f"four exclusions must cost one phrase: {choices}"
+    assert choices[0].startswith("nothing in ")
+    assert "small-cap equity" in choices[0]
+
+
+def test_an_exclusion_only_preference_still_says_something():
+    row = _row({"class_mix": {}, "pins": []}, mix=None,
+               targets={"high_beta_equities": 0.0})
+
+    assert describe(row) == ["nothing in small-cap equity"]

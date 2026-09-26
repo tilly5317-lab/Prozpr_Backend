@@ -16,6 +16,8 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.domains.chat.models.chat import (
+    CTA_ADD_CAMS,
+    CTA_PREFERENCES,
     ChatMessage,
     ChatMessageRole,
     ChatSession,
@@ -35,6 +37,7 @@ from app.domains.chat.schemas.chat import (
     ChatSessionUpdate,
 )
 from app.domains.ai_engine import ChatBrain, ChatTurnInput
+from app.domains.ai_engine.portfolio_gate import has_mf_holdings
 from app.domains.ai_engine.streaming import open_token_stream
 from app.domains.ai_engine.thinking import clear_thinking, get_thinking
 from app.domains.chat.services.chat_context import load_conversation_history
@@ -127,6 +130,50 @@ async def get_session_thinking(
     return ChatThinkingResponse(**get_thinking(current_user.id, session_id))
 
 
+async def _history_messages(
+    db: AsyncSession, user_id: uuid.UUID, session: ChatSession
+) -> list[ChatMessageResponse]:
+    """Serialize a session's messages, dropping a CTA that has gone stale.
+
+    ``CTA_ADD_CAMS`` records that holdings were absent WHEN THE TURN RAN, but
+    the card it raises asks for a CAS statement — a question about the
+    customer's state NOW. Once holdings exist the ask is answered, and the live
+    path already clears the card off every message on a successful upload; this
+    keeps a reopened session from resurrecting it. ``CTA_PREFERENCES`` needs no
+    such gate: a pointer to the preferences page never goes stale.
+
+    Suppresses on a failed check too — re-asking a customer who already
+    uploaded is worse than losing a shortcut they can get again by asking.
+    """
+    messages = [ChatMessageResponse.model_validate(m) for m in session.messages]
+    if not any(m.cta == CTA_ADD_CAMS for m in messages):
+        return messages
+    try:
+        holdings_exist = await has_mf_holdings(db, user_id)
+    except Exception:
+        logger.exception("holdings check failed; suppressing the stale CAS card")
+        holdings_exist = True
+    if holdings_exist:
+        for m in messages:
+            if m.cta == CTA_ADD_CAMS:
+                m.cta = None
+    return messages
+
+
+def _cta_for(brain_result) -> str | None:
+    """The one control this turn earned, if any.
+
+    Mutually exclusive by construction: the no-holdings gate returns before any
+    flow runs, so a turn that asks for a statement never also carries a
+    preference pointer (`ai_engine/services/brain.py`).
+    """
+    if brain_result.portfolio_data_missing:
+        return CTA_ADD_CAMS
+    if brain_result.show_preferences_pill:
+        return CTA_PREFERENCES
+    return None
+
+
 @router.get("/sessions/active", response_model=ChatSessionDetailResponse)
 async def get_or_create_active_session(
     db: AsyncSession = Depends(get_db),
@@ -153,7 +200,7 @@ async def get_or_create_active_session(
 
     return ChatSessionDetailResponse(
         **ChatSessionResponse.model_validate(session).model_dump(),
-        messages=[ChatMessageResponse.model_validate(m) for m in session.messages],
+        messages=await _history_messages(db, current_user.id, session),
     )
 
 
@@ -201,7 +248,7 @@ async def get_session(
     )
     return ChatSessionDetailResponse(
         **ChatSessionResponse.model_validate(session).model_dump(),
-        messages=[ChatMessageResponse.model_validate(m) for m in session.messages],
+        messages=await _history_messages(db, current_user.id, session),
     )
 
 
@@ -272,6 +319,7 @@ async def send_message(
         role=ChatMessageRole.assistant,
         content=brain_result.content,
         intent=brain_result.intent,
+        cta=_cta_for(brain_result),
     )
     db.add(assistant_msg)
 
@@ -392,6 +440,7 @@ async def send_message_streaming(
             role=ChatMessageRole.assistant,
             content=brain_result.content,
             intent=brain_result.intent,
+            cta=_cta_for(brain_result),
         )
         db.add(assistant_msg)
 

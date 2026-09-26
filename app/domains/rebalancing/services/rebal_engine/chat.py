@@ -56,6 +56,7 @@ from app.domains.mutual_funds.services.fund_ranking_lookup import (
 )
 from app.domains.profile.services import preference_save_service as prefs
 from app.domains.profile.services import preference_view as pref_view
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
 from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
@@ -418,8 +419,7 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   paper, the target is what THIS plan can reach given what they already hold and
   what it is willing to trade (chiefly, it avoids short-term capital-gains tax by
   selling only long-held units, and keeps holdings still worth owning). ONLY when
-  ideal_asset_class_mix_pct is present (the first answer) AND the target sits well
-  away from it on equity (more than ~5 points),
+  ``bridge_ideal_and_target`` is true (never judge the gap yourself),
   PROACTIVELY bridge the two in ONE sentence — quote both and frame the target as
   a STEP TOWARD the ideal, not a rival number, naming the reason it stops short
   from the tax figures / ``warnings`` (e.g. "your long-term ideal is ~40% equity;
@@ -488,10 +488,11 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     verbatim), sub_category, and current/buy/sell/planned_final as pre-formatted
     _indian amounts (planned_final = current + buy − sell).
     On any turn that PRESENTS A PLAN (compute, counterfactual_explore, consolidate)
-    always include a fund-level trade list: if the plan has FEWER THAN 10 trades
-    (see trade_count) show the FULL list — every buy and every sell by fund_name +
-    _indian amount; otherwise show the largest ~5 buys and ~5 sells. So the
-    customer sees concrete funds, not only categories. For a "what will I hold
+    always include a fund-level trade list, so the customer sees concrete funds and
+    not only categories. If ``top_buys``/``top_sells`` are present, render EXACTLY
+    those (fund_name + amount_indian, already ranked) and nothing more; if absent,
+    list every buy and sell from fund_actions. Never rank fund_actions by trade
+    size — it is ordered by holding size. For a "what will I hold
     after?" view, list planned_final > 0, biggest first. For narrate/educate, fund
     detail only when the question is fund-specific.
     ALSO on any turn that PRESENTS A PLAN (compute, counterfactual_explore,
@@ -521,15 +522,33 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     preferences AND this plan was actually shaped by them. NEVER present on the
     same turn as constraint_impact (that block is an unsaved what-if). Fields:
       choices: list[str] — their preference in their own words ("60% equity /
-        30% debt / 10% commodity", "no small-cap equity", "30% of your portfolio
+        30% debt / 10% commodity", "35% of your portfolio in large-cap equity",
+        "nothing in small-cap equity, value equity or sector equity"
         in large-cap equity"). Quote these verbatim; never restate them as engine
         categories, never re-base a percentage, and never add a category or a
         percentage that is not in this list.
       applied: true — the engine consumed the preference on THIS plan.
       shortfall_reason: string|null — present when the engine could not fully
         honour the ask.
+      categories_set: bool — true when the customer also pinned sub-categories
+        inside the classes; false when they set only the equity/debt/gold
+        split and left categories to us.
     Say "the preferences you saved" — never name WHERE they saved them. They may
     have set this in chat or on a screen, and the pack does not tell you which.
+
+  preference_pointer: optional string — the customer ALSO asked about their
+    investment preferences. When present, answer their actual question in full
+    first, then CLOSE with one short sentence in your own voice pointing them
+    at their preferences page: it holds what is set, they can change it there
+    any time, and the control below your reply opens it. Write it as a POINTER,
+    never as a limit — do NOT say what chat cannot see or do, do NOT call the
+    feature unavailable or still in the works, do NOT apologise. Do NOT quote
+    the string verbatim, do NOT lead with it, never claim
+    to have changed or saved a preference yourself — and do NOT ask a
+    follow-up question about the preference ask itself (how much, which
+    percentage, which fund). It needs no discussion from you; the closing
+    sentence is the whole answer to that part, no matter how specific or
+    vague their wording was.
 
   constraint_impact: optional — on a consolidate OR preference turn. Fields:
       recommended_mix_pct / requested_mix_pct: {equity, debt, others} — the
@@ -606,7 +625,7 @@ ACTION_MODE tells you the situation. Per-mode behavior:
                sentences (3-5 for trade_count=0).
                When active_preferences is present, ATTRIBUTE the plan in the
                opening: "this plan follows the preferences you saved — 30% of
-               your portfolio in large-cap equity, no small-cap equity", quoting
+               your portfolio in large-cap equity, nothing in small-cap equity", quoting
                `choices` verbatim. It is the customer's own instruction being
                honoured: state it as fact, don't thank them for it and don't ask
                whether they still want it. If shortfall_reason is present, add
@@ -685,15 +704,6 @@ _LOCK_NOT_SUPPORTED = (
     "that would help you decide."
 )
 
-# Saving or clearing the stored record happens where the customer can SEE it
-# before it applies; chat only ever reshapes the plan in view.
-_PREFERENCE_CHANGE_TEMPLATE = (
-    "I can show you what a change would do to this plan, but saving or clearing "
-    "a preference happens in your investment preferences — that way you can see "
-    "exactly what's stored before it applies. Open them below and I'll rebuild "
-    "the plan from whatever you set."
-)
-
 _DEFAULT_CLARIFY_FALLBACK = (
     "Could you share a bit more — e.g., a specific fund, action (sell/swap), "
     "or constraint?"
@@ -755,14 +765,17 @@ async def _preference_row_for_run(ctx: TurnContext, recommendation_id: str):
 
     from app.domains.rebalancing.models import RebalancingRun
 
+    # BOTH reads sit inside the one savepoint. An earlier version closed it
+    # after the first query, leaving the row fetch to poison the outer
+    # transaction on failure — the exact thing the savepoint is here to stop.
     async with ctx.db.begin_nested():
         stmt = select(RebalancingRun.saved_investment_preference_id).where(
             RebalancingRun.id == uuid.UUID(recommendation_id)
         )
         pref_id = (await ctx.db.execute(stmt)).scalar_one_or_none()
-    if pref_id is None:
-        return None
-    return await prefs.candidate_row(ctx.db, ctx.effective_user_id, pref_id)
+        if pref_id is None:
+            return None
+        return await prefs.candidate_row(ctx.db, ctx.effective_user_id, pref_id)
 
 
 async def _preference_row_for_turn(ctx: TurnContext, last_run, action_mode: str):
@@ -793,6 +806,7 @@ async def _format_or_fallback_rebal(
     constraint_impact: Optional[dict[str, Any]] = None,
     is_rerun: bool = False,
     last_run=None,
+    preference_pointer: Optional[str] = None,
 ) -> str:
     """Run the formatter; fall back to the precomputed templated brief on failure."""
     # Prozpr-only house view, gated on the classifier's tools_needed. A rebalance is
@@ -802,10 +816,19 @@ async def _format_or_fallback_rebal(
     # Disclose a SAVED preference — but never beside a candidate's own contrast
     # (constraint_impact), and not on a plain tax/cash what-if, which carries no
     # disclosure rule in the prompt.
-    if constraint_impact is not None or action_mode == "counterfactual_explore":
+    practical = getattr(response, "practical_allocation", None)
+    applied = getattr(practical, "human_override_applied", None)
+    # Cheapest gate first: if THIS run consumed no preference there is nothing
+    # to disclose, so skip the row lookup entirely (on a narrate turn that is
+    # two DB round trips saved on the critical path).
+    if (
+        constraint_impact is not None
+        or action_mode == "counterfactual_explore"
+        or applied is None
+        or not getattr(applied, "preference_applied", False)
+    ):
         active_preferences = None
     else:
-        practical = getattr(response, "practical_allocation", None)
         row = await _preference_row_for_turn(ctx, last_run, action_mode)
         active_preferences = (
             pref_view.active_preferences_for(ctx.user_ctx, practical)
@@ -819,6 +842,7 @@ async def _format_or_fallback_rebal(
             goal_buckets=goal_buckets,
             constraint_impact=constraint_impact,
             active_preferences=active_preferences,
+            preference_pointer=preference_pointer,
             is_rerun=is_rerun,
             fund_house_view=fund_house_view,
             # Ship the goal-based ideal ONLY on the plan-presentation (compute) turn,
@@ -927,8 +951,11 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         except Exception as exc:
             logger.warning("first-turn detect failed (%s); computing the plain plan", exc)
             action = None
-        if action is not None and action.preference_asks:
-            return await _handle_preference_what_if(ctx, action, None)
+        # A first-turn preference ask ("rebalance me, but more equity") is a
+        # MIXED intent: they want a plan. Withholding it to show only a pointer
+        # would be worse, so compute the plain plan and let the pill carry the
+        # preference half — see `_first_turn_preferences_pill` below.
+        first_turn_preference_ask = bool(action is not None and action.preference_asks)
 
         outcome = await compute_rebalancing_result(
             user=ctx.user_ctx,
@@ -950,12 +977,16 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
             fallback_brief=outcome.formatted_text or "",
             action_mode="compute",
             goal_buckets=outcome.goal_buckets,
+            preference_pointer=(
+                PREFERENCE_REDIRECT_MESSAGE if first_turn_preference_ask else None
+            ),
         )
         return ChatHandlerResult(
             text=text,
             snapshot_id=outcome.allocation_snapshot_id,
             rebalancing_recommendation_id=outcome.recommendation_id,
             rebalancing_response=outcome.response,
+            show_preferences_pill=first_turn_preference_ask,
         )
 
     # Follow-up → classify. Prefer the brain's speculative detect result;
@@ -981,22 +1012,45 @@ async def _handle_action(
     if action.named_fund:
         return await _handle_named_fund(ctx, action)
 
-    # A request to change the STORED RECORD is not an exposure ask, and this
-    # check must sit AHEAD of the preference_asks short-circuit below or it can
-    # never fire. Reshaping "remove my small-cap preference" as
-    # {small_cap: none} would EXCLUDE small caps — the opposite of the ask.
-    if action.mode == "redirect" and "preference" in (
+    # EVERY preference-shaped ask points at the preferences page (ruling
+    # 2026-09-17): an exposure ask ("more equity"), a readout, a change, an
+    # undo. Chat does not run preference what-ifs any more — it cannot write
+    # the stored record, and one consistent pointer beats a reshaped plan the
+    # customer then cannot keep. SAVED preferences still shape and are still
+    # disclosed on every plan; only this CHANGE path is retired.
+    #
+    # The detector still EXTRACTS preference_asks: it costs nothing, keeps the
+    # telemetry on what customers ask for, and leaves the seam to re-enable
+    # what-ifs (`_handle_preference_what_if`, now unreferenced) intact.
+    wants_record_change = action.mode == "redirect" and "preference" in (
         action.redirect_reason or ""
-    ).lower():
-        return await _relay(
-            ctx, _PREFERENCE_CHANGE_TEMPLATE, show_preferences_pill=True
+    ).lower()
+    if action.preference_asks or wants_record_change:
+        # The detector may pair a preference ask with a tax/cash override
+        # ("what if I had 2L more — and more equity?"). Those overrides ARE
+        # servable, so answer that half and let the formatter close with the
+        # pointer; returning the pointer alone dropped a real question.
+        servable = {
+            k: v
+            for k, v in (action.overrides or {}).items()
+            if k in _REBAL_ALLOWED_OVERRIDE_KEYS
+        }
+        capture_preference_unserved(
+            flow="rebalancing", failure_class="redirected_to_preferences",
+            session_id=ctx.session_id, distinct_id=ctx.effective_user_id,
         )
-
-    # The extracted preference fields are authoritative regardless of the mode
-    # label the detector attached (conversational "100% equity" asks sometimes
-    # get labelled consolidate / clarify / redirect).
-    if action.preference_asks:
-        return await _handle_preference_what_if(ctx, action, last_run)
+        if servable:
+            return await _counterfactual_explore(
+                ctx, servable, preference_pointer=PREFERENCE_REDIRECT_MESSAGE
+            )
+        return await _relay(
+            ctx,
+            PREFERENCE_REDIRECT_MESSAGE,
+            # Not "redirect": that body tells the model it is relaying a LIMIT,
+            # which reinstates the apology the pointer copy exists to avoid.
+            action_mode="pointer",
+            show_preferences_pill=True,
+        )
 
     if action.mode == "clarify":
         # Ask at most ONCE in a row. A customer disputing a number ("that's not
@@ -1201,7 +1255,17 @@ def _pending_candidate_id(last_run: AgentRunRecord | None) -> uuid.UUID | None:
 async def _handle_preference_what_if(
     ctx: TurnContext, action: RebalanceAction, last_run: AgentRunRecord | None
 ) -> ChatHandlerResult:
-    """Explore-then-offer (S2): run the ask as a one-off through the S1
+    """RETIRED 2026-09-17 — UNREFERENCED, kept as the re-enable seam.
+
+    Chat-side preference what-ifs were switched off in favour of pointing the
+    customer at the preferences page (`PREFERENCE_REDIRECT_MESSAGE`): it removes
+    a hallucination surface, gives one consistent answer, and makes page usage
+    measurable. Changing preferences from chat is planned, so this handler, its
+    candidate-row machinery and `preference_save_service.resolve_one_off` are
+    deliberately left intact rather than deleted. To re-enable, call this from
+    `_handle_action` again.
+
+    Explore-then-offer (S2): run the ask as a one-off through the S1
     human_override channel, show the reshaped plan against the recommended
     one, then offer to save. The what-if is persisted as a CANDIDATE
     preference row + a candidate rebalancing run FK'd to it; nothing applies
@@ -1397,6 +1461,7 @@ async def _handle_preference_what_if(
 async def _counterfactual_explore(
     ctx: TurnContext,
     overrides: dict[str, Any],
+    preference_pointer: Optional[str] = None,
 ) -> ChatHandlerResult:
     """Run engine with overrides, do NOT persist, narrate as hypothetical."""
     if not overrides or not _validate_overrides(overrides):
@@ -1443,9 +1508,11 @@ async def _counterfactual_explore(
         action_mode="counterfactual_explore",
         goal_buckets=outcome.goal_buckets,
         constraint_impact=None,
+        preference_pointer=preference_pointer,
     )
     return ChatHandlerResult(
-        text=text, snapshot_id=None, rebalancing_recommendation_id=None
+        text=text, snapshot_id=None, rebalancing_recommendation_id=None,
+        show_preferences_pill=preference_pointer is not None
     )
 
 

@@ -1,5 +1,9 @@
-"""An AA preference ask reshapes the allocation and shows the contrast. It
-persists NOTHING (spec 2026-09-16 D4) — no candidate row, no run FK, no pill.
+"""The AA preference what-if — RETIRED 2026-09-17 and UNREFERENCED in
+production; these tests protect the re-enable seam, not live behaviour. The live
+contract is `test_a_preference_ask_points_at_the_preferences_page` below.
+
+When it ran, an AA preference ask reshaped the allocation and showed the
+contrast, persisting NOTHING (spec 2026-09-16 D4) — no candidate row, no FK.
 
 The context MUST be a real TurnContext: the handler passes it through
 `with_chat_overrides`, which calls `dataclasses.replace` and rejects a
@@ -154,16 +158,20 @@ async def test_an_unmappable_ask_says_so_and_emits_a_token(monkeypatch):
     assert unserved["failure_class"] == "unmapped_category"
 
 
-async def test_a_preference_ask_short_circuits_the_mode_ladder(stubs, monkeypatch):
-    """The extracted field is authoritative regardless of the mode label the
-    detector attached — same rule as rebalancing."""
-    seen = {}
+async def test_a_preference_ask_points_at_the_preferences_page(monkeypatch):
+    """Ruling 2026-09-17: the extracted field still beats the mode label, but it
+    now routes to the preferences pointer rather than the what-if below."""
+    seen = {"what_if": 0}
 
-    async def _spy(ctx, action, last_alloc):
-        seen["hit"] = True
-        return aa_chat.ChatHandlerResult(text="what-if")
+    async def _never(ctx, action, last_alloc):
+        seen["what_if"] += 1
+        raise AssertionError("the what-if path is retired")
 
-    monkeypatch.setattr(aa_chat, "_handle_preference_what_if_aa", _spy)
+    async def _fake_relay(**kw):
+        return kw["message"]
+
+    monkeypatch.setattr(aa_chat, "_handle_preference_what_if_aa", _never)
+    monkeypatch.setattr(aa_chat, "format_relay_or_canned", _fake_relay)
 
     action = aa_chat.ChatAction(
         mode="clarify",  # a mislabel the handler must override
@@ -173,5 +181,6 @@ async def test_a_preference_ask_short_circuits_the_mode_ladder(stubs, monkeypatc
 
     result = await aa_chat._dispatch_action(action, _last_alloc(), _ctx("add gold"))
 
-    assert seen.get("hit") is True
-    assert result.text == "what-if"
+    assert seen["what_if"] == 0
+    assert result.show_preferences_pill is True
+    assert "preferences page" in result.text

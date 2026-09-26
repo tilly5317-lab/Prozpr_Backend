@@ -1,6 +1,13 @@
-"""S2 chat wiring: a preference ask runs as a one-off through the S1 channel,
-persists a candidate row + candidate run, offers to save; "yes, save it"
-activates that exact candidate. Engine, formatter, and DB seams are spied."""
+"""Rebalancing preference chat.
+
+LIVE CONTRACT (ruling 2026-09-17): chat runs NO preference what-if. Every
+preference-shaped ask relays `PREFERENCE_REDIRECT_MESSAGE` with the pill; a
+first-turn or cash/tax-mixed ask serves the plan and lets the FORMATTER close
+with the pointer. Saved preferences still shape plans and are still disclosed.
+
+The S2 what-if tests below (candidate row, candidate run, save offer) cover the
+UNREFERENCED re-enable seam, not live behaviour. Engine, formatter and DB seams
+are spied."""
 
 from __future__ import annotations
 
@@ -302,17 +309,25 @@ async def test_fund_count_reshapes_the_requested_plan_before_persisting(spy, mon
 
 
 async def test_dispatch_routes_preference_asks_over_the_mode_label(monkeypatch):
-    called = {}
+    """The extracted fields still beat the mode label — but since 2026-09-17
+    they route to the preferences POINTER, not a what-if."""
+    relayed = {}
 
-    async def fake_what_if(ctx, action, last_run):
-        called["what_if"] = (action, last_run)
-        return "WHATIF"
+    async def fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        relayed.update(message=message, pill=show_preferences_pill)
+        return chat_mod.ChatHandlerResult(
+            text=message, snapshot_id=None, rebalancing_recommendation_id=None,
+            show_preferences_pill=show_preferences_pill,
+        )
 
-    monkeypatch.setattr(chat_mod, "_handle_preference_what_if", fake_what_if)
+    monkeypatch.setattr(chat_mod, "_relay", fake_relay)
     ctx = _ctx("more small cap")
     a = chat_mod.RebalanceAction(mode="consolidate", preference_asks=[_ask("small_cap")])
-    assert await chat_mod._handle_action(ctx, a, None) == "WHATIF"   # fields beat the mode label
-    assert called["what_if"][1] is None
+
+    await chat_mod._handle_action(ctx, a, None)
+
+    assert relayed["pill"] is True
+    assert relayed["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
 
 
 async def test_chained_what_if_composes_over_the_live_candidate(spy, monkeypatch):
@@ -372,7 +387,7 @@ def _cold_start_ctx(question):
     return _ctx(question)
 
 
-async def test_first_turn_preference_ask_runs_what_if_before_any_compute(monkeypatch):
+async def test_first_turn_preference_ask_computes_the_plan_and_points(monkeypatch):
     calls = {"whatif": [], "format": [], "compute": []}
 
     async def fake_compute(**kw):
@@ -400,14 +415,14 @@ async def test_first_turn_preference_ask_runs_what_if_before_any_compute(monkeyp
     ctx = _cold_start_ctx("increase my equity exposure")
     result = await chat_mod.handle(ctx)
 
-    assert result == "WHATIF"
-    assert calls["format"] == []
-    assert calls["compute"] == [], "handle() must not compute a plain plan when asks are found"
-    assert len(calls["whatif"]) == 1
-    whatif_ctx, whatif_action, whatif_last_run = calls["whatif"][0]
-    assert whatif_ctx is ctx
-    assert whatif_action.preference_asks[0].target == "equity"
-    assert whatif_last_run is None
+    # A first-turn ask is MIXED intent: they want a plan. Since 2026-09-17 the
+    # plain plan is computed and the pointer rides the FACTS PACK, so the
+    # formatter writes the whole reply (never a concatenation).
+    assert calls["whatif"] == [], "the what-if path is retired"
+    assert len(calls["compute"]) == 1, "they asked for a plan — give them one"
+    assert len(calls["format"]) == 1
+    assert calls["format"][0]["preference_pointer"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+    assert result.show_preferences_pill is True
 
 
 async def test_first_turn_no_preference_asks_uses_ordinary_formatting(monkeypatch):
@@ -499,8 +514,16 @@ async def test_first_turn_consumes_speculative_detect_without_serial_call(monkey
         calls["whatif"].append((action_arg, last_run))
         return "WHATIF"
 
+    async def fake_compute(**kw):
+        return _outcome()
+
+    async def fake_format(**kw):
+        return "formatted"
+
     monkeypatch.setattr(chat_mod, "_detect_rebal_action", spy_detect)
     monkeypatch.setattr(chat_mod, "_handle_preference_what_if", fake_whatif)
+    monkeypatch.setattr(chat_mod, "compute_rebalancing_result", fake_compute)
+    monkeypatch.setattr(chat_mod, "_format_or_fallback_rebal", fake_format)
 
     async def _resolved():
         return action
@@ -512,8 +535,10 @@ async def test_first_turn_consumes_speculative_detect_without_serial_call(monkey
     result = await chat_mod.handle(ctx)
 
     assert calls["serial_detect"] == 0, "speculative result was present; serial detect must not run"
-    assert result == "WHATIF"
-    assert calls["whatif"] == [(action, None)]
+    # The what-if is retired (2026-09-17): the ask now yields the plain plan
+    # plus the preferences pointer.
+    assert calls["whatif"] == []
+    assert result.show_preferences_pill is True
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +583,7 @@ async def test_compute_turn_discloses_the_saved_preference(pack_spy):
     block = pack_spy["facts_pack"]["active_preferences"]
     assert block["applied"] is True
     assert block["choices"][0] == "60% equity / 30% debt / 10% commodity"
-    assert "no small-cap equity" in block["choices"]
+    assert "nothing in small-cap equity" in block["choices"]
 
 
 async def test_a_what_if_turn_never_discloses_a_saved_preference(pack_spy):
@@ -704,42 +729,6 @@ async def test_a_record_change_ask_routes_to_preferences(monkeypatch):
     assert "preferences" in relayed["message"].lower()
 
 
-async def test_the_record_check_beats_the_preference_asks_short_circuit(monkeypatch):
-    """`_handle_action` short-circuits on preference_asks before the mode ladder,
-    so the record branch must sit AHEAD of it or it can never fire."""
-    hits = {"what_if": 0, "relay": 0}
-
-    async def _fake_what_if(ctx, action, last_run):
-        hits["what_if"] += 1
-        return chat_mod.ChatHandlerResult(text="reshaped", snapshot_id=None,
-                                          rebalancing_recommendation_id=None)
-
-    async def _fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
-        hits["relay"] += 1
-        return chat_mod.ChatHandlerResult(
-            text=message, snapshot_id=None, rebalancing_recommendation_id=None,
-            show_preferences_pill=show_preferences_pill,
-        )
-
-    monkeypatch.setattr(chat_mod, "_handle_preference_what_if", _fake_what_if)
-    monkeypatch.setattr(chat_mod, "_relay", _fake_relay)
-
-    action = chat_mod.RebalanceAction(
-        mode="redirect",
-        redirect_reason="clear your saved preference",
-        preference_asks=[{"target": "small_cap", "level": "none"}],
-    )
-    await chat_mod._handle_action(_ctx("clear my small cap preference"), action,
-                                 SimpleNamespace(output_payload={}))
-
-    assert hits["relay"] == 1
-    assert hits["what_if"] == 0, (
-        "a record-change ask must NOT be reshaped as an exposure ask — "
-        "{small_cap: none} would EXCLUDE small caps, the opposite of removing "
-        "the preference"
-    )
-
-
 async def test_an_ordinary_redirect_still_points_at_profile(monkeypatch):
     relayed = {}
 
@@ -760,3 +749,197 @@ async def test_an_ordinary_redirect_still_points_at_profile(monkeypatch):
 
     assert relayed["pill"] is False, "only a RECORD ask offers the preferences route"
     assert "Profile" in relayed["message"] or "Holdings" in relayed["message"]
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-17 ruling: chat runs NO preference what-ifs. Every preference-shaped
+# ask — exposure, readout, change, undo — points at the preferences page.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def relay_spy(monkeypatch):
+    seen = {}
+
+    async def _fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        seen.update(message=message, pill=show_preferences_pill, mode=action_mode)
+        return chat_mod.ChatHandlerResult(
+            text=message,
+            snapshot_id=None,
+            rebalancing_recommendation_id=None,
+            show_preferences_pill=show_preferences_pill,
+        )
+
+    monkeypatch.setattr(chat_mod, "_relay", _fake_relay)
+    return seen
+
+
+async def test_an_exposure_ask_points_at_preferences_instead_of_reshaping(
+    relay_spy, monkeypatch
+):
+    """'I want more equity' used to reshape the plan and offer a save pill."""
+    reshaped = {"called": 0}
+
+    async def _never(ctx, action, last_run):
+        reshaped["called"] += 1
+        raise AssertionError("the what-if path must not run any more")
+
+    monkeypatch.setattr(chat_mod, "_handle_preference_what_if", _never)
+
+    action = chat_mod.RebalanceAction(
+        mode="counterfactual_explore",
+        preference_asks=[{"target": "equity", "level": "more"}],
+    )
+    result = await chat_mod._handle_action(
+        _ctx("I want more equity"), action, SimpleNamespace(output_payload={})
+    )
+
+    assert reshaped["called"] == 0
+    assert relay_spy["pill"] is True
+    assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+    assert "preferences page" in relay_spy["message"]
+    assert result.show_preferences_pill is True
+    assert result.rebalancing_recommendation_id is None, "nothing is persisted"
+
+
+async def test_a_record_change_ask_gets_the_same_answer(relay_spy):
+    """One consistent reply whether they ask to change, undo, or re-expose."""
+    action = chat_mod.RebalanceAction(
+        mode="redirect", redirect_reason="change your saved preference"
+    )
+    await chat_mod._handle_action(
+        _ctx("remove my small cap preference"), action,
+        SimpleNamespace(output_payload={}),
+    )
+
+    assert relay_spy["pill"] is True
+    assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+
+
+async def test_an_unmappable_ask_gets_the_same_answer(relay_spy):
+    action = chat_mod.RebalanceAction(
+        mode="counterfactual_explore",
+        preference_asks=[
+            {"target": "other", "level": "more", "other_words": "ESG funds"}
+        ],
+    )
+    await chat_mod._handle_action(
+        _ctx("more ESG funds"), action, SimpleNamespace(output_payload={})
+    )
+
+    assert relay_spy["pill"] is True
+
+
+# ---------------------------------------------------------------------------
+# Review fixes 2026-09-17: the pointer goes through the FORMATTER (never string
+# concat), and a mixed "cash + preference" ask still answers the cash half.
+# ---------------------------------------------------------------------------
+
+
+async def test_the_first_turn_pointer_goes_through_the_facts_pack(monkeypatch):
+    """`answer_formatter` writes every customer-facing reply. Concatenating the
+    pointer onto its output bypassed that contract."""
+    seen = {}
+
+    async def fake_compute(**kw):
+        return _outcome()
+
+    async def fake_detect(last_run, ctx):
+        return chat_mod.RebalanceAction(
+            mode="counterfactual_explore", preference_asks=[_ask("equity")]
+        )
+
+    async def fake_format(**kw):
+        seen.update(kw)
+        return "formatted reply"
+
+    monkeypatch.setattr(chat_mod, "compute_rebalancing_result", fake_compute)
+    monkeypatch.setattr(chat_mod, "_detect_rebal_action", fake_detect)
+    monkeypatch.setattr(chat_mod, "_format_or_fallback_rebal", fake_format)
+
+    result = await chat_mod.handle(_cold_start_ctx("rebalance me, but more equity"))
+
+    assert seen["preference_pointer"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+    assert result.text == "formatted reply", (
+        "the reply must be exactly what the formatter wrote — no appended text"
+    )
+    assert result.show_preferences_pill is True
+
+
+async def test_a_mixed_cash_and_preference_ask_still_answers_the_cash_half(monkeypatch):
+    """The detector prompt explicitly emits overrides ALONGSIDE preference_asks.
+    Returning only the pointer dropped a question chat can answer."""
+    seen = {"explore": [], "relay": 0}
+
+    async def fake_explore(ctx, overrides, preference_pointer=None):
+        seen["explore"].append((overrides, preference_pointer))
+        return chat_mod.ChatHandlerResult(
+            text="hypothetical", snapshot_id=None,
+            rebalancing_recommendation_id=None, show_preferences_pill=True,
+        )
+
+    async def fake_relay(ctx, message, action_mode="redirect", show_preferences_pill=False):
+        seen["relay"] += 1
+        return chat_mod.ChatHandlerResult(text=message, snapshot_id=None,
+                                         rebalancing_recommendation_id=None)
+
+    monkeypatch.setattr(chat_mod, "_counterfactual_explore", fake_explore)
+    monkeypatch.setattr(chat_mod, "_relay", fake_relay)
+
+    action = chat_mod.RebalanceAction(
+        mode="counterfactual_explore",
+        overrides={"additional_cash_inr": 200000},
+        preference_asks=[_ask("equity")],
+    )
+    result = await chat_mod._handle_action(
+        _ctx("what if I had 2L more — and more equity?"), action,
+        SimpleNamespace(output_payload={}),
+    )
+
+    assert seen["relay"] == 0, "the cash question must not be swallowed"
+    assert len(seen["explore"]) == 1
+    overrides, pointer = seen["explore"][0]
+    assert overrides == {"additional_cash_inr": 200000}
+    assert pointer == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+    assert result.show_preferences_pill is True
+
+
+async def test_a_preference_ask_with_no_servable_override_still_just_points(relay_spy):
+    """An unsupported override key must not resurrect the engine run."""
+    action = chat_mod.RebalanceAction(
+        mode="counterfactual_explore",
+        overrides={"defer_months": 3},
+        preference_asks=[_ask("equity")],
+    )
+    await chat_mod._handle_action(
+        _ctx("defer 3 months and more equity"), action,
+        SimpleNamespace(output_payload={}),
+    )
+
+    assert relay_spy["pill"] is True
+    assert relay_spy["message"] == chat_mod.PREFERENCE_REDIRECT_MESSAGE
+
+
+def test_the_facts_pack_itself_enforces_the_mutual_exclusion():
+    """The chat seam nulls one of them, but the pack's `elif` is the invariant's
+    real home — without this, that half can be deleted with the suite green."""
+    from app.domains.rebalancing.services.rebal_engine.service import (
+        build_rebal_facts_pack,
+    )
+
+    response = _outcome(_applied()).response
+    block = {"choices": ["60% equity"], "applied": True, "shortfall_reason": None}
+
+    both = build_rebal_facts_pack(
+        response,
+        constraint_impact={"save_offer": True},
+        active_preferences=block,
+    )
+    assert "constraint_impact" in both
+    assert "active_preferences" not in both, (
+        "a candidate's contrast and a SAVED-preference disclosure must never "
+        "ship together — that credits the customer with a save never made"
+    )
+
+    saved_only = build_rebal_facts_pack(response, active_preferences=block)
+    assert saved_only["active_preferences"] == block

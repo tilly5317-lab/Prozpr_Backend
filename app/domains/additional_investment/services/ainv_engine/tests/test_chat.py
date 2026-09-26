@@ -13,6 +13,7 @@ import asyncio
 import importlib
 import uuid
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.domains.ai_engine.chat_dispatcher import _HANDLERS
@@ -67,10 +68,11 @@ def _output(
     )
 
 
-def _ctx(question: str = "invest 1 lakh", *, last_run=None) -> TurnContext:
+def _ctx(question: str = "invest 1 lakh", *, last_run=None, user_ctx=None) -> TurnContext:
     last_runs = {"additional_investment": last_run} if last_run else {}
     return TurnContext(
-        user_ctx=MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
+        user_ctx=user_ctx
+        or MagicMock(date_of_birth=date(1986, 1, 1), first_name="Tilly"),
         user_question=question,
         conversation_history=[],
         client_context=None,
@@ -710,3 +712,151 @@ def test_no_category_paths_unchanged():
 
     assert result.text == "how much, and lumpsum or SIP?"
     compute.assert_not_awaited()
+
+
+# ── active_preferences: a SAVED preference, not target_bucket, decided the
+# split (Task 2, 2026-09-20) ─────────────────────────────────────────────────
+
+
+def _saved_row(*, categories_set: bool):
+    """Preference-view row stand-in: class bars always set, sub-categories only
+    when `categories_set` (the case-1/case-2 discriminator)."""
+    return SimpleNamespace(
+        asset_class_requested={"equity": 60.0, "debt": 30.0, "others": 10.0},
+        resolved_targets={"low_beta_equities": 30.0} if categories_set else None,
+    )
+
+
+def _applied_practical():
+    return SimpleNamespace(
+        human_override_applied=SimpleNamespace(
+            preference_applied=True, shortfall_reason=None
+        )
+    )
+
+
+def test_facts_pack_omits_active_preferences_by_default():
+    from app.domains.additional_investment.services.ainv_engine.chat import (
+        build_ainv_facts_pack,
+    )
+
+    assert "active_preferences" not in build_ainv_facts_pack(_output())
+
+
+def test_class_only_preference_marks_categories_unset():
+    """Case 1: the customer set the class bars only — the reply must say WE
+    chose the categories, not attribute the split to target_bucket."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    ctx = _ctx(
+        user_ctx=SimpleNamespace(
+            saved_investment_preference=_saved_row(categories_set=False),
+            first_name="Tilly",
+        )
+    )
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                ctx,
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=_applied_practical(),
+            )
+        )
+
+    assert seen_facts["active_preferences"]["categories_set"] is False
+
+
+def test_subcategory_preference_marks_categories_set():
+    """Case 2: resolved_targets present — the customer also pinned categories."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    ctx = _ctx(
+        user_ctx=SimpleNamespace(
+            saved_investment_preference=_saved_row(categories_set=True),
+            first_name="Tilly",
+        )
+    )
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                ctx,
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=_applied_practical(),
+            )
+        )
+
+    assert seen_facts["active_preferences"]["categories_set"] is True
+
+
+def test_lumpsum_run_omits_active_preferences_even_with_saved_preference():
+    """the deficit body prompt never documents
+    active_preferences — a preference customer's LUMPSUM turn must not carry it,
+    even though practical_result reflects an applied preference."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    ctx = _ctx(
+        user_ctx=SimpleNamespace(
+            saved_investment_preference=_saved_row(categories_set=False),
+            first_name="Tilly",
+        )
+    )
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                ctx,
+                _output(cadence=Cadence.LUMPSUM),
+                practical_result=_applied_practical(),
+            )
+        )
+
+    assert "active_preferences" not in seen_facts
+
+
+def test_format_or_fallback_omits_active_preferences_when_none_applied():
+    """pins the formatter-level gate, not just build_ainv_facts_pack
+    directly — a run with no saved preference must not carry active_preferences
+    even when practical_result is present."""
+    from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat
+
+    seen_facts = {}
+
+    async def _fake_format(**kwargs):
+        seen_facts.update(kwargs.get("facts_pack") or {})
+        return "reply"
+
+    with patch.object(
+        ainv_chat, "format_with_telemetry", new=AsyncMock(side_effect=_fake_format)
+    ):
+        asyncio.run(
+            ainv_chat._format_or_fallback_ainv(
+                _ctx(),
+                _output(cadence=Cadence.SIP_MONTHLY),
+                practical_result=SimpleNamespace(human_override_applied=None),
+            )
+        )
+
+    assert "active_preferences" not in seen_facts

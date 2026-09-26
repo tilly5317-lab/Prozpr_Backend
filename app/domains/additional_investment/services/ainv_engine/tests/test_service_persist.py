@@ -61,7 +61,8 @@ async def test_persist_true_calls_persist_once_and_returns_run_id():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     with (
@@ -127,7 +128,8 @@ async def test_persist_false_skips_persist_and_run_id_is_none():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     with (
@@ -188,7 +190,8 @@ async def test_persist_failure_is_best_effort_and_still_returns_output():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     with (
@@ -253,7 +256,8 @@ async def test_first_time_deploy_persists_practical_run_for_source_id():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     with (
@@ -319,7 +323,8 @@ async def test_sip_persist_stamps_sip_rebal_run_id_as_str():
     user = MagicMock(id=uuid.uuid4())
     output = _fake_output()
     paa_outcome = MagicMock(
-        result=MagicMock(aggregated_subgroups=[]), blocking_message=None
+        result=MagicMock(aggregated_subgroups=[], human_override_applied=None),
+        blocking_message=None,
     )
 
     for read_result, expected_extras in [

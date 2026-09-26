@@ -163,7 +163,7 @@ async def test_persist_writes_run_targets_and_buys(monkeypatch):
     assert run.deployed_inr == 120000.0
     assert run.undeployed_inr == 0.0
     assert run.user_question == "invest 10k monthly"
-    assert run.engine_version == "ainv-3.2.0"  # stamped from AINV_ENGINE_VERSION
+    assert run.engine_version == "ainv-3.3.0"  # stamped from AINV_ENGINE_VERSION
 
     # N targets, all parented to the flushed run.
     assert len(targets) == 2

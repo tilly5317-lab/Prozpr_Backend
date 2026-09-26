@@ -96,6 +96,10 @@ _MSG_INCOMPLETE_PROFILE = (
 # subgroup ratios are scale-invariant, so the exact figure doesn't matter.
 _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 
+# Below this the plan emits too few rows for a faithful split (measured: a stated
+# 50/30/20 lands 100% equity at ₹100, faithful from ₹10,000).
+_SIP_MIN_FAITHFUL_CORPUS_INR = 10_000.0
+
 # Stamped onto every persisted AdditionalInvestmentRun.engine_version. Bump when
 # the additional-investment engine's output contract changes.
 # 2.0.0: lumpsum deployments switched from single-bucket targeting to
@@ -107,7 +111,10 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # 2026-07-06.
 # 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
 # (both deficit-fill and legacy modes) — same amendment.
-AINV_ENGINE_VERSION = "ainv-3.2.0"
+# 3.3.0: a SIP whose plan was shaped by a stated preference targets the
+# long-term column — the stated split — instead of the nearest unfunded goal
+# (spec 2026-09-20).
+AINV_ENGINE_VERSION = "ainv-3.3.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -304,14 +311,30 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
+    # The allocation the CHAT FACTS narrate — the rescue below reassigns this so
+    # the reply never describes a plan that was discarded.
+    effective_result = paa_outcome.result
+
     # No-CAMS cohort: a SIP whose target bucket comes back empty (corpus ≈ 0, so
     # the whole allocation sits in emergency and the horizon-targeted split deploys
     # nothing) is re-derived from an allocation sized to a notional corpus. The
     # target-bucket subgroup ratios are scale-invariant, so this yields the ideal
-    # split for the SIP amount instead of an empty plan. Only fires on the empty
-    # case, so funded/CAMS SIPs are untouched. Best-effort: any failure keeps the
-    # original (empty) plan rather than raising.
-    if cadence is Cadence.SIP_MONTHLY and not response.buys:
+    # split for the SIP amount instead of an empty plan.
+    # Two triggers: an empty plan, or a preference SIP under
+    # _SIP_MIN_FAITHFUL_CORPUS_INR (a preference SIP always produces buys, so the
+    # corpus check catches the too-few-rows case). A funded SIP on a real corpus
+    # hits neither.
+    _pref_shaped = (
+        getattr(paa_outcome.result, "human_override_applied", None) is not None
+    )
+    if cadence is Cadence.SIP_MONTHLY and (
+        not response.buys
+        or (
+            _pref_shaped
+            and getattr(paa_outcome.result, "grand_total", float("inf"))
+            < _SIP_MIN_FAITHFUL_CORPUS_INR
+        )
+    ):
         try:
             sized = await compute_practical_allocation_result(
                 user,
@@ -334,6 +357,7 @@ async def compute_additional_investment_result(
                     rebal_buy_isins_by_subgroup=rebal_buys,
                 )
                 response = await asyncio.to_thread(run_additional_investment, inp)
+                effective_result = sized.result
                 trace_line(
                     "additional_investment SIP re-derived from sized allocation; "
                     f"buys={len(response.buys)}"
@@ -396,6 +420,11 @@ async def compute_additional_investment_result(
             _extras["deficit_facts"] = deficit_facts
     if focus_category:
         _extras["focus_category"] = focus_category
+    if cadence is Cadence.SIP_MONTHLY and _pref_shaped:
+        # The engine-input dump lands in request_input and ships in the DPDP
+        # export; it would otherwise assert this customer's near-term goals are
+        # funded.
+        _extras["goal_funding_flags_forced"] = "stated_preference_suspends_carve_outs"
     if rebal_run_id is not None:
         # str(), not the raw UUID: request_extras merges into the request_input
         # JSONB and json.dumps cannot serialise UUID (audit F4 — the best-effort
@@ -418,15 +447,14 @@ async def compute_additional_investment_result(
         # (chat router / create service) owns the commit.
         try:
             if saved_investment_preference_id is DERIVE_PREFERENCE_ID:
-                saved_pref_id = preference_id_for(
-                    user,
-                    applied=paa_outcome.result.human_override_applied is not None,
-                )
+                saved_pref_id = preference_id_for(user, applied=_pref_shaped)
             else:
                 saved_pref_id = saved_investment_preference_id
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
                 user_id=acting_user_id,
+                # The REAL-corpus allocation on purpose, not effective_result: the
+                # sized one is a ₹1cr notional used only to recover ratios.
                 output=paa_outcome.result,
                 chat_session_id=chat_session_id,
                 user_question=user_question,
@@ -469,5 +497,5 @@ async def compute_additional_investment_result(
         output=response,
         run_id=run_id,
         deficit_facts=deficit_facts,
-        practical_result=paa_outcome.result,
+        practical_result=effective_result,
     )

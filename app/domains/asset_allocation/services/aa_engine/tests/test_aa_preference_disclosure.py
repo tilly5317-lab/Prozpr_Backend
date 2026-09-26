@@ -69,7 +69,7 @@ async def test_practical_display_discloses_the_preference(pack_spy):
 
     block = pack_spy["facts_pack"]["active_preferences"]
     assert block["choices"][0] == "60% equity / 30% debt / 10% commodity"
-    assert "no small-cap equity" in block["choices"]
+    assert "nothing in small-cap equity" in block["choices"]
 
 
 async def test_ideal_fallback_stays_silent(pack_spy):

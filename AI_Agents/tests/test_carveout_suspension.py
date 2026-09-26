@@ -90,6 +90,7 @@ class TestCarveOutSuspension:
         assert b["emergency"] == 0
         assert b["short_term"] == 0
         assert b["medium_term"] == 0
+        assert out.human_override_applied is not None
 
     def test_the_long_term_bucket_takes_the_whole_corpus(self):
         out = _run(
@@ -112,6 +113,22 @@ class TestCarveOutSuspension:
 
         assert b["emergency"] == 0 and b["short_term"] == 0
         assert b["long_term"] == pytest.approx(CORPUS, abs=200)
+        assert out.human_override_applied is not None
+
+    def test_an_exclusion_only_preference_suspends_them_too(self):
+        """The equivalence the SIP branch rests on: `human_override_applied is
+        not None` must hold even when the only preference set is a single
+        subgroup exclusion, not a full pin or class tilt."""
+        out = _run(
+            **_CARVEOUT_PROFILE,
+            human_override=_prefs(subgroup_emphasis={"gold_commodities": 0.0}),
+        )
+        b = _buckets(out)
+
+        assert b["emergency"] == 0
+        assert b["short_term"] == 0
+        assert b["medium_term"] == 0
+        assert out.human_override_applied is not None
 
     def test_the_four_bucket_output_shape_survives(self):
         """§3.3: `_build_output` still emits four rows, three of them at zero."""

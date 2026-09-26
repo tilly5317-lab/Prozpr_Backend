@@ -245,11 +245,6 @@ def _build_client_context(user: Any) -> ClientContext:
         if name:
             goals.append(str(name))
 
-    # Read through the profile domain's accessor: only sanctioned modules may
-    # touch the `saved_investment_preference` relationship directly (see
-    # profile/tests::test_contract_single_computation_reader).
-    from app.domains.profile.services.preference_view import describe_active
-
     return ClientContext(
         age=age,
         risk_category=risk_category,
@@ -259,7 +254,6 @@ def _build_client_context(user: Any) -> ClientContext:
         annual_income_inr=annual_income,
         total_liabilities_inr=total_liabilities,
         financial_goals=goals,
-        investment_preferences=(describe_active(user) or []),
     )
 
 
@@ -539,13 +533,14 @@ _PORTFOLIO_TOOL_FIELDS: dict[str, Any] = {
             "the answer is in-scope."
         ),
     },
-    "wants_preference_change": {
+    "preference_question": {
         "type": "boolean",
         "description": (
-            "True when the customer is asking to CHANGE, clear, reset or remove a "
-            "saved investment preference — not merely asking what is set. Chat "
-            "does not write preferences: read back what they have, then point "
-            "them at their investment preferences. False for every other question."
+            "True for ANY question about the customer's saved investment "
+            "preferences — reading them, changing them, clearing them, or asking "
+            "for more/less of an asset class or fund category. Chat neither reads "
+            "back nor writes the record: point them at their preferences page. "
+            "False for every other question."
         ),
     },
     "path": {
@@ -646,7 +641,7 @@ async def generate_portfolio_query_response(
         text=_apply_guardrail_backstop(text, extras),
         suggested_intent=extras.get("suggested_intent"),
         path=extras.get("path"),
-        show_preferences_pill=bool(extras.get("wants_preference_change")),
+        show_preferences_pill=bool(extras.get("preference_question")),
     )
 
 

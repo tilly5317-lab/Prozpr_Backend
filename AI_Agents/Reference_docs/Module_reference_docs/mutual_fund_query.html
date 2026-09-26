@@ -302,11 +302,11 @@ flowchart LR
     Q([Customer question<br/>+ history]) --> EX["<b>Pass 1 · extract</b><br/>Haiku forced-tool<br/>name fund(s) + classify ask"]
     EX --> APP["<b>App layer</b><br/>resolve fund → DB returns<br/>+ ranking + peers"]
     APP --> FACTS[("MutualFundQueryFacts<br/>the ONLY numbers allowed")]
-    FACTS --> NA["<b>Pass 2 · narrate</b><br/>Haiku forced-tool<br/>+ persona + guardrails"]
+    FACTS --> NA["<b>Pass 2 · shared answer_formatter</b><br/>narrates using narrate_body<br/>+ persona + guardrails"]
     NA --> R([answer / clarifying_question])
 ```
 
-The engine ([`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py)) owns passes 1 and 2 only. **Why two passes instead of one?** Because you can't fetch facts for a fund until the model has *named* it — pass 1 turns "the one you recommended" into an actual fund name; only then can the app layer look anything up; only then is there something safe to narrate. And the **middle step is deliberately outside the engine** — the engine is DB-agnostic and only ever sees DTOs, so it can be unit-tested without a database. All DB/CSV reads happen in the app layer.
+The engine ([`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py)) owns **pass 1 only** — `extract` plus the `narrate_body` prompt that pass 2 uses. It must never answer the question itself. **Why two passes instead of one?** Because you can't fetch facts for a fund until the model has *named* it — pass 1 turns "the one you recommended" into an actual fund name; only then can the app layer look anything up; only then is there something safe to narrate. And the **middle step is deliberately outside the engine** — the engine is DB-agnostic and only ever sees DTOs, so it can be unit-tested without a database. All DB/CSV reads happen in the app layer.
 
 ---
 
@@ -347,7 +347,7 @@ Two entry methods on `MutualFundQueryOrchestrator`, each with its own input.
 | `question` | `str` | the customer's latest message |
 | `conversation_history` | `list[ConversationTurn]` | prior turns, so pronouns ("it", "the one you recommended") resolve to a real fund name |
 
-**`narrate(facts, question, conversation_history)`** — pass 2. The load-bearing input is `facts: MutualFundQueryFacts` (built by the app layer):
+**Pass 2 is the shared answer formatter**, not a method here — `narrate()` was removed when the reply LLM was centralised (2026-08-05, `3b923228`). This module now exposes `narrate_body`, the body prompt the formatter narrates with. The load-bearing input is still `facts: MutualFundQueryFacts` (built by the app layer):
 
 ```
 MutualFundQueryFacts
