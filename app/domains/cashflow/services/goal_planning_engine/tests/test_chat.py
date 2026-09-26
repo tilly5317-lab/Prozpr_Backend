@@ -26,7 +26,14 @@ def _stub_dependencies(monkeypatch):
     )
 
     async def fake_compute(
-        *, user, user_question, chat_session_id, anchor_date, db=None, overrides=None
+        *,
+        user,
+        user_question,
+        chat_session_id,
+        anchor_date,
+        db=None,
+        overrides=None,
+        milestone_target_inr=None,
     ):
         if getattr(user, "date_of_birth", None) is None:
             raise ValueError("missing_date_of_birth")

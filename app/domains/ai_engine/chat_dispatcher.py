@@ -42,6 +42,18 @@ class ChatHandlerResult:
     rebalancing_run_id: uuid.UUID | None = None
     rebalancing_response: Any | None = None
     additional_investment_run_id: uuid.UUID | None = None
+    # Cadence ("sip_monthly" | "lumpsum") of that run — lets the chat "View plan"
+    # button route to the SIP vs Lump sum tab. Paired with the run id above.
+    additional_investment_cadence: str | None = None
+    # True when this turn produced a savable CANDIDATE preference (a "what-if").
+    # The rebalancing pill uses it to note the preference is kept on save; AINV
+    # self-distinguishes via additional_investment_run_id (sent only on its
+    # what-if turns), so it does not read this.
+    has_candidate_preference: bool = False
+    # True when the turn should route the customer to their investment
+    # preferences — they asked to change/clear the saved record, or named
+    # something we could not map. Chat never WRITES a preference.
+    show_preferences_pill: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
 
 

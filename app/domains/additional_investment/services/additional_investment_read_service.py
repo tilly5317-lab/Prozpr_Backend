@@ -15,9 +15,9 @@ Decimals to plain float (the allocation family) before it leaves this layer.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Iterable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,20 +27,22 @@ from app.domains.additional_investment.models import (
     Cadence,
 )
 from app.domains.additional_investment.schemas import (
-    LumpsumAlignmentRow,
+    AssetClassBreakdown,
+    AssetClassBreakdownRow,
     LumpsumFundBuy,
     LumpsumPlanResponse,
     SipFundBuy,
     SipPlanResponse,
 )
 from app.domains.additional_investment.services.lumpsum_reasoning import (
-    build_alignment_rows,
     build_fund_reason,
-    headline_reason,
     reason_by_subgroup,
 )
 from app.domains.profile.models.personal_finance_profile import (
     PersonalFinanceProfile,
+)
+from app.domains.profile.models.saved_investment_preference import (
+    SavedInvestmentPreference,
 )
 from app.domains.profile.services.profile_finance import (
     starting_monthly_investment_pfp,
@@ -61,14 +63,177 @@ def _monthly_amount(buy: AdditionalInvestmentBuy) -> float:
     return float(amount)
 
 
+# Origin values on AdditionalInvestmentRun (mirroring rebalancing). AINV needs
+# only "candidate": an unsaved what-if the customer previewed but did not save.
+# NULL = a plain committed deploy. The Invest-page reads serve committed runs only.
+ORIGIN_CANDIDATE = "candidate"
+
+
+def _committed_run_filter():
+    """Firewall unsaved what-if (candidate) runs out of the Invest-page reads.
+
+    Admits NULL (a plain deploy) and any non-candidate origin; excludes only
+    'candidate'. The explicit ``is_(None)`` branch is load-bearing — in SQL
+    ``origin != 'candidate'`` evaluates to NULL (excluded) for a NULL-origin row,
+    so a bare ``!=`` would silently drop every plain run. Mirrors rebalancing's
+    ``committed_run_filter``.
+    """
+    return or_(
+        AdditionalInvestmentRun.origin.is_(None),
+        AdditionalInvestmentRun.origin != ORIGIN_CANDIDATE,
+    )
+
+
+_ASSET_CLASS_ORDER = ("Equity", "Debt", "Others")
+
+
+def build_ainv_asset_class_breakdown(
+    rows: Iterable[tuple[str | None, str | None, float]],
+) -> Optional[AssetClassBreakdown]:
+    """Look-through Equity / Debt / Commodity split of an AINV deployment.
+
+    ``rows`` are ``(asset_subgroup, sub_category, amount)`` per fund bought. This
+    REUSES the rebalancing rollup ``asset_class_mix_from_rows`` with
+    ``multi_asset_sleeve=True`` — a deployment is a PLAN, so the ``multi_asset``
+    sleeve is split by the engine's own composition (65/25/10) rather than by the
+    picked funds, exactly as the rebalancing TARGET bar does; otherwise an
+    equity-heavy hybrid landing in the sleeve would silently delete the plan's
+    debt. Target-only (a deployment has no "current"), so ``current_inr`` is 0 on
+    every row. Returns None when nothing was deployed.
+    """
+    # Lazy import: keeps this module free of any load-order coupling to the
+    # rebalancing package (the rollup itself is a leaf helper over
+    # scheme_classification).
+    from app.domains.rebalancing.services.asset_class_breakdown import (
+        asset_class_mix_from_rows,
+    )
+
+    mix = asset_class_mix_from_rows(rows, multi_asset_sleeve=True)
+    breakdown_rows = [
+        AssetClassBreakdownRow(
+            asset_class=asset_class,
+            current_inr=0.0,
+            target_inr=round(mix.get(asset_class, 0.0), 2),
+        )
+        for asset_class in _ASSET_CLASS_ORDER
+        if mix.get(asset_class, 0.0) > 0
+    ]
+    if not breakdown_rows:
+        return None
+    return AssetClassBreakdown(
+        rows=breakdown_rows,
+        current_total_inr=0.0,
+        target_total_inr=round(sum(mix.values()), 2),
+    )
+
+
+async def get_session_current_ainv(
+    db: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID
+) -> tuple[str | None, uuid.UUID | None]:
+    """This chat SESSION's most recent additional-investment run, as
+    ``(cadence, save_preference_run_id)`` — the two datums the chat restores its
+    pills from on reload (history carries no per-message pill data):
+
+    * ``cadence`` ("sip_monthly" | "lumpsum") restores "View plan" for ANY
+      deploy; None when the session produced no run.
+    * ``save_preference_run_id`` restores the "Save preference" pill, set ONLY
+      when that same latest run carries an unsaved what-if candidate preference
+      (``activated_at`` NULL). A later ordinary deploy (no candidate) or a
+      candidate the customer already saved leaves it None — nothing left to save.
+
+    One query, one row: both facts describe the session's latest run, so a later
+    ordinary deploy correctly supersedes an earlier what-if. Session-scoped on
+    purpose — a user's globally-latest run may belong to another conversation,
+    and a SIP turn must not restore a lump-sum popup.
+    """
+    row = (
+        await db.execute(
+            select(
+                AdditionalInvestmentRun.id,
+                AdditionalInvestmentRun.cadence,
+                AdditionalInvestmentRun.saved_investment_preference_id,
+                SavedInvestmentPreference.activated_at,
+            )
+            .outerjoin(
+                SavedInvestmentPreference,
+                SavedInvestmentPreference.id
+                == AdditionalInvestmentRun.saved_investment_preference_id,
+            )
+            .where(
+                AdditionalInvestmentRun.user_id == user_id,
+                AdditionalInvestmentRun.chat_session_id == session_id,
+            )
+            .order_by(AdditionalInvestmentRun.created_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None, None
+    run_id, cadence, preference_id, activated_at = row
+    save_run_id = run_id if (preference_id is not None and activated_at is None) else None
+    return (cadence.value if cadence is not None else None), save_run_id
+
+
+def _sip_response_from_run(
+    run: AdditionalInvestmentRun, *, goal_sip: Optional[float]
+) -> SipPlanResponse:
+    """Reshape one SIP run into the flat per-month Invest view.
+
+    ``goal_sip`` is the canonical monthly SIP (from PFP) for the goal-plan sync
+    check; None (e.g. a by-run-id fetch) leaves the plan in-sync — there is
+    nothing to compare against.
+    """
+    # Biggest monthly contribution first — mirrors the chat brief's ordering so
+    # the customer sees the same "where most of the money goes" story.
+    buys = [
+        SipFundBuy(
+            recommended_fund=b.recommended_fund,
+            sub_category=b.sub_category,
+            asset_subgroup=b.asset_subgroup,
+            scheme_code=b.scheme_code,
+            monthly_amount_inr=_monthly_amount(b),
+            rank=b.rank,
+            reason=b.reason,
+        )
+        for b in sorted(run.buys, key=_monthly_amount, reverse=True)
+    ]
+    monthly_amount_inr = float(run.deploy_amount_inr)
+    # In sync when the canonical SIP is set and this plan was computed for it (to
+    # the rupee). Creating a plan writes both, so a mismatch means the canonical
+    # amount moved afterwards on another surface — this plan's split is stale.
+    goal_plan_in_sync = (
+        goal_sip is not None and abs(float(goal_sip) - monthly_amount_inr) < 1.0
+    )
+    breakdown = build_ainv_asset_class_breakdown(
+        (b.asset_subgroup, b.sub_category, _monthly_amount(b)) for b in run.buys
+    )
+    return SipPlanResponse(
+        has_plan=True,
+        run_id=run.id,
+        created_at=run.created_at,
+        monthly_amount_inr=monthly_amount_inr,
+        monthly_deployed_inr=float(run.deployed_inr),
+        monthly_undeployed_inr=float(run.undeployed_inr),
+        target_bucket=(
+            run.target_bucket.value if run.target_bucket is not None else None
+        ),
+        fund_count=len(buys),
+        buys=buys,
+        goal_plan_monthly_investment_inr=goal_sip,
+        goal_plan_in_sync=goal_plan_in_sync,
+        asset_class_breakdown=breakdown,
+    )
+
+
 async def get_latest_sip_plan(
     db: AsyncSession, user_id: uuid.UUID
 ) -> SipPlanResponse:
-    """Return the user's most recent monthly-SIP plan.
+    """Return the user's most recent COMMITTED monthly-SIP plan.
 
-    Yields ``SipPlanResponse(has_plan=False)`` when the customer has no
+    Yields ``SipPlanResponse(has_plan=False)`` when the customer has no committed
     ``sip_monthly`` run yet, so the Invest page can render its set-up prompt
-    without special-casing a 404.
+    without special-casing a 404. Unsaved what-if (``origin='candidate'``) runs
+    are firewalled out — they are viewable only by id via ``get_ainv_plan_for_run``.
     """
     # The canonical monthly SIP (SSOT on PFP), which creating a plan keeps in step.
     # Surfaced alongside the plan so the Invest page can pre-fill from a SIP set on
@@ -87,6 +252,7 @@ async def get_latest_sip_plan(
         .where(
             AdditionalInvestmentRun.user_id == user_id,
             AdditionalInvestmentRun.cadence == Cadence.SIP_MONTHLY,
+            _committed_run_filter(),
         )
         .order_by(AdditionalInvestmentRun.created_at.desc())
         .options(selectinload(AdditionalInvestmentRun.buys))
@@ -94,51 +260,13 @@ async def get_latest_sip_plan(
     )
     run = (await db.execute(stmt)).scalars().first()
     if run is None:
-        # No SIP to compare against — never nudge.
+        # No committed SIP to compare against — never nudge.
         return SipPlanResponse(
             has_plan=False,
             goal_plan_monthly_investment_inr=goal_sip,
             goal_plan_in_sync=True,
         )
-
-    # Biggest monthly contribution first — mirrors the chat brief's ordering so
-    # the customer sees the same "where most of the money goes" story.
-    buys = [
-        SipFundBuy(
-            recommended_fund=b.recommended_fund,
-            sub_category=b.sub_category,
-            asset_subgroup=b.asset_subgroup,
-            scheme_code=b.scheme_code,
-            monthly_amount_inr=_monthly_amount(b),
-            rank=b.rank,
-            reason=b.reason,
-        )
-        for b in sorted(run.buys, key=_monthly_amount, reverse=True)
-    ]
-
-    monthly_amount_inr = float(run.deploy_amount_inr)
-    # In sync when the canonical SIP is set and this plan was computed for it (to
-    # the rupee). Creating a plan writes both, so a mismatch means the canonical
-    # amount moved afterwards on another surface — this plan's split is stale.
-    goal_plan_in_sync = (
-        goal_sip is not None and abs(float(goal_sip) - monthly_amount_inr) < 1.0
-    )
-
-    return SipPlanResponse(
-        has_plan=True,
-        run_id=run.id,
-        created_at=run.created_at,
-        monthly_amount_inr=monthly_amount_inr,
-        monthly_deployed_inr=float(run.deployed_inr),
-        monthly_undeployed_inr=float(run.undeployed_inr),
-        target_bucket=(
-            run.target_bucket.value if run.target_bucket is not None else None
-        ),
-        fund_count=len(buys),
-        buys=buys,
-        goal_plan_monthly_investment_inr=goal_sip,
-        goal_plan_in_sync=goal_plan_in_sync,
-    )
+    return _sip_response_from_run(run, goal_sip=goal_sip)
 
 
 def _lumpsum_amount(buy: AdditionalInvestmentBuy) -> float:
@@ -156,35 +284,14 @@ def _lumpsum_amount(buy: AdditionalInvestmentBuy) -> float:
     return float(amount)
 
 
-async def get_latest_lumpsum_plan(
-    db: AsyncSession, user_id: uuid.UUID
-) -> LumpsumPlanResponse:
-    """Return the user's most recent one-time lump-sum plan, with reasoning.
+def _lumpsum_response_from_run(run: AdditionalInvestmentRun) -> LumpsumPlanResponse:
+    """Reshape one lump-sum run into the Invest view.
 
-    Yields ``LumpsumPlanResponse(has_plan=False)`` when the customer has no
-    ``lumpsum`` run yet, so the Invest page renders its set-up prompt. The
-    per-part alignment (ideal vs current vs gap) and the per-fund "why this fund"
-    reasoning are rebuilt from the ``deficit_facts`` persisted on the run
-    (``request_input['deficit_facts']`` — written by the engine adapter), so this
-    read matches the create response exactly.
+    Each fund's "why this fund" reason is rebuilt from the ``deficit_facts``
+    persisted on the run (``request_input['deficit_facts']``), so the read matches
+    the create response exactly. Absent on a legacy run — reasoning then degrades
+    gracefully to a rank/category line.
     """
-    stmt = (
-        select(AdditionalInvestmentRun)
-        .where(
-            AdditionalInvestmentRun.user_id == user_id,
-            AdditionalInvestmentRun.cadence == Cadence.LUMPSUM,
-        )
-        .order_by(AdditionalInvestmentRun.created_at.desc())
-        .options(selectinload(AdditionalInvestmentRun.buys))
-        .limit(1)
-    )
-    run = (await db.execute(stmt)).scalars().first()
-    if run is None:
-        return LumpsumPlanResponse(has_plan=False)
-
-    # Deficit facts persisted alongside the run drive both the alignment section
-    # and each fund's reason. Absent on a legacy run (persisted before the facts
-    # were stored) — reasoning then degrades gracefully to a rank/category line.
     request_input = run.request_input or {}
     deficit_facts = request_input.get("deficit_facts")
     facts_by_sg = reason_by_subgroup(deficit_facts)
@@ -215,6 +322,10 @@ async def get_latest_lumpsum_plan(
         run.target_bucket.value if run.target_bucket is not None else None
     )
 
+    breakdown = build_ainv_asset_class_breakdown(
+        (b.asset_subgroup, b.sub_category, _lumpsum_amount(b)) for b in run.buys
+    )
+
     return LumpsumPlanResponse(
         has_plan=True,
         run_id=run.id,
@@ -225,13 +336,66 @@ async def get_latest_lumpsum_plan(
         target_bucket=target_bucket,
         fund_count=len(buys),
         buys=buys,
-        alignment_rows=[
-            LumpsumAlignmentRow(**row) for row in build_alignment_rows(deficit_facts)
-        ],
-        headline_reason=headline_reason(
-            target_bucket, deployed_inr, undeployed_inr
-        ),
+        asset_class_breakdown=breakdown,
     )
 
 
-__all__ = ["get_latest_sip_plan", "get_latest_lumpsum_plan"]
+async def get_latest_lumpsum_plan(
+    db: AsyncSession, user_id: uuid.UUID
+) -> LumpsumPlanResponse:
+    """Return the user's most recent COMMITTED one-time lump-sum plan.
+
+    Yields ``LumpsumPlanResponse(has_plan=False)`` when there is no committed
+    ``lumpsum`` run yet, so the Invest page renders its set-up prompt. Unsaved
+    what-if (``origin='candidate'``) runs are firewalled out — viewable only by id
+    via ``get_ainv_plan_for_run``.
+    """
+    stmt = (
+        select(AdditionalInvestmentRun)
+        .where(
+            AdditionalInvestmentRun.user_id == user_id,
+            AdditionalInvestmentRun.cadence == Cadence.LUMPSUM,
+            _committed_run_filter(),
+        )
+        .order_by(AdditionalInvestmentRun.created_at.desc())
+        .options(selectinload(AdditionalInvestmentRun.buys))
+        .limit(1)
+    )
+    run = (await db.execute(stmt)).scalars().first()
+    if run is None:
+        return LumpsumPlanResponse(has_plan=False)
+    return _lumpsum_response_from_run(run)
+
+
+async def get_ainv_plan_for_run(
+    db: AsyncSession, user_id: uuid.UUID, run_id: uuid.UUID
+) -> "SipPlanResponse | LumpsumPlanResponse | None":
+    """One SPECIFIC run's plan, by id — ORIGIN-AGNOSTIC (a candidate draft is
+    returned too). This is how the chat "View plan" popup opens an unsaved what-if
+    that the committed Invest-page reads hide. Scoped to the user; returns None
+    (-> 404) when the run does not exist or is not theirs. The shape is
+    discriminated by the run's cadence; the SIP goal-plan sync fields are left at
+    their neutral defaults (the popup does not use them).
+    """
+    run = (
+        await db.execute(
+            select(AdditionalInvestmentRun)
+            .where(
+                AdditionalInvestmentRun.id == run_id,
+                AdditionalInvestmentRun.user_id == user_id,
+            )
+            .options(selectinload(AdditionalInvestmentRun.buys))
+        )
+    ).scalars().first()
+    if run is None:
+        return None
+    if run.cadence == Cadence.SIP_MONTHLY:
+        return _sip_response_from_run(run, goal_sip=None)
+    return _lumpsum_response_from_run(run)
+
+
+__all__ = [
+    "get_latest_sip_plan",
+    "get_latest_lumpsum_plan",
+    "get_ainv_plan_for_run",
+]

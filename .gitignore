@@ -53,11 +53,14 @@ Desktop.ini
 # Logs
 *.log
 
-# Pytest
+# Pytest — ignore CACHES/COVERAGE only. Test CODE (test_*.py, conftest.py) IS
+# version-controlled on purpose: it ships with the source it protects, is reviewed
+# in the same PR, and can run in CI. Test DATA/fixtures/outputs stay out of git via
+# the type rules above (*.csv, *.db, __pycache__) and the dev-harness dirs below —
+# NOT by ignoring whole tests/ directories (that blocked the test code itself).
 .pytest_cache/
 htmlcov/
 .coverage
-conftest.py
 
 # Jupyter
 .ipynb_checkpoints/
@@ -73,6 +76,10 @@ conftest.py
 # Superpowers (local only)
 docs/superpowers/
 **/docs/superpowers/
+# Subagent-driven-development scratch: per-plan ledgers, briefs, review packages.
+.superpowers/
+# Dev-only scenario ledgers: production-derived dumps, never committed.
+artefact/
 **/.claude/agents/
 **/.claude/hooks/
 
@@ -89,75 +96,38 @@ Agent_audit/
 # Cache files
 AI_Agents/src/market_commentary/market_commentary_latest.json
 AI_Agents/src/market_commentary/market_commentary_latest.md
+
+# Dev-only agent scratch / experiment / eval / simulation harnesses + their data.
+# These are LOCAL exploration dirs (capital-T "Testing", "Master_testing", eval,
+# sim), NOT the unit-test suite — the unit tests in lowercase tests/ dirs are
+# tracked. Keep these out of version control.
 /AI_Agents/src/goal_based_allocation/Testing
 /AI_Agents/src/goal_based_allocation_pydantic/Testing
 /AI_Agents/src/goal_based_allocation_pydantic/references
 /AI_Agents/src/goal_based_allocation_pydantic/Master_testing
-/AI_Agents/src/.claude/skills
 /AI_Agents/src/goal_based_allocation_pydantic/simulation_website/goal_allocation_explorer.html
+/AI_Agents/src/.claude/skills
+/AI_Agents/src/*/Testing/
+/AI_Agents/src/chat_eval
+/AI_Agents/src/asset_allocation_pydantic/Master_testing
+/AI_Agents/src/practical_asset_allocation/Master_testing
+/AI_Agents/src/additional_investment/Master_testing
+/AI_Agents/lifecycle_sim_testing
 
 # Dev-only scripts (seed helpers, one-offs) — keep local, do not push
 scripts/
 /MF_Logics/Mututal_Funds_data_extraction/NAV_level_data
-/AI_Agents/src/cashflow_statement/tests
-/AI_Agents/src/*/tests/
-/AI_Agents/src/*/Testing/
-/AI_Agents/src/chat_eval
 MF_Logics/MF_fund_view_data/MF_evaluation framework.xlsx
 MF_Logics/Mututal_Funds_data_extraction/mf_nav_history.txt
-/AI_Agents/src/asset_allocation_pydantic/Master_testing
+AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
+/notebooks
+
+# Local worktrees
 .claude/worktrees/relaxed-hermann-5c135c/
 .claude/worktrees/quirky-bhabha-632a4b/
-/AI_Agents/src/practical_asset_allocation/Master_testing
-AI_Agents/Reference_docs/Prozpr_fund_ranking.csv
-/app/domains/mutual_funds/tests
-/app/domains/portfolio/tests
-/notebooks
 
 # User-filed issue reports (Excel register + screenshots) — runtime artifacts
 issue_reports/
-/app/domains/portfolio/services/tests
-/app/domains/general_chat/tests
-/app/domains/ai_engine/answer_formatter/tests
-# NB: /app/core/tests is deliberately NOT ignored — app/core holds the security
-# primitives (PII masking/redaction), whose regression guards must ship.
-/app/domains/rebalancing/services/tests
-/app/domains/rebalancing/services/rebal_engine/tests
-/app/domains/asset_allocation/services/aa_engine/tests
-/app/domains/additional_investment/services/tests
-/app/domains/additional_investment/services/ainv_engine/tests
-/AI_Agents/src/additional_investment/Master_testing
-/app/domains/rebalancing/services/rebal_engine/tests
-/app/domains/chat/services/tests
-/app/domains/ai_engine/tests
-/app/domains/practical_asset_allocation/services/paa_engine/tests
-/app/domains/intent_classifier/services/tests
-/app/domains/asset_allocation/services/aa_engine/tests
-/app/domains/additional_investment/models/tests
-/app/domains/asset_allocation/services/aa_engine/tests
-/app/domains/asset_allocation/services/aa_engine/tests
-/AI_Agents/lifecycle_sim_testing
-/app/domains/profile/services/_effective_risk/tests
-/app/routers/tests
-/app/domains/cashflow/services/goal_planning_engine/tests
-/app/domains/intent_classifier/tests
-/app/domains/asset_allocation/services/tests
-docs/superpowers/notes/2026-07-26-behaviour-delta.md
-docs/superpowers/notes/2026-07-26-track1-gate-a-findings.md
-docs/superpowers/notes/2026-07-26-track1-gate-b-wording.md
-docs/superpowers/notes/2026-07-26-track2a-findings.md
-docs/superpowers/notes/2026-07-26-track3b-architecture-findings.md
-docs/superpowers/plans/2026-07-26-context-layer-reconciliation.md
-docs/superpowers/specs/2026-07-26-context-layer-reconciliation-design.md
-docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
-/app/domains/ai_engine/tests
-/app/domains/ai_engine/tests
-/app/domains/mutual_funds/services/tests
-/app/domains/ai_engine/tests
-/app/domains/rebalancing/services/rebal_engine/tests
-/app/domains/ai_engine/tests
-/app/domains/chat/tests
-/app/domains/rebalancing/services/rebal_engine/tests
 
 # Legacy SQLite dev database + its restore sidecars. Untracked 2026-08-25: these
 # were committed and contain real user rows (a team member's PAN and mobile),
@@ -167,7 +137,6 @@ docs/superpowers/plans/2026-07-27-posthog-otel-observability-migration.md
 /wealth_agent.db
 /wealth_agent.db.bak-*
 /wealth_agent.db.before-restore-*
-/app/core/tests
 
 # VR smoke-test output (contains vendor table names + row counts, not secrets)
 vr_smoke_report.json

@@ -113,8 +113,10 @@ def _start_speculative_detect(ctx: TurnContext) -> asyncio.Task | None:
     module_path = _SPECULATIVE_DETECT_MODULES.get(intent or "")
     if module_path is None:
         return None
-    # A detector only helps on FOLLOW-UP turns; first turns run the engine.
-    if intent not in ctx.last_agent_runs:
+    # Speculation covers follow-ups only — EXCEPT rebalancing, which also
+    # speculates on a FIRST turn (S2d) so cold start moves the detector off the
+    # critical path. Other intents (e.g. asset_allocation) still skip it.
+    if intent not in ctx.last_agent_runs and intent != "rebalancing":
         return None
     try:
         importlib.import_module(module_path)  # @register side effect
@@ -488,6 +490,14 @@ class ChatBrain:
             if final
             else None,
             ideal_allocation_snapshot_id=final.snapshot_id if final else None,
+            additional_investment_run_id=final.additional_investment_run_id
+            if final
+            else None,
+            additional_investment_cadence=final.additional_investment_cadence
+            if final
+            else None,
+            has_candidate_preference=final.has_candidate_preference if final else False,
+            show_preferences_pill=final.show_preferences_pill if final else False,
             chart_payloads=final.chart_payloads if final else None,
             portfolio_data_missing=portfolio_data_missing,
         )

@@ -230,6 +230,20 @@ _RAW_SUBCAT_NORMALIZATIONS: dict[str, str] = {
     "Dynamic Asset Allocation or Balanced Advantage": "Dynamic Asset Allocation Fund",
     "Multi Asset Allocation": "Multi-Asset Allocation Fund",
     "Gold ETF": "Gold Linked (Index/ETF)",
+    # AMFI-spelled twins of the SEBI labels above; ``sub_category`` carries both
+    # vocabularies, and a missing twin makes the fund unknown value everywhere.
+    "Ultra Short Term Fund": "Ultra Short Fund (3-6 months)",
+    "Ultra Short to Short Term Fund": "Ultra Short to Short Term Fund (6-12 months)",
+    "Short Term Fund": "Short Term Fund (1-3 years)",
+    "Medium Term Fund": "Medium Term Fund (3-4 years)",
+    "Medium to Long Term Fund": "Medium Term to Long Term Fund (4-7 years)",
+    "Long Term Fund": "Long Term Fund (above 7 years)",
+    "10-year Constant Maturity Gilt Fund": "10-Year Constant Maturity Gilt Fund",
+    "ELSS- Tax Saver Fund": "ELSS Tax Saver Fund",
+    "Balanced Advantage Fund/ Dynamic Asset Allocation": "Dynamic Asset Allocation Fund",
+    "Multi Asset Allocation Fund": "Multi-Asset Allocation Fund",
+    "Silver ETF": "Silver Linked (Index/ETF)",
+    "Debt ETF": "Debt Index Linked (Index/ETF)",
 }
 
 # Sub-categories the legacy script left intentionally blank (no canonical
@@ -441,6 +455,19 @@ def _classify_fof_domestic(scheme_name: Optional[str]) -> str:
     return "Others (FoF)"
 
 
+# SEBI labels too coarse to map directly — ``classify_sub_category`` dispatches
+# them by scheme name. Each set is the SEBI label plus its AMFI spellings.
+_INDEX_ETF_LABELS: frozenset[str] = frozenset(
+    {"Index Funds", "Other  ETFs", "Other ETF", "Equity ETF"}
+)
+_FOF_OVERSEAS_LABELS: frozenset[str] = frozenset(
+    {"FoF Overseas", "Fund of Funds investing overseas"}
+)
+_FOF_DOMESTIC_LABELS: frozenset[str] = frozenset(
+    {"FoF Domestic", "Fund of Funds Scheme (Domestic)"}
+)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -471,11 +498,11 @@ def classify_sub_category(
     canonical: Optional[str] = _RAW_SUBCAT_NORMALIZATIONS.get(raw)
     # Tier 2: name-based dispatch for Index/ETF/FoF SEBI categories.
     if canonical is None:
-        if raw in ("Index Funds", "Other  ETFs"):
+        if raw in _INDEX_ETF_LABELS:
             canonical = _classify_index_or_etf(scheme_name)
-        elif raw == "FoF Overseas":
+        elif raw in _FOF_OVERSEAS_LABELS:
             canonical = _classify_fof_overseas(scheme_name)
-        elif raw == "FoF Domestic":
+        elif raw in _FOF_DOMESTIC_LABELS:
             canonical = _classify_fof_domestic(scheme_name)
         else:
             # Unknown raw label — try it verbatim against SUBCAT_TO_MAPPING

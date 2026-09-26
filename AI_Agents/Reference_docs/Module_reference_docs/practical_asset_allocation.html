@@ -336,7 +336,7 @@ The app gateway dispatches through the chat kernel, so the turn `ctx` (loaded on
 
 ## 3. Input contract
 
-`PracticalAllocationInput` **extends** `AllocationInput` — every ideal field (age, goals, `effective_risk_score`, `market_commentary`, `net_financial_assets`, `multi_asset_composition`, …) is inherited unchanged. It adds four holdings-aware scalars:
+`PracticalAllocationInput` **extends** `AllocationInput` — every ideal field (age, goals, `effective_risk_score`, `market_commentary`, `net_financial_assets`, `multi_asset_composition`, …) is inherited unchanged. It adds four holdings-aware scalars and the customer's resolved preference:
 
 | Field | Type | Notes |
 |---|---|---|
@@ -344,6 +344,7 @@ The app gateway dispatches through the chat kernel, so the turn `ctx` (loaded on
 | `non_mf_equity_corpus` | `float ≥ 0` (default 0.0) | direct stocks + PMS — non-MF equity the rebalancer can't trade per-fund |
 | `elss_corpus` | `float ≥ 0` (default 0.0) | ELSS MF holdings (a **subset of** `mf_corpus`); frozen under 3-year lock-in |
 | `max_non_mf_equity_pct_client_input` | `float?` (default `None`) | advisor override for the NFA-banded cap (Option A — client override wins over the computed band) |
+| `human_override` | `HumanOverridePreferences?` (default `None`) | the customer's standing investment preference, already resolved to absolutes app-side. `None` → the preference path is a strict no-op (see §6a) |
 
 The three implicit corpus quantities are *derived, not inputs* (see the class docstring):
 
@@ -455,6 +456,33 @@ The ELSS ₹10 L and the absorbed direct stocks ₹24.5 L show up as **frozen ro
 
 ---
 
+## 6a. Customer preferences — the only engine that honours them
+
+Spec 2026-09-14. A customer's standing preference arrives as `human_override` and is applied **at the phase that decides each facet**, never as a post-hoc reshape.
+
+| Facet | Phase | Behaviour |
+|---|---|---|
+| Asset-class split | `phase2_asset_class_pcts` | the requested split **IS** the output — the market-view tilt and the phase-1 risk bounds (the others-gate included) are bypassed |
+| Multi-asset sleeve size | `phase4_multi_asset` | pinned; an over-large ask is capped at the largest the class split can fund |
+| Sub-group pins / exclusions | `phase5_equity_subgroups` | pinned as a share of the whole portfolio; over-subscribed pins scale proportionally |
+
+<div class="callout danger">
+  <div class="title">⚠ Why "step 6" was retired</div>
+  <p>Preferences used to be applied <em>after</em> the whole allocation was built (<code>apply_human_override</code>, then called step 6). By then the multi-asset sleeve was carved and frozen, so the reshape could not move debt: an 85/7/8 ask landed at <strong>78.33/14.00/7.67</strong> on a real portfolio, and where a buffer did exist it could only hit the target by gutting it (₹3,00,000 → ₹1,653 on one fixture). Re-applying the same ask at the end <em>now</em> would apply it twice, against a migratable basis rather than the class the customer named.</p>
+</div>
+
+**One basis, end to end (D-A3).** `subgroup_emphasis` maps a sub-group to its share of the **whole portfolio**, never of its class; the engine reads `resolved_targets` verbatim. Market-cap asks arrive on the beta sub-groups (large→low, mid→medium, small→high) — one vocabulary, matching the output table. Both the %-of-class conversions and the read-back round-trip were deleted.
+
+**Zero is an exclusion, not a pin.** [`excludes()`](../../src/practical_asset_allocation/human_override.py) is the single definition, read by both the engine's pin extraction and the customer-facing report so the two cannot drift. `FROZEN_SUBGROUPS` (`tax_efficient_equities`, `non_mf_equities`) can never be refused — they are holdings the engine cannot trade. Excluding gold zeroes the commodity class and with it the sleeve (the fund holds gold, so "no gold" means no fund); excluding a debt bucket re-routes to the other rather than stranding money in a refused fund.
+
+**Any preference suspends the steps 1–3 carve-outs.** Emergency fund, near-term goals and the NFA liability offset stop being carved, and the whole corpus goes to the long-term step (`_no_carveout_buckets`, spec 2026-09-15 §3). `carve_outs_at_risk()` reads the **profile**, so it answers both moments with one source: the warning the preferences screen shows before the customer commits, and the record attached to the run afterwards. It returns three values rather than a flag because the triggers differ — the NFA offset fires on negative net financial assets regardless of emergency-fund need, so a leveraged customer with no emergency requirement must be told about the offset and nothing else.
+
+**`apply_human_override` is now the reporting point.** Always invoked, strict no-op when prefs are `None`/empty — that no-op is the golden-test guarantee that a no-preference run stays byte-identical. `HumanOverrideApplied` is deliberately thin: what was asked lives on the saved-preference row and what landed is the run's own breakdown, so the only new information is `shortfall_reason`.
+
+> **The ideal engine stays preference-free.** `asset_allocation_pydantic` remains Prozpr's own recommendation; only this engine bends. That is what makes "here's what we'd advise, here's your version" a real contrast. The cost: `asset_allocation_pydantic` is no longer diff-free against this caller — `phase2_asset_class_pcts` gained an optional `requested_class_pcts` that only this orchestrator passes.
+
+---
+
 ## 6. Where the LLM is
 
 **Nowhere. This module never calls an LLM.** Every number is produced by deterministic arithmetic over the input — the same input always yields the same output, which is exactly what a *target* allocation feeding a downstream trade engine must guarantee.
@@ -474,6 +502,7 @@ That reproducibility is load-bearing: the app gateway **persists** each run and 
 | File | Role |
 |---|---|
 | [`pipeline.py`](../../src/practical_asset_allocation/pipeline.py) | **the whole engine** — `PracticalAllocationInput`, `CorpusBreakdown`, `PracticalAllocationOutput`, `run_practical_allocation`, `_run_practical_long_term` (R157–R222), `_step5_aggregation_with_frozen`, `_build_asset_class_breakdown`, `_build_output`, the NFA-band helper, `InfeasibleGoalError` |
+| [`human_override.py`](../../src/practical_asset_allocation/human_override.py) | the preference model (`HumanOverridePreferences`), the single exclusion rule (`excludes`), the run report (`apply_human_override` → `HumanOverrideApplied`), and `carve_outs_at_risk`. Pure — no I/O, no DB, no LLM |
 | [`__init__.py`](../../src/practical_asset_allocation/__init__.py) | public re-exports (`run_practical_allocation`, the I/O models, `CorpusBreakdown`, `InfeasibleGoalError`) — the caller's contract surface |
 | [`CLAUDE.md`](../../src/practical_asset_allocation/CLAUDE.md) | context-layer notes (first cross-agent import; int/float vs Decimal boundary) |
 | [`Testing/`](../../src/practical_asset_allocation/Testing/) | pytest suite (gitignored) — the spec §B.9 scenarios + per-task long-term tests |
@@ -484,7 +513,7 @@ App-layer companions (not part of the engine, but where its inputs come from and
 | File | Role |
 |---|---|
 | [`practical_asset_allocation_module_service.py`](../../../app/domains/practical_asset_allocation/services/practical_asset_allocation_module_service.py) | the `run(turn, ctx, prior)` AI-module gateway (the only blessed caller) |
-| [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | builds `PracticalAllocationInput` — shared fields + 4 corpus scalars (+ `CorpusPin`) |
+| [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | builds `PracticalAllocationInput` — shared fields + 4 corpus scalars (+ `CorpusPin`) — and is **the single preference load point for the whole system** (§6a) |
 | [`paa_engine/service.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/service.py) | `compute_practical_allocation_result` (runs the engine off-thread) + fallback brief |
 | [`paa_engine/chat.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/chat.py) | `@register("practical_asset_allocation")` first-turn handler; persists best-effort |
 
@@ -500,6 +529,8 @@ App-layer companions (not part of the engine, but where its inputs come from and
 - **The slider's share denominator is the TOTAL equity pool, not the MF residual.** `residual_equity_corpus_final + multi_asset_amount + non_mf_equity_actual` (Excel R194+R187+R181). Using just the residual would drop the wrong subgroups. This is the practical engine's key divergence from the ideal slider — the shared helper takes it as `share_denominator`.
 - **First blessed cross-agent import — upstream names are a contract.** A rename of any imported `asset_allocation_pydantic` symbol (steps, phase helpers, slider, `round_to_100`) is a cross-module change requiring a sweep here and in Rebalancing.
 - **Persist is best-effort, never blocking** (app layer). `paa_engine/chat.py` swallows a persistence failure so it can't block the reply or the downstream rebalancing step.
+- **A preference bypasses the risk bounds — that is intended, not a bug.** With `requested_class_pcts` present, `phase2_asset_class_pcts` returns the customer's split verbatim: the market-view tilt and the phase-1 bounds (others-gate included) do not run. Don't "restore" the clamp; the comply-and-caution contract is to honour the instruction and disclose the deviation, and the preference-free ideal is what carries our own opinion.
+- **A preference also suspends steps 1–3.** The emergency, near-term and liability carve-outs genuinely do not run — so any code reading step-1/2/3 output on a preference run sees the zeroed `_no_carveout_buckets` values. They are inert placeholders that surface only in the `trace` dict, which no production caller passes.
 - **Two subgroups don't exist upstream.** `tax_efficient_equities` and `non_mf_equities` are added to a *local* copy of `SUBGROUP_TO_ASSET_CLASS` as equity inside `_build_asset_class_breakdown`. Don't expect them in the shared table.
 
 ---

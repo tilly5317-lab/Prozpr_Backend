@@ -38,6 +38,9 @@ from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.portfolio.services.portfolio_service import (
     get_or_create_primary_portfolio,
 )
+from app.domains.profile.services.preference_tagging import (
+    active_preference_id,
+)
 
 ensure_ai_agents_path()
 
@@ -48,6 +51,10 @@ from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     RebalancingComputeRequest,
     RebalancingComputeResponse,
 )
+
+# Sentinel: derive the preference FK from the response (S1 default) unless the
+# caller names the row that shaped the run (a chat candidate, or None).
+DERIVE_PREFERENCE_ID = object()
 
 
 def _to_decimal(value) -> Decimal:
@@ -86,6 +93,7 @@ async def persist_rebalancing_recommendation(
     user_question: Optional[str] = None,
     request: Optional[RebalancingComputeRequest] = None,
     origin: Optional[str] = None,
+    saved_investment_preference_id=DERIVE_PREFERENCE_ID,
 ) -> uuid.UUID:
     """Write the engine response and return the new ``RebalancingRun`` id.
 
@@ -107,6 +115,18 @@ async def persist_rebalancing_recommendation(
     cf_st = request.carryforward_st_loss_inr if request else Decimal(0)
     cf_lt = request.carryforward_lt_loss_inr if request else Decimal(0)
 
+    if saved_investment_preference_id is DERIVE_PREFERENCE_ID:
+        preference_id = await active_preference_id(
+            db,
+            user_id,
+            applied=(
+                getattr(response.practical_allocation, "human_override_applied", None)
+                is not None
+            ),
+        )
+    else:
+        preference_id = saved_investment_preference_id
+
     run = RebalancingRun(
         user_id=user_id,
         portfolio_id=portfolio.id,
@@ -127,6 +147,10 @@ async def persist_rebalancing_recommendation(
         carryforward_lt_loss_inr=_to_decimal(cf_lt),
         knob_snapshot=knob.model_dump(mode="json"),
         request_input=request.model_dump(mode="json") if request else None,
+        # Derived from the RESPONSE, not the request — callers routinely omit
+        # `request`, and practical_allocation.human_override_applied is set
+        # exactly when the run consumed a preference.
+        saved_investment_preference_id=preference_id,
         used_cached_allocation=used_cached_allocation,
         user_question=user_question,
         origin=origin,

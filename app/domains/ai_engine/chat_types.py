@@ -47,6 +47,16 @@ class ChatBrainResult:
     asset_allocation_run_id: uuid.UUID | None = None
     ideal_allocation_rebalancing_id: uuid.UUID | None = None
     ideal_allocation_snapshot_id: uuid.UUID | None = None
+    additional_investment_run_id: uuid.UUID | None = None
+    # Cadence of that run ("sip_monthly" | "lumpsum"), for chat "View plan" routing.
+    additional_investment_cadence: str | None = None
+    # True when the turn produced a savable candidate preference (a what-if);
+    # the rebalancing pill reflects that saving also keeps the preference.
+    has_candidate_preference: bool = False
+    # True when the turn should route the customer to their investment
+    # preferences — they asked to change/clear the saved record, or named
+    # something we could not map. Chat never WRITES a preference.
+    show_preferences_pill: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
     # True when the turn was answered by the "no holdings imported yet" guard
     # (see ``ai_engine.portfolio_gate``) — the UI shows an add-CAMS CTA.

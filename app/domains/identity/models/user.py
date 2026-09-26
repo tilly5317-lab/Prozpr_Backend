@@ -51,6 +51,7 @@ if TYPE_CHECKING:
         OtherInvestment,
         ReviewPreference,
         RiskProfile,
+        SavedInvestmentPreference,
         TaxProfile,
         PersonalFinanceProfile,
     )
@@ -204,6 +205,19 @@ class User(Base):
     )
     investment_constraint: Mapped[Optional["InvestmentConstraint"]] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    saved_investment_preference: Mapped[Optional["SavedInvestmentPreference"]] = (
+        relationship(
+            # Preference rows are immutable + versioned: this resolves to the
+            # single ACTIVE row (partial unique index guarantees at most one).
+            # viewonly — writes happen as explicit inserts in the save service.
+            primaryjoin=(
+                "and_(User.id == SavedInvestmentPreference.user_id, "
+                "SavedInvestmentPreference.is_active == True)"
+            ),
+            uselist=False,
+            viewonly=True,
+        )
     )
     tax_profile: Mapped[Optional["TaxProfile"]] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"

@@ -33,6 +33,7 @@ def build_asset_allocation_run_row(
     spine_mode: str | None,
     user_question: str | None,
     input_payload: dict[str, Any],
+    saved_investment_preference_id: uuid.UUID | None = None,
 ) -> AssetAllocationRun:
     """Build an ORM row (not yet added to the session)."""
     summary = doc.get("client_summary") or {}
@@ -75,6 +76,7 @@ def build_asset_allocation_run_row(
         all_amounts_in_multiples_of_100=bool(
             doc.get("all_amounts_in_multiples_of_100", False)
         ),
+        saved_investment_preference_id=saved_investment_preference_id,
     )
 
 
@@ -89,6 +91,7 @@ async def insert_asset_allocation_run(
     spine_mode: str | None,
     user_question: str | None,
     input_payload: dict[str, Any],
+    saved_investment_preference_id: uuid.UUID | None = None,
 ) -> AssetAllocationRun:
     """Create + flush the ``asset_allocation_runs`` header row."""
     row = build_asset_allocation_run_row(
@@ -100,6 +103,7 @@ async def insert_asset_allocation_run(
         spine_mode=spine_mode,
         user_question=user_question,
         input_payload=input_payload,
+        saved_investment_preference_id=saved_investment_preference_id,
     )
     db.add(row)
     await db.flush()

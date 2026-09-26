@@ -20,7 +20,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - **market_commentary/** — web-search-extracts Indian macro indicators into a `MacroSnapshot`, writes the commentary doc to `Reference_docs/`, answers commentary Q&A. Entry: `main.py`.
 - **portfolio_query/** — builds the facts pack (client profile + holdings) and owns the skill prompt + scope guardrails. See `portfolio_query/CLAUDE.md`.
 - **mutual_fund_query/** — questions about **funds themselves**, held or not; forced-tool Haiku extract, DB-agnostic. See `mutual_fund_query/CLAUDE.md`.
-- **practical_asset_allocation/** — holdings-aware allocation: wraps `asset_allocation_pydantic` with four extra corpus inputs. See `practical_asset_allocation/CLAUDE.md`.
+- **practical_asset_allocation/** — holdings-aware allocation: wraps `asset_allocation_pydantic` with four extra corpus inputs, and the ONE engine that honours standing customer preferences. See `practical_asset_allocation/CLAUDE.md`.
 - **additional_investment/** — pure-Python engine deploying fresh money (BUY-only): lumpsum fills deficits, SIP follows the ideal mix. See `additional_investment/CLAUDE.md`.
 - **risk_profiling/** — deterministic risk-profile scoring (inputs → scores/flags) + an LLM-generated summary paragraph. Entry: `main.py`.
 - **chat_eval/** — (gitignored; dev-only) eval harness: replays a YAML question set through the chat pipeline. Entry: `run_eval.py`.
@@ -32,7 +32,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 - `intent_classifier/` returns a label plus `tools_needed` (which market context the answer needs: `market_commentary` facts vs `fund_house_view`); routing/consumption happens outside `src/` (no peer imports).
 - The fund-house view (`fund_house_commentry.md`, Prozpr's hand-maintained monthly file) is served through `house_view.py`: `flow_market` takes the whole multi-house file, while `portfolio_query` and `rebalancing` take the **Prozpr-only** slice — all gated by the classifier's `fund_house_view` tool. `portfolio_query` no longer loads `market_commentary_latest.md` (its factual channel was dropped); only `flow_market` still reads that factual file (written by `market_commentary/`), gated by `market_commentary` in `tools_needed`.
 - `asset_allocation_pydantic/`'s `AllocationInput` carries fields from `risk_profiling/` and a `market_commentary` score block, but imports neither — the caller wires them in.
-- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1.
+- `practical_asset_allocation/` imports from `asset_allocation_pydantic/` — **the first explicit cross-agent import** under `src/`, blessed by spec §B.1. Since 2026-09-14 the edge runs both ways in spirit: `phase2_asset_class_pcts` carries an optional `requested_class_pcts` that only the practical orchestrator passes, so the ideal engine stays preference-free but is no longer diff-free against its caller.
 - `Rebalancing/` imports `run_practical_allocation` from `practical_asset_allocation/` (Part C of the same spec); `run_rebalancing` calls it first.
 - `additional_investment/` imports no peer agent — its `AdditionalInvestmentInput` is the contract; the app-layer adapter lifts that data from `practical_asset_allocation/`, `cashflow_statement/`, and the fund-ranking CSV.
 - All other agents are import-independent. (`financial_primitives` is a library importable by any agent; today only `cashflow_statement/engine` does.)

@@ -1,6 +1,6 @@
-# AI_Agents/src/financial_primitives
+# AI_Agents/src/financial_primitives — shared deterministic financial-math kernel
 
-Shared, deterministic financial-math kernel: pure functions, no LLM calls and no I/O. The public API is flat — consumers import straight from the package (`from financial_primitives import xirr`), re-exported by `__init__.py`.
+Pure functions, no LLM calls and no I/O. The public API is flat — consumers import straight from the package (`from financial_primitives import xirr`), re-exported by `__init__.py`.
 
 ## Files
 - `__init__.py` — flat public API; re-exports every primitive below and defines `__all__`.

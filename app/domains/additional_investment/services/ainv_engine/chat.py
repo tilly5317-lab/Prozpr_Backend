@@ -16,13 +16,17 @@ turn_context); imported lazily by the module-service to trigger @register.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
+import uuid
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.observability import capture_preference_unserved
 from app.domains.ai_engine.chat_dispatcher import ChatHandlerResult, register
 from app.domains.ai_engine.classifier_llm import classify_action
 from app.domains.ai_engine.turn_context import TurnContext
@@ -32,8 +36,13 @@ from app.domains.ai_engine.answer_formatter import (
 )
 from app.domains.ai_engine.common import (
     build_history_block,
+    buy_changes_vs_recommended,
     ensure_ai_agents_path,
     format_inr_indian,
+)
+from app.domains.additional_investment.models import AdditionalInvestmentRun
+from app.domains.additional_investment.services.additional_investment_read_service import (
+    ORIGIN_CANDIDATE,
 )
 from app.domains.additional_investment.services.ainv_engine.service import (
     compute_additional_investment_result,
@@ -47,6 +56,13 @@ from app.domains.additional_investment.services.ainv_engine.category import (
 from app.domains.additional_investment.services.ainv_engine.input_builder import (
     _EXCLUDE_SUBGROUPS,
 )
+from app.domains.asset_allocation.services.aa_engine.overrides import (
+    with_chat_overrides,
+)
+from app.domains.profile.services import preference_save_service as prefs
+from app.domains.profile.services import preference_view as pref_view
+from app.domains.profile.services.preference_view import PREFERENCE_REDIRECT_MESSAGE
+from app.domains.profile.services.preference_lexicon import PreferenceAsk, build_intent
 
 ensure_ai_agents_path()
 
@@ -125,7 +141,9 @@ def parse_deploy_request(question: str) -> tuple[float | None, Cadence]:
 
 
 class _DeployRequest(BaseModel):
-    """Structured extraction of the deploy amount, cadence, and optional focus category from the question (+ recent history)."""
+    """Structured extraction of four fields from the question (+ recent history):
+    the deploy amount, the cadence, the optional focus category, and the optional
+    preference asks."""
 
     amount_inr: Optional[float] = Field(
         default=None,
@@ -153,11 +171,23 @@ class _DeployRequest(BaseModel):
             "are named, pick the dominant one. Null when no category is asked."
         ),
     )
+    preference_asks: Optional[list[PreferenceAsk]] = Field(
+        default=None,
+        description=(
+            "Every asset-class or fund-category exposure the customer wants "
+            "changed, one entry each: 'more equity' → [{target: equity, level: "
+            "more}]; 'small-cap heavy, drop US funds' → [{small_cap, heavy}, "
+            "{us_international, none}]; '100% equity' → [{equity, number, 100}]; "
+            "'make gold 30%' → [{gold, number, 30}]. Numbers ONLY when the "
+            "customer stated one. Independent of amount and cadence."
+        ),
+    )
 
 
-_DEPLOY_EXTRACT_SYSTEM = """You extract three fields from a customer's request to
+_DEPLOY_EXTRACT_SYSTEM = """You extract four fields from a customer's request to
 invest fresh money: the rupee AMOUNT, whether it is a one-time LUMPSUM or a
-monthly SIP, and the fund CATEGORY they are asking for (if any). Indian money
+monthly SIP, the fund CATEGORY they are asking for (if any), and any PREFERENCE
+ASKS about how the money should lean (see the last section). Indian money
 shorthand: k/thousand = x1,000; l/lac/lakh = x100,000; cr/crore = x10,000,000.
 Ignore numbers that are durations, counts, or years (e.g. "5 years", "3 funds",
 "in 2027") — only the money amount goes in amount_inr. A bare "monthly"
@@ -171,31 +201,47 @@ CURRENT request omits may be filled from history, with two hard rules:
    want to invest/deploy. Salary, income, expenses, goal targets, and
    hypothetical/what-if figures NEVER qualify. When in doubt, amount_inr=null.
 
-Examples (H: = earlier history, C: = current request):
-- C: "invest 5L as a lumpsum"                    -> 500000, lumpsum, null
-- C: "start a 25k monthly SIP in smallcap"       -> 25000, sip_monthly, "smallcap"
-- C: "which gold fund should I buy?"             -> null, lumpsum, "gold"
-- C: "I sold my smallcap fund, invest 2L"        -> 200000, lumpsum, null
+Examples (H: = earlier history, C: = current request). Each result is
+(amount_inr, cadence, focus_category, preference_asks) — preference_asks is
+EMPTY unless the customer leans the money:
+- C: "invest 5L as a lumpsum"                    -> 500000, lumpsum, null, []
+- C: "start a 25k monthly SIP in smallcap"       -> 25000, sip_monthly, "smallcap", []
+- C: "which gold fund should I buy?"             -> null, lumpsum, "gold", []
+- C: "I sold my smallcap fund, invest 2L"        -> 200000, lumpsum, null, []
 - H: "I want to invest 5 lakhs" C: "smallcap funds only"
-                                                 -> 500000, lumpsum, "smallcap"
+                                                 -> 500000, lumpsum, "smallcap", []
 - H: "my salary is 2L a month" C: "smallcap funds only"
-                                                 -> null, lumpsum, "smallcap"
+                                                 -> null, lumpsum, "smallcap", []
 - H: "I want to invest 5 lakhs" C: "make it 2L, ELSS"
-                                                 -> 200000, lumpsum, "ELSS"
+                                                 -> 200000, lumpsum, "ELSS", []
+
+PREFERENCE ASKS: when the customer also says how the money should lean — an
+asset class (equity, debt, gold) or a fund category (large/mid/small cap,
+value, sector, US/international, multi-asset, short-term debt, arbitrage)
+with more / heavy / less / none, or a stated percentage — fill
+preference_asks, one entry per thing named; a category we don't track →
+target other with their words. Never invent a number. Examples: 'start a
+25k SIP, mostly small cap' → 25000, sip_monthly, null, [{small_cap, heavy}];
+'invest 5L but no US funds' → 500000, lumpsum, null, [{us_international,
+none}]; '2L, 100% equity' → 200000, lumpsum, null, [{equity, number, 100}].
+A focus_category ('which gold fund should I buy?') is a question about
+picks, NOT a preference — leave preference_asks empty for it.
 """
 
 
 async def extract_deploy_request(
     question: str,
     history: list[dict[str, str]] | None = None,
-) -> tuple[float | None, Cadence, str | None]:
-    """LLM extraction of (deploy amount INR, cadence, raw category) from free text.
+) -> tuple[float | None, Cadence, str | None, list[PreferenceAsk] | None]:
+    """LLM extraction of (deploy amount INR, cadence, raw category, preference
+    asks) from free text.
 
     History-aware (spec 2026-07-04): the last 6 turns ride in the user block so a
     category-only follow-up reuses an amount the customer already stated — but
     only invest-intent amounts qualify (prompt rule; doubt → null → the polite
     re-ask). Falls back to the deterministic regex ``parse_deploy_request``
-    (current message only, never a category) when the Haiku call fails.
+    (current message only, never a category or preference asks) when the Haiku
+    call fails.
     """
     history_block = build_history_block(history)
     user_block = (
@@ -213,10 +259,15 @@ async def extract_deploy_request(
     except Exception as exc:  # broad, mirroring _detect_rebal_action's call site
         logger.warning("extract_deploy_request failed (%s); using regex fallback", exc)
         amount, cadence = parse_deploy_request(question)
-        return amount, cadence, None
+        return amount, cadence, None, None
 
     raw_category = (result.focus_category or "").strip() or None
-    return result.amount_inr, Cadence(result.cadence), raw_category
+    return (
+        result.amount_inr,
+        Cadence(result.cadence),
+        raw_category,
+        result.preference_asks,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +294,10 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
            is covered but a ~3-6 year goal is unfunded; "long_term" means the short
            and medium goals are funded (or there are none) so the money builds the
            long-term subgroups. This is engine context — explain the WHY in plain
-           English; never surface the raw label.
+           English; never surface the raw label. EXCEPTION: when active_preferences
+           is present, target_bucket is NOT why the split looks the way it does —
+           do not use it, or the goal-funded story above, to explain the split; see
+           active_preferences below for the real reason.
   undeployed_inr / undeployed_indian — money that could NOT be placed (per-fund
            caps bound, or a subgroup lacked eligible funds). 0 when fully placed.
   under_deploy_note — present only when a MATERIAL amount couldn't be deployed
@@ -264,6 +318,43 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
       monthly_amount_inr / monthly_amount_indian — the per-month amount to put
                     into this fund. Cite this pair.
 
+  preference — present only when the customer asked for a particular lean:
+      customer_choices — the preference as understood, in our internal wire
+                    format — context only; never quote its keys or `target_pct`
+                    verbatim, restate it in customer words ("more equity", "no
+                    US funds").
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
+      not_applied — words we could not map to anything we shape by.
+      already_saved — true: the customer restated their saved preference; say in
+                    one sentence that the split already reflects it.
+      shortfall — why the lean could not be met in full.
+      buy_changes_vs_recommended — per fund: recommended_indian,
+                    requested_indian, change_indian (the difference the lean
+                    makes against our own recommended split).
+      save_hint — the customer can keep this lean as a standing preference.
+
+  active_preferences — optional; present when the customer's SAVED investment
+           preference (set on the preferences page, not this turn) shaped this
+           deploy. This is what actually decided the split — see the compute
+           mode instructions below for how to attribute it. Fields:
+             choices: list[str] — their preference in their own words ("60%
+                    equity / 30% debt / 10% commodity", "30% of your portfolio
+                    in large-cap equity"). Quote verbatim; never restate as
+                    engine categories, never re-base a percentage, and never
+                    add a category or a percentage that is not in this list.
+             applied: true — always true when this block is present.
+             categories_set: bool — true when the customer also pinned
+                    sub-categories inside the classes; false when they set
+                    only the equity/debt/gold split and left categories to us.
+             shortfall_reason: string|null — present when the preference could
+                    not be fully honoured; state it in one plain sentence.
+
 When CUSTOMER_RECORD contains `category_ask`, the customer asked for a specific fund
 category — address it EXPLICITLY (never ignore it):
   asked_text / category — their words / our canonical category (null = we don't
@@ -282,10 +373,13 @@ category — address it EXPLICITLY (never ignore it):
     excluded_by_policy           — we never deploy fresh chat money there (e.g.
                                    ELSS 3-year lock-in): name the picks, state
                                    the policy.
-    plan_by_goals                — (SIP) the plan deploys by goals; name the
-                                   category picks alongside.
+    plan_by_goals                — (SIP) the plan deploys by goals — unless
+                                   active_preferences is present, in which case
+                                   it follows the split they saved instead; name
+                                   the category picks alongside either way.
   ALWAYS close the category topic with the caveat: concentrating in one
-  category is not what we'd recommend — the plan spreads by their goals.
+  category is not what we'd recommend — the plan spreads by their goals (or,
+  when active_preferences is present, follows the split they saved).
   When `buys` exist, the deployment plan is STILL the substance of the reply —
   lead with the headline and NAME the buys as usual; the category discussion
   supplements the plan, never replaces it. NEVER offer to execute a
@@ -305,13 +399,35 @@ classifier). Per-mode behavior:
                ₹50,000 a month." State deploy_amount_indian and the per-month
                cadence inside that first sentence, then NAME the 1-3 biggest
                buys with their monthly_amount_indian, and give one
-               plain-English line on why the split leans the way it does
-               (derived from target_bucket). Name at least the largest fund(s)
-               when there are any — the customer asked where their money is
-               going; if buys is empty, nothing could be deployed right now, so
-               relay the under_deploy_note plainly and do NOT fabricate funds.
-               When under_deploy_note is present, close with it. Length: 6-10
-               sentences (fewer when there is a single buy).
+               plain-English line on why the split leans the way it does. When
+               active_preferences is present, that line attributes the split
+               to the preferences they saved (quoting `choices`), never to
+               target_bucket; if `categories_set` is false, add that they set
+               the equity/debt/gold split and we chose the categories inside
+               each, settable any time on their preferences page. Otherwise
+               derive the line from target_bucket as described above. Name at
+               least the largest fund(s) when there are any — the customer
+               asked where their money is going; if buys is empty, nothing
+               could be deployed right now, so relay the under_deploy_note
+               plainly and do NOT fabricate funds. When under_deploy_note is
+               present, close with it. Length: 6-10 sentences (fewer when
+               there is a single buy).
+
+               When `preference` is present the customer asked for a different
+               lean: lead with the buys as usual, then in one or two sentences
+               state what the preference changed using
+               buy_changes_vs_recommended (change_indian per fund), state
+               `shortfall` plainly if present, and say which words could not be
+               applied if `not_applied` is present.
+               ONLY when `save_hint` is present, END with one sentence that
+               they can keep this lean as their standing preference with the
+               Save preference button below the chat.
+               When `already_saved` is true, say in one sentence that the split
+               already reflects their saved preference and offer nothing —
+               no Save-preference sentence, no button.
+               Never "just this once"; never offer to save it yourself.
+               `preference` may carry only `not_applied` — then just state in
+               one sentence that the split could not be shaped by those words.
 """
 
 
@@ -353,6 +469,27 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
                     funds is the point of the reply.
       sub_category  — SEBI category for context (e.g. "Large Cap Fund").
       amount_inr / amount_indian — the one-time amount for this fund.
+
+  preference — present only when the customer asked for a particular lean:
+      customer_choices — the preference as understood, in our internal wire
+                    format — context only; never quote its keys or `target_pct`
+                    verbatim, restate it in customer words ("more equity", "no
+                    US funds").
+      pointer — the customer also asked about their saved preferences. Answer
+        the deployment fully first, then CLOSE with ONE short sentence in your
+        own voice pointing them at their preferences page: it holds what is
+        set, they can change it there any time, and the control below your
+        reply opens it. Write it as a POINTER, never as a limit — do not say
+        what chat cannot see or do, and do not apologise. Never quote it
+        verbatim, never lead with it, never claim to have changed anything.
+      not_applied — words we could not map to anything we shape by.
+      already_saved — true: the customer restated their saved preference; say in
+                    one sentence that the split already reflects it.
+      shortfall — why the lean could not be met in full.
+      buy_changes_vs_recommended — per fund: recommended_indian,
+                    requested_indian, change_indian (the difference the lean
+                    makes against our own recommended split).
+      save_hint — the customer can keep this lean as a standing preference.
 
 When CUSTOMER_RECORD contains `category_ask`, the customer asked for a specific fund
 category — address it EXPLICITLY (never ignore it):
@@ -396,6 +533,18 @@ emergency/liquid funds, say so plainly ("part of this builds your emergency
 cushion — the foundation; the rest goes to your growth gaps") rather than
 leaving a liquid-fund buy unexplained. When under_deploy_note is present, close
 with it. Length: 6-10 sentences (fewer when there is a single buy).
+
+When `preference` is present the customer asked for a different lean: lead with
+the buys as usual, then in one or two sentences state what the preference
+changed using buy_changes_vs_recommended (change_indian per fund), state
+`shortfall` plainly if present, and say which words could not be applied if
+`not_applied` is present. ONLY when `save_hint` is present, END with one
+sentence that they can keep this lean as their standing preference with the
+Save preference button below the chat. When `already_saved` is true, say in one
+sentence that the split already reflects their saved preference and
+offer nothing — no Save-preference sentence, no button. Never "just this once"; never
+offer to save it yourself. `preference` may carry only `not_applied` — then just
+state in one sentence that the split could not be shaped by those words.
 """
 
 
@@ -466,6 +615,8 @@ def build_ainv_facts_pack(
     output: AdditionalInvestmentOutput,
     deficit_rows: list[dict[str, Any]] | None = None,
     category_ask: dict[str, Any] | None = None,
+    preference: dict[str, Any] | None = None,
+    active_preferences: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Curated facts the formatter LLM may cite. Customer-tellable only — no ISIN.
 
@@ -537,6 +688,14 @@ def build_ainv_facts_pack(
         # that category stands in this plan (spec 2026-07-04). Status vocabulary
         # is contractual; the body prompt narrates per-status.
         facts["category_ask"] = category_ask
+    if preference is not None:
+        # A preference what-if turn (S2c): what the customer's lean changed
+        # against OUR recommended split, plus the save hint.
+        facts["preference"] = preference
+    if active_preferences is not None:
+        # A SAVED preference shaped this run's target_bucket — the prompt must
+        # attribute the split to it, not to a goal horizon.
+        facts["active_preferences"] = active_preferences
     return facts
 
 
@@ -580,7 +739,21 @@ def _build_fallback_category_probe(category_ask: dict[str, Any]) -> str:
     return lead + " How much would you like to invest?"
 
 
-def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput, category_ask: dict[str, Any] | None = None) -> str:
+def _preference_change_line(preference: dict[str, Any]) -> str | None:
+    """Deterministic one-liner naming the two biggest buy changes the customer's
+    lean made, so the fallback path never drops the point of a what-if turn."""
+    changes = (preference.get("buy_changes_vs_recommended") or [])[:2]
+    if not changes:
+        return None
+    named = "; ".join(f"{c['fund']} {c['change_indian']}" for c in changes)
+    return f"_Versus our recommended split, your lean moves {named}._"
+
+
+def _build_fallback_ainv_brief(
+    output: AdditionalInvestmentOutput,
+    category_ask: dict[str, Any] | None = None,
+    preference: dict[str, Any] | None = None,
+) -> str:
     """Render the engine output as a chat-ready markdown brief that NAMES the
     funds to buy. BUY-only — no sells, no tax math. Used when the formatter
     fails so the customer always sees where their money is going."""
@@ -639,6 +812,12 @@ def _build_fallback_ainv_brief(output: AdditionalInvestmentOutput, category_ask:
         out.append("")
         out.append(_fallback_category_line(category_ask))
 
+    if preference is not None:
+        line = _preference_change_line(preference)
+        if line is not None:
+            out.append("")
+            out.append(line)
+
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -652,16 +831,33 @@ async def _format_or_fallback_ainv(
     output: AdditionalInvestmentOutput,
     deficit_facts: list[dict[str, Any]] | None = None,
     category_ask: dict[str, Any] | None = None,
+    preference: dict[str, Any] | None = None,
+    practical_result: Any = None,
 ) -> str:
     """Run the SHARED formatter on the engine output; fall back to the
     deterministic fund-naming brief on FormatterFailure. Deficit runs (lumpsum)
     get the gap-fill body prompt + deficit_rows facts. When the customer asked
     about a specific category, ``category_ask`` is threaded into both the facts
-    pack and the deterministic fallback so neither path ever ignores it."""
+    pack and the deterministic fallback so neither path ever ignores it;
+    ``preference`` rides the same way on a what-if turn.
+
+    ``practical_result`` is the run's practical allocation, used only to check
+    whether a SAVED preference shaped this plan. Gated to SIP: the lumpsum body
+    prompt never documents ``active_preferences``, and a deficit-fill deploy
+    targets gaps, not the saved split."""
+    active_preferences = (
+        pref_view.active_preferences_for(ctx.user_ctx, practical_result)
+        if output.cadence is Cadence.SIP_MONTHLY
+        else None
+    )
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack=build_ainv_facts_pack(
-            output, deficit_rows=deficit_facts, category_ask=category_ask
+            output,
+            deficit_rows=deficit_facts,
+            category_ask=category_ask,
+            preference=preference,
+            active_preferences=active_preferences,
         ),
         body_prompt=(
             _AINV_DEFICIT_FORMATTER_BODY
@@ -672,7 +868,7 @@ async def _format_or_fallback_ainv(
         action_mode="compute",
         profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},
         build_fallback=lambda: _build_fallback_ainv_brief(
-            output, category_ask=category_ask
+            output, category_ask=category_ask, preference=preference
         ),
     )
 
@@ -734,44 +930,55 @@ _MSG_ASK_AMOUNT = (
 )
 
 
-@register("additional_investment")
-async def handle(ctx: TurnContext) -> ChatHandlerResult:
-    """Parse the deploy request, compute the BUY list, and format it.
-
-    BUY-only / write-once: there is no follow-up classifier, so every turn on
-    this intent recomputes the deployment and re-formats it in `compute` mode.
-    First the deploy amount + cadence are parsed from the question; a missing
-    amount short-circuits to a clarify reply that asks for the AMOUNT ONLY —
-    cadence is never asked, it defaults to lumpsum unless the customer's own
-    wording reads recurring/monthly. When the
-    orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
-    profile) the handler relays that gate text via ``format_relay_or_canned``
-    rather than formatting a BUY list. On the success path the persisted run id
-    (set by the orchestrator when persist=True) is surfaced on
-    ``ChatHandlerResult.additional_investment_run_id`` for the HTTP layer; the
-    persistence itself is owned by the orchestrator and the persist service.
-    """
-    amount, cadence, raw_category = await extract_deploy_request(
-        ctx.user_question, ctx.conversation_history
+async def _relay_ainv(ctx: TurnContext, message: str) -> ChatHandlerResult:
+    """Relay a gate / clarify message in `gather` mode."""
+    text = await format_relay_or_canned(
+        ctx=ctx,
+        module_name="additional_investment",
+        message=message,
+        action_mode="gather",
     )
-    category = resolve_category(raw_category) if raw_category else None
+    return ChatHandlerResult(text=text)
 
-    if amount is None or amount <= 0:
-        if raw_category is not None:
-            # Case 2 (spec 2026-07-04): answer the category question honestly,
-            # then ask for the amount — never a dead end, never a hallucinated
-            # capability.
-            category_ask = _build_category_ask(raw_category, category, None, [])
-            text = await _format_category_probe(ctx, category_ask)
-            return ChatHandlerResult(text=text)
-        text = await format_relay_or_canned(
-            ctx=ctx,
-            module_name="additional_investment",
-            message=_MSG_ASK_AMOUNT,
-            action_mode="gather",
-        )
-        return ChatHandlerResult(text=text)
 
+async def _session_candidate_id(db, session_id) -> uuid.UUID | None:
+    """Preference row behind the latest AINV run in this chat session — the
+    run table is the only trail back to the candidate the customer is viewing."""
+    if session_id is None:
+        return None
+    stmt = (
+        select(AdditionalInvestmentRun.saved_investment_preference_id)
+        .where(AdditionalInvestmentRun.chat_session_id == session_id)
+        .order_by(AdditionalInvestmentRun.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
+def _buys_by_fund_ainv(output) -> dict[str, float]:
+    """Fund -> the amount that matters for this cadence: the per-month figure on
+    a SIP buy, the one-time figure on a lumpsum buy."""
+    out: dict[str, float] = {}
+    for b in getattr(output, "buys", None) or []:
+        name = getattr(b, "recommended_fund", None)
+        monthly = getattr(b, "monthly_amount_inr", None)
+        amount = float(monthly if monthly is not None else (b.amount_inr or 0.0))
+        if name and amount:
+            out[name] = out.get(name, 0.0) + amount
+    return out
+
+
+async def _ordinary_deploy(
+    ctx: TurnContext,
+    amount: float,
+    cadence: Cadence,
+    raw_category: str | None,
+    category: str | None,
+    preference: dict[str, Any] | None = None,
+) -> ChatHandlerResult:
+    """The plain BUY-list turn: compute, persist, format. ``preference`` carries
+    only a disclosure (``not_applied`` / ``already_saved``) on the preference-ask
+    turns that resolve to no new lean — there is no second run and no candidate."""
     outcome = await compute_additional_investment_result(
         ctx.user_ctx,
         ctx.user_question,
@@ -785,13 +992,7 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         focus_category=category,
     )
     if outcome.blocking_message:
-        text = await format_relay_or_canned(
-            ctx=ctx,
-            module_name="additional_investment",
-            message=outcome.blocking_message,
-            action_mode="gather",
-        )
-        return ChatHandlerResult(text=text)
+        return await _relay_ainv(ctx, outcome.blocking_message)
 
     category_ask = (
         _build_category_ask(
@@ -805,8 +1006,210 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
         outcome.output,
         deficit_facts=outcome.deficit_facts,
         category_ask=category_ask,
+        preference=preference,
+        practical_result=outcome.practical_result,
+    )
+    # Surface the cadence so the chat "View plan" button can open the matching
+    # SIP / lump-sum popup — but NO run id: the "Save preference" pill (the run
+    # id's only client) must appear ONLY on preference what-if turns
+    # (_handle_preference_what_if_ainv, which sets it). "View plan" needs the
+    # cadence to route; "Save preference" needs a candidate to save — an ordinary
+    # deploy has the former, not the latter.
+    return ChatHandlerResult(text=text, additional_investment_cadence=cadence.value)
+
+
+async def _handle_preference_what_if_ainv(
+    ctx: TurnContext,
+    amount: float,
+    cadence: Cadence,
+    preference_asks: list[PreferenceAsk],
+    raw_category: str | None,
+    category: str | None,
+) -> ChatHandlerResult:
+    """AINV twin of the rebalancing what-if: recommended run, candidate row,
+    then the requested run FK'd to it (targets backfilled after — the row must
+    exist before the service persists). An ask with no new lean falls through
+    to the ordinary deploy carrying only a disclosure."""
+    chat_intent, unmapped = build_intent(preference_asks)
+    if unmapped:
+        capture_preference_unserved(
+            flow="additional_investment",
+            failure_class="unmapped_category",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
+        )
+    if not chat_intent:
+        # Spec 3.2: nothing we can shape by, but the customer DID ask to deploy —
+        # AINV's whole output is the buy list, so run it and disclose the words.
+        return await _ordinary_deploy(
+            ctx, amount, cadence, raw_category, category,
+            preference={"not_applied": unmapped},
+        )
+    if ctx.db is None:
+        return await _ordinary_deploy(ctx, amount, cadence, raw_category, category)
+
+    # A follow-up ask composes over the candidate the customer is looking at, so
+    # "add gold to that" keeps the unsaved lean. Only a LIVE candidate qualifies.
+    base_row = None
+    cid = await _session_candidate_id(ctx.db, ctx.session_id)
+    if cid is not None:
+        row = await prefs.candidate_row(ctx.db, ctx.effective_user_id, cid)
+        if row is not None and not row.is_active and row.activated_at is None:
+            base_row = row
+
+    intent, resolved, changed = await prefs.resolve_one_off(
+        ctx.db, ctx.user_ctx, chat_intent, base_row=base_row
+    )
+    if not changed:
+        # The saved preference already shapes the run — no what-if to show.
+        return await _ordinary_deploy(
+            ctx, amount, cadence, raw_category, category,
+            preference={"already_saved": True},
+        )
+
+    baseline = await compute_additional_investment_result(
+        ctx.user_ctx,
+        ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        deploy_amount_inr=amount,
+        cadence=cadence,
+        chat_ctx=ctx,
+        persist=False,
+        focus_category=category,
+    )
+    if baseline.blocking_message:
+        return await _relay_ainv(ctx, baseline.blocking_message)
+
+    candidate = await prefs.insert_candidate(
+        ctx.db, ctx.user_ctx, intent, resolved, None
+    )
+    requested = await compute_additional_investment_result(
+        ctx.user_ctx,
+        ctx.user_question,
+        db=ctx.db,
+        acting_user_id=ctx.effective_user_id,
+        chat_session_id=ctx.session_id,
+        deploy_amount_inr=amount,
+        cadence=cadence,
+        chat_ctx=with_chat_overrides(
+            ctx, {"human_override_preferences": prefs.one_off_override(resolved)}
+        ),
+        persist=True,
+        focus_category=category,
+        saved_investment_preference_id=candidate.id,
+        # Draft: this is an unsaved what-if the customer is previewing. Tag it
+        # 'candidate' so the Invest-page reads firewall it out until Save
+        # preference (mirrors rebalancing). "View plan" still opens it by run-id.
+        origin=ORIGIN_CANDIDATE,
+    )
+    if requested.blocking_message:
+        return await _relay_ainv(ctx, requested.blocking_message)
+
+    override_applied = getattr(
+        requested.practical_result, "human_override_applied", None
+    )
+    try:
+        prefs.fill_candidate_targets(
+            candidate,
+            # The achieved mix is the run's own class breakdown, not a field
+            # the engine carries (spec §6).
+            prefs.achieved_class_mix(requested.practical_result),
+            shortfall_reason=getattr(override_applied, "shortfall_reason", None),
+        )
+        await ctx.db.flush()
+    except Exception:  # noqa: BLE001
+        # The service's own persist is best-effort, so the session may already be
+        # in pending-rollback here — never cost the customer their answer.
+        logger.exception("ainv fill_candidate_targets flush failed")
+
+    preference: dict[str, Any] = {"customer_choices": intent}
+    if unmapped:
+        preference["not_applied"] = unmapped
+    shortfall = getattr(override_applied, "shortfall_reason", None)
+    if shortfall:
+        preference["shortfall"] = shortfall
+    preference["buy_changes_vs_recommended"] = buy_changes_vs_recommended(
+        _buys_by_fund_ainv(baseline.output),
+        _buys_by_fund_ainv(requested.output),
+        noise_inr=100,
+    )
+    if requested.run_id is not None:
+        preference["save_hint"] = True
+
+    category_ask = (
+        _build_category_ask(
+            raw_category, category, requested.deficit_facts, requested.output.buys
+        )
+        if raw_category is not None
+        else None
+    )
+    text = await _format_or_fallback_ainv(
+        ctx,
+        requested.output,
+        deficit_facts=requested.deficit_facts,
+        category_ask=category_ask,
+        preference=preference,
+        practical_result=requested.practical_result,
     )
     return ChatHandlerResult(
         text=text,
-        additional_investment_run_id=outcome.run_id,
+        additional_investment_run_id=requested.run_id,
+        additional_investment_cadence=cadence.value if requested.run_id is not None else None,
     )
+
+
+@register("additional_investment")
+async def handle(ctx: TurnContext) -> ChatHandlerResult:
+    """Parse the deploy request, compute the BUY list, and format it.
+
+    BUY-only / write-once: there is no follow-up classifier, so every turn on
+    this intent recomputes the deployment and re-formats it in `compute` mode.
+    First the deploy amount + cadence are parsed from the question; a missing
+    amount short-circuits to a clarify reply that asks for the AMOUNT ONLY —
+    cadence is never asked, it defaults to lumpsum unless the customer's own
+    wording reads recurring/monthly. An amount that also carries a preference
+    ask ("25k SIP, mostly small cap") routes to the what-if handler. When the
+    orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
+    profile) the handler relays that gate text via ``format_relay_or_canned``
+    rather than formatting a BUY list. Every success path persists a run (the
+    orchestrator owns persistence), but the run id is surfaced on
+    ``ChatHandlerResult.additional_investment_run_id`` ONLY for preference
+    what-if turns — the field's sole client is the chat "Save preference" pill,
+    which is meaningless without a candidate preference. An ordinary deploy
+    returns no run id (see ``_ordinary_deploy``).
+    """
+    amount, cadence, raw_category, preference_asks = await extract_deploy_request(
+        ctx.user_question, ctx.conversation_history
+    )
+    category = resolve_category(raw_category) if raw_category else None
+
+    if amount is None or amount <= 0:
+        if raw_category is not None:
+            # Case 2 (spec 2026-07-04): answer the category question honestly,
+            # then ask for the amount — never a dead end, never a hallucinated
+            # capability.
+            category_ask = _build_category_ask(raw_category, category, None, [])
+            text = await _format_category_probe(ctx, category_ask)
+            return ChatHandlerResult(text=text)
+        return await _relay_ainv(ctx, _MSG_ASK_AMOUNT)
+
+    if preference_asks:
+        # Chat runs no preference what-ifs (ruling 2026-09-17). But the customer
+        # DID ask to deploy money, so serve that — the same mixed-intent rule
+        # rebalancing's first turn follows — and let the formatter close with the
+        # pointer. `_handle_preference_what_if_ainv` is the re-enable seam.
+        capture_preference_unserved(
+            flow="additional_investment",
+            failure_class="redirected_to_preferences",
+            session_id=ctx.session_id,
+            distinct_id=ctx.effective_user_id,
+        )
+        result = await _ordinary_deploy(
+            ctx, amount, cadence, raw_category, category,
+            preference={"pointer": PREFERENCE_REDIRECT_MESSAGE},
+        )
+        return dataclasses.replace(result, show_preferences_pill=True)
+
+    return await _ordinary_deploy(ctx, amount, cadence, raw_category, category)

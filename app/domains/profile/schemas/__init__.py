@@ -8,6 +8,18 @@ from app.domains.profile.schemas.effective_risk import (
     EffectiveRiskRecalculateResponse,
 )
 from app.domains.profile.schemas.full_profile import FullProfileResponse
+from app.domains.profile.schemas.investment_preferences import (
+    InvestmentPreferenceIntent,
+    InvestmentPreferencePreviewResponse,
+    ScreenCurrent,
+    ScreenCurrentHolding,
+    ScreenPin,
+    ScreenPreferenceGetResponse,
+    ScreenPreferenceRequest,
+    ScreenSaved,
+    ScreenSaveResponse,
+    ScreenSubcategory,
+)
 from app.domains.profile.schemas.investment import (
     CurrentPropertiesUpdate,
     CurrentPropertyItem,
@@ -47,6 +59,16 @@ __all__ = [
     "FullProfileResponse",
     "InvestmentConstraintResponse",
     "InvestmentConstraintUpdate",
+    "InvestmentPreferenceIntent",
+    "InvestmentPreferencePreviewResponse",
+    "ScreenCurrent",
+    "ScreenCurrentHolding",
+    "ScreenPin",
+    "ScreenPreferenceGetResponse",
+    "ScreenPreferenceRequest",
+    "ScreenSaved",
+    "ScreenSaveResponse",
+    "ScreenSubcategory",
     "InvestmentProfileResponse",
     "InvestmentProfileUpdate",
     "PersonalFinanceFields",

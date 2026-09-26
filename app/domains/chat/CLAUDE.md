@@ -5,7 +5,7 @@ Persistence + the HTTP send endpoint only. Orchestration of the chat *turn* live
 ## Layers
 
 - **models/** — `ChatSession`, `ChatMessage` (+ role/status enums), `ChatSessionState` (cross-turn gates), `ChatAiModuleRun` (per-turn telemetry).
-- **schemas/** — send-message, session-detail, AI-module-run payloads.
+- **schemas/** — send-message, session-detail, AI-module-run payloads. The send response also carries the module's run-ids plus `has_candidate_preference` / `show_preferences_pill`, which the client renders as save and open-preferences controls (`schemas/chat.py:72`).
 - **routers/** — `/chat` — sessions CRUD, send (delegates to `ChatBrain.run_turn`), the SSE streaming twin of send, statement upload, module-runs audit.
 - **services/** — `chat_context` (loads `conversation_history` for the LLM), `ai_module_telemetry` (records module runs + turn-flow summary), `chat_title_service`.
 

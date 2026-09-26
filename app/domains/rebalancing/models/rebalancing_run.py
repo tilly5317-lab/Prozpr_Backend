@@ -153,6 +153,13 @@ class RebalancingRun(CasScoped, Base):
     request_input: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )
+    # FK to the immutable preference row that shaped this run (2026-09-04
+    # restructure); NULL = computed with no preference.
+    saved_investment_preference_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("saved_investment_preferences.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     used_cached_allocation: Mapped[Optional[bool]] = mapped_column(nullable=True)
     user_question: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
 
