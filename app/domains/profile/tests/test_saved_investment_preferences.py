@@ -432,6 +432,8 @@ def test_contract_single_computation_reader():
         "app/domains/identity/models/user.py",
         # Sanctioned load point — names the class in its docstring only.
         "app/domains/practical_asset_allocation/services/paa_engine/input_builder.py",
+        # Sanctioned: read-only join off a run's FK to read activated_at.
+        "app/domains/additional_investment/services/additional_investment_read_service.py",
     )
     offenders = [p for p in class_out if not any(f in p for f in class_allowed)]
     assert not offenders, f"modules must not import the preferences model: {offenders}"
@@ -446,6 +448,9 @@ def test_contract_single_computation_reader():
         "app/core/",  # user-context eager-loading only
         "app/domains/practical_asset_allocation/services/paa_engine/input_builder.py",
         "app/domains/asset_allocation/services/aa_engine/service.py",
+        # Its sanctioned model import (above) — the module path trips this
+        # literal grep too; it is a read-only join, not a relationship read.
+        "app/domains/additional_investment/services/additional_investment_read_service.py",
     )
     offenders = [p for p in attr_out if not any(f in p for f in attr_allowed)]
     assert not offenders, f"modules must not read preferences directly: {offenders}"
