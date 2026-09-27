@@ -59,6 +59,10 @@ _TRANSIENT_CONNECT_MARKERS = (
     # — typically when the random local source port collides with a reserved
     # range (Hyper-V/WSL/Docker) or a security product briefly intercepts. The
     # next attempt grabs a different port and succeeds, so treat it as transient.
+    # Windows WSAECONNRESET (10054) during the TLS handshake to RDS: "an existing
+    # connection was forcibly closed by the remote host". Seen on the first request
+    # after a laptop boot on 2026-09-27; a retry a moment later succeeds.
+    "forcibly closed by the remote host",
     "forbidden by its access permissions",
     "an attempt was made to access a socket",
     "10013",
@@ -123,7 +127,10 @@ def _get_engine() -> AsyncEngine:
                 "pool_size": 10,
                 "max_overflow": 10,
                 "pool_timeout": 30,
-                "connect_args": {"timeout": _CONNECT_TIMEOUT_S},
+                "connect_args": {
+                    "timeout": _CONNECT_TIMEOUT_S,
+                    "server_settings": _server_settings(),
+                },
             }
         _engine = create_async_engine(url, **engine_kw)
     return _engine
@@ -198,6 +205,29 @@ _DDL_LOCK_TIMEOUT_MS = 3000
 #: Belt and braces for a statement that acquires its locks but then runs long (e.g. an
 #: index build on a table that has grown); the next boot retries.
 _DDL_STATEMENT_TIMEOUT_MS = 120000
+
+
+def _server_settings() -> dict[str, str]:
+    """Per-connection Postgres safety timers, inherited by every pooled session.
+
+    Without these a runaway query holds its connection and its locks until a human
+    kills it (the RDS default idle_in_transaction_session_timeout is 24h). With them
+    it fails after the ceiling with a stack trace that names it, and the connection
+    goes back to the pool. Override with the env vars; ``0`` disables. Long-running
+    jobs that legitimately need more raise their own limit with ``SET LOCAL`` on
+    their own session (see vr_data/services/sync_service.py).
+    """
+    import os
+
+    settings: dict[str, str] = {}
+    for env_name, pg_name, default in (
+        ("DB_STATEMENT_TIMEOUT_MS", "statement_timeout", "120000"),
+        ("DB_IDLE_IN_TXN_TIMEOUT_MS", "idle_in_transaction_session_timeout", "300000"),
+    ):
+        raw = (os.environ.get(env_name) or default).strip()
+        if raw and raw != "0":
+            settings[pg_name] = raw
+    return settings
 
 
 async def apply_postgres_schema_patches() -> None:
