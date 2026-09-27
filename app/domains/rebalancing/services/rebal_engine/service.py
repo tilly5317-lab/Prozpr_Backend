@@ -226,10 +226,11 @@ def _asset_class_mix_from_buckets(
 
     Delegates to the SHARED rollup that also builds the Invest-page bars, so chat
     and the page cannot disagree about one run. ``amount_key`` picks the column
-    (``current_inr`` for the current mix, ``planned_final_inr`` for the target);
-    ``multi_asset_sleeve`` must be True only for the target — see
-    ``asset_class_breakdown`` for why. Built in canonical title-case, then mapped
-    to this builder's long-standing lowercase contract for chat facts.
+    (``current_inr`` for the current mix, ``planned_final_inr`` for the target).
+    ``multi_asset_sleeve`` is False on both: every bucket here is a concrete fund,
+    so its own category decides — see ``asset_class_breakdown`` for why. Built in
+    canonical title-case, then mapped to this builder's long-standing lowercase
+    contract for chat facts.
     """
     from app.domains.rebalancing.services.asset_class_breakdown import (
         asset_class_mix_from_rows,
@@ -572,9 +573,10 @@ def build_rebal_facts_pack(
     ]
 
     # Asset-class mix, CURRENT and TARGET. Both go through the shared rollup that
-    # builds the Invest-page bars. The target is the post-trade mix (per-bucket
-    # planned_final = current + buy - sell) and keeps the multi_asset sleeve at
-    # its engine composition. Shipping only the current mix is what let the
+    # builds the Invest-page bars, and both look every bucket through on its own
+    # sub_category — a bucket the plan does not trade must not change asset class
+    # between the two. The target is the post-trade mix (per-bucket planned_final
+    # = current + buy - sell). Shipping only the current mix is what let the
     # formatter answer "what is the plan moving me toward?" with the current one.
     def _mix_block(amount_key: str, *, multi_asset_sleeve: bool):
         inr = _asset_class_mix_from_buckets(
@@ -591,7 +593,7 @@ def build_rebal_facts_pack(
         "current_inr", multi_asset_sleeve=False
     )
     target_class_inr, target_class_pct, target_class_indian = _mix_block(
-        "planned_final_inr", multi_asset_sleeve=True
+        "planned_final_inr", multi_asset_sleeve=False
     )
 
     warnings: list[str] = []

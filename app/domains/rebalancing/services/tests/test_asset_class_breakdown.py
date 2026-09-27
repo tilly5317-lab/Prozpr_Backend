@@ -5,15 +5,17 @@ the Invest-page bars and the chat facts pack call it, so the two surfaces cannot
 quote different splits for one run — the parity test at the bottom is the
 regression that pins that.
 
-CURRENT looks every row through on its own sub_category. TARGET does the same
-EXCEPT for the ``multi_asset`` sleeve, which keeps the engine's 65/25/10
-composition because the plan has not chosen the funds to fill it yet.
+CURRENT and TARGET both look every row through on its own sub_category: they
+describe concrete funds, so the same untraded rupee has to land in the same asset
+class on both bars. The 65/25/10 sleeve split applies only where there is no fund
+identity at all — subgroup totals (the GOAL mix, the legacy fallback).
 """
 
 import pytest
 
 from app.domains.rebalancing.services.asset_class_breakdown import (
     current_mix_from_rows,
+    goal_asset_class_mix,
     plan_rows_from_run,
     target_asset_class_mix,
     target_mix_from_rows,
@@ -23,13 +25,14 @@ from app.domains.rebalancing.services.rebal_engine.service import (
 )
 
 
-def _sg(asset_subgroup, suggested_final):
+def _sg(asset_subgroup, suggested_final, goal_target=0.0):
     return type(
         "SG",
         (),
         {
             "asset_subgroup": asset_subgroup,
             "suggested_final_holding_inr": suggested_final,
+            "goal_target_inr": goal_target,
         },
     )()
 
@@ -96,21 +99,31 @@ def test_missing_sub_category_falls_back_to_the_subgroup():
     assert current_mix_from_rows(rows) == pytest.approx({"Debt": 100.0})
 
 
-def test_target_splits_the_multi_asset_sleeve():
+def test_target_falls_back_to_the_sleeve_only_without_a_sub_category():
+    # A fund-less multi_asset row is sleeve headroom, so it splits 65/25/10.
     rows = [("low_beta_equities", "Large Cap Fund", 100.0), ("multi_asset", None, 100.0)]
     assert target_mix_from_rows(rows) == pytest.approx(
         {"Equity": 165.0, "Debt": 25.0, "Others": 10.0}
     )
 
 
-def test_target_sleeve_survives_an_equity_heavy_fund_filling_it():
-    # Regression: the engine can put a Flexi Cap fund in the multi-asset sleeve.
-    # Looking that through would map the whole sleeve to Equity (the subgroup's
-    # nominal class) and delete the plan's debt and others.
+def test_target_reports_a_named_fund_in_the_sleeve_as_that_fund():
+    # THE 2026-09-27 fix. A Flexi Cap fund does land in the multi_asset subgroup.
+    # The target bar used to force it to 65/25/10 while the current bar looked it
+    # through, so a customer whose plan could not sell it saw ~250 of Debt and 100
+    # of Others appear out of money that never moved — a bar matching neither their
+    # goal mix nor what they would hold.
     rows = [("multi_asset", "Flexi Cap Fund", 1000.0)]
-    mix = target_mix_from_rows(rows)
-    assert mix == pytest.approx({"Equity": 650.0, "Debt": 250.0, "Others": 100.0})
-    assert mix["Debt"] > 0 and mix["Others"] > 0
+    assert target_mix_from_rows(rows) == pytest.approx({"Equity": 1000.0})
+
+
+def test_current_and_target_agree_on_an_untraded_sleeve_holding():
+    # The invariant behind that fix: no trade, no change of asset class.
+    rows = [
+        ("multi_asset", "Flexi Cap Fund", 1000.0),
+        ("multi_asset", "Aggressive Hybrid Fund", 400.0),
+    ]
+    assert current_mix_from_rows(rows) == pytest.approx(target_mix_from_rows(rows))
 
 
 def test_current_does_not_split_the_sleeve():
@@ -182,6 +195,36 @@ def test_legacy_subgroup_target_surfaces_others_without_a_gold_subgroup():
 
 
 # --------------------------------------------------------------------------
+# The GOAL mix — what the plan AIMED at, read off goal_target_inr
+# --------------------------------------------------------------------------
+
+
+def test_goal_mix_reads_goal_target_and_keeps_the_sleeve_split():
+    # goal_target_inr is subgroup headroom with no fund attached, so the sleeve
+    # composition is the only thing that can describe it.
+    mix = goal_asset_class_mix(
+        [
+            _sg("low_beta_equities", 0.0, goal_target=100.0),
+            _sg("short_debt", 0.0, goal_target=100.0),
+            _sg("multi_asset", 0.0, goal_target=100.0),
+        ]
+    )
+    assert mix == pytest.approx({"Equity": 165.0, "Debt": 125.0, "Others": 10.0})
+
+
+def test_goal_mix_is_independent_of_where_the_plan_lands():
+    # The whole point of shipping it: a plan blocked from trading reads goal far
+    # from target. Here the goal wants no equity at all and the plan holds only
+    # equity.
+    subs = [
+        _sg("low_beta_equities", 500.0, goal_target=0.0),
+        _sg("short_debt", 0.0, goal_target=500.0),
+    ]
+    assert goal_asset_class_mix(subs) == pytest.approx({"Equity": 0.0, "Debt": 500.0})
+    assert target_asset_class_mix(subs) == pytest.approx({"Equity": 500.0, "Debt": 0.0})
+
+
+# --------------------------------------------------------------------------
 # THE invariant: chat and the Invest page agree on the same run
 # --------------------------------------------------------------------------
 
@@ -198,11 +241,13 @@ def test_chat_facts_mix_matches_the_invest_page_for_the_same_run():
         _fund_row("medium_beta_equities", "Flexi Cap Fund", "INF001", 600.0),
         _fund_row("medium_beta_equities", "Aggressive Hybrid Fund", "INF002", 200.0),
         _fund_row("near_debt", "Liquid Fund", "INF003", 200.0),
-        _fund_row("multi_asset", "Flexi Cap Fund", "INF004", 0.0),
+        # Untraded, and inside the multi_asset subgroup — the row that used to be
+        # classified one way on the Current bar and another on the Target bar.
+        _fund_row("multi_asset", "Flexi Cap Fund", "INF004", 300.0),
     ]
     trades = [
         _trade("medium_beta_equities", "Flexi Cap Fund", "INF001", "sell", 300.0),
-        _trade("multi_asset", "Flexi Cap Fund", "INF004", "buy", 300.0),
+        _trade("near_debt", "Liquid Fund", "INF003", "buy", 300.0),
     ]
     current_rows, target_rows = plan_rows_from_run(fund_rows, trades)
     page_current = current_mix_from_rows(current_rows)
@@ -226,12 +271,12 @@ def test_chat_facts_mix_matches_the_invest_page_for_the_same_run():
             "asset_subgroup": "near_debt",
             "sub_category": "Liquid Fund",
             "current_inr": 200.0,
-            "planned_final_inr": 200.0,
+            "planned_final_inr": 500.0,
         },
         {
             "asset_subgroup": "multi_asset",
             "sub_category": "Flexi Cap Fund",
-            "current_inr": 0.0,
+            "current_inr": 300.0,
             "planned_final_inr": 300.0,
         },
     ]
@@ -239,7 +284,7 @@ def test_chat_facts_mix_matches_the_invest_page_for_the_same_run():
         buckets, amount_key="current_inr", multi_asset_sleeve=False
     )
     chat_target = _asset_class_mix_from_buckets(
-        buckets, amount_key="planned_final_inr", multi_asset_sleeve=True
+        buckets, amount_key="planned_final_inr", multi_asset_sleeve=False
     )
 
     for asset_class, chat_key in (("Equity", "equity"), ("Debt", "debt"), ("Others", "others")):
@@ -249,3 +294,9 @@ def test_chat_facts_mix_matches_the_invest_page_for_the_same_run():
     # And the target genuinely differs from the current — the distinction the
     # formatter now has to work with.
     assert chat_target["debt"] > chat_current["debt"]
+
+    # The untraded multi_asset Flexi Cap holding keeps its asset class across both
+    # bars: 300 of equity before, 300 of equity after. Under the old sleeve override
+    # the Target bar turned it into 195/75/30 and invented debt out of a fund the
+    # plan never touched.
+    assert page_current["Others"] == pytest.approx(page_target["Others"])
