@@ -59,6 +59,10 @@ _TRANSIENT_CONNECT_MARKERS = (
     # — typically when the random local source port collides with a reserved
     # range (Hyper-V/WSL/Docker) or a security product briefly intercepts. The
     # next attempt grabs a different port and succeeds, so treat it as transient.
+    # Windows WSAECONNRESET (10054) during the TLS handshake to RDS: "an existing
+    # connection was forcibly closed by the remote host". Seen on the first request
+    # after a laptop boot on 2026-09-27; a retry a moment later succeeds.
+    "forcibly closed by the remote host",
     "forbidden by its access permissions",
     "an attempt was made to access a socket",
     "10013",
@@ -123,7 +127,10 @@ def _get_engine() -> AsyncEngine:
                 "pool_size": 10,
                 "max_overflow": 10,
                 "pool_timeout": 30,
-                "connect_args": {"timeout": _CONNECT_TIMEOUT_S},
+                "connect_args": {
+                    "timeout": _CONNECT_TIMEOUT_S,
+                    "server_settings": _server_settings(),
+                },
             }
         _engine = create_async_engine(url, **engine_kw)
     return _engine
@@ -189,10 +196,59 @@ async def create_all_tables() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
+#: Ceilings on the startup DDL pass only (``SET LOCAL``, so scoped to its transaction).
+#: ``lock_timeout`` is the important one: an ``ALTER TABLE`` that cannot get its lock
+#: straight away must abort rather than sit there holding AccessExclusiveLock on every
+#: table it has already altered. A few seconds is generous for DDL that is a no-op on an
+#: up-to-date database and is only ever contended by a long-running reader.
+_DDL_LOCK_TIMEOUT_MS = 3000
+#: Belt and braces for a statement that acquires its locks but then runs long (e.g. an
+#: index build on a table that has grown); the next boot retries.
+_DDL_STATEMENT_TIMEOUT_MS = 120000
+
+
+def _server_settings() -> dict[str, str]:
+    """Per-connection Postgres safety timers, inherited by every pooled session.
+
+    Without these a runaway query holds its connection and its locks until a human
+    kills it (the RDS default idle_in_transaction_session_timeout is 24h). With them
+    it fails after the ceiling with a stack trace that names it, and the connection
+    goes back to the pool. Override with the env vars; ``0`` disables. Long-running
+    jobs that legitimately need more raise their own limit with ``SET LOCAL`` on
+    their own session (see vr_data/services/sync_service.py).
+    """
+    import os
+
+    settings: dict[str, str] = {}
+    for env_name, pg_name, default in (
+        ("DB_STATEMENT_TIMEOUT_MS", "statement_timeout", "120000"),
+        ("DB_IDLE_IN_TXN_TIMEOUT_MS", "idle_in_transaction_session_timeout", "300000"),
+    ):
+        raw = (os.environ.get(env_name) or default).strip()
+        if raw and raw != "0":
+            settings[pg_name] = raw
+    return settings
+
+
 async def apply_postgres_schema_patches() -> None:
     """Idempotent DDL for ORM/DB drift (e.g. RDS created before payload columns existed).
 
     Safe to run every startup: ``IF NOT EXISTS`` only.
+
+    **This is ONE transaction, so it holds every lock it takes until the end.** It
+    ALTERs ``users`` near the top and ``portfolio_allocations`` last, which means a
+    block on any late statement is a block with ``AccessExclusiveLock`` still held on
+    ~20 core tables — including ``users``, which every authenticated request reads. On
+    2026-09-27 that turned one slow ``SELECT`` into a two-hour, database-wide outage:
+    44 backends queued behind a no-op ``ADD COLUMN IF NOT EXISTS`` (the column already
+    existed — it still needs the exclusive lock to find that out), and a second boot
+    piled a second stuck transaction on top.
+
+    ``lock_timeout`` is what makes that impossible: if the lock is not free almost at
+    once we abort, roll every lock back, and let the next boot retry. ``lifespan``
+    already treats a failure here as non-fatal. The whole pass is also skippable with
+    ``SKIP_STARTUP_DB_DDL=true``, which is what a developer machine pointed at a shared
+    database should set — the DDL belongs to the deploy, not to every ``uvicorn`` start.
     """
     parsed = make_url(get_settings().get_database_url())
     if not str(parsed.drivername).startswith("postgresql"):
@@ -200,6 +256,12 @@ async def apply_postgres_schema_patches() -> None:
 
     engine = _get_engine()
     async with engine.begin() as conn:
+        # Fail fast instead of convoying. These are LOCAL to this transaction, so they
+        # bound only the DDL below and never leak to request or job connections.
+        await conn.execute(text(f"SET LOCAL lock_timeout = '{_DDL_LOCK_TIMEOUT_MS}ms'"))
+        await conn.execute(
+            text(f"SET LOCAL statement_timeout = '{_DDL_STATEMENT_TIMEOUT_MS}ms'")
+        )
         await conn.execute(
             text(
                 "ALTER TABLE chat_ai_module_runs ADD COLUMN IF NOT EXISTS input_payload JSONB"
