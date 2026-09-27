@@ -9,7 +9,7 @@ import logging
 import uuid
 from datetime import date
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -48,19 +48,37 @@ async def _latest_nav_on_or_before(
     ``key`` is a holding's ``ticker_symbol``, which may be an AMFI scheme code *or*
     an ISIN (the CAS ingest stores whichever it could resolve). ``mf_nav_history`` is
     keyed by AMFI scheme code but also carries the ISIN, so we match on either.
+
+    The two keys are looked up as SEPARATE indexed branches and merged — never as one
+    ``OR``. Written as an ``OR`` the planner can use neither index to satisfy
+    ``ORDER BY nav_date DESC LIMIT 1``, so it walks ``ix_mf_nav_history_nav_date``
+    backwards and applies the key as a mere *filter*. A key with no recent row — an
+    ISIN absent from the table — therefore scans all ~14M rows / 4.85 GB before
+    returning NULL: ~5 minutes per holding, inside the request's transaction, which is
+    how one portfolio load convoyed the whole database on 2026-09-27. Split, each
+    branch is an index range scan (``uq_mf_nav_scheme_date`` / ``ix_mf_nav_isin_upper``)
+    and a miss costs ~10 ms.
     """
-    nav = (
-        await db.execute(
-            select(MfNavHistory.nav)
-            .where(
-                or_(
-                    MfNavHistory.scheme_code == key,
-                    func.upper(MfNavHistory.isin) == key.upper(),
-                ),
-                MfNavHistory.nav_date <= on_day,
-            )
+
+    def _branch(condition):
+        return (
+            select(MfNavHistory.nav, MfNavHistory.nav_date)
+            .where(condition, MfNavHistory.nav_date <= on_day)
             .order_by(MfNavHistory.nav_date.desc())
             .limit(1)
+        )
+
+    # Merge Append over the two branches preserves ``nav_date DESC``, so the outer
+    # LIMIT 1 still returns the single most recent NAV matching *either* key — the
+    # same row the OR returned, without the scan.
+    merged = (
+        _branch(MfNavHistory.scheme_code == key)
+        .union_all(_branch(func.upper(MfNavHistory.isin) == key.upper()))
+        .subquery()
+    )
+    nav = (
+        await db.execute(
+            select(merged.c.nav).order_by(merged.c.nav_date.desc()).limit(1)
         )
     ).scalar()
     return float(nav) if nav is not None else None
@@ -135,20 +153,40 @@ async def revalue_primary_portfolio_at_latest_nav(
     from app.domains.mutual_funds.services.nav_history_service import (
         get_latest_nav_with_source_fallback,
     )
+    from app.domains.mutual_funds.services.scheme_resolver import (
+        build_isin_to_amfi_map,
+        is_amfi_code,
+    )
 
-    scheme_codes = {
+    tickers = {
         h.ticker_symbol
         for h in holdings
         if h.instrument_type == "mutual_fund" and h.ticker_symbol
     }
+    # A ticker that is not a numeric AMFI code is an ISIN (or a bare RTA code) the
+    # ingest could not resolve. Both ``mf_nav_history`` and mfapi.in are keyed by the
+    # AMFI code, so handing the source fallback an ISIN is a guaranteed-miss network
+    # round-trip *per holding* — 38 of them on one real account. Resolve them here in
+    # ONE batched metadata query (``mf_fund_metadata`` is ~9k rows) instead, which also
+    # means a resolvable ISIN now gets priced rather than silently falling through.
+    unresolved = {t for t in tickers if not is_amfi_code(t)}
+    isin_to_amfi = await build_isin_to_amfi_map(db, unresolved) if unresolved else {}
+
     nav_by_scheme: dict[str, float] = {}
-    for code in scheme_codes:
+    for ticker in tickers:
+        code = (
+            ticker if is_amfi_code(ticker) else isin_to_amfi.get(ticker.strip().upper())
+        )
+        if not code:
+            # Nothing the source could answer for. The local scheme/ISIN lookup below
+            # still runs, and it is now two index probes rather than a table scan.
+            continue
         try:
             row = await get_latest_nav_with_source_fallback(db, code)
         except Exception:  # noqa: BLE001 — never fail the read on a NAV lookup
             row = None
         if row is not None and row.nav is not None and float(row.nav) > 0:
-            nav_by_scheme[code] = float(row.nav)
+            nav_by_scheme[ticker] = float(row.nav)
 
     repriced = False
     for h in holdings:

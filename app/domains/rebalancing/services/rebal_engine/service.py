@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cas_scope import cas_scope_for_user, get_scope
+from app.core.cas_scope import get_scope, resolve_active_cas_upload_id, scoped_to
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
@@ -277,8 +277,20 @@ _SUBGROUP_FLOW_LABEL: dict[str, str] = {
 # asset_subgroup is internal — the prompt already forbids surfacing it. Both are
 # still read DURING construction (asset-class rollup, group_flows, sorting); they
 # are removed only from the final rows to keep the pack lean.
-_ROW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "asset_subgroup")
-_GROUP_FLOW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "net_change_inr")
+_ROW_DROP = (
+    "current_inr",
+    "buy_inr",
+    "sell_inr",
+    "planned_final_inr",
+    "asset_subgroup",
+)
+_GROUP_FLOW_DROP = (
+    "current_inr",
+    "buy_inr",
+    "sell_inr",
+    "planned_final_inr",
+    "net_change_inr",
+)
 
 
 def _slim_row(row: dict[str, Any], drop: tuple[str, ...]) -> dict[str, Any]:
@@ -523,7 +535,12 @@ def build_rebal_facts_pack(
     # (Current -> Buy -> Sell -> Planned, one row per group instead of ~16 SEBI
     # rows), and so the group holds its OWN held total — a "sell X out of Y held"
     # line then pairs the group sell with the GROUP's held, not a single category's.
-    _z = lambda: {"current_inr": 0.0, "buy_inr": 0.0, "sell_inr": 0.0, "planned_final_inr": 0.0}  # noqa: E731
+    _z = lambda: {
+        "current_inr": 0.0,
+        "buy_inr": 0.0,
+        "sell_inr": 0.0,
+        "planned_final_inr": 0.0,
+    }  # noqa: E731
     group_acc: dict[str, dict[str, float]] = {}
     for bucket in buckets:
         label = _SUBGROUP_FLOW_LABEL.get(bucket["asset_subgroup"], "Other funds")
@@ -533,9 +550,12 @@ def build_rebal_facts_pack(
     group_flows = [
         {
             "group": label,
-            "current_inr": v["current_inr"], "current_indian": format_inr_indian(v["current_inr"]),
-            "buy_inr": v["buy_inr"], "buy_indian": format_inr_indian(v["buy_inr"]),
-            "sell_inr": v["sell_inr"], "sell_indian": format_inr_indian(v["sell_inr"]),
+            "current_inr": v["current_inr"],
+            "current_indian": format_inr_indian(v["current_inr"]),
+            "buy_inr": v["buy_inr"],
+            "buy_indian": format_inr_indian(v["buy_inr"]),
+            "sell_inr": v["sell_inr"],
+            "sell_indian": format_inr_indian(v["sell_inr"]),
             # net_change = buy - sell (= planned - current), pre-signed for the table's
             # middle column so the LLM never computes or signs it.
             "net_change_inr": v["buy_inr"] - v["sell_inr"],
@@ -676,9 +696,7 @@ def build_rebal_facts_pack(
     _breakdown = getattr(
         getattr(response, "practical_allocation", None), "corpus_breakdown", None
     )
-    _excess_stocks = float(
-        getattr(_breakdown, "excess_direct_stocks_inr", 0) or 0
-    )
+    _excess_stocks = float(getattr(_breakdown, "excess_direct_stocks_inr", 0) or 0)
     if _excess_stocks > 0:
         pack["direct_stock_sale_inr"] = _excess_stocks
         pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
@@ -820,20 +838,30 @@ async def compute_rebalancing_result(
     # Ensure we're scoped to the active CAS snapshot so we read only active funds.
     # The request path (get_effective_user) should have set this already, but if
     # called from a background task or API without proper scoping, set it here.
+    #
+    # Recurse ONLY when there is a snapshot to enter. ``cas_scope_for_user`` yields
+    # None for a user with no active upload, which leaves ``get_scope()`` None, and
+    # the old "enter scope, call myself" guard then called itself until Python raised
+    # RecursionError (~943 frames, one SELECT cas_uploads each) — three production
+    # 500s on 2026-09-27 for exactly the users who have not uploaded yet. With no
+    # snapshot we simply carry on unscoped; ``_user_has_mf_holdings`` below answers
+    # such a user with the friendly "no holdings" message.
     if get_scope() is None:
-        async with cas_scope_for_user(db, acting_user_id):
-            return await compute_rebalancing_result(
-                user,
-                user_question,
-                db=db,
-                acting_user_id=acting_user_id,
-                chat_session_id=chat_session_id,
-                persist=persist,
-                origin=origin,
-                force_fresh_allocation=force_fresh_allocation,
-                chat_ctx=chat_ctx,
-                progress=progress,
-            )
+        snapshot_id = await resolve_active_cas_upload_id(db, acting_user_id)
+        if snapshot_id is not None:
+            with scoped_to(snapshot_id):
+                return await compute_rebalancing_result(
+                    user,
+                    user_question,
+                    db=db,
+                    acting_user_id=acting_user_id,
+                    chat_session_id=chat_session_id,
+                    persist=persist,
+                    origin=origin,
+                    force_fresh_allocation=force_fresh_allocation,
+                    chat_ctx=chat_ctx,
+                    progress=progress,
+                )
 
     # Stage messages are customer-facing: describe the benefit, never the
     # mechanics (no engine/strategy internals — ranks, caps, tax lots, caches).
