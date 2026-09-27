@@ -547,7 +547,16 @@ class _Env:
 def test_mock_is_on_for_a_developer_with_no_credentials():
     from app.core.config import Settings
 
-    with _Env(MFC_MOCK_ENABLED=None, MFC_CLIENT_ID=None):
+    # Clear every explicit MFC override, not just the credentials: a developer
+    # running with real UAT values in .env (MFC_API_BASE_URL, MFC_MOCK_ENABLED,
+    # …) must not make this defaulting test fail.
+    with _Env(
+        MFC_MOCK_ENABLED=None,
+        MFC_CLIENT_ID=None,
+        MFC_API_BASE_URL=None,
+        MFC_REDIRECT_BASE_URL=None,
+        MFC_ORIGIN=None,
+    ):
         assert Settings.mfc_mock_enabled() is True
         # ...and that is what makes the flow usable at all locally.
         assert Settings.mfc_enabled() is True
@@ -859,8 +868,11 @@ def test_otp_capture_is_app_only_where_a_code_can_actually_be_checked(monkeypatc
     """
     from app.core.config import Settings
 
+    # Clear the mock/credential overrides a real-UAT .env would carry, so this
+    # defaulting test holds regardless of the developer's local configuration.
     monkeypatch.delenv("MFC_OTP_CAPTURE", raising=False)
     monkeypatch.delenv("MFC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("MFC_MOCK_ENABLED", raising=False)
     monkeypatch.setenv("DEPLOY_ENV", "development")
     assert Settings.mfc_mock_enabled() is True
     assert Settings.mfc_otp_capture() == "app"

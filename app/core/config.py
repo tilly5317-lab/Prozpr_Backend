@@ -893,6 +893,26 @@ class Settings:
         return raw if raw in {"local", "remote"} else "local"
 
     @staticmethod
+    def get_mfc_signature_source() -> str:
+        """Where the request SIGNATURE is produced, independent of ``MFC_CRYPTO_MODE``.
+
+        ``local`` signs in-process with ``MFC_PRIVATE_KEY``; ``remote`` calls
+        MFC's ``/api/test/generateSignature`` helper. Defaults to whatever
+        ``MFC_CRYPTO_MODE`` is, but is separable because the two are genuinely
+        independent, and against real UAT they must be: MFC's own sign helper
+        was observed returning 500, while their responses carry OUR ``kid`` —
+        i.e. MFC verifies against the public key we registered, so signing is
+        the one leg we can (and in production must) always do ourselves, even
+        while encryption/decryption are still delegated during bring-up. So the
+        working UAT combination is ``MFC_CRYPTO_MODE=remote`` (no IV needed) with
+        ``MFC_SIGNATURE_SOURCE=local``.
+        """
+        raw = (_getenv("MFC_SIGNATURE_SOURCE") or "").strip().lower()
+        if raw in {"local", "remote"}:
+            return raw
+        return Settings.get_mfc_crypto_mode()
+
+    @staticmethod
     def get_mfc_redirect_url() -> str:
         """Where MFC sends the investor once the QR is downloaded — a FRONTEND
         route, since the browser lands there, not the API."""

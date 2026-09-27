@@ -71,8 +71,20 @@ class MfcApiError(Exception):
 
     @property
     def short_reason(self) -> str:
-        """MFC's own message when present, else the exception text."""
+        """MFC's own message when present, else the exception text.
+
+        MFC's business errors arrive as ``{"errors": [{"code", "message"}]}``
+        (often inside the encrypted response body, which ``_unwrap`` decrypts and
+        stashes here), so that shape is checked first — it carries the specific,
+        actionable text like "Invalid PAN/PEKRN, Mobile/Email combination" that
+        the flat keys miss.
+        """
         if isinstance(self.body, dict):
+            errors = self.body.get("errors")
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict) and first.get("message"):
+                    return str(first["message"])
             for key in ("message", "msg", "error_description", "errorMessage", "error"):
                 value = self.body.get(key)
                 if value:
@@ -103,6 +115,7 @@ class MfcClient:
         signature_mode: str = "detached",
         signature_kid: Optional[str] = None,
         crypto_mode: str = "local",
+        signature_source: Optional[str] = None,
         verify_response_signature: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -118,6 +131,12 @@ class MfcClient:
         self._signature_mode = signature_mode
         self._signature_kid = signature_kid
         self._crypto_mode = crypto_mode
+        # Where the signature is produced, independent of the encrypt/decrypt
+        # mode. Defaults to following crypto_mode; set to "local" to keep
+        # signing in-process while encryption/decryption stay remote — the
+        # working UAT arrangement, since MFC's sign helper 500s and MFC verifies
+        # against the public key WE registered (their responses carry our kid).
+        self._signature_source = (signature_source or crypto_mode).strip().lower()
         self._verify_response_signature = verify_response_signature
 
         self._http = httpx.AsyncClient(timeout=MFC_TIMEOUT)
@@ -200,7 +219,7 @@ class MfcClient:
     async def _encrypt(self, payload: Any) -> str:
         if self._crypto_mode == "remote":
             return await self._helper_call(
-                "encrypt", payload, key="EncryptionDecryptionKey"
+                "encrypt", payload, key=self._encryption_key
             )
         return mfc_crypto.encrypt_api_payload(
             payload, shared_key=self._encryption_key, iv=self._iv
@@ -211,7 +230,7 @@ class MfcClient:
             import json
 
             raw = await self._helper_call(
-                "decrypt", encrypted, key="EncryptionDecryptionKey", raw_text=True
+                "decrypt", encrypted, key=self._encryption_key, raw_text=True
             )
             try:
                 return json.loads(raw)
@@ -226,7 +245,7 @@ class MfcClient:
         )
 
     async def _sign(self, encrypted_request: str) -> str:
-        if self._crypto_mode == "remote":
+        if self._signature_source == "remote":
             return await self._helper_call(
                 "generateSignature", encrypted_request, key="PrivateKey", raw_text=True
             )
@@ -245,8 +264,12 @@ class MfcClient:
     ) -> str:
         """One of MFC's ``/api/test/*`` crypto helpers.
 
-        They take ``text/plain`` bodies and a ``key`` header naming WHICH of our
-        secrets to apply, and return the result as a bare string.
+        They take ``text/plain`` bodies and a ``key`` header carrying the actual
+        secret to apply (the shared encryption key for encrypt/decrypt), and
+        return the result as a bare string. Passing the *name* of the secret
+        instead of its value encrypts under the wrong key and the client APIs
+        then reject the payload with a 422 "Unable to decrypt" — verified
+        against UAT, which is why the callers pass ``self._encryption_key``.
         """
         import json
 
@@ -333,10 +356,29 @@ class MfcClient:
     async def _unwrap(self, response: httpx.Response, *, stage: str) -> Any:
         parsed = _safe_json(response)
         if response.status_code >= 400:
+            # MFC's business errors (e.g. "Invalid PAN/PEKRN, Mobile/Email
+            # combination") are ENCRYPTED in the `response` field of the error
+            # body, exactly like a success payload. Decrypt it so `short_reason`
+            # can surface the specific message instead of a generic HTTP reason —
+            # otherwise every 4xx reads as "invalid input or format" and the
+            # user has no idea which field to fix.
+            body: Any = parsed if parsed is not None else response.text
+            if isinstance(parsed, dict) and parsed.get("response"):
+                try:
+                    decrypted = await self._decrypt(str(parsed["response"]).strip())
+                    if isinstance(decrypted, dict):
+                        body = decrypted
+                except Exception:  # noqa: BLE001 — fall back to the raw envelope
+                    pass
+            detail = ""
+            if isinstance(body, dict):
+                errs = body.get("errors")
+                if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+                    detail = str(errs[0].get("message") or "")
             raise MfcApiError(
-                _http_reason(response.status_code),
+                detail or _http_reason(response.status_code),
                 status_code=response.status_code,
-                body=parsed if parsed is not None else response.text,
+                body=body,
                 stage=stage,
             )
         if not isinstance(parsed, dict):
@@ -547,6 +589,7 @@ def get_mfc_client() -> MfcClient:
         signature_mode=Settings.get_mfc_signature_mode(),
         signature_kid=Settings.get_mfc_signature_kid(),
         crypto_mode=Settings.get_mfc_crypto_mode(),
+        signature_source=Settings.get_mfc_signature_source(),
         verify_response_signature=Settings.get_mfc_verify_response_signature(),
     )
     return _client

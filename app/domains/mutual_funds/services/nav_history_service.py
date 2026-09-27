@@ -299,6 +299,16 @@ def _mf_type(detail_scheme_type: str, detail_scheme_category: str) -> str:
     return value or "Unknown"
 
 
+def _is_mfapi_code(code: str) -> bool:
+    """True when ``code`` can be looked up on mfapi.in — i.e. a numeric AMFI
+    scheme code. ISINs (``INF…``) and RTA alpha codes never resolve there, so a
+    request only yields a 400; callers use this to skip the network for them.
+    Holdings should carry a numeric code after ``scheme_resolver`` runs at
+    ingest; this is the backstop for the ones that stayed unmapped.
+    """
+    return code.isdigit()
+
+
 def _min_rows_for_chart_range(date_from: date, date_to: date) -> int:
     """Rough minimum NAV points expected for a chart over ``date_from``..``date_to``."""
     span_days = max((date_to - date_from).days, 1)
@@ -337,6 +347,13 @@ async def ensure_nav_history_for_chart(
     """
     code = scheme_code.strip()
     if not code:
+        return
+    if not _is_mfapi_code(code):
+        # Non-numeric code (ISIN / RTA alpha code the resolver couldn't map):
+        # mfapi.in can't serve it, so backfilling from there is a guaranteed 400.
+        # Skipping keeps the net-worth rebuild from spending ~1.5s per such fund
+        # in a tight serial loop (the dominant cost when a large statement lands
+        # with many unmapped schemes).
         return
 
     g_count, g_earliest, g_latest = (
@@ -490,6 +507,14 @@ async def _fetch_nav_from_source_for_scheme(
 ) -> Optional[MfNavHistory]:
     code = scheme_code.strip()
     if not code:
+        return None
+    if not _is_mfapi_code(code):
+        # mfapi.in is keyed by NUMERIC AMFI scheme codes only. A non-numeric code
+        # — an ISIN (INF…) or an RTA alpha code (e.g. LFGTN) that the ISIN→AMFI
+        # resolver could not map at ingest — can never resolve there; calling it
+        # only costs a guaranteed 400 plus ~1.5s per held fund, which serially
+        # stalls the net-worth rebuild and floods the log. Skip the network
+        # entirely; the fund stays unpriced (degraded) until it gets an AMFI code.
         return None
 
     high_water = (

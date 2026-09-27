@@ -133,6 +133,11 @@ class MfcImportResult:
     # a portfolio worth nothing). The display payload is still returned, so the
     # investor sees what they consented to alongside the reason it can't be used.
     rejection: Optional[str] = None
+    # Set when MFC is still GENERATING the CAS asynchronously ("We are in process
+    # of generating the CAS. Please visit after ..."). Not a failure and not
+    # terminal: the QR is unconsumed, the request row stays INITIATED, and the
+    # same QR can be submitted again in a moment.
+    pending: Optional[str] = None
 
 
 # --------------------------------------------------------------------------- helpers
@@ -140,6 +145,45 @@ class MfcImportResult:
 
 def _new_client_ref_no() -> str:
     return f"{_CLIENT_REF_PREFIX}{uuid.uuid4().hex[:20]}"
+
+
+# MFC builds the consolidated statement asynchronously behind validateQRCode and,
+# while it is still assembling, answers the SAME QR with a message rather than a
+# rejection — the QR is not consumed, so this is a "come back shortly", not a
+# failure. Matched on the phrases MFC uses so a real "no folios" error (which has
+# none of these) is still surfaced as such.
+_CAS_PENDING_MARKERS = (
+    "in process of generating",
+    "generating the cas",
+    "please visit after",
+    "please try after",
+    "still being generated",
+    "under process",
+)
+
+
+def _cas_pending_message(payload: dict[str, Any]) -> Optional[str]:
+    """MFC's "still generating" message if this response is that state, else None.
+
+    An empty payload counts too: ``_unwrap`` collapses a bare HTTP 202 (MFC's
+    "Accepted — processing not complete") to ``{}``, which is the same state
+    without the prose.
+    """
+    if not payload:
+        return (
+            "MF Central is still generating your statement. Give it a moment, "
+            "then submit the same QR again."
+        )
+    message = ""
+    for key in ("errorMessage", "message", "status", "statusMessage"):
+        value = payload.get(key)
+        if value:
+            message = str(value)
+            break
+    haystack = message.lower()
+    if any(marker in haystack for marker in _CAS_PENDING_MARKERS):
+        return message
+    return None
 
 
 def _mask_pan(pan: str) -> str:
@@ -420,6 +464,22 @@ async def import_from_qr(
         raise MfcFlowError(
             f"Could not read MF Central's response: {exc}", stage="crypto"
         ) from exc
+
+    # MFC is still assembling the statement: not a failure, and the QR is not
+    # burnt. Leave the row INITIATED (no _fail, which would mark it FAILED and
+    # read as a dead consent) and hand back a pending result the caller renders
+    # as "retry the same QR in a moment".
+    pending = _cas_pending_message(payload)
+    if pending:
+        logger.info("MFC validateQRCode still generating for %s", row.client_ref_no)
+        return MfcImportResult(
+            request_id=row.id,
+            req_id=row.req_id or "",
+            variant="pending",
+            ingest=None,
+            display=summarize_for_display(payload) if payload else {},
+            pending=pending,
+        )
 
     display = summarize_for_display(payload)
     row.cas_variant = display.get("variant")

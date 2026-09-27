@@ -255,6 +255,20 @@ async def validate_mfc_qr(
     except MfcFlowError as exc:
         raise _flow_error(exc) from exc
 
+    if result.pending:
+        # MF Central is still generating the statement. A 200, not an error: the
+        # QR is unconsumed and the same one can be submitted again shortly, so
+        # the frontend shows a "still generating — retry" state, not a dead end.
+        return MfcImportResponse(
+            request_id=result.request_id,
+            req_id=result.req_id,
+            variant="pending",
+            ingest=None,
+            pending=result.pending,
+            data=result.display,
+            message=result.pending,
+        )
+
     ingest = result.ingest
     if ingest is None:
         # Readable but not ingestible. Still a 200: the investor's consent

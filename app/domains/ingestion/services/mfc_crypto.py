@@ -82,13 +82,19 @@ def _aes_cbc_decrypt(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
 
 
 def derive_api_key(shared_key: str) -> bytes:
-    """``SHA-256(shared_key)[:32]`` — MFC's key derivation for the API envelope.
+    """MFC's key derivation for the API envelope: the first 32 characters of the
+    SHA-256 **hex digest** of the shared key, used as 32 ASCII bytes.
 
-    SHA-256 is already 32 bytes, so the documented slice is a no-op; it stays
-    literal because their reference implementation writes it that way, and a
-    change of hash on their side would otherwise silently change the key.
+    NOT the raw 32 digest bytes the integration guide's wording ("SHA-256 hash …
+    first 32 bytes") implies. MFC's implementation is the JS/Java idiom
+    ``sha256(key).digest('hex').substring(0, 32)`` — a 64-char hex string sliced
+    to 32 chars, i.e. only the first 16 bytes of entropy expanded to a 32-byte
+    ASCII key. Verified against live UAT (2026-09-27): the raw-digest form fails
+    with a PKCS#7 padding error on decrypt, while this form round-trips both
+    newCasRequest and a 15k-transaction validateQRCode response. The paired IV is
+    the constant ``globalaesvectors``.
     """
-    return hashlib.sha256(shared_key.encode("utf-8")).digest()[:32]
+    return hashlib.sha256(shared_key.encode("utf-8")).hexdigest()[:32].encode("ascii")
 
 
 def resolve_iv(raw: str) -> bytes:

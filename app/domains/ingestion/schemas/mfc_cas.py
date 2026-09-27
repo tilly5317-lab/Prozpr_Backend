@@ -228,6 +228,13 @@ class MfcImportResponse(BaseModel):
     variant: str = Field(description="summary | detailed — chosen by the investor.")
     ingest: Optional[MfcIngestSummary] = None
     rejection: Optional[str] = None
+    pending: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set when MF Central is still generating the CAS. Not a failure: the "
+            "QR is unconsumed and the same one can be submitted again shortly."
+        ),
+    )
     data: dict[str, Any] = Field(
         default_factory=dict, description="Everything MFC returned, flattened."
     )
