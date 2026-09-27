@@ -535,12 +535,14 @@ def build_rebal_facts_pack(
     # (Current -> Buy -> Sell -> Planned, one row per group instead of ~16 SEBI
     # rows), and so the group holds its OWN held total — a "sell X out of Y held"
     # line then pairs the group sell with the GROUP's held, not a single category's.
-    _z = lambda: {
-        "current_inr": 0.0,
-        "buy_inr": 0.0,
-        "sell_inr": 0.0,
-        "planned_final_inr": 0.0,
-    }  # noqa: E731
+    def _z() -> dict[str, float]:
+        return {
+            "current_inr": 0.0,
+            "buy_inr": 0.0,
+            "sell_inr": 0.0,
+            "planned_final_inr": 0.0,
+        }
+
     group_acc: dict[str, dict[str, float]] = {}
     for bucket in buckets:
         label = _SUBGROUP_FLOW_LABEL.get(bucket["asset_subgroup"], "Other funds")
