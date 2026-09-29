@@ -154,3 +154,47 @@ async def test_missing_tax_profile_uses_defaults(
     assert request.carryforward_lt_loss_inr == Decimal(0)
     assert request.stcg_offset_budget_inr is None
     assert request.rounding_step == 100
+
+
+def test_short_term_holdings_from_rows_count_held_debt_only():
+    from types import SimpleNamespace
+
+    from app.domains.rebalancing.services.rebal_engine.input_builder import (
+        _short_term_holdings_from_rows,
+    )
+
+    rows = [
+        SimpleNamespace(asset_subgroup="near_debt", present_allocation_inr=Decimal("300000")),
+        SimpleNamespace(asset_subgroup="arbitrage", present_allocation_inr=Decimal("200000")),
+        SimpleNamespace(asset_subgroup="arbitrage_plus_income", present_allocation_inr=Decimal("500000")),
+        SimpleNamespace(asset_subgroup="low_beta_equities", present_allocation_inr=Decimal("900000")),
+        SimpleNamespace(asset_subgroup="short_debt", present_allocation_inr=Decimal("0")),
+    ]
+    assert _short_term_holdings_from_rows(rows) == 500_000.0
+
+
+@pytest.mark.asyncio
+async def test_practical_input_takes_short_term_holdings_from_rows(
+    monkeypatch,
+    db_session,
+    fixture_user_with_two_holdings,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    from app.domains.practical_asset_allocation.services.paa_engine import (
+        input_builder as paa_ib,
+    )
+    from app.domains.rebalancing.services.rebal_engine.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    def _boom(user):
+        raise AssertionError("rebalancing must value holdings from its ledger rows")
+
+    monkeypatch.setattr(paa_ib, "short_term_holdings_for_user", _boom)
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(fixture_user_with_two_holdings, db_session),
+        fixture_goal_allocation_output_one_subgroup,
+    )
+    assert request.practical_allocation_input.short_term_holdings == 0.0

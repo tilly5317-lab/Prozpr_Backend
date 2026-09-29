@@ -12,7 +12,10 @@ from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models.mf_fund_metadata import MfFundMetadata
 from app.domains.mutual_funds.models.mf_nav_history import MfNavHistory
-from app.domains.mutual_funds.services.scheme_classification import classify_holding
+from app.domains.mutual_funds.services.scheme_classification import (
+    classify_holding,
+    short_term_holdings_total,
+)
 from app.domains.profile.models.tax_profile import TaxProfile
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
@@ -205,6 +208,22 @@ def _build_row(
         selection_reason=selection_reason,
         rejection_reason=rejection_reason,
     )
+
+
+def _short_term_holdings_from_rows(rows: list[FundRowInput]) -> float:
+    """Held short-term money, summed from the rows this run is about to trade.
+
+    Sources the practical builder's ``short_term_holdings`` from the same
+    ledger the rebalancer already built, instead of a second read of the
+    user's holdings via ``short_term_holdings_for_user``.
+    """
+    by_subgroup: dict[str, float] = {}
+    for r in rows:
+        if r.present_allocation_inr > 0:
+            by_subgroup[r.asset_subgroup] = by_subgroup.get(r.asset_subgroup, 0.0) + float(
+                r.present_allocation_inr
+            )
+    return short_term_holdings_total(by_subgroup)
 
 
 async def build_rebalancing_input_for_user(
@@ -417,7 +436,9 @@ async def build_rebalancing_input_for_user(
     #     domain, then point the corpus at the held MF value so the targets sum to
     #     what's actually held (a rebalance, not a fresh cash deployment). Non-MF
     #     equity ("stocks") and ELSS default to 0 — no holdings breakdown wired yet.
-    practical_input, _paa_debug = build_practical_allocation_input_for_user(ctx)
+    practical_input, _paa_debug = build_practical_allocation_input_for_user(
+        ctx, short_term_holdings=_short_term_holdings_from_rows(rows)
+    )
     practical_input = practical_input.model_copy(
         update={
             "total_corpus": float(total_corpus),
