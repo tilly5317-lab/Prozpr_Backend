@@ -3,6 +3,7 @@
 import unittest
 import uuid
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app.domains.asset_allocation.services.aa_engine.input_builder import (
@@ -172,6 +173,50 @@ class ChatOverrideTests(unittest.TestCase):
         self.assertEqual(alloc_input.age, 35)
         self.assertFalse(debug["has_date_of_birth"])
         self.assertIn("date_of_birth_missing", debug["defaults_applied"])
+
+
+class GoalFundingInputTests(unittest.TestCase):
+    """Goal future value, the stated SIP and zero holdings reach AllocationInput."""
+
+    _build_minimal_user = ChatOverrideTests._build_minimal_user
+    _make_ctx = ChatOverrideTests._make_ctx
+
+    @staticmethod
+    def _goal():
+        today = date.today()
+        return SimpleNamespace(
+            status=SimpleNamespace(value="ACTIVE"),
+            target_date=date(today.year + 1, today.month, 1), goal_date=None,
+            goal_type=None, name="Car", goal_name="Car",
+            present_value_amount=500_000.0, goal_value_pv=500_000.0, inflation_rate=None,
+        )
+
+    def test_goal_future_value_matches_the_cashflow_engine(self):
+        from app.domains.cashflow.services.goal_planning_engine.input_builder import (
+            map_custom_goal,
+        )
+        from cashflow_statement import Assumptions, custom_goal_fv
+
+        goal = self._goal()
+        user = self._build_minimal_user()
+        user.financial_goals = [goal]
+        alloc_input, _ = build_goal_allocation_input_for_user(self._make_ctx(user))
+        expected = custom_goal_fv(map_custom_goal(goal), Assumptions(), date.today())
+        self.assertEqual(alloc_input.goals[0].amount_needed, 500_000.0)
+        self.assertEqual(alloc_input.goals[0].amount_needed_fv, expected)
+        self.assertGreater(expected, 500_000.0)
+
+    def test_stated_sip_and_zero_holdings(self):
+        user = self._build_minimal_user()
+        user.personal_finance_profile.starting_monthly_investment = 25_000.0
+        alloc_input, _ = build_goal_allocation_input_for_user(self._make_ctx(user))
+        self.assertEqual(alloc_input.monthly_sip, 25_000.0)
+        self.assertEqual(alloc_input.short_term_holdings, 0.0)
+
+    def test_missing_sip_is_zero(self):
+        user = self._build_minimal_user()
+        alloc_input, _ = build_goal_allocation_input_for_user(self._make_ctx(user))
+        self.assertEqual(alloc_input.monthly_sip, 0.0)
 
 
 if __name__ == "__main__":

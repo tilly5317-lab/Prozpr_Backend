@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.asset_allocation.services.aa_engine.overrides import effective_param
+from app.domains.cashflow.services.goal_planning_engine.input_builder import (
+    map_custom_goal,
+)
 from app.domains.profile.services import profile_finance as pf
 
 if TYPE_CHECKING:
@@ -21,6 +24,7 @@ if TYPE_CHECKING:
 ensure_ai_agents_path()
 
 from asset_allocation_pydantic.models import AllocationInput, Goal
+from cashflow_statement import Assumptions, custom_goal_fv
 from financial_primitives.dates import months_to_fy_end
 
 
@@ -85,6 +89,7 @@ def _map_goals(financial_goals: List[Any]) -> List[Goal]:
     customer and produces a sensible long-term default allocation.
     """
     today = date.today()
+    assumptions = Assumptions()
     mapped: List[Goal] = []
     for g in financial_goals:
         status_val = getattr(g, "status", None)
@@ -98,11 +103,13 @@ def _map_goals(financial_goals: List[Any]) -> List[Goal]:
             continue
         gt = getattr(g, "goal_type", None)
         gt_val = gt.value if hasattr(gt, "value") else str(gt or "other")
+        fv = custom_goal_fv(map_custom_goal(g), assumptions, today)
         mapped.append(
             Goal(
                 goal_name=getattr(g, "goal_name", None) or "goal",
                 time_to_goal_months=_months_between(today, target),
                 amount_needed=float(getattr(g, "present_value_amount", 0.0) or 0.0),
+                amount_needed_fv=fv if fv > 0 else None,
                 goal_priority="non_negotiable",
                 investment_goal=gt_val.lower(),
             )
@@ -183,6 +190,7 @@ def build_goal_allocation_input_for_user(
     # Canonical household-finance scalars live on personal_finance_profiles.
     annual_income = pf.annual_income_pfp(pfp)
     monthly_household_expense = pf.monthly_household_expense_pfp(pfp)
+    monthly_sip = max(pf.starting_monthly_investment_pfp(pfp) or 0.0, 0.0)
     total_corpus = pick_total_corpus(pfp, inv, portfolios)
 
     if tp is not None and getattr(tp, "income_tax_rate", None) is not None:
@@ -264,6 +272,8 @@ def build_goal_allocation_input_for_user(
         goals=goals,
         # FY-end anchoring: engine adds this to the 24-month horizon boundary.
         months_to_fy_end=months_to_fy_end(today),
+        monthly_sip=monthly_sip,
+        short_term_holdings=0.0,
         risk_willingness=risk_willingness,
         risk_capacity_score=risk_capacity_score,
         net_financial_assets=net_financial_assets,

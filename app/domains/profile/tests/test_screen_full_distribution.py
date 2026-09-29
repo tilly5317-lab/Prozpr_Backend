@@ -37,6 +37,8 @@ def _goal(name, months, amount):
         goal_type="other",
         goal_name=name,
         present_value_amount=amount,
+        # Zero inflation keeps FV == PV: the Car goal stays a round ₹20L (10% of corpus) regardless of today's date.
+        inflation_rate=0,
     )
 
 
