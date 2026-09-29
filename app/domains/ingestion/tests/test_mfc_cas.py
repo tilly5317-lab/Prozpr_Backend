@@ -803,7 +803,9 @@ def test_new_cas_request_issues_the_otp_before_the_investor_arrives():
     )
     body = {
         "request": encrypted,
-        "signature": mfc_crypto.sign_detached_jws(encrypted, private_key_pem=private_key),
+        "signature": mfc_crypto.sign_detached_jws(
+            encrypted, private_key_pem=private_key
+        ),
     }
 
     class _Req:
@@ -836,24 +838,24 @@ def test_mask_destination_never_echoes_the_whole_contact():
 # --------------------------------------------------------------------------- integration mode
 
 
-def test_integration_mode_defaults_to_popup_and_rejects_junk(monkeypatch):
-    """MFC's consent page opens in its own window by default.
+def test_integration_mode_defaults_to_iframe_and_rejects_junk(monkeypatch):
+    """MFC's consent page is embedded in the app by default.
 
-    It is their page asking for an OTP; a separate window keeps that obvious.
-    `iframe` stays selectable — their guide documents and auto-detects it — but
-    is opt-in.
+    A second window read as leaving the app; in-frame keeps the investor on
+    one screen. `popup` and `redirect` stay selectable — their guide documents
+    and auto-detects all three — and junk falls back to the default.
     """
     from app.core.config import Settings
 
     monkeypatch.delenv("MFC_INTEGRATION_MODE", raising=False)
-    assert Settings.get_mfc_integration_mode() == "popup"
+    assert Settings.get_mfc_integration_mode() == "iframe"
 
     for value, expected in [
         ("iframe", "iframe"),
         ("REDIRECT", "redirect"),
         (" popup ", "popup"),
-        ("webview", "popup"),
-        ("", "popup"),
+        ("webview", "iframe"),
+        ("", "iframe"),
     ]:
         monkeypatch.setenv("MFC_INTEGRATION_MODE", value)
         assert Settings.get_mfc_integration_mode() == expected
@@ -883,3 +885,152 @@ def test_otp_capture_is_app_only_where_a_code_can_actually_be_checked(monkeypatc
     # The escape hatch for the day MFC ships one.
     monkeypatch.setenv("MFC_OTP_CAPTURE", "app")
     assert Settings.mfc_otp_capture() == "app"
+
+
+# --------------------------------------------------------------------------- PAN override
+
+
+def test_pan_override_needs_flag_and_never_runs_in_production(monkeypatch):
+    """The override exists for walking MFC's sandbox with its fixed test PANs.
+
+    Off by default; on only with the flag AND off production. A production box
+    with the flag set by mistake must still refuse — the account-PAN rule is a
+    privacy boundary, not a convenience.
+    """
+    from app.core.config import Settings
+
+    monkeypatch.delenv("MFC_ALLOW_PAN_OVERRIDE", raising=False)
+    monkeypatch.setattr(Settings, "DEPLOY_ENV", "development")
+    assert Settings.mfc_pan_override_allowed() is False
+
+    monkeypatch.setenv("MFC_ALLOW_PAN_OVERRIDE", "true")
+    assert Settings.mfc_pan_override_allowed() is True
+
+    monkeypatch.setattr(Settings, "DEPLOY_ENV", "production")
+    assert Settings.mfc_pan_override_allowed() is False
+
+
+def test_uat_test_data_matches_the_guide_and_pairs_with_one_contact():
+    """Guide p.26 lists AQQPS7576R twice; the fixture set is the eight distinct
+    PANs, each of which must be sent with the single test contact."""
+    from app.domains.ingestion.services.mfc_cas_ingest import (
+        MFC_UAT_TEST_EMAIL,
+        MFC_UAT_TEST_MOBILE,
+        MFC_UAT_TEST_PANS,
+    )
+
+    assert len(MFC_UAT_TEST_PANS) == 8
+    assert len(set(MFC_UAT_TEST_PANS)) == 8
+    assert "AQQPS7576R" in MFC_UAT_TEST_PANS
+    assert MFC_UAT_TEST_MOBILE == "9239874560"
+    assert MFC_UAT_TEST_EMAIL == "test@kfintech.com"
+
+
+# --------------------------------------------------------------------------- error envelopes
+
+
+def test_json_or_none_tells_plaintext_json_from_ciphertext():
+    from app.domains.ingestion.services.mfc_client import _json_or_none
+
+    assert _json_or_none('{"errors":[{"message":"Duplicate clientRefNo"}]}') == {
+        "errors": [{"message": "Duplicate clientRefNo"}]
+    }
+    assert _json_or_none("U2FsdGVkX1+ciphertext==") is None
+    assert _json_or_none("") is None
+    assert _json_or_none("{not json") is None
+
+
+def test_duplicate_clientrefno_is_reported_as_mfc_side_and_retryable():
+    """A fresh random reference rejected as a duplicate is MFC failing, not a
+    field the investor can correct — the copy must not send them to their PAN."""
+    from app.domains.ingestion.services.mfc_cas_ingest import _api_error_to_flow
+    from app.domains.ingestion.services.mfc_client import MfcApiError
+
+    exc = MfcApiError(
+        "Duplicate clientRefNo",
+        status_code=422,
+        body={"errors": [{"code": "422", "message": "Duplicate clientRefNo"}]},
+        stage="newCasRequest",
+    )
+    flow = _api_error_to_flow(exc)
+    assert flow.retryable is True
+    assert "their side" in str(flow)
+    assert "PAN" not in str(flow)
+
+
+def test_peel_response_unwraps_mfc_double_envelope_but_not_real_payloads():
+    from app.domains.ingestion.services.mfc_client import _peel_response
+
+    inner = '{"reqId":"1","errors":[{"code":"422","message":"Duplicate clientRefNo"}]}'
+    assert _peel_response({"response": inner}) == {
+        "reqId": "1",
+        "errors": [{"code": "422", "message": "Duplicate clientRefNo"}],
+    }
+    assert (
+        _peel_response({"response": {"response": inner}})["errors"][0]["code"] == "422"
+    )
+    # Ciphertext stays an envelope; a payload with more keys is untouched.
+    assert _peel_response({"response": "0CR053MbhkOw"}) == {"response": "0CR053MbhkOw"}
+    assert _peel_response({"reqId": 5, "otpRef": "x"}) == {"reqId": 5, "otpRef": "x"}
+
+
+def test_signed_call_never_retries_after_a_timeout():
+    """A timed-out newCasRequest may already be registered at MFC; re-sending
+    the same clientRefNo made MFC answer "Duplicate clientRefNo" (2026-09-29)."""
+    import asyncio
+
+    import httpx
+
+    from app.domains.ingestion.services.mfc_client import MfcApiError, MfcClient
+
+    calls = 0
+
+    class _Http:
+        timeout = httpx.Timeout(connect=1.0, read=150.0, write=1.0, pool=1.0)
+
+        async def post(self, *a, **k):
+            nonlocal calls
+            calls += 1
+            raise httpx.ReadTimeout("slow")
+
+    c = MfcClient.__new__(MfcClient)
+    c._http = _Http()
+    c._client_id = "x"
+    c._origin = None
+    c._base_url = "https://mfc.test"
+
+    async def _enc(payload):
+        return "cipher"
+
+    async def _sig(text):
+        return "sig"
+
+    async def _tok(force=False):
+        return "token"
+
+    c._encrypt = _enc
+    c._sign = _sig
+    c._access_token = _tok
+
+    with pytest.raises(MfcApiError) as info:
+        asyncio.run(
+            c.call_signed("/api/client/V1/newCasRequest", {}, stage="newCasRequest")
+        )
+    assert calls == 1
+    assert info.value.timed_out is True
+    assert "150s" in str(info.value)
+
+
+def test_timeout_maps_to_retryable_their_side_copy():
+    from app.domains.ingestion.services.mfc_cas_ingest import _api_error_to_flow
+    from app.domains.ingestion.services.mfc_client import MfcApiError
+
+    flow = _api_error_to_flow(
+        MfcApiError(
+            "MF Central did not answer within 150s.",
+            stage="newCasRequest",
+            timed_out=True,
+        )
+    )
+    assert flow.retryable is True
+    assert "their side" in str(flow)

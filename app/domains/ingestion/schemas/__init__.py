@@ -19,6 +19,7 @@ from app.domains.ingestion.schemas.finvu import (
 )
 from app.domains.ingestion.schemas.mfc_cas import (
     MfcConfigResponse,
+    MfcUatTestData,
     MfcImportResponse,
     MfcIngestSummary,
     MfcRequestItem,
@@ -50,6 +51,7 @@ __all__ = [
     "MfAaNormalizePendingRequest",
     "MfAaNormalizePendingResponse",
     "MfcConfigResponse",
+    "MfcUatTestData",
     "MfcImportResponse",
     "MfcIngestSummary",
     "MfcRequestItem",

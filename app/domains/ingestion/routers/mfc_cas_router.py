@@ -38,6 +38,7 @@ from app.core.dependencies import CurrentUser, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.ingestion.schemas import (
     MfcConfigResponse,
+    MfcUatTestData,
     MfcImportResponse,
     MfcIngestSummary,
     MfcRequestItem,
@@ -52,6 +53,10 @@ from app.domains.ingestion.services.mfc_cas_ingest import (
     MfcFlowError,
     import_from_qr,
     list_requests,
+    MFC_UAT_OTP_RULE,
+    MFC_UAT_TEST_EMAIL,
+    MFC_UAT_TEST_MOBILE,
+    MFC_UAT_TEST_PANS,
     start_cas_request,
     verify_consent_otp,
 )
@@ -121,6 +126,7 @@ async def mfc_config(current_user: CurrentUser = Depends(get_effective_user)):
         environment = "uat"
     else:
         environment = "production"
+    pan_override = Settings.mfc_pan_override_allowed()
     return MfcConfigResponse(
         enabled=Settings.mfc_enabled(),
         environment=environment,
@@ -128,6 +134,19 @@ async def mfc_config(current_user: CurrentUser = Depends(get_effective_user)):
         mfc_origin=Settings.get_mfc_redirect_base_url(),
         integration_mode=Settings.get_mfc_integration_mode(),
         otp_capture=Settings.mfc_otp_capture(),
+        pan_override=pan_override,
+        # The fixtures are only useful against MFC's sandbox, and only when the
+        # override lets a real account use them.
+        test_data=(
+            MfcUatTestData(
+                mobile=MFC_UAT_TEST_MOBILE,
+                email=MFC_UAT_TEST_EMAIL,
+                pans=list(MFC_UAT_TEST_PANS),
+                otp_rule=MFC_UAT_OTP_RULE,
+            )
+            if pan_override and environment == "uat"
+            else None
+        ),
     )
 
 

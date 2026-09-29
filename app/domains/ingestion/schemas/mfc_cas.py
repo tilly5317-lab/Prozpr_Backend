@@ -27,6 +27,20 @@ _PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 
 
+class MfcUatTestData(BaseModel):
+    """MF Central's sandbox fixtures, so a tester can fill them in with a tap.
+
+    Present only when the server is pointed at UAT AND allows the PAN override
+    (``MFC_ALLOW_PAN_OVERRIDE`` on a non-production box) — a production build
+    never carries these.
+    """
+
+    mobile: str
+    email: str
+    pans: list[str]
+    otp_rule: str
+
+
 class MfcConfigResponse(BaseModel):
     """Whether the flow is usable on this server, and how it should be presented.
 
@@ -52,7 +66,18 @@ class MfcConfigResponse(BaseModel):
         description="Origin of MFC's consent UI — validate postMessage against this.",
     )
     integration_mode: str = Field(
-        default="popup", description="popup | iframe | redirect"
+        default="iframe", description="iframe | popup | redirect"
+    )
+    pan_override: bool = Field(
+        default=False,
+        description=(
+            "True when /start honours a pan_no that differs from the account's "
+            "PAN. Only ever true off production with MFC_ALLOW_PAN_OVERRIDE set."
+        ),
+    )
+    test_data: Optional[MfcUatTestData] = Field(
+        default=None,
+        description="MFC UAT fixtures (test PANs + contact) when pan_override is on against UAT.",
     )
     otp_capture: str = Field(
         default="mfc",

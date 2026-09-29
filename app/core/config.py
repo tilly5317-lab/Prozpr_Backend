@@ -847,6 +847,23 @@ class Settings:
         return not (_getenv("MFC_CLIENT_ID") or "").strip()
 
     @staticmethod
+    def mfc_pan_override_allowed() -> bool:
+        """Let a signed-in tester request a statement for a PAN that is NOT the
+        account's.
+
+        MF Central's UAT sandbox answers only its eight fixed test PANs, and a
+        real account carries a real one — so without this, UAT can only be
+        walked from an account with no PAN on file. Requires BOTH
+        ``MFC_ALLOW_PAN_OVERRIDE=true`` AND a non-production deployment. Never
+        on in production: the account-PAN rule in ``_resolve_pan`` is what
+        stops one user pulling another person's consolidated holdings.
+        """
+        raw = (_getenv("MFC_ALLOW_PAN_OVERRIDE") or "").strip().lower()
+        if raw not in {"1", "true", "yes", "on"}:
+            return False
+        return Settings.DEPLOY_ENV.strip().lower() not in {"production", "prod"}
+
+    @staticmethod
     def get_mfc_mock_origin() -> str:
         """Origin the mock is reachable on — this server's own.
 
@@ -1040,15 +1057,17 @@ class Settings:
         ``window.self !== window.top`` and ``window.opener``), so this is purely
         our choice of container.
 
-        ``popup`` is the default and the intended one: MFC's consent page is
-        theirs, and keeping it in its own window keeps that obvious. ``iframe``
-        is built and supported (their frontend guide documents it) but is opt-in
-        — a customer whose CSP forbids third-party frames cannot use it, and a
-        WebView build cannot host a popup, which is why this is a server setting
-        rather than a frontend constant.
+        ``iframe`` is the default: MFC's page renders inside ours, so the
+        investor never leaves the app for a second window that reads as a
+        disconnect (the 2026-09-29 decision that reversed the popup default).
+        The frontend's Downloads-folder pickup is what closes the loop there —
+        in an iframe MFC posts only ``mfc-cas-complete``, and the QR still
+        lands as a download. ``popup`` remains selectable for a host whose CSP
+        forbids third-party frames; ``redirect`` for a WebView that can host
+        neither. MFC auto-detects all three, so this is purely our container.
         """
-        raw = (_getenv("MFC_INTEGRATION_MODE") or "popup").strip().lower()
-        return raw if raw in {"iframe", "popup", "redirect"} else "popup"
+        raw = (_getenv("MFC_INTEGRATION_MODE") or "iframe").strip().lower()
+        return raw if raw in {"iframe", "popup", "redirect"} else "iframe"
 
     @staticmethod
     def mfc_otp_capture() -> str:

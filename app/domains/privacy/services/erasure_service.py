@@ -168,11 +168,17 @@ async def _delete_archived_statements(
 
     deleted = 0
     try:
-        from app.domains.ingestion.services.cams_pdf_stage import delete_archived_cas
+        # ``delete_cas_object``, and awaited. This import previously named
+        # ``delete_archived_cas``, which has never existed in ``cams_pdf_stage`` — so
+        # the ImportError was swallowed by the outer ``except`` below, this returned 0,
+        # and every erasure since silently left the person's statements in S3 while
+        # deleting the ``user_cas_documents`` rows that pointed at them. The only
+        # symptom was one log line that reads like a transient S3 outage.
+        from app.domains.ingestion.services.cams_pdf_stage import delete_cas_object
 
         for key in keys:
             try:
-                delete_archived_cas(key)
+                await delete_cas_object(key)
                 deleted += 1
             except Exception:
                 logger.warning("Could not delete archived statement during erasure.")

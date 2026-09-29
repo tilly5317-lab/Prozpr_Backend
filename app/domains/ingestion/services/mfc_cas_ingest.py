@@ -237,6 +237,25 @@ def _normalize_qr(qr_code: str) -> str:
     return text
 
 
+# MF Central's UAT fixtures (integration guide p.26). The sandbox rejects any
+# other PAN with "Invalid PAN/PEKRN, Mobile/Email combination", and every test
+# PAN must be paired with THIS contact. The consent OTP there is
+# "00" + the PAN's last four digits (guide p.25).
+MFC_UAT_TEST_MOBILE = "9239874560"
+MFC_UAT_TEST_EMAIL = "test@kfintech.com"
+MFC_UAT_TEST_PANS: tuple[str, ...] = (
+    "AQQPS7576R",
+    "AATPJ9485B",
+    "ANKPJ4391C",
+    "AAQPH6449C",
+    "AOBPC3943B",
+    "AAAPS6436J",
+    "DZMPA3911G",
+    "BVPPB8007F",
+)
+MFC_UAT_OTP_RULE = "00 + the last four digits of the PAN"
+
+
 async def _resolve_pan(
     db: AsyncSession, user_id: uuid.UUID, submitted: Optional[str]
 ) -> str:
@@ -256,12 +275,20 @@ async def _resolve_pan(
 
     if stored_pan:
         if submitted_pan and submitted_pan != stored_pan:
-            raise MfcFlowError(
-                "That PAN does not match the one on your account. Statements can "
-                "only be requested for your own PAN.",
-                stage="pan",
+            if not Settings.mfc_pan_override_allowed():
+                raise MfcFlowError(
+                    "That PAN does not match the one on your account. Statements can "
+                    "only be requested for your own PAN.",
+                    stage="pan",
+                )
+            # Non-production tester walking MFC's sandbox with one of its test
+            # PANs (see MFC_UAT_TEST_PANS). Logged so it is never silent.
+            logger.warning(
+                "MFC PAN override in use for user %s (MFC_ALLOW_PAN_OVERRIDE)", user_id
             )
-        pan = stored_pan
+            pan = submitted_pan
+        else:
+            pan = stored_pan
     else:
         pan = submitted_pan
 
@@ -284,6 +311,14 @@ def _api_error_to_flow(exc: MfcApiError) -> MfcFlowError:
             "MF Central import is not configured on this server.",
             stage="config",
         )
+    if getattr(exc, "timed_out", False):
+        return MfcFlowError(
+            "MF Central is taking too long to respond right now — we waited "
+            "over two minutes. This is on their side; please try again in a "
+            "while.",
+            retryable=True,
+            stage=exc.stage,
+        )
     status = exc.status_code
     if status in (401, 403):
         return MfcFlowError(
@@ -292,6 +327,19 @@ def _api_error_to_flow(exc: MfcApiError) -> MfcFlowError:
             stage=exc.stage,
         )
     if status in (400, 422):
+        # Seen on MFC UAT 2026-09-29: EVERY newCasRequest — fresh random
+        # clientRefNo, any test PAN, either contact, even encrypted by their own
+        # helper — sat for ~91s and came back "Duplicate clientRefNo". That is
+        # their sandbox failing, not a field the investor can fix, so say so
+        # and mark it retryable rather than pointing them at their PAN.
+        if "duplicate clientrefno" in (exc.short_reason or "").lower():
+            return MfcFlowError(
+                "MF Central is not accepting new requests right now (it rejected "
+                "a brand-new reference as a duplicate). This is on their side — "
+                "please try again in a while.",
+                retryable=True,
+                stage=exc.stage,
+            )
         return MfcFlowError(
             exc.short_reason
             or "MF Central could not process this request. Please check your PAN "

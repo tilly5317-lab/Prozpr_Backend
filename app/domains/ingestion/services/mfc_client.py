@@ -42,7 +42,10 @@ logger = logging.getLogger(__name__)
 
 # MFC assembles a multi-decade statement synchronously behind validateQRCode;
 # their own guide warns it is the slow call. The frontend waits 120 s.
-MFC_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+# read=150: MFC's UAT has been seen to sit on newCasRequest for 91s before
+# answering (2026-09-29, every request, their side). A 90s read ceiling turned
+# that into 'could not reach MF Central' and hid the actual response.
+MFC_TIMEOUT = httpx.Timeout(connect=10.0, read=150.0, write=30.0, pool=10.0)
 MFC_MAX_RETRIES = 3
 
 # Refresh a day before the nominal 30-day expiry. A token that dies between the
@@ -61,10 +64,14 @@ class MfcApiError(Exception):
         body: Any = None,
         *,
         stage: str | None = None,
+        timed_out: bool = False,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.body = body
+        # MFC took longer than our read ceiling. Distinct from "unreachable":
+        # the request may have been processed, so the caller must not repeat it.
+        self.timed_out = timed_out
         # Which leg failed (token / newCasRequest / validateQRCode / decrypt) —
         # the flow surfaces different user-facing copy per leg.
         self.stage = stage
@@ -218,9 +225,7 @@ class MfcClient:
 
     async def _encrypt(self, payload: Any) -> str:
         if self._crypto_mode == "remote":
-            return await self._helper_call(
-                "encrypt", payload, key=self._encryption_key
-            )
+            return await self._helper_call("encrypt", payload, key=self._encryption_key)
         return mfc_crypto.encrypt_api_payload(
             payload, shared_key=self._encryption_key, iv=self._iv
         )
@@ -329,6 +334,20 @@ class MfcClient:
         for attempt in range(1, MFC_MAX_RETRIES + 1):
             try:
                 response = await self._http.post(url, headers=headers, json=body)
+            except httpx.TimeoutException as exc:
+                # NEVER re-send a signed payload after a timeout. MFC may well
+                # have processed the first attempt (2026-09-29: newCasRequest
+                # took >150s to answer, the retry re-sent the same clientRefNo,
+                # and MFC replied "Duplicate clientRefNo" — a double
+                # registration reported as our mistake). validateQRCode is
+                # worse: a retry would try to spend a QR the first attempt may
+                # already have consumed. Surface the wait honestly instead.
+                seconds = self._http.timeout.read or 0
+                raise MfcApiError(
+                    f"MF Central did not answer within {seconds:.0f}s.",
+                    stage=stage,
+                    timed_out=True,
+                ) from exc
             except httpx.HTTPError as exc:
                 last_exc = exc
                 if attempt == MFC_MAX_RETRIES:
@@ -364,12 +383,27 @@ class MfcClient:
             # user has no idea which field to fix.
             body: Any = parsed if parsed is not None else response.text
             if isinstance(parsed, dict) and parsed.get("response"):
-                try:
-                    decrypted = await self._decrypt(str(parsed["response"]).strip())
-                    if isinstance(decrypted, dict):
-                        body = decrypted
-                except Exception:  # noqa: BLE001 — fall back to the raw envelope
-                    pass
+                inner = str(parsed["response"]).strip()
+                # Seen live (2026-09-29): a 422 whose `response` is PLAINTEXT
+                # JSON — `{"reqId":…,"errors":[{"message":"Duplicate clientRefNo"}]}`
+                # — not ciphertext. Decrypting that raised, the fallback kept
+                # the envelope, and the user read "invalid input or format".
+                # So: try it as JSON first, decrypt only if it is not, and
+                # parse a decrypted STRING too (the helper returns text).
+                unwrapped: Any = _json_or_none(inner)
+                if unwrapped is None:
+                    try:
+                        unwrapped = await self._decrypt(inner)
+                    except Exception:  # noqa: BLE001 — fall back to the raw envelope
+                        unwrapped = None
+                if isinstance(unwrapped, str):
+                    unwrapped = _json_or_none(unwrapped)
+                # Seen live 2026-09-29: the DECRYPTED error is itself wrapped —
+                # `{"response": "{\"reqId\":…,\"errors\":[…]}"}` — so the
+                # errors list sits one envelope deeper than the success shape.
+                unwrapped = _peel_response(unwrapped)
+                if isinstance(unwrapped, dict):
+                    body = unwrapped
             detail = ""
             if isinstance(body, dict):
                 errs = body.get("errors")
@@ -532,6 +566,36 @@ class MfcClient:
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+def _json_or_none(text: str) -> Any:
+    """Parse `text` as JSON, or None when it is not (ciphertext, HTML, blank)."""
+    import json
+
+    if not text or text[0] not in "{[":
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def _peel_response(obj: Any, depth: int = 3) -> Any:
+    """Unwrap `{"response": "<json text>"}` envelopes, nested up to `depth`.
+
+    MFC wraps twice on the error path (the ciphertext decrypts to another
+    `response` envelope whose value is JSON text). Stops at the first dict that
+    is not exactly that shape, so a real payload is never disturbed.
+    """
+    for _ in range(depth):
+        if not (isinstance(obj, dict) and set(obj) == {"response"}):
+            return obj
+        inner = obj["response"]
+        parsed = _json_or_none(inner.strip()) if isinstance(inner, str) else inner
+        if parsed is None:
+            return obj
+        obj = parsed
+    return obj
 
 
 def _safe_json(response: httpx.Response) -> Any:
