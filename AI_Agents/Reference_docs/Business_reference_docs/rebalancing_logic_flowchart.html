@@ -207,7 +207,7 @@
     <div class="header-strip">
       <div class="pill">Rebalancing · engine v1.3.0</div>
       <div class="meta">
-        Internal document · not for external circulation<br />Traced against the live code on 2026-07-19
+        Internal document · not for external circulation<br />Traced against the live code on 2026-07-19 · goal-funding &amp; debt-netting rules updated 2026-09-29
       </div>
     </div>
     <article id="content"></article>
@@ -244,6 +244,13 @@
 **2 — The ideal plan.** A rupee target per subgroup (`low_beta_equities`, `short_debt`, `gold_commodities`, `multi_asset`, and so on), plus two scalars: the frozen ELSS amount, and any excess direct-stock holding to be trimmed.
 
 The corpus being rebalanced is **what is already invested in mutual funds** — this is a rebalance, not a deployment of fresh money.
+
+<div class="callout rule">
+  <div class="title">Near-term goals are funded first — nearest goal first</div>
+  <p>Before the ideal plan ever reaches rebalancing, every goal inside the short-term horizon is already funded, in a fixed order: first from short-term debt and arbitrage money already held (every such fund except the income-plus-arbitrage one, which counts as long-term debt), then from the customer's stated monthly SIP — the whole SIP goes to the nearest uncovered goal until it is fully covered, then the next goal in line, never split across goals at once — and only then from corpus, for whatever the SIP cannot reach by that goal's own date. Goals are costed at their future value, inflation included.</p>
+  <p>This near-term goal money is not fresh money — it comes out of the same portfolio this document rebalances. Held short-term debt or arbitrage beyond what the goals need is not ring-fenced: it joins the long-term plan and is rebalanced like everything else, which can mean it ends up funding long-term equity.</p>
+  <p>Measured in a 2-year, five-profile simulation of this change: equity sold by rebalancing fell 43% (₹61.8L → ₹35.4L), with no new shortfalls and zero debt-to-debt switches.</p>
+</div>
 
 ### Vocabulary
 
@@ -466,11 +473,11 @@ flowchart TB
 
 **The problem.** The allocation engine picks a debt wrapper — short-duration, arbitrage, or arbitrage-plus-income — from the customer's tax rate and the goal's remaining tenure. As either drifts the preferred wrapper changes, one subgroup's target falls and another's rises, and the naive rebalance executes a switch that **leaves total debt exposure unchanged and costs real tax**.
 
-**The rule.** We treat `short_debt`, `arbitrage` and `arbitrage_plus_income` as **one economic sleeve**. Matched sell and buy intentions inside it are cancelled against each other before any tax is computed.
+**The rule.** We treat every debt-fund category the customer might hold as **one economic sleeve** — not just the three tax-driven wrapper choices, but every category of debt fund, including one that has since dropped off the recommended list. Matched sell and buy intentions inside it are cancelled against each other before any tax is computed.
 
 ```mermaid
 flowchart TB
-  A["Collect all debt-sleeve<br/>sell and buy intentions"] --> B["Carve out sells we must keep:<br/>force-exit funds, and off-list funds<br/>migrating into recommended ones"]
+  A["Collect all debt-sleeve<br/>sell and buy intentions"] --> B["Carve out sells we must keep:<br/>force-exit funds only —<br/>a bad fund still exits in full"]
   B --> C["Reserve buy demand equal to any<br/>forced-exit proceeds — that cash<br/>already has a destination"]
   C --> D["Cancel amount = smaller of<br/>remaining sells and<br/>remaining buy capacity"]
   D --> E["Reduce the sell side<br/>proportionally"]
@@ -482,7 +489,7 @@ flowchart TB
 
 **Why here and not later.** Once Step 6 has selected lots and scaled buys, those operations cannot be reversed cleanly. Cancelling while it is still an *intention* means the tax arithmetic runs once, forward, on the corrected picture.
 
-**Two deliberate carve-outs:** force-exit sells survive (a bad fund is still bad, even in debt), and off-list migrations survive (an off-list holding must still be able to move into a recommended fund).
+**One deliberate carve-out:** a force-exit sale always survives — a bad fund is still bad, even in debt. Everything else in the sleeve is fair game for cancelling, including a held fund no longer on the recommended list — it is kept rather than sold to fund a newly-recommended one. Netting only cancels a *matched* amount, though: debt with no offsetting debt buy to net against is still sold as normal.
 
 **What the customer is told:** *"Kept ₹X in your existing debt funds rather than moving it into similar ones — switching would have triggered a tax bill without changing what you actually hold."* If this leaves a fund above its cap, we say so, and say new investment will correct it rather than a sale.
 
@@ -498,7 +505,7 @@ Cancel amount = smaller of (₹0 sells, buy capacity)  =            ₹0
         → step passes through untouched, no warning raised</code></pre>
 </div>
 
-His debt sleeve is entirely under-weight, so there is no sell leg to match. The step is a no-op here — which is the common case. It bites when the allocation engine's preferred wrapper has moved since the last run, turning one debt subgroup into a seller and another into a buyer on the same day.
+His debt sleeve is entirely under-weight, so there is no sell leg to match. The step is a no-op here — which is the common case. It bites when the allocation engine's preferred wrapper has moved since the last run, turning one debt subgroup into a seller and another into a buyer on the same day — or when a customer holds an older debt fund that has since dropped off the recommended list.
 
 ---
 
@@ -719,7 +726,7 @@ Across all five simulated profiles the pattern holds: substantially less churn, 
 | 14 | Long-term annual exemption | **₹1,25,000** | Step 7 | Yes |
 | 15 | Trade rounding | **₹100** | Steps 2, 6 | Per run |
 | 16 | Debt-switch suppression | **On** | Step 4 | Yes |
-| 17 | Debt sleeve treated as one | short_debt, arbitrage, arbitrage_plus_income | Step 4 | Code |
+| 17 | Debt sleeve treated as one | every debt-fund category held, incl. off-list | Step 4 | Code |
 | 18 | Holdings-aware targets | **On** | Step 1 | Yes |
 
 Every value used is stamped onto the saved plan, so any run can be explained from its own record even after a default changes.
@@ -755,14 +762,14 @@ Every value used is stamped onto the saved plan, so any run can be explained fro
 
 1. **The rank protection band of 5.** Step 1. It decides whether a held fund is defended or liquidated, it is absolute rather than proportional to ladder depth, and it is the largest single driver of how much churn a plan produces.
 2. **The cap governs deployment, not custody.** Step 2. A fund may sit above its stated concentration cap indefinitely; we correct with new money instead of a taxed sale.
-3. **Debt is never sold to buy debt.** Step 4. This accepts wrapper drift as the price of avoiding tax on an economically neutral switch.
+3. **Debt is never sold to buy debt.** Step 4. Covers every debt category a customer might hold, not just the three tax-driven wrapper choices — an ageing, no-longer-recommended debt fund is kept rather than switched. Accepts wrapper drift as the price of avoiding tax on an economically neutral switch.
 4. **A routine trim never realises short-term gains.** Step 6. Some over-weight positions are therefore only partly corrected this round; the rest waits for the units to age.
 5. **The 10% materiality band.** Step 3. A percentage of the position, not a rupee floor — so a small portfolio's small drifts are still acted on.
 6. **Direct-stock proceeds are spendable in the same plan.** Step 6. The buy side depends on the customer actually executing the stock sale.
 
 ---
 
-*Business logic trace · rebalancing engine v1.3.0 · traced against the live code on 19 July 2026. Worked panels from the five-profile simulation of the same date. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
+*Business logic trace · rebalancing engine v1.3.0 · traced against the live code on 19 July 2026 (goal-funding and debt-netting rules updated 2026-09-29 for the SIP-first goal waterfall). Worked panels from the five-profile simulation of the same date. Where this document and the code disagree, the code is authoritative — please flag it so this document is corrected.*
 </script>
 
 <script>

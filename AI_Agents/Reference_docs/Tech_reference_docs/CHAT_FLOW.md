@@ -1,6 +1,6 @@
 # How the Prozpr AI Chat Works — A Flow Guide
 
-> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder. *(Last reconciled with the code: 2026-09-25.)*
+> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder. *(Last reconciled with the code: 2026-09-29.)*
 
 ---
 
@@ -135,7 +135,7 @@ It is **tax-aware**. It knows how long each holding has been owned and what tax 
 ### Additional Investment
 Answers **"I have fresh money — where should it go?"** Given a lumpsum or a monthly SIP amount, it works out where the new money fits best in the customer's plan and recommends specific funds to **buy** (it never sells anything).
 
-For a **lumpsum**, it first compares the customer's actual holdings against their ideal mix and directs the new money into the areas that are *below target* — topping up the gaps rather than spreading it thinly. For a **SIP** (or when holdings aren't available), it follows the ideal mix for the customer's nearest unfunded goal horizon. Recommendations are **saved**.
+For a **lumpsum**, it first compares the customer's actual holdings against their ideal mix and directs the new money into the areas that are *below target* — topping up the gaps rather than spreading it thinly. For a **SIP** (or a lumpsum with no holdings on file), money for the customer's nearest goals is set aside first, and whatever's left follows the long-term mix. Recommendations are **saved**.
 
 **When the customer names a fund category** ("which small-cap fund should I buy?", "gold funds only"), the reply answers the literal question honestly — it names our **top-rated funds in that category** — and then tells the truth about where that category stands in *their* plan, whichever it is:
 

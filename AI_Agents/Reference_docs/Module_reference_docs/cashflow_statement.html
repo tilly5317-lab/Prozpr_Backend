@@ -319,7 +319,7 @@ The engine is a near-peer: within `src/` it imports **no other agent**, only the
 | **Gateway** | [`cashflow_module_service.run(turn, ctx, prior)`](../../../app/domains/cashflow/services/cashflow_module_service.py) | the ONLY module-level entry the brain calls; delegates to the chat dispatcher (`dispatch_chat("goal_planning", ctx)`) |
 | **Bridge + engine run** | [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) `compute_goal_planning_snapshot` | builds `GoalPlanningInput` from the ORM `User`, runs `compute_full_projection`, persists the run, emits `facts_pack` (no `summarize_plan` — deliberately dropped, see §5) |
 | **Input build** | `goal_planning_engine/input_builder.py` | profile + properties + active goals → `GoalPlanningInput`; **hard-refuses** incomplete profiles (`missing_required_inputs:<keys>`) rather than zero-filling |
-| **Non-chat entry** | [`cashflow_compute_service.run_cashflow_projection_for_user`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | REST/detail path (the `/cashflow` router + the `additional_investment` input builder both call it) — same engine, wraps output as a `GoalPlanningSnapshot` |
+| **Non-chat entry** | [`cashflow_compute_service.run_cashflow_projection_for_user`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | REST/detail path (the `/cashflow` router calls it; the `additional_investment` flow no longer does — its goal share comes from the practical allocation's `goal_funding`) — same engine, wraps output as a `GoalPlanningSnapshot` |
 
 <div class="callout danger">
   <div class="title">⚠ The LangGraph agent is orphaned on the production path</div>

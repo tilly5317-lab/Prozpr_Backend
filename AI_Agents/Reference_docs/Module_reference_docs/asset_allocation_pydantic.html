@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Deterministic engine · optional LLM rationale</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
       </div>
     </div>
     <article id="content"></article>
@@ -341,8 +341,10 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 |---|---|---|
 | `effective_risk_score` | `float` 1–10 | drives Phase-1/Phase-5 bounds (looked up via `ceil_to_half`) |
 | `total_corpus` | `float ≥ 0` | the money being allocated; coerced to `int` in step 1 |
-| `goals` | `list[Goal]` | each has `time_to_goal_months`, `amount_needed`, `goal_priority`, `investment_goal`; horizon decides its bucket |
+| `goals` | `list[Goal]` | each has `time_to_goal_months`, `amount_needed`, `goal_priority`, `investment_goal`, optional `amount_needed_fv` (future cost at the goal date, read by step 2 only — falls back to `amount_needed` when unset); horizon decides its bucket |
 | `monthly_household_expense` | `float ≥ 0` | emergency cushion = months × this |
+| `monthly_sip` | `float ≥ 0` (default 0) | stated monthly SIP; step 2's goal waterfall front-loads it toward the nearest uncovered short-term goal |
+| `short_term_holdings` | `float?` | held debt + arbitrage money (not income-plus-arbitrage) available to step 2's waterfall. `None` = no holdings on file, so the SIP share assumes no corpus can be moved |
 | `effective_tax_rate` | `float` 0–100 | routes debt: arbitrage vs short_debt (short-term `>20%`, long `≥15%`) |
 | `market_commentary` | `MarketCommentaryScores` | 1–10 views per asset class + equity subgroup; **defaults to neutral 5.0** so a caller that supplies nothing gets the un-tilted plan |
 | `multi_asset_composition` | `MultiAssetFundComposition` | equity/debt/others split of the multi-asset fund; default `(65, 25, 10)` |
@@ -366,6 +368,7 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 | `grand_total` | `float` | equals step 5's `grand_total`, which reconciles against `round_to_100(total_corpus)` |
 | `all_amounts_in_multiples_of_100` | `bool` | self-check — every reported amount is an exact ₹100 multiple |
 | `asset_class_breakdown` | `AssetClassBreakdown` | `planned` (pre-multi-asset) vs `recommended` (post-adjustment deployment) equity/debt/others, per bucket and total, plus a nested subgroup breakdown |
+| `goal_funding` | `GoalFunding?` | step 2's goal-waterfall breakdown — `allocated_amount`, `from_corpus`, `shortfall`, `monthly_sip`, `monthly_sip_to_goals`, `asset_subgroup`, and per-goal `goals` rows (`from_holdings`/`from_sip`/`from_corpus`/`shortfall`/`amount_needed_fv`). Always populated via `run_allocation`; `None` is only reachable by a caller that builds `Step2Output` directly without running the waterfall (`practical_asset_allocation`'s preference-suspended carve-outs do this) |
 
 > **`recommended` is not the customer's current holdings.** The field carries the historical alias `actual` (`AliasChoices("recommended", "actual")`) but it is the engine's *post-adjustment deployment plan*. Current holdings come from `PortfolioAllocation` rows read by the chat bridge — never from this engine. Don't let the word `actual` mislead you (see the docstrings on `AssetClassBreakdown` / `SubgroupBreakdown`).
 
@@ -380,7 +383,7 @@ Six steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/p
 | Step | File | What it decides |
 |---|---|---|
 | **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); adds the magnitude of any **negative** `net_financial_assets`; always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
-| **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals below the FY-anchored short/long boundary (`HORIZON_BOUNDARY_MONTHS + months_to_fy_end`); the whole bucket routes through **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Corpus runs out mid-bucket ⇒ `FutureInvestment`. |
+| **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals below the FY-anchored short/long boundary (`HORIZON_BOUNDARY_MONTHS + months_to_fy_end`), funded **nearest-date first** by `goal_waterfall`: held short-term money (`short_term_holdings`), then the front-loaded monthly SIP (`monthly_sip` — whole SIP to the nearest uncovered goal before the next, `SIP_REVIEW_WINDOW_MONTHS` = 6 review window), then corpus for what the SIP can't reach by each goal's date. Goals value at FV (`Goal.amount_needed_fv`, sourced from the cashflow engine's `custom_goal_fv`) when set, else PV `amount_needed`. The whole bucket still shares **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Shortfall ⇒ `FutureInvestment`; the per-goal breakdown rides out as `goal_funding`. |
 | **4 · long-term** | [`step4_long_term.py`](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | the heavy step (see below) — five phases from asset-class bounds down to the equity-subgroup split. |
 | **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == round_to_100(total_corpus)`). It flags — it does not assert. |
 | **6 · guardrails** | [`step6_guardrails.py`](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | **validation only** — checks Phase-1 asset-class bounds, Phase-5 equity-subgroup shares, and subgroup→asset-class mapping. Collects `violations_found`; **never mutates the plan.** |
@@ -515,6 +518,7 @@ App-layer companions (not part of the engine, but its chat-flow caller):
 - **`phase2_asset_class_pcts` has a preference seam that OUTRANKS the engine's own judgement.** An optional `requested_class_pcts` — a customer split the caller has already reconciled to this step — simply *is* the returned mix: the market-view tilt and the phase-1 bounds, the others-gate included, are bypassed (spec 2026-09-14 D3). Only `practical_asset_allocation` ever passes it, so **this module stays preference-free in its own right** and continues to carry Prozpr's own recommendation. It is, however, no longer diff-free against that caller — a change to this signature is a cross-module change.
 - **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names, ISINs, or SEBI sub-category strings. Fund picking lives in Rebalancing's ranking CSV, not here. Enforced by [`Testing/test_no_fund_mapping.py`](../../src/asset_allocation_pydantic/Testing/test_no_fund_mapping.py).
 - **Phase-5 guardrail denominator is `step4.multi_asset.equity_for_subgroups`, not total equity.** Phase 5 splits the pool left *after* the multi-asset carve-out; step 6 must validate shares against that same base. Use total equity and you silently flag valid plans (`step6_guardrails.py` Rule 3, and the same denominator in `step4._drop_small_equity_subgroups`).
+- **Step 2 is the goal waterfall, not a corpus cap.** `goal_waterfall` ([`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py)) funds short-term goals nearest-date first from held short-term money, then the front-loaded SIP, then corpus for only what the SIP can't reach in time — it no longer just takes `min(sum of goal FVs, corpus)`. It rounds before capping (`need = round_to_100(held + corpus_needed)`), so the SIP-free, holdings-free default reproduces the old step 2 exactly; [`AI_Agents/tests/test_goal_waterfall_step2.py`](../../tests/test_goal_waterfall_step2.py) guards that (the goldens carry no goals, so they don't). `amount_needed_fv` is read by step 2 only — step 4's long-term goals still size off `amount_needed`.
 - **Step 6 never mutates.** It only *reports* violations into `Step6Output.validation` (the `violations_found` list); the pipeline stores `s6` into the state dict and returns step 7's output regardless. Hard correctness is enforced upstream by `step4._verify_invariants`, which **asserts** at runtime (asset-class pcts sum to 100, equity subgroups sum to `equity_for_subgroups`, everything a non-negative ₹100 multiple). Don't relocate correctness into step 6 expecting it to fix anything.
 - **Money is integers in ₹100 multiples.** `round_to_100` is round-half-up and clamps negatives/zero to `0`. Reconciliation drift below `ASSET_CLASS_RECONCILIATION_TOLERANCE` (₹500) and Phase-5 share tolerance `PHASE5_SHARE_TOLERANCE_PP` (1pp) are absorbed on purpose — they come from independent rounding, not logic errors.
 - **Risk-score lookups go through `ceil_to_half`.** `PHASE1_RISK_BOUNDS` and `PHASE5_EQUITY_SUBGROUP_BOUNDS` are keyed at 0.5 granularity; a raw float will `KeyError`. Always round the score first.
@@ -557,7 +561,7 @@ App-layer companions (not part of the engine, but its chat-flow caller):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-09-29. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

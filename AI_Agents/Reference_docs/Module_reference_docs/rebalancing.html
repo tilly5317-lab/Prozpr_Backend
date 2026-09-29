@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Deterministic engine</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-08-25
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
       </div>
     </div>
     <article id="content"></article>
@@ -418,7 +418,7 @@ Since spec 2026-09-20 the per-fund cap no longer bounds a rebalance at all: `_as
 |---|---|---|---|
 | 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | rounds the per-row targets `_assign_subgroup_targets` already set across the top 1-2 funds. No longer caps or spills (spec 2026-09-20): `max_pct` reports a flat 100.0 and `UNREBALANCED_REMAINDER` is unreachable; the module keeps its historical name | `max_pct`, `final_target_amount` |
 | 2 | [`step2_compare_and_decide`](../../src/Rebalancing/steps/step2_compare_and_decide.py) | `diff = final_target − present`; set `exit_flag` (low-rated OR force-exit); `worth_to_change` if `\|diff\|` past the min-change threshold OR exit | `diff`, `exit_flag`, `worth_to_change` |
-| 2b | [`step2b_suppress_debt_switch`](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | cancel matched sell/buy *intents* inside `{short_debt, arbitrage, arbitrage_plus_income}` so debt is never sold to buy debt; surviving buy demand re-spills down the rank ladder (`cap_spill` mode — no per-fund cap bounds it since spec 2026-09-20) | `netted_target_adjustment_inr` |
+| 2b | [`step2b_suppress_debt_switch`](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | cancel matched sell/buy *intents* inside `DEBT_NETTING_POOL` (every Debt-class subgroup) so debt is never sold to buy debt — off-list (rank 0) debt sells are nettable too, only `exit_flag` sells are carved out; surviving buy demand re-spills down the rank ladder (`cap_spill` mode — no per-fund cap bounds it since spec 2026-09-20) | `netted_target_adjustment_inr` |
 | 3 | [`step3_tax_classification`](../../src/Rebalancing/steps/step3_tax_classification.py) | for sell candidates only, compute signed `stcg_amount` / `ltcg_amount` (value − cost) | `stcg_amount`, `ltcg_amount` |
 | 4 | [`step4_initial_trades_under_stcg_cap`](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | classify forced / optional sells + buyers; sell **tax-cheapest first**, walking **LT→ST**, forced sells gated by the STCG budget, optional sells **LT-only**; scale buys to available cash | `pass1_buy/sell_*`, `holding_after_initial_trades` |
 | 5 | [`step5_loss_offset_top_up`](../../src/Rebalancing/steps/step5_loss_offset_top_up.py) | offset realised STCG with **short-term** losses (carryforward + realised); unlock ST-blocked *force-exit* sells with the freed headroom | `stcg_offset_amount`, `pass2_sell_amount`, `final_holding_amount` |
@@ -597,7 +597,7 @@ App-layer companions (where the request comes from — not part of the engine):
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in [`config.py`](../../src/Rebalancing/config.py) and app-side `fund_rank.py`. Keep both in sync — the sentinel is the only signal that marks a row for full liquidation.
 - **The per-fund cap does NOT bound a rebalance** (spec 2026-09-20). `_assign_subgroup_targets` decides the amounts and step 1 only rounds them, so `max_pct` reports a flat 100.0 and nothing limits single-fund concentration except the explicit 1-or-2 fund count. The cap constant survives only because the additional-investment input builder reads it cross-domain — do not assume it constrains a rebalance.
 - **Concentration is set by the fund count, not a cap.** A subgroup's whole residual can land in one fund (below ₹50L of `total_corpus − non_mf_equity`) or split across two (at/above). A held fund inside the rank band keeps its holding regardless — step2b won't sell debt to buy debt, and no cap forces a trim.
-- **Debt netting happens at the *intent* layer, before step3** (`step2b_suppress_debt_switch.py`). It cannot be deferred: `scale`/`floor_to_step` in step4 are not invertible, so the tax arithmetic has to run once on the already-corrected picture. Carve-outs: `exit_flag` and `rank == 0` sells survive (a bad fund is still bad; off-list rows must migrate), and force-exit proceeds are reserved out of the buy side. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
+- **Debt netting happens at the *intent* layer, before step3** (`step2b_suppress_debt_switch.py`). It cannot be deferred: `scale`/`floor_to_step` in step4 are not invertible, so the tax arithmetic has to run once on the already-corrected picture. `DEBT_NETTING_POOL` (`tables.py`) is every Debt-class subgroup, not just `{short_debt, arbitrage, arbitrage_plus_income}` — parity with the app's classifier is enforced by `app/domains/rebalancing/tests/test_debt_netting_pool_parity.py`. Only carve-out: `exit_flag` sells (a bad fund is still bad) — off-list (`rank == 0`) debt sells are nettable now too, and force-exit proceeds are reserved out of the buy side. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
 - **`UNREBALANCED_REMAINDER` is now unreachable.** With step 1 no longer capping or spilling (spec 2026-09-20), the warning it once raised on exhausted cap-spill can't fire; the field and code path are kept but dead. Don't rely on it as a live signal.
 - **Bump `ENGINE_VERSION` on any output-altering change** ([`config.py`](../../src/Rebalancing/config.py)) — it's stamped into response metadata for cache/repro tracking.
 - **`consolidation.py` runs on a finished response, not inside the engine.** It reshapes *only* buys, preserving total buy and every sell; the engine itself is run once, unmodified.
@@ -641,7 +641,7 @@ Because the engine is deterministic, a step test is just "these inputs → exact
 
 ---
 
-*Module guide · reconciled with the live code on 2026-08-25 (adds §6 Investment preferences). If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-09-29 (widens the debt-netting pool to every Debt-class subgroup, off-list included). If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

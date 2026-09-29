@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Deterministic engine</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
       </div>
     </div>
     <article id="content"></article>
@@ -360,7 +360,7 @@ rebalancing_corpus = total_corpus − elss_corpus
 
 ## 4. Output contract
 
-`PracticalAllocationOutput` carries the **same seven fields** as `GoalAllocationOutput` — `client_summary`, `bucket_allocations`, `aggregated_subgroups`, `future_investments_summary`, `grand_total`, `all_amounts_in_multiples_of_100`, `asset_class_breakdown` — so any consumer that already reads the ideal output handles this with **zero change**. It adds one block:
+`PracticalAllocationOutput` carries the **same fields** as `GoalAllocationOutput` — `client_summary`, `bucket_allocations`, `aggregated_subgroups`, `future_investments_summary`, `grand_total`, `all_amounts_in_multiples_of_100`, `asset_class_breakdown`, `goal_funding` — so any consumer that already reads the ideal output handles this with **zero change**. It adds one block:
 
 | Field | Type | Notes |
 |---|---|---|
@@ -390,7 +390,7 @@ One more parity subtlety: `aggregated_subgroups` can gain **up to two extra rows
 | # | Step | Where | What it does |
 |---|---|---|---|
 | 0 | **ELSS freeze** | [`pipeline.py` `run_practical_allocation`](../../src/practical_asset_allocation/pipeline.py) | `rebalancing_corpus = total_corpus − elss_corpus`; if negative → `InfeasibleGoalError` (edge α). Build a sub-`AllocationInput` with `total_corpus = rebalancing_corpus`. |
-| 1–2 | **emergency / short** | `step1_emergency` · `step2_short_term` (upstream, verbatim) | run on the *rebalancing* corpus — locked ELSS is never available to fund the near-term buckets. No medium bucket (removed 2026-09-24); goals at/beyond the FY-anchored boundary fall to the long-term step. |
+| 1–2 | **emergency / short** | `step1_emergency` · `step2_short_term` (upstream, verbatim) | run on the *rebalancing* corpus — locked ELSS is never available to fund the near-term buckets. No medium bucket (removed 2026-09-24); goals at/beyond the FY-anchored boundary fall to the long-term step. Step 2 is the goal waterfall (held `short_term_holdings`, then the front-loaded `monthly_sip`, then corpus); its `goal_funding` output is this module's single source of the short-term target and the SIP's goal share. |
 | 4 | **long-term, rewritten** | [`_run_practical_long_term`](../../src/practical_asset_allocation/pipeline.py) | ELSS floor → practical others-gate → amounts → **NFA-banded non-MF cap** → multi-asset block → **v2 average-based equity slider**. See below. |
 | 5 | **aggregate + freeze** | [`_step5_aggregation_with_frozen`](../../src/practical_asset_allocation/pipeline.py) | wraps upstream `step5_aggregation.run` (against `total_corpus`, not the rebalancing corpus) and appends the two frozen rows so `grand_total` reconciles to the *full* corpus. |
 | 6 | **snap-to-current** | [`allocation_snap.py`](../../src/practical_asset_allocation/allocation_snap.py) | final pass (spec 2026-09-21): a subgroup whose move is under 0.5% of the portfolio keeps its current amount; the freed residual lands on the largest un-snapped mover, conserving `grand_total`. Frozen sleeves never snapped; strict no-op without a current allocation (goldens byte-identical). Rewrites only `aggregated_subgroups`. |
@@ -514,7 +514,7 @@ App-layer companions (not part of the engine, but where its inputs come from and
 | File | Role |
 |---|---|
 | [`practical_asset_allocation_module_service.py`](../../../app/domains/practical_asset_allocation/services/practical_asset_allocation_module_service.py) | the `run(turn, ctx, prior)` AI-module gateway (the only blessed caller) |
-| [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | builds `PracticalAllocationInput` — shared fields + 4 corpus scalars (+ `CorpusPin`) — and is **the single preference load point for the whole system** (§6a) |
+| [`paa_engine/input_builder.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/input_builder.py) | builds `PracticalAllocationInput` — shared fields + 4 corpus scalars (+ `CorpusPin`) — and is **the single preference load point for the whole system** (§6a). Also the single default source for `short_term_holdings` (held debt + arbitrage off the preloaded user's holdings, `None` if there are none) and `monthly_sip`; a caller (rebalancing, additional_investment) may pass its own instead |
 | [`paa_engine/service.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/service.py) | `compute_practical_allocation_result` (runs the engine off-thread) + fallback brief |
 | [`paa_engine/chat.py`](../../../app/domains/practical_asset_allocation/services/paa_engine/chat.py) | `@register("practical_asset_allocation")` first-turn handler; persists best-effort |
 
@@ -534,6 +534,7 @@ App-layer companions (not part of the engine, but where its inputs come from and
 - **A preference bypasses the risk bounds — that is intended, not a bug.** With `requested_class_pcts` present, `phase2_asset_class_pcts` returns the customer's split verbatim: the market-view tilt and the phase-1 bounds (others-gate included) do not run. Don't "restore" the clamp; the comply-and-caution contract is to honour the instruction and disclose the deviation, and the preference-free ideal is what carries our own opinion.
 - **A preference also suspends steps 1–3.** The emergency, near-term and liability carve-outs genuinely do not run — so any code reading step-1/2/3 output on a preference run sees the zeroed `_no_carveout_buckets` values. They are inert placeholders that surface only in the `trace` dict, which no production caller passes.
 - **Two subgroups don't exist upstream.** `tax_efficient_equities` and `non_mf_equities` are added to a *local* copy of `SUBGROUP_TO_ASSET_CLASS` as equity inside `_build_asset_class_breakdown`. Don't expect them in the shared table.
+- **`goal_funding` is the one source of the short-term target and the SIP's goal share** (`pipeline.py::_build_output`, `goal_funding=s2.goal_funding`). `None` when a preference suspends step 2 — `_no_carveout_buckets` builds its `Step2Output` with no `goal_funding` kwarg, so it defaults to `None`.
 
 ---
 
@@ -568,7 +569,7 @@ App-layer companions (not part of the engine, but where its inputs come from and
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-09-29. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 
