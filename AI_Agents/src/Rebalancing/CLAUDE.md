@@ -4,7 +4,7 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 
 ## Entry / contract
 - Entry `run_rebalancing(request) → RebalancingComputeResponse` (`pipeline.py`).
-- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1` (rank-1 holds the goal-allocation amount). Off-list held funds come in two flavours, both `is_recommended = False`: **force-exit** — `rank = FORCE_EXIT_RANK` (9999), `target_amount_pre_cap = 0`; step2 sets `exit_flag`, step4 liquidates regardless of tax — and **NEUTRAL** — `rank = 0`, `target_amount_pre_cap = st_value_inr` (the locked ST minimum), so `diff = -lt_value` and only the migratable LT portion reads as sellable. The upstream input builder (`app/domains/rebalancing/services/rebal_engine/input_builder.py`) materialises all three.
+- Input `RebalancingComputeRequest`: corpus, tax state, and one homogeneous `FundRowInput` list. Recommended funds carry `rank ≥ 1` (rank-1 holds the goal-allocation amount). Off-list held funds come in two flavours, both `is_recommended = False`: **force-exit** — `rank = FORCE_EXIT_RANK` (9999), `target_amount_pre_cap = 0`; step2 sets `exit_flag`, step4 liquidates regardless of tax — and **NEUTRAL** — `rank = 0`, `target_amount_pre_cap = st_value_inr` (the locked ST minimum), so `diff = -lt_value` and only the migratable LT portion reads as sellable. In a debt subgroup step2b nets that sell against debt buys, so a held off-list debt fund is kept. The upstream input builder (`app/domains/rebalancing/services/rebal_engine/input_builder.py`) materialises all three.
 - Output: rows after step 5, totals, trade list, warnings, metadata.
 
 ## Files
@@ -27,6 +27,7 @@ Pure-Python. Takes a goal-based ideal allocation plus present holdings, emits pe
 - **Sell-ordering is regulatory.** STCG is never realised on a recommended-fund trim (optional sells are LT-only — STCG only on force-exit); sells walk LT→ST first, LT being the cheaper bucket, under the STCG budget (`steps/step4_initial_trades_under_stcg_cap.py`).
 - **Loss-offset uses SHORT-term losses only** — an LT capital loss may set off only LTCG, never STCG (`steps/step5_loss_offset_top_up.py`).
 - **Bump `ENGINE_VERSION` on any output-altering logic change** (`config.py`) — it is stamped into response metadata for cache/repro tracking.
+- **A held debt fund is never sold to buy another** (`steps/step2b_suppress_debt_switch.py`): `DEBT_NETTING_POOL` is every Debt-class subgroup (parity test `app/domains/rebalancing/tests/test_debt_netting_pool_parity.py`) and off-list debt sells are nettable; force-exits still exit.
 
 ## Depends on
 - `pydantic`; and `practical_asset_allocation` (spec §B.1 peer-isolation exception) — `run_rebalancing` calls `run_practical_allocation` first and surfaces its output on `RebalancingComputeResponse.practical_allocation`.

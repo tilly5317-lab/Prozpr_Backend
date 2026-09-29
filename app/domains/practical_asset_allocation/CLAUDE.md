@@ -22,6 +22,7 @@
 - **`apply_saved_preferences=False` produces the NEUTRAL run.** Its only production caller is the preferences screen's GET (`profile/services/screen_preference_service.py:163`), which needs Prozpr's own class recommendation — carve-outs intact — to show beside whatever the customer saved. Default it to `False` and every plan silently loses the customer's standing preference.
 - **Persist is best-effort, never blocking.** `chat.py` persists every computed result, but a persistence failure is logged and swallowed — it must not block the reply or the downstream rebalancing step (`paa_engine/chat.py`).
 - **Corpus scalars: MF-only defaults unless pinned.** Without a pin the whole corpus is treated as MF (`mf_corpus = total_corpus`; `non_mf_equity_corpus`, `elss_corpus = 0.0`). A caller-supplied `CorpusPin` (`paa_engine/input_builder.py:44`) overrides all four scalars; today's only source is `additional_investment`'s holdings snapshot (deficit-fill lumpsum, `ainv_engine/service.py`).
+- **Held short-term money is read off the preloaded user** (`paa_engine/input_builder.py::short_term_holdings_for_user`; `None` = no holdings on file) unless the caller passes `short_term_holdings` — rebalancing passes it from its ledger rows, lumpsum from its snapshot, so each flow uses one valuation. The stated SIP comes from the shared allocation builder; only the SIP flow overrides `monthly_sip`.
 
 ## Don't read
 - `__pycache__/`.
