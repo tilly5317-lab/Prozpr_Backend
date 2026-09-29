@@ -40,11 +40,21 @@ def cap_pct_for(asset_subgroup: str) -> float:
 # tax-wrapper choice is worth making once at purchase and never revisited with
 # money already deployed. Lives here rather than in the step so presentation can
 # read it without importing a pipeline step.
+# Must equal every Debt-class subgroup the app's classifier produces
+# (app/domains/rebalancing/tests/test_debt_netting_pool_parity.py).
 DEBT_NETTING_POOL: frozenset[str] = frozenset(
     {
-        "short_debt",
         "arbitrage",
         "arbitrage_plus_income",
+        "debt_subgroup",
+        "floating_debt",
+        "high_risk_debt",
+        "long_duration_debt",
+        "medium_debt",
+        "near_debt",
+        "other_debt",
+        "sector_debt",
+        "short_debt",
     }
 )
 

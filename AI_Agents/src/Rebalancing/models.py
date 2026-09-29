@@ -43,7 +43,9 @@ class FundRowInput(BaseModel):
       only when there's recommended-fund buy demand. The ST portion
       stays as-is. The input builder offsets the matching subgroup's
       rank-1 target by `sum(neutral_st_values)` so the engine doesn't
-      double-allocate against the stuck ST.
+      double-allocate against the stuck ST. In a debt subgroup, step2b
+      nets that sell against debt buys, so a held off-list debt fund
+      is kept.
     """
 
     # Identity

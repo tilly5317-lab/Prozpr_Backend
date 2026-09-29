@@ -139,4 +139,8 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 # 1.13.0: FY-end horizon anchoring wired into production (spec 2026-09-25). The
 #         input builder threads months_to_fy_end from today, so the short/long
 #         boundary counts to the financial-year end, not a flat 24 months.
-ENGINE_VERSION: str = "1.13.0"
+# 1.14.0: SIP-first goal waterfall (spec 2026-09-28). The short-term target comes
+#         from step 2's goal waterfall, and debt-switch netting covers every debt
+#         subgroup including off-list holdings — a held debt fund is never sold
+#         to buy another.
+ENGINE_VERSION: str = "1.14.0"

@@ -112,18 +112,12 @@ def apply(
 
     debt = [r for r in rows if r.asset_subgroup in DEBT_POOL]
 
-    # Eligibility mirrors step4's own pools (step4:275-277) so we never cancel
-    # intent step4 would not have executed. Two sells are carved out:
-    #   - `exit_flag`: a bad fund is still a bad fund.
-    #   - `rank == 0`: off-list NEUTRAL holdings migrate their LT portion into
-    #     the recommended fund. `input_builder` sets their target to the SHORT
-    #     -term value, so they carry `diff = -lt_value` and look like ordinary
-    #     sells. Suppressing them would kill the migration — and `exit_flag` is
-    #     dead in production, so this is the only carve-out that actually runs.
+    # Force-exits are never netted: a bad fund is still a bad fund. Off-list
+    # (rank 0) debt IS netted — a held debt fund is not sold to buy another.
     sells = [
         r
         for r in debt
-        if r.worth_to_change and r.diff < 0 and not r.exit_flag and r.rank != 0
+        if r.worth_to_change and r.diff < 0 and not r.exit_flag
     ]
     buys = [r for r in debt if r.worth_to_change and r.diff > 0 and r.is_recommended]
 
