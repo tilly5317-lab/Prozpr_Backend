@@ -45,6 +45,7 @@ from app.domains.rebalancing.services.asset_class_breakdown import (
 )
 from app.domains.rebalancing.services.plan_gap import (
     build_plan_gap,
+    short_term_locked_fund_count,
     short_term_locked_inr,
 )
 from app.domains.rebalancing.services.saved_plan_service import (
@@ -342,7 +343,13 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
         goal_total_inr=round(sum(goal_mix.values()), 2),
         short_term_locked_inr=round(locked, 2),
         gap=_plan_gap_schema(
-            build_plan_gap(goal_mix, target_mix, locked_inr=locked, moved_inr=moved)
+            build_plan_gap(
+                goal_mix,
+                target_mix,
+                locked_inr=locked,
+                moved_inr=moved,
+                locked_fund_count=short_term_locked_fund_count(fund_rows),
+            )
         ),
     )
 

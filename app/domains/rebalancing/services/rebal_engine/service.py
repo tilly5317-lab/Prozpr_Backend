@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
@@ -986,6 +986,12 @@ async def compute_rebalancing_result(
 
     if progress:
         await progress(58, "Comparing your investments with your target…")
+
+    # The input builder reads holdings/NAV/metadata/tax through ``ctx.db``.
+    # Out-of-chat callers (preference save, routers) build a TurnContext
+    # without a session, so backfill it from the one we were handed.
+    if chat_ctx.db is None:
+        chat_ctx = dc_replace(chat_ctx, db=db)
 
     try:
         request, debug = await build_rebalancing_input_for_user(

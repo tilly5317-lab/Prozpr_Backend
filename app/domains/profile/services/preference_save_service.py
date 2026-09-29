@@ -132,12 +132,17 @@ async def active_preference_row(db: AsyncSession, user_id) -> Optional[SavedInve
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-def _build_ctx(user, one_off: dict | None = None):
+def _build_ctx(user, one_off: dict | None = None, db=None):
     """Router-built ``TurnContext`` for an out-of-chat engine call.
 
     Required fields fill with neutral values; ``one_off`` (a resolved-
     preferences dict) only lands in ``chat_overrides`` when given, so the
     one-off path exercises the same precedence machinery production uses.
+
+    ``db`` must be passed whenever the engine reads through ``ctx.db`` (the
+    rebalancing input builder does: holdings ledger, NAVs, metadata, tax
+    profile). A ``None`` session there fails with
+    ``'NoneType' object has no attribute 'execute'``.
     """
     from app.domains.ai_engine.turn_context import TurnContext
 
@@ -147,7 +152,7 @@ def _build_ctx(user, one_off: dict | None = None):
         conversation_history=[],
         client_context=None,
         session_id=uuid.uuid4(),
-        db=None,
+        db=db,
         effective_user_id=getattr(user, "id", None) or uuid.uuid4(),
         last_agent_runs={},
         active_intent=None,
@@ -303,7 +308,7 @@ async def _current_mixes(db, user, *, need_subgroup_shares: bool):
     shares = dict(_FALLBACK_SUBGROUP_SHARES)
     if need_subgroup_shares:
         outcome = await compute_practical_allocation_result(
-            user, "preferences preview", chat_ctx=_build_ctx(user)
+            user, "preferences preview", chat_ctx=_build_ctx(user, db=db)
         )
         result = outcome.result
         if result is not None:
@@ -419,7 +424,7 @@ async def _persist_preferred_allocation(db, user):
         db=db,
         persist_recommendation=True,
         acting_user_id=user.id,
-        chat_ctx=_build_ctx(user),
+        chat_ctx=_build_ctx(user, db=db),
     )
 
     if outcome.asset_allocation_run_id is not None:
@@ -491,7 +496,7 @@ async def _refresh_standing_plan(db, user, user_id, cadence, label) -> None:
                 chat_session_id=None,
                 deploy_amount_inr=float(latest.deploy_amount_inr),
                 cadence=cadence,
-                chat_ctx=_build_ctx(user),
+                chat_ctx=_build_ctx(user, db=db),
                 persist=True,
             )
             await db.commit()
@@ -531,7 +536,7 @@ async def _eager_refresh(db, user):
             chat_session_id=None,
             persist=True,
             origin=None,
-            chat_ctx=_build_ctx(user),
+            chat_ctx=_build_ctx(user, db=db),
         )
         await db.commit()
     except Exception:

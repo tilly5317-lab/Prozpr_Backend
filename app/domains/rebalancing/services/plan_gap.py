@@ -52,10 +52,18 @@ _CASH_NEUTRAL_POINT = (
     "A rebalance adds no new money. Every rupee it buys comes from something it sells."
 )
 
-_FOOTNOTE = (
-    "A SIP or a lump sum is invested at your goal mix directly, with nothing to "
-    "sell — that's the quicker way to close the rest of the gap."
-)
+def _footnote(gap_pts: int) -> str:
+    return (
+        "A SIP or a lump sum is invested at your goal mix directly, with nothing "
+        f"to sell. That's the quicker way to close the remaining {gap_pts} points."
+    )
+
+
+def _funds_phrase(count: int) -> str:
+    if count <= 0:
+        return ""
+    plural = "s" if count != 1 else ""
+    return f" across {count} fund{plural}"
 
 
 @dataclass(frozen=True)
@@ -87,12 +95,40 @@ def short_term_locked_inr(fund_rows: Iterable[Any]) -> float:
     )
 
 
+def short_term_locked_fund_count(fund_rows: Iterable[Any]) -> int:
+    """How many funds hold the short-term units the plan could not sell."""
+    return sum(
+        1
+        for row in fund_rows
+        if float(getattr(row, "pass2_undersell_amount", 0) or 0) > 0
+    )
+
+
+def _landing_line(goal_pct: dict[str, float], target_pct: dict[str, float]) -> str | None:
+    """"equity 85% vs 74%, debt 12% vs 22%" — every class that is off, in
+    canonical order, so the customer sees the whole picture, not just the worst."""
+    parts: list[str] = []
+    for cls in _CLASS_ORDER:
+        if cls not in goal_pct and cls not in target_pct:
+            continue
+        g = round(goal_pct.get(cls, 0.0))
+        t = round(target_pct.get(cls, 0.0))
+        if g == t:
+            continue
+        word = _CLASS_WORD.get(cls, cls.lower())
+        parts.append(f"{word} {t}% vs {g}%")
+    if not parts:
+        return None
+    return "Where this plan lands vs your goal: " + ", ".join(parts) + "."
+
+
 def build_plan_gap(
     goal_mix: dict[str, float],
     target_mix: dict[str, float],
     *,
     locked_inr: float,
     moved_inr: float,
+    locked_fund_count: int = 0,
 ) -> PlanGap | None:
     """The disclosure for one run, or ``None`` when the plan lands on plan.
 
@@ -100,7 +136,12 @@ def build_plan_gap(
     rollup from ``asset_class_breakdown``); each is converted to a share of its own
     total, so the two are comparable even though a plan's net cash flow shifts the
     absolute totals slightly. ``moved_inr`` is the plan's gross sell value — what it
-    was actually able to shift.
+    was actually able to shift. ``locked_fund_count`` is how many funds hold the
+    locked units (0 = unknown, and the copy simply omits it).
+
+    Every sentence is built from THIS run's numbers: the class named, whether the
+    plan lands above or below the goal on it, the size of the gap in points, the
+    rupees locked and moved, and each class's own landing vs goal.
     """
     goal_pct = _pct_of_total(goal_mix)
     target_pct = _pct_of_total(target_mix)
@@ -121,21 +162,46 @@ def build_plan_gap(
         return None
 
     word = _CLASS_WORD.get(worst, worst.lower())
+    above = target_v > goal_v
+    gap_pts = abs(goal_v - target_v)
+    direction = "above" if above else "below"
+
     points = [_CASH_NEUTRAL_POINT]
+    landing = _landing_line(goal_pct, target_pct)
+    if landing:
+        points.append(landing)
+
     if locked_inr > 0:
-        summary = "Not all of your money is free to move yet."
+        locked_txt = format_inr_indian(locked_inr)
+        if above:
+            summary = (
+                f"This plan ends {gap_pts} points above your {word} goal because "
+                f"{locked_txt} of your funds can't be sold yet."
+            )
+            tail = (
+                f"so this plan keeps them. That is what holds {word} at "
+                f"{target_v}% instead of {goal_v}%."
+            )
+        else:
+            summary = (
+                f"This plan ends {gap_pts} points below your {word} goal because "
+                f"the {locked_txt} it would sell to fund the move is under a year old."
+            )
+            tail = f"so the money to buy more {word} isn't free yet."
         points.append(
-            f"{format_inr_indian(locked_inr)} of your funds are under a year old. "
-            "Selling those would mean short-term capital gains tax, so this plan "
-            "leaves them alone."
+            f"{locked_txt}{_funds_phrase(locked_fund_count)} is under a year old. "
+            f"Selling it now would mean short-term capital gains tax, {tail}"
         )
         if moved_inr > 0:
             points.append(
-                f"{format_inr_indian(moved_inr)} has crossed a year. That's all "
-                "this plan can move today."
+                f"{format_inr_indian(moved_inr)} has crossed a year and is being "
+                "moved. That's everything this plan can shift today."
             )
     else:
-        summary = "A rebalance can only shuffle the funds you already own."
+        summary = (
+            f"This plan ends {gap_pts} points {direction} your {word} goal. "
+            "A rebalance can only reshuffle the funds you already own."
+        )
         points.append(
             "Per-fund caps and lock-ins stop it from going the whole way in one step."
         )
@@ -144,7 +210,7 @@ def build_plan_gap(
         question=f"This plan reaches {target_v}% {word}, not your {goal_v}%. Why?",
         summary=summary,
         points=points,
-        footnote=_FOOTNOTE,
+        footnote=_footnote(gap_pts),
     )
 
 
