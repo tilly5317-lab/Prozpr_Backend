@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +183,19 @@ def _build_subgroup_to_asset_class() -> dict[str, str]:
 
 
 SUBGROUP_TO_ASSET_CLASS: dict[str, str] = _build_subgroup_to_asset_class()
+
+
+# Held funds whose value counts toward short-term goals: every debt or arbitrage
+# fund except the income-plus-arbitrage FoF, which is long-term debt.
+SHORT_TERM_HOLDING_SUBGROUPS: frozenset[str] = frozenset(
+    sg for sg, ac in SUBGROUP_TO_ASSET_CLASS.items() if ac == ASSET_CLASS_DEBT
+) - {"arbitrage_plus_income"}
+
+
+def short_term_holdings_total(by_subgroup: Mapping[str, float]) -> float:
+    return float(
+        sum(v for sg, v in by_subgroup.items() if v > 0 and sg in SHORT_TERM_HOLDING_SUBGROUPS)
+    )
 
 
 def asset_class_for_subgroup(subgroup: Optional[str]) -> str:

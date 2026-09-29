@@ -53,6 +53,8 @@ async def compute_practical_allocation_result(
     *,
     chat_ctx: "TurnContext",
     corpus_pin: CorpusPin | None = None,
+    monthly_sip: float | None = None,
+    short_term_holdings: float | None = None,
 ) -> PracticalAllocationRunOutcome:
     """Build inputs, run the practical pipeline, and return the outcome.
 
@@ -67,6 +69,8 @@ async def compute_practical_allocation_result(
         practical_input, build_debug = build_practical_allocation_input_for_user(
             chat_ctx,
             corpus_pin=corpus_pin,
+            monthly_sip=monthly_sip,
+            short_term_holdings=short_term_holdings,
         )
     except Exception as exc:
         logger.exception("practical_asset_allocation input build failed: %s", exc)

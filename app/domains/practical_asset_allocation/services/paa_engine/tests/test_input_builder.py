@@ -63,3 +63,59 @@ def test_no_pin_keeps_profile_defaults(monkeypatch, captured):
     assert captured["mf_corpus"] == 999999.0
     assert captured["non_mf_equity_corpus"] == 0.0
     assert captured["elss_corpus"] == 0.0
+
+
+def _holding(sub_category, value, scheme_name="X Fund"):
+    return types.SimpleNamespace(
+        instrument_type="mutual_fund", current_value=value, instrument_name=scheme_name,
+        fund_metadata=types.SimpleNamespace(sub_category=sub_category, scheme_name=scheme_name),
+    )
+
+
+def test_short_term_holdings_count_debt_and_arbitrage_not_income_plus_arbitrage():
+    user = types.SimpleNamespace(portfolios=[types.SimpleNamespace(holdings=[
+        _holding("Liquid Fund", 300_000.0),
+        _holding("Arbitrage Fund", 200_000.0),
+        _holding("Gilt Fund", 100_000.0),
+        _holding("Large Cap Fund", 900_000.0),
+        _holding("FoF Domestic", 400_000.0, scheme_name="ICICI Income plus Arbitrage FoF"),
+    ])])
+    assert input_builder.short_term_holdings_for_user(user) == 600_000.0
+
+
+def test_no_holdings_on_file_is_none():
+    assert input_builder.short_term_holdings_for_user(types.SimpleNamespace(portfolios=[])) is None
+    assert input_builder.short_term_holdings_for_user(None) is None
+
+
+def test_builder_sets_holdings_and_the_sip_override(monkeypatch, captured):
+    monkeypatch.setattr(
+        input_builder, "build_goal_allocation_input_for_user",
+        lambda ctx: (_fake_base(1_000_000.0), {}),
+    )
+    monkeypatch.setattr(input_builder, "short_term_holdings_for_user", lambda user: 250_000.0)
+    input_builder.build_practical_allocation_input_for_user(None, monthly_sip=40_000.0)
+    assert captured["short_term_holdings"] == 250_000.0
+    assert captured["monthly_sip"] == 40_000.0
+
+
+def test_builder_keeps_the_profile_sip_without_an_override(monkeypatch, captured):
+    base = _fake_base(1_000_000.0)
+    base.monthly_sip = 15_000.0
+    monkeypatch.setattr(input_builder, "build_goal_allocation_input_for_user", lambda ctx: (base, {}))
+    input_builder.build_practical_allocation_input_for_user(None)
+    assert captured["monthly_sip"] == 15_000.0
+
+
+def test_explicit_holdings_skip_the_user_read(monkeypatch, captured):
+    monkeypatch.setattr(
+        input_builder, "build_goal_allocation_input_for_user",
+        lambda ctx: (_fake_base(1_000_000.0), {}),
+    )
+
+    def _boom(user):
+        raise AssertionError("must not read the user's holdings")
+
+    monkeypatch.setattr(input_builder, "short_term_holdings_for_user", _boom)
+    input_builder.build_practical_allocation_input_for_user(None, short_term_holdings=123_000.0)
+    assert captured["short_term_holdings"] == 123_000.0

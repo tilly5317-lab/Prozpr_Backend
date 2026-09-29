@@ -10,6 +10,7 @@ New scalars — no app-side data source wired yet, so they take safe defaults:
   non_mf_equity_corpus = 0.0           (direct stocks / PMS — "stocks")
   elss_corpus          = 0.0           (ELSS MF subset, SEBI-locked)
   max_non_mf_equity_pct_client_input = None  (no advisor override)
+  short_term_holdings  = held debt + arbitrage from the preloaded user (None = no holdings); a caller may pass its own
 
 Entry: ``build_practical_allocation_input_for_user(ctx)`` →
 ``(PracticalAllocationInput, debug)``.
@@ -23,6 +24,10 @@ from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.asset_allocation.services.aa_engine.input_builder import (
     build_goal_allocation_input_for_user,
 )
+from app.domains.mutual_funds.services.scheme_classification import (
+    short_term_holdings_total,
+)
+from app.domains.portfolio.services.holdings_snapshot import snapshot_from_holdings
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
@@ -81,10 +86,26 @@ def load_human_override_for_user(user: Any) -> "HumanOverridePreferences | None"
     return HumanOverridePreferences(**merged)
 
 
+def short_term_holdings_for_user(user: Any) -> float | None:
+    """Held short-term money from the user's preloaded holdings; None when they
+    have no holdings on file."""
+    holdings = [
+        h
+        for p in (getattr(user, "portfolios", None) or [])
+        for h in (getattr(p, "holdings", None) or [])
+    ]
+    snapshot = snapshot_from_holdings(holdings)
+    if snapshot.total_inr <= 0:
+        return None
+    return short_term_holdings_total(snapshot.by_subgroup)
+
+
 def build_practical_allocation_input_for_user(
     ctx: "TurnContext",
     corpus_pin: CorpusPin | None = None,
     apply_saved_preferences: bool = True,
+    monthly_sip: float | None = None,
+    short_term_holdings: float | None = None,
 ) -> tuple[PracticalAllocationInput, Dict[str, Any]]:
     """Return ``(PracticalAllocationInput, debug)`` for the User in ``ctx``."""
     base_input, debug = build_goal_allocation_input_for_user(ctx)
@@ -92,6 +113,14 @@ def build_practical_allocation_input_for_user(
     shared = {k: getattr(base_input, k) for k in AllocationInput.model_fields}
     if corpus_pin is not None:
         shared["total_corpus"] = corpus_pin.total_corpus
+
+    shared["short_term_holdings"] = (
+        short_term_holdings
+        if short_term_holdings is not None
+        else short_term_holdings_for_user(getattr(ctx, "user_ctx", None))
+    )
+    if monthly_sip is not None:
+        shared["monthly_sip"] = monthly_sip
 
     # ── The SINGLE preference load point (S1 spec §4.3). Engines stay DB-free:
     # the row rides the preloaded User relationship; a per-turn override dict
@@ -135,6 +164,8 @@ def build_practical_allocation_input_for_user(
         "mf_corpus": practical_input.mf_corpus,
         "non_mf_equity_corpus": practical_input.non_mf_equity_corpus,
         "elss_corpus": practical_input.elss_corpus,
+        "short_term_holdings": practical_input.short_term_holdings,
+        "monthly_sip": practical_input.monthly_sip,
         "human_override_set": human_override is not None,
     }
     return practical_input, debug
