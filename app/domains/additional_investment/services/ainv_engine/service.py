@@ -35,6 +35,11 @@ from app.domains.additional_investment.services.ainv_engine.holdings_snapshot im
 )
 from app.domains.additional_investment.services.ainv_engine.input_builder import (
     build_additional_investment_input_for_user,
+    goal_share_for,
+)
+from app.domains.mutual_funds.services.scheme_classification import (
+    SHORT_TERM_HOLDING_SUBGROUPS,
+    short_term_holdings_total,
 )
 from app.domains.practical_asset_allocation.services.paa_engine.input_builder import (
     CorpusPin,
@@ -79,14 +84,6 @@ _MSG_ENGINE_ERROR = (
     "I couldn't work out where to invest your money right now. Try again in a "
     "moment, and if it keeps happening let us know via the help option."
 )
-_MSG_MISSING_DOB = (
-    "I need your date of birth to plan this — it anchors which of your goals are "
-    "near-term versus long-term. Add it on your profile and ask me again."
-)
-_MSG_INCOMPLETE_PROFILE = (
-    "I need a bit more of your financial profile before I can plan where to put "
-    "fresh money. Complete the missing details on your profile and ask me again."
-)
 
 # Notional corpus used ONLY to recover corpus-independent allocation ratios for a
 # SIP when the customer has no investable corpus of their own yet (the no-CAMS
@@ -95,6 +92,27 @@ _MSG_INCOMPLETE_PROFILE = (
 # emergency and near-goal buckets so the target bucket is populated; the resulting
 # subgroup ratios are scale-invariant, so the exact figure doesn't matter.
 _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
+
+# A SIP's long-term share needs a long-term plan at least this big to split by;
+# below it the ratios come from a sized allocation instead.
+_SIP_MIN_LONG_TERM_COLUMN_INR = 10_000.0
+
+
+def _long_term_column_inr(inp) -> float:
+    return sum(r.long_term for r in inp.subgroups if r.subgroup not in inp.exclude_subgroups)
+
+
+# Only the held short-term money the goals use is removed; the rest stays current.
+def _long_term_holdings(
+    by_subgroup: dict[str, float], held_for_goals: float
+) -> dict[str, float]:
+    short_total = short_term_holdings_total(by_subgroup)
+    keep = (1.0 - min(held_for_goals, short_total) / short_total) if short_total > 0 else 1.0
+    return {
+        sg: v * keep if sg in SHORT_TERM_HOLDING_SUBGROUPS else v
+        for sg, v in by_subgroup.items()
+    }
+
 
 # Stamped onto every persisted AdditionalInvestmentRun.engine_version. Bump when
 # the additional-investment engine's output contract changes.
@@ -110,7 +128,10 @@ _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 # 3.3.0: top-1/2 funds per subgroup by corpus; per-fund cap and SIP mirror retired.
 # 3.4.0: FY-end horizon anchoring live — the short-goal funding boundary counts to
 # the financial-year end (months_to_fy_end), matching the allocation engine.
-AINV_ENGINE_VERSION = "ainv-3.4.0"
+# 3.5.0: SIP-first goal waterfall — goal money first from the practical
+# allocation's goal_funding (no cashflow projection); the rest follows the
+# long-term plan; lumpsum deficits exclude the held short-term money the goals use.
+AINV_ENGINE_VERSION = "ainv-3.5.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -123,10 +144,10 @@ class AdditionalInvestmentRunOutcome:
     """Immutable outcome of one additional-investment orchestration run.
 
     On the happy path ``output`` is set and ``blocking_message`` is None. When the
-    input builder refuses (incomplete profile) or a pre-check fails, ``output`` is
-    None and ``blocking_message`` carries the customer-facing gate text — the chat
-    handler relays it via ``format_relay_or_canned`` instead of formatting a BUY
-    list (so the orchestrator never raises on a gate). The chat handler builds the
+    input builder or a pre-check fails, ``output`` is None and ``blocking_message``
+    carries the customer-facing gate text — the chat handler relays it via
+    ``format_relay_or_canned`` instead of formatting a BUY list (so the
+    orchestrator never raises on a gate). The chat handler builds the
     LLM facts pack itself from ``output`` at format time, so the orchestrator does
     not carry one.
 
@@ -173,9 +194,10 @@ async def compute_additional_investment_result(
     Mirrors ``compute_rebalancing_result``: the practical allocation is primed
     first (its ``aggregated_subgroups`` feed the per-subgroup deploy split; the
     per-fund caps key off the deploy amount, so no corpus total is read), the
-    engine input is materialised from that allocation (holding-agnostic — no
-    holdings fetch), and the pure engine runs on a worker thread. The chat handler
-    builds the LLM facts pack from the returned output at format time.
+    engine input is materialised from that allocation, and the pure engine runs on
+    a worker thread. Lumpsum pins the corpus and held short-term money to one
+    holdings snapshot; SIP reads held short-term money off the preloaded user. The
+    chat handler builds the LLM facts pack from the returned output at format time.
 
     Persistence is gated behind ``persist`` (False in Plan 3a; Plan 3b flips the
     default and calls ``persist_additional_investment_recommendation``).
@@ -198,10 +220,10 @@ async def compute_additional_investment_result(
         await progress(8, "Reading your profile & goals…")
 
     # Deficit fill (spec 2026-07-03), lumpsum only: the ideal is PAA at actual
-    # holdings + fresh money, so both the corpus and the per-subgroup `current`
-    # side come from ONE holdings snapshot. SIP keeps the legacy profile-corpus
-    # path (snapshot never loads there). No fallback by product decision
-    # (2026-07-04, CAMS upload mandatory): a snapshot failure propagates.
+    # holdings + fresh money. Lumpsum pins the corpus and held short-term money to
+    # one holdings snapshot; SIP reads held short-term money off the preloaded
+    # user. No fallback by product decision (2026-07-04, CAMS upload mandatory): a
+    # snapshot failure propagates.
     snapshot: HoldingsSnapshot | None = None
     corpus_pin: CorpusPin | None = None
     if cadence is Cadence.LUMPSUM:
@@ -228,6 +250,10 @@ async def compute_additional_investment_result(
         user_question,
         chat_ctx=chat_ctx,
         corpus_pin=corpus_pin,
+        monthly_sip=deploy_amount_inr if cadence is Cadence.SIP_MONTHLY else None,
+        short_term_holdings=(
+            short_term_holdings_total(snapshot.by_subgroup) if snapshot is not None else None
+        ),
     )
     if paa_outcome.result is None:
         # Pre-check failed (practical allocation could not be produced /
@@ -241,7 +267,7 @@ async def compute_additional_investment_result(
     # Investable corpus that decides 1 vs 2 funds per subgroup (spec 2026-09-24):
     # total_corpus − non_mf_equity, off the practical result already computed for
     # this cadence. Lumpsum's PAA ran on the corpus_pin (corpus + deploy), so the
-    # deploy is already folded in; SIP's ran on the real portfolio. The empty-SIP
+    # deploy is already folded in; SIP's ran on the real portfolio. The sized SIP
     # re-derivation below rebuilds on a NOTIONAL corpus, so this real figure must
     # be captured here and reused — never re-read off the notional-sized result.
     # max(0.0, …): the two fields are rounded independently, so an all-direct-equity
@@ -249,6 +275,14 @@ async def compute_additional_investment_result(
     # rejects (ge=0) and would spuriously gate the SIP.
     cb = paa_outcome.result.corpus_breakdown
     investable_corpus_inr = max(0.0, float(cb.total_corpus_inr - cb.non_mf_equity_input_inr))
+    goal_share_inr, goal_subgroup = goal_share_for(
+        paa_outcome.result, cadence, deploy_amount_inr
+    )
+    funding = getattr(paa_outcome.result, "goal_funding", None)
+    held_for_goals = sum(g.from_holdings for g in funding.goals) if funding is not None else 0.0
+    current_lt = (
+        _long_term_holdings(snapshot.by_subgroup, held_for_goals) if snapshot is not None else None
+    )
 
     # The latest rebalancing run is read only for the audit linkage
     # (sip_rebal_run_id below). Since spec 2026-09-24 the SIP no longer mirrors
@@ -275,35 +309,56 @@ async def compute_additional_investment_result(
 
     try:
         inp, debug = await build_additional_investment_input_for_user(
-            chat_ctx,
             paa_outcome.result,
             deploy_amount_inr=deploy_amount_inr,
             cadence=cadence,
-            current_value_by_subgroup=(
-                snapshot.by_subgroup if snapshot is not None else None
-            ),
+            current_value_by_subgroup=current_lt,
             investable_corpus_inr=investable_corpus_inr,
+            goal_share_inr=goal_share_inr,
+            goal_subgroup=goal_subgroup,
         )
-    except ValueError as exc:
-        # The goal-funding step (cashflow) HARD-REFUSES an incomplete profile,
-        # raising missing_date_of_birth / missing_required_inputs:<keys>. Surface
-        # a tailored profile-completion gate the handler relays — never a raise.
-        code = str(exc)
-        message = (
-            _MSG_MISSING_DOB
-            if "missing_date_of_birth" in code
-            else _MSG_INCOMPLETE_PROFILE
-        )
-        return AdditionalInvestmentRunOutcome(
-            output=None, blocking_message=message
-        )
-    except Exception:  # noqa: BLE001 — any other builder failure → generic gate
+    except Exception:  # noqa: BLE001 — any builder failure → generic gate
         logger.exception("additional_investment input build failed")
         return AdditionalInvestmentRunOutcome(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
     trace_line(f"additional_investment input debug: {debug}")
+
+    if (
+        cadence is Cadence.SIP_MONTHLY
+        and deploy_amount_inr - goal_share_inr > 0
+        and _long_term_column_inr(inp) < _SIP_MIN_LONG_TERM_COLUMN_INR
+    ):
+        try:
+            sized = await compute_practical_allocation_result(
+                user,
+                user_question,
+                chat_ctx=chat_ctx,
+                corpus_pin=CorpusPin(
+                    total_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
+                    mf_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
+                    non_mf_equity_corpus=0.0,
+                    elss_corpus=0.0,
+                ),
+                monthly_sip=deploy_amount_inr,
+            )
+            if sized.result is not None:
+                inp, debug = await build_additional_investment_input_for_user(
+                    sized.result,
+                    deploy_amount_inr=deploy_amount_inr,
+                    cadence=cadence,
+                    current_value_by_subgroup=None,
+                    investable_corpus_inr=investable_corpus_inr,
+                    goal_share_inr=goal_share_inr,
+                    goal_subgroup=goal_subgroup,
+                )
+                trace_line("additional_investment SIP long-term split taken from a sized allocation")
+        except Exception:  # noqa: BLE001 — keep the real-corpus split, never raise
+            logger.exception(
+                "additional_investment: sized SIP long-term split failed — keeping "
+                "the real-corpus split"
+            )
 
     if progress:
         await progress(75, "Allocating your monthly amount…")
@@ -319,61 +374,23 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
-    # No-CAMS cohort: a SIP whose target bucket comes back empty (corpus ≈ 0, so
-    # the whole allocation sits in emergency and the horizon-targeted split deploys
-    # nothing) is re-derived from an allocation sized to a notional corpus. The
-    # target-bucket subgroup ratios are scale-invariant, so this yields the ideal
-    # split for the SIP amount instead of an empty plan. Only fires on the empty
-    # case, so funded/CAMS SIPs are untouched. Best-effort: any failure keeps the
-    # original (empty) plan rather than raising.
-    if cadence is Cadence.SIP_MONTHLY and not response.buys:
-        try:
-            sized = await compute_practical_allocation_result(
-                user,
-                user_question,
-                chat_ctx=chat_ctx,
-                corpus_pin=CorpusPin(
-                    total_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
-                    mf_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
-                    non_mf_equity_corpus=0.0,
-                    elss_corpus=0.0,
-                ),
-            )
-            if sized.result is not None:
-                inp, debug = await build_additional_investment_input_for_user(
-                    chat_ctx,
-                    sized.result,
-                    deploy_amount_inr=deploy_amount_inr,
-                    cadence=cadence,
-                    current_value_by_subgroup=None,
-                    investable_corpus_inr=investable_corpus_inr,
-                )
-                response = await asyncio.to_thread(run_additional_investment, inp)
-                trace_line(
-                    "additional_investment SIP re-derived from sized allocation; "
-                    f"buys={len(response.buys)}"
-                )
-        except Exception:  # noqa: BLE001 — degrade to the original plan, never raise
-            logger.exception(
-                "additional_investment: sized SIP fallback failed — keeping the "
-                "original recommendation"
-            )
-
     # Deficit-fill facts for the chat formatter (lumpsum only): ideal vs current
     # vs deployed per subgroup, so the reply can narrate WHERE the gaps were.
     deficit_facts: list[dict] | None = None
-    if snapshot is not None:
+    if current_lt is not None:
         rows_by = {r.subgroup: r for r in paa_outcome.result.aggregated_subgroups}
         buys_by: dict[str, float] = {}
         for b in response.buys:
-            buys_by[b.asset_subgroup] = (
-                buys_by.get(b.asset_subgroup, 0.0) + float(b.amount_inr)
-            )
+            buys_by[b.asset_subgroup] = buys_by.get(b.asset_subgroup, 0.0) + float(b.amount_inr)
         deficit_facts = []
         for t in response.per_subgroup_target:
             row = rows_by.get(t.subgroup)
-            ideal = float(row.total) if row is not None else 0.0
-            current = snapshot.by_subgroup.get(t.subgroup, 0.0)
+            ideal = float(row.total - row.short_term) if row is not None else 0.0
+            current = current_lt.get(t.subgroup, 0.0)
+            goal_row = funding is not None and t.subgroup == funding.asset_subgroup
+            if goal_row:
+                ideal += funding.allocated_amount
+                current += held_for_goals
             deficit_facts.append(
                 {
                     "subgroup": t.subgroup,
@@ -381,6 +398,7 @@ async def compute_additional_investment_result(
                     "current_inr": current,
                     "gap_inr": max(0.0, ideal - current),
                     "buy_inr": buys_by.get(t.subgroup, 0.0),
+                    "goal_row": goal_row,
                 }
             )
 

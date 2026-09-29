@@ -93,8 +93,6 @@ def _sip_request():
         deploy_amount_inr=120000.0,
         cadence=Cadence.SIP_MONTHLY,
         subgroups=[],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="low_beta_equities",
@@ -163,7 +161,7 @@ async def test_persist_writes_run_targets_and_buys(monkeypatch):
     assert run.deployed_inr == 120000.0
     assert run.undeployed_inr == 0.0
     assert run.user_question == "invest 10k monthly"
-    assert run.engine_version == "ainv-3.4.0"  # stamped from AINV_ENGINE_VERSION
+    assert run.engine_version == "ainv-3.5.0"  # stamped from AINV_ENGINE_VERSION
 
     # N targets, all parented to the flushed run.
     assert len(targets) == 2
@@ -225,8 +223,6 @@ async def test_persist_lumpsum_buys_have_no_monthly_amount(monkeypatch):
         deploy_amount_inr=50000.0,
         cadence=Cadence.LUMPSUM,
         subgroups=[],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="low_beta_equities",

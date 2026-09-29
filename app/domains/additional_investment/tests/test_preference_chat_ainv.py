@@ -75,7 +75,10 @@ def _run_compute(monkeypatch, *, saved_investment_preference_id=service_mod.DERI
         ),
     )
     paa_outcome = SimpleNamespace(result=paa_result, blocking_message=None)
-    inp_fake = SimpleNamespace()
+    inp_fake = SimpleNamespace(
+        subgroups=[SimpleNamespace(subgroup="low_beta_equities", long_term=1_000_000.0)],
+        exclude_subgroups=set(),
+    )
     response_fake = SimpleNamespace(
         buys=[SimpleNamespace(asset_subgroup="equity", amount_inr=100.0)],
         per_subgroup_target=[],

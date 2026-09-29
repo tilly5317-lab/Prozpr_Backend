@@ -488,6 +488,15 @@ def test_legacy_body_is_sip_only_and_deficit_body_exists():
     assert "emergency" in chat_mod._AINV_DEFICIT_FORMATTER_BODY.lower()
 
 
+def test_plan_bodies_call_current_what_counts_toward_the_target():
+    from app.domains.additional_investment.services.ainv_engine import chat as chat_mod
+
+    assert "goal_row" in chat_mod._AINV_DEFICIT_FORMATTER_BODY
+    assert "counts toward this row's" in chat_mod._AINV_DEFICIT_FORMATTER_BODY
+    for body in (chat_mod._AINV_DEFICIT_FORMATTER_BODY, chat_mod._AINV_FORMATTER_BODY):
+        assert "what already counts toward the target there" in body
+
+
 # ── extractor: focus_category + history (spec 2026-07-04) ───────────────────
 def test_extract_returns_category_and_includes_history_block():
     from app.domains.additional_investment.services.ainv_engine import chat as ainv_chat

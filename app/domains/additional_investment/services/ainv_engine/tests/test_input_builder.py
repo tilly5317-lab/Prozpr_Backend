@@ -1,16 +1,8 @@
-"""Unit tests for the additional-investment engine input builder.
-
-Mirrors rebal_engine/tests/test_input_builder.py, but the engine is now
-HOLDING-AGNOSTIC: the only collaborators are the fund-ranking CSV and the
-cashflow projection (both replaced with plain in-memory stand-ins), plus a
-stand-in allocation output. There is no DB ledger / NAV / classifier path.
-"""
+"""Unit tests for the additional-investment engine input builder. The only collaborator is the fund-ranking CSV (an in-memory stand-in) plus a stand-in allocation output."""
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
-from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -56,24 +48,7 @@ class _RankRow:
     fund_name: str
 
 
-@dataclass
-class _Goal:
-    goal_date: date
-    is_funded: bool
-
-
 # ── helpers ────────────────────────────────────────────────────────────────
-def _months_from_now(months: int) -> date:
-    """A 1st-of-month date exactly `months` whole months ahead of today."""
-    today = date.today()
-    total = today.year * 12 + (today.month - 1) + months
-    return date(total // 12, total % 12 + 1, 1)
-
-
-def _ctx() -> SimpleNamespace:
-    return SimpleNamespace(user_ctx=SimpleNamespace(id=uuid.uuid4()))
-
-
 def _alloc(rows) -> SimpleNamespace:
     """Stand-in for the practical-allocation output: just the per-subgroup rows.
     The builder reads no corpus total — the per-fund caps key off the deploy
@@ -81,18 +56,9 @@ def _alloc(rows) -> SimpleNamespace:
     return SimpleNamespace(aggregated_subgroups=rows)
 
 
-def _patch(monkeypatch, *, ranking=None, goals=()):
-    """Patch the only two real collaborators: the fund-ranking CSV loader and the
-    cashflow projection. No ledger / NAV / classifier — the engine is
-    holding-agnostic."""
-    ranking = ranking or {}
-
-    monkeypatch.setattr(ib, "get_fund_ranking", lambda: ranking)
-
-    async def _fake_cashflow(user, *, anchor_date=None):
-        return SimpleNamespace(goals=list(goals))
-
-    monkeypatch.setattr(ib, "run_cashflow_projection_for_user", _fake_cashflow)
+def _patch(monkeypatch, *, ranking=None):
+    """Patch the fund-ranking CSV loader — the builder's only collaborator."""
+    monkeypatch.setattr(ib, "get_fund_ranking", lambda: ranking or {})
 
 
 # ── tests ──────────────────────────────────────────────────────────────────
@@ -110,7 +76,7 @@ async def test_subgroups_map_all_rows_and_set_exclude(monkeypatch):
     _patch(monkeypatch)
 
     inp, _debug = await build_additional_investment_input_for_user(
-        _ctx(), _alloc(rows), deploy_amount_inr=100000.0, cadence=ib.Cadence.LUMPSUM
+        _alloc(rows), deploy_amount_inr=100000.0, cadence=ib.Cadence.LUMPSUM
     )
 
     # No hand-drop: all four rows are present in subgroups.
@@ -143,7 +109,6 @@ async def test_ranked_funds_flattened_with_scheme_code(monkeypatch):
     _patch(monkeypatch, ranking=ranking)
 
     inp, _ = await build_additional_investment_input_for_user(
-        _ctx(),
         _alloc([_Row("large_cap", long_term=1.0, total=1.0)]),
         deploy_amount_inr=50000.0,
         cadence=ib.Cadence.LUMPSUM,
@@ -158,84 +123,11 @@ async def test_ranked_funds_flattened_with_scheme_code(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_short_term_unfunded_sets_flag_false(monkeypatch):
-    """An unfunded <24-month goal -> short_term_fulfilled is False; with the only
-    medium goal funded, medium_term_fulfilled stays True."""
-    goals = [
-        _Goal(_months_from_now(12), is_funded=False),  # short-term, unfunded
-        _Goal(_months_from_now(48), is_funded=True),   # medium-term, funded
-    ]
-    _patch(monkeypatch, goals=goals)
-
-    inp, _ = await build_additional_investment_input_for_user(
-        _ctx(),
-        _alloc([_Row("large_cap", long_term=1.0, total=1.0)]),
-        deploy_amount_inr=100000.0,
-        cadence=ib.Cadence.LUMPSUM,
-    )
-
-    assert inp.short_term_fulfilled is False
-    assert inp.medium_term_fulfilled is True
-
-
-@pytest.mark.xfail(
-    reason="Medium-term bucket removed from the allocation engines (spec 2026-09-24); "
-    "a 24-60mo goal is now long-term, so medium_term_fulfilled is trivially True. "
-    "This app-side ainv medium logic is part of the deferred downstream cleanup "
-    "(see project_medium_term_bucket_removal).",
-    strict=False,
-)
-@pytest.mark.asyncio
-async def test_medium_term_unfunded_sets_flag_false(monkeypatch):
-    """An unfunded 24–60-month goal -> medium_term_fulfilled is False; with the
-    short goal funded, short_term_fulfilled stays True. (Long-term goal ignored.)"""
-    goals = [
-        _Goal(_months_from_now(12), is_funded=True),   # short-term, funded
-        _Goal(_months_from_now(48), is_funded=False),  # medium-term, unfunded
-        _Goal(_months_from_now(84), is_funded=False),  # long-term, ignored
-    ]
-    _patch(monkeypatch, goals=goals)
-
-    inp, _ = await build_additional_investment_input_for_user(
-        _ctx(),
-        _alloc([_Row("large_cap", long_term=1.0, total=1.0)]),
-        deploy_amount_inr=100000.0,
-        cadence=ib.Cadence.LUMPSUM,
-    )
-
-    assert inp.short_term_fulfilled is True
-    assert inp.medium_term_fulfilled is False
-
-
-@pytest.mark.asyncio
-async def test_both_flags_true_when_funded_or_none(monkeypatch):
-    """A funded short goal + a funded medium goal -> both flags True (long-term
-    goal ignored; True is also the no-goals default for each bucket)."""
-    goals = [
-        _Goal(_months_from_now(12), is_funded=True),   # short-term, funded
-        _Goal(_months_from_now(48), is_funded=True),   # medium-term, funded
-        _Goal(_months_from_now(84), is_funded=False),  # long-term, ignored
-    ]
-    _patch(monkeypatch, goals=goals)
-
-    inp, _ = await build_additional_investment_input_for_user(
-        _ctx(),
-        _alloc([_Row("large_cap", long_term=1.0, total=1.0)]),
-        deploy_amount_inr=100000.0,
-        cadence=ib.Cadence.LUMPSUM,
-    )
-
-    assert inp.short_term_fulfilled is True
-    assert inp.medium_term_fulfilled is True
-
-
-@pytest.mark.asyncio
 async def test_caps_use_cap_pct_for_and_others_default(monkeypatch):
     """cap_pct_by_subgroup routes through cap_pct_for; default_cap_pct is OTHERS_FUND_CAP_PCT."""
     _patch(monkeypatch)
 
     inp, _ = await build_additional_investment_input_for_user(
-        _ctx(),
         _alloc(
             [
                 _Row("large_cap", long_term=1.0, total=1.0),
@@ -251,67 +143,15 @@ async def test_caps_use_cap_pct_for_and_others_default(monkeypatch):
     assert inp.default_cap_pct == ib.OTHERS_FUND_CAP_PCT
 
 
-# ── deficit-fill path (lumpsum + holdings map; spec 2026-07-03) ─────────────
-@pytest.mark.asyncio
-async def test_deficit_map_skips_cashflow_projection(monkeypatch):
-    """Lumpsum + holdings map -> the cashflow projection must NOT run (its only
-    consumer here was the old nearest-unfunded label); flags stay False; the map
-    is attached to the engine input; debug records the mode."""
-    _patch(monkeypatch)
-
-    async def _boom(user, asof):
-        raise AssertionError("_goal_funding_flags must not run on the deficit path")
-
-    monkeypatch.setattr(ib, "_goal_funding_flags", _boom)
-
-    inp, debug = await build_additional_investment_input_for_user(
-        _ctx(),
-        _alloc([_Row("low_beta_equities", long_term=1.0, total=1.0)]),
-        deploy_amount_inr=500000.0,
-        cadence=ib.Cadence.LUMPSUM,
-        current_value_by_subgroup={"low_beta_equities": 100000.0},
-    )
-
-    assert inp.current_value_by_subgroup == {"low_beta_equities": 100000.0}
-    assert inp.short_term_fulfilled is False
-    assert inp.medium_term_fulfilled is False
-    assert debug["deployment_mode"] == "deficit_fill"
-
-
-@pytest.mark.asyncio
-async def test_sip_never_attaches_the_map_and_still_runs_flags(monkeypatch):
-    """SIP + map -> the map is dropped (legacy path) and the goal-funding flags
-    still come from the cashflow projection."""
-    _patch(monkeypatch)
-
-    async def _flags(user, asof):
-        return True, False
-
-    monkeypatch.setattr(ib, "_goal_funding_flags", _flags)
-
-    inp, debug = await build_additional_investment_input_for_user(
-        _ctx(),
-        _alloc([_Row("low_beta_equities", long_term=1.0, total=1.0)]),
-        deploy_amount_inr=25000.0,
-        cadence=ib.Cadence.SIP_MONTHLY,
-        current_value_by_subgroup={"low_beta_equities": 100000.0},  # must be dropped
-    )
-
-    assert inp.current_value_by_subgroup is None
-    assert inp.short_term_fulfilled is True
-    assert inp.medium_term_fulfilled is False
-    assert debug["deployment_mode"] == "single_bucket"
-
-
 @pytest.mark.asyncio
 async def test_investable_corpus_passthrough_and_cap_floors(monkeypatch):
     from additional_investment.models import Cadence
 
-    _patch(monkeypatch, ranking={}, goals=())
+    _patch(monkeypatch, ranking={})
     rows = [_Row(subgroup="large_cap_equities", long_term=100.0, total=100.0)]
 
     inp, _ = await build_additional_investment_input_for_user(
-        _ctx(), _alloc(rows),
+        _alloc(rows),
         deploy_amount_inr=5000.0, cadence=Cadence.SIP_MONTHLY,
         investable_corpus_inr=6_000_000.0,
     )
@@ -323,7 +163,57 @@ async def test_investable_corpus_passthrough_and_cap_floors(monkeypatch):
     assert inp.lumpsum_fund_cap_floor_inr == 40000.0  # default; env-overridable
 
     inp2, _ = await build_additional_investment_input_for_user(
-        _ctx(), _alloc(rows),
+        _alloc(rows),
         deploy_amount_inr=5000.0, cadence=Cadence.SIP_MONTHLY,
     )
     assert inp2.investable_corpus_inr == 0.0  # default when caller omits it
+
+
+@pytest.mark.asyncio
+async def test_goal_share_reaches_the_engine_input(monkeypatch):
+    _patch(monkeypatch)
+    inp, debug = await build_additional_investment_input_for_user(
+        _alloc([_Row("low_beta_equities", long_term=1.0, total=1.0)]),
+        deploy_amount_inr=25000.0,
+        cadence=ib.Cadence.SIP_MONTHLY,
+        current_value_by_subgroup={"low_beta_equities": 100000.0},
+        goal_share_inr=10000.0,
+        goal_subgroup="arbitrage",
+    )
+    assert inp.goal_share_inr == 10000.0
+    assert inp.goal_subgroup == "arbitrage"
+    assert inp.current_value_by_subgroup is None
+    assert debug["deployment_mode"] == "long_term"
+
+
+@pytest.mark.asyncio
+async def test_lumpsum_keeps_the_holdings_map(monkeypatch):
+    _patch(monkeypatch)
+    inp, debug = await build_additional_investment_input_for_user(
+        _alloc([_Row("low_beta_equities", long_term=1.0, total=1.0)]),
+        deploy_amount_inr=500000.0,
+        cadence=ib.Cadence.LUMPSUM,
+        current_value_by_subgroup={"low_beta_equities": 100000.0},
+    )
+    assert inp.current_value_by_subgroup == {"low_beta_equities": 100000.0}
+    assert inp.goal_share_inr == 0.0
+    assert debug["deployment_mode"] == "deficit_fill"
+
+
+def _funding(to_goals=15000.0, from_corpus=900000.0, subgroup="arbitrage"):
+    return SimpleNamespace(goal_funding=SimpleNamespace(
+        monthly_sip_to_goals=to_goals, from_corpus=from_corpus, asset_subgroup=subgroup,
+    ))
+
+
+def test_goal_share_for_sip_is_the_monthly_goal_share():
+    assert ib.goal_share_for(_funding(), ib.Cadence.SIP_MONTHLY, 25000.0) == (15000.0, "arbitrage")
+
+
+def test_goal_share_for_lumpsum_is_from_corpus_capped_at_deploy():
+    assert ib.goal_share_for(_funding(), ib.Cadence.LUMPSUM, 500000.0) == (500000.0, "arbitrage")
+
+
+def test_goal_share_for_a_preference_run_is_zero():
+    assert ib.goal_share_for(SimpleNamespace(goal_funding=None), ib.Cadence.SIP_MONTHLY, 25000.0) == (0.0, None)
+    assert ib.goal_share_for(SimpleNamespace(), ib.Cadence.LUMPSUM, 25000.0) == (0.0, None)

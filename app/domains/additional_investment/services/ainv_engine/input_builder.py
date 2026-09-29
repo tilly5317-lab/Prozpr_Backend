@@ -1,32 +1,19 @@
-"""Materialise an AdditionalInvestmentInput from TurnContext + allocation output.
+"""Materialise an AdditionalInvestmentInput from the practical allocation.
 
-Mirrors rebal_engine/input_builder.py, but for the BUY-only additional-investment
-engine: money is plain ``float`` (allocation family, not Decimal). There is no
-holdings path on the LEGACY (SIP / single-bucket) path; the lumpsum deficit path
-receives a pre-aggregated ``current_value_by_subgroup`` map from the service
-(see ``holdings_snapshot.py``) — the builder itself still reads no DB ledger and
-no NAV. The engine recommends purely from the ranked-fund list, and the per-fund
-caps key off the DEPLOY amount, so the builder reads no existing-corpus total
-and computes no resulting-corpus figure.
-ALL practical-allocation subgroup rows are passed through verbatim; the two
-synthetic rows (ELSS + non-MF equity) are NOT hand-dropped here — the builder
-sets ``exclude_subgroups`` and the engine gives them zero weight and renormalises
-the split onto the remaining (eligible) subgroups.
+Money is plain ``float`` (allocation family, not Decimal). The builder reads no
+DB, ledger or NAV: subgroup rows come from the practical allocation, the goal
+share is computed by the caller with ``goal_share_for``, and the BUY list comes
+from the ranked-fund CSV. A lumpsum's ``current_value_by_subgroup`` is
+pre-aggregated by the service. The two synthetic rows (ELSS + non-MF equity) are
+passed through and excluded via ``exclude_subgroups``, not hand-dropped.
 """
 
 from __future__ import annotations
 
-from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from app.domains.ai_engine.common import ensure_ai_agents_path
-from app.domains.cashflow.services.cashflow_compute_service import (
-    run_cashflow_projection_for_user,
-)
 from app.domains.rebalancing.services.rebal_engine.fund_rank import get_fund_ranking
-
-if TYPE_CHECKING:
-    from app.domains.ai_engine.turn_context import TurnContext
 
 ensure_ai_agents_path()
 
@@ -36,10 +23,6 @@ from additional_investment.models import (  # type: ignore[import-not-found]  # 
     RankedFund,
     SubgroupBucketAmounts,
 )
-from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]  # noqa: E402
-    HORIZON_BOUNDARY_MONTHS,
-)
-from financial_primitives.dates import months_to_fy_end  # type: ignore[import-not-found]  # noqa: E402
 from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
     AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     AINV_SIP_FUND_CAP_FLOOR_INR,
@@ -57,53 +40,32 @@ from Rebalancing.tables import cap_pct_for  # type: ignore[import-not-found]  # 
 _EXCLUDE_SUBGROUPS = frozenset({"tax_efficient_equities", "non_mf_equities"})
 
 
-def _months_to(asof: date, goal_date: date) -> int:
-    """Whole calendar months from ``asof`` to ``goal_date`` (day-of-month ignored)."""
-    return (goal_date.year - asof.year) * 12 + (goal_date.month - asof.month)
-
-
-async def _goal_funding_flags(user, asof: date) -> tuple[bool, bool]:
-    """Return ``(short_term_fulfilled, medium_term_fulfilled)``.
-
-    short_term_fulfilled is True when every short-term goal is funded — or there are
-    none. The short/long line is the 24-month horizon boundary anchored to the
-    financial-year end (``HORIZON_BOUNDARY_MONTHS + months_to_fy_end``), matching the
-    allocation engine. The medium bucket was removed (spec 2026-09-24): goals at or
-    beyond the boundary are long-term, so medium_term_fulfilled is always True and
-    ``select_target_bucket`` falls through to the long-term target (whose subgroup
-    column is populated; the medium column is zero everywhere). The flag is kept in
-    the return tuple so ``select_target_bucket`` stays untouched.
-    """
-    snapshot = await run_cashflow_projection_for_user(user, anchor_date=asof)
-    boundary = HORIZON_BOUNDARY_MONTHS + months_to_fy_end(asof)
-    short_goals = [
-        g
-        for g in snapshot.goals
-        if _months_to(asof, g.goal_date) < boundary
-    ]
-    short_term_fulfilled = all(g.is_funded for g in short_goals)
-    return short_term_fulfilled, True
+def goal_share_for(
+    allocation_output: Any, cadence: Cadence, deploy_amount_inr: float
+) -> tuple[float, str | None]:
+    """Money for short-term goals out of this deployment, and the subgroup it buys."""
+    funding = getattr(allocation_output, "goal_funding", None)
+    if funding is None:
+        return 0.0, None
+    share = (
+        funding.monthly_sip_to_goals
+        if cadence is Cadence.SIP_MONTHLY
+        else funding.from_corpus
+    )
+    return min(float(share), deploy_amount_inr), funding.asset_subgroup
 
 
 async def build_additional_investment_input_for_user(
-    ctx: "TurnContext",
     allocation_output: Any,
     *,
     deploy_amount_inr: float,
     cadence: Cadence,
     current_value_by_subgroup: dict[str, float] | None = None,
     investable_corpus_inr: float = 0.0,
+    goal_share_inr: float = 0.0,
+    goal_subgroup: str | None = None,
 ) -> tuple[AdditionalInvestmentInput, dict[str, Any]]:
-    """Return ``(input, debug_dict)`` for ``run_additional_investment(...)``.
-
-    Holding-agnostic: the only DB-backed collaborator is the cashflow projection
-    (for the short/medium-term goal-funding flags); the BUY list is derived purely
-    from the ranked-fund CSV, and the per-fund caps key off the deploy amount, so
-    no corpus total is read.
-    """
-    user = ctx.user_ctx
-    asof = date.today()
-
+    """Return ``(input, debug_dict)`` for ``run_additional_investment(...)``."""
     # 1. Per-subgroup bucket amounts from the practical allocation — ALL rows pass
     #    through verbatim. The synthetic rows are dropped by the engine via
     #    exclude_subgroups (below), NOT hand-filtered here.
@@ -112,21 +74,11 @@ async def build_additional_investment_input_for_user(
         for row in allocation_output.aggregated_subgroups
     ]
 
-    # 2. Goal-funding flags — LEGACY path only (SIP, or lumpsum without a
-    #    holdings map). The deficit path skips the cashflow projection entirely:
-    #    its only consumer here was the nearest-unfunded label, which deficit
-    #    mode derives from the deployed money instead (spec 2026-07-03).
     deficit_mode = (
         cadence is Cadence.LUMPSUM and current_value_by_subgroup is not None
     )
-    if deficit_mode:
-        short_term_fulfilled, medium_term_fulfilled = False, False
-    else:
-        short_term_fulfilled, medium_term_fulfilled = await _goal_funding_flags(
-            user, asof
-        )
 
-    # 3. Ranked funds: flatten the per-subgroup ranking, carrying scheme_code (T2).
+    # 2. Ranked funds: flatten the per-subgroup ranking, carrying scheme_code (T2).
     ranking = get_fund_ranking()
     ranked_funds = [
         RankedFund(
@@ -141,7 +93,7 @@ async def build_additional_investment_input_for_user(
         for rr in rows
     ]
 
-    # 4. Per-subgroup caps over the ELIGIBLE rows (OTHERS default for unmapped
+    # 3. Per-subgroup caps over the ELIGIBLE rows (OTHERS default for unmapped
     #    subgroups). The cap is a percent of the DEPLOY amount, applied inside the
     #    engine — the builder reads no corpus total.
     cap_pct_by_subgroup = {
@@ -154,8 +106,8 @@ async def build_additional_investment_input_for_user(
         deploy_amount_inr=deploy_amount_inr,
         cadence=cadence,
         subgroups=subgroups,
-        short_term_fulfilled=short_term_fulfilled,
-        medium_term_fulfilled=medium_term_fulfilled,
+        goal_share_inr=goal_share_inr,
+        goal_subgroup=goal_subgroup,
         ranked_funds=ranked_funds,
         cap_pct_by_subgroup=cap_pct_by_subgroup,
         default_cap_pct=OTHERS_FUND_CAP_PCT,
@@ -172,11 +124,11 @@ async def build_additional_investment_input_for_user(
         lumpsum_fund_cap_floor_inr=AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     )
     debug = {
-        "deployment_mode": "deficit_fill" if deficit_mode else "single_bucket",
+        "deployment_mode": "deficit_fill" if deficit_mode else "long_term",
         "subgroup_count": len(subgroups),
         "ranked_fund_count": len(ranked_funds),
-        "short_term_fulfilled": short_term_fulfilled,
-        "medium_term_fulfilled": medium_term_fulfilled,
+        "goal_share_inr": goal_share_inr,
+        "goal_subgroup": goal_subgroup,
         "exclude_subgroups": sorted(_EXCLUDE_SUBGROUPS),
     }
     return inp, debug

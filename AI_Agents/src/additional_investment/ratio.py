@@ -3,7 +3,8 @@
 Goal money first: the goal share goes to the routed short-term subgroup by name.
 The rest follows the long-term column (SIP), or — with a holdings map (lumpsum)
 — the long-term deficits: each row's total minus its short-term column, against
-current holdings that exclude short-term money.
+the caller's map of current holdings with the goal-used held short-term money
+removed.
 """
 
 from __future__ import annotations

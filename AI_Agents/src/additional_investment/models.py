@@ -72,10 +72,9 @@ class AdditionalInvestmentInput(BaseModel):
     # rest follows the long-term plan (SIP) or the long-term deficits (lumpsum).
     goal_share_inr: float = Field(default=0.0, ge=0)
     goal_subgroup: Optional[str] = None
-    # Current holdings value per canonical asset subgroup (scheme_classification
-    # vocabulary). When set AND cadence is LUMPSUM, the engine runs DEFICIT FILL:
-    # deploy into max(0, ideal_total - current) gaps, proportionally. None (the
-    # default) preserves legacy behavior exactly.
+    # LUMPSUM only: current holdings per subgroup (scheme_classification vocabulary);
+    # the post-goal remainder deficit-fills each row's total − short_term against it.
+    # The caller removes only the goal-used held short-term money.
     current_value_by_subgroup: Optional[dict[str, float]] = None
     ranked_funds: list[RankedFund]
     # VESTIGIAL (spec 2026-09-24): per-fund caps no longer bound selection — top-1/2

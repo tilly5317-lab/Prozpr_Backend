@@ -67,8 +67,6 @@ async def test_sip_rebal_run_persists_through_real_json_column(db_session):
                 subgroup="large_cap_equities", long_term=100.0, total=100.0
             )
         ],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="large_cap_equities", sub_category="Large Cap Fund",

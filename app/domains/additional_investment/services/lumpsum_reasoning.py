@@ -2,8 +2,8 @@
 
 The additional-investment engine already decides WHERE fresh money goes: for a
 lumpsum it runs *deficit fill* — it computes the customer's ideal portfolio for
-their goals INCLUDING the new money, compares it with what they hold in each
-part of the portfolio today, and directs the money into the parts furthest
+their goals INCLUDING the new money, compares it with what they already hold
+toward each part of the portfolio, and directs the money into the parts furthest
 below their ideal (see ``ainv_engine/service.py``). This module turns those same
 facts — the per-subgroup ideal / current / gap and the plan's target horizon —
 into the plain-English "why this fund" lines the Invest → Lump sum page shows.
@@ -79,12 +79,13 @@ def build_fund_reason(
 ) -> str:
     """One plain-English sentence on why this fund is in the plan.
 
-    Ties the buy to (a) the customer's goal-based ideal and (b) how their current
-    holdings in this part of the portfolio compare with that ideal — the exact
-    logic the engine used to place the money. ``deficit_row`` is the matching
-    ``deficit_facts`` entry ({ideal_inr, current_inr, gap_inr, buy_inr}); when it
-    is absent (a legacy run persisted before deficit facts were stored, or a
-    no-holdings plan) the reason degrades to a rank/category line without the gap.
+    Ties the buy to (a) the customer's goal-based ideal and (b) ``current_inr``,
+    what counts toward the target — the exact logic the engine used to place the
+    money. ``deficit_row`` is the matching ``deficit_facts`` entry ({ideal_inr,
+    current_inr, gap_inr, buy_inr, goal_row}); runs persisted before ``goal_row``
+    existed lack it and read as False. When the row is absent (a legacy run
+    persisted before deficit facts were stored, or a no-holdings plan) the reason
+    degrades to a rank/category line without the gap.
     """
     label = subgroup_label(asset_subgroup)
     amount = format_inr_indian(amount_inr)
@@ -94,10 +95,27 @@ def build_fund_reason(
         ideal = float(deficit_row.get("ideal_inr", 0.0) or 0.0)
         current = float(deficit_row.get("current_inr", 0.0) or 0.0)
         gap = float(deficit_row.get("gap_inr", 0.0) or 0.0)
+        # The goal row's current includes debt and arbitrage funds held elsewhere,
+        # so it must never be called a holding in this subgroup.
+        if deficit_row.get("goal_row", False):
+            if gap >= 100.0:
+                return (
+                    f"Your near-term goals and plan need {format_inr_indian(ideal)} in "
+                    f"{label}; {format_inr_indian(current)} of the debt and arbitrage "
+                    "funds you already hold counts toward that — a "
+                    f"{format_inr_indian(gap)} shortfall. We put {amount} into "
+                    f"{recommended_fund}, {rank_phrase} {sub_category} pick, to help "
+                    "close that gap."
+                )
+            return (
+                "Your near-term goals and plan are already close to covered in "
+                f"{label}, so {amount} tops it up through {recommended_fund}, "
+                f"{rank_phrase} {sub_category} pick."
+            )
         if gap >= 100.0:
             return (
-                f"Your {label} sits at {format_inr_indian(current)} today against a "
-                f"goal-based ideal of {format_inr_indian(ideal)} — a "
+                f"{format_inr_indian(current)} of what you already hold counts toward "
+                f"your {label} target of {format_inr_indian(ideal)} — a "
                 f"{format_inr_indian(gap)} shortfall. We put {amount} into "
                 f"{recommended_fund}, {rank_phrase} {sub_category} pick, to help "
                 "close that gap."

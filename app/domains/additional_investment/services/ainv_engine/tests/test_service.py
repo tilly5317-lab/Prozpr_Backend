@@ -48,8 +48,6 @@ def _fake_ainv_input(deploy_amount_inr: float):
                 total=1_000_000.0,
             ),
         ],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="low_beta_equities",
@@ -218,31 +216,6 @@ async def _run_with_builder(svc, builder_mock, *, run_mock=None):
 
 
 @pytest.mark.asyncio
-async def test_incomplete_profile_dob_returns_blocking():
-    """The cashflow goal-funding step raising missing_date_of_birth surfaces the
-    DOB profile gate — not a generic error and not a raise."""
-    from app.domains.additional_investment.services.ainv_engine import service as svc
-
-    outcome = await _run_with_builder(
-        svc, AsyncMock(side_effect=ValueError("missing_date_of_birth"))
-    )
-    assert outcome.output is None
-    assert outcome.blocking_message == svc._MSG_MISSING_DOB
-
-
-@pytest.mark.asyncio
-async def test_incomplete_profile_required_inputs_returns_blocking():
-    """missing_required_inputs:<keys> -> the generic complete-your-profile gate."""
-    from app.domains.additional_investment.services.ainv_engine import service as svc
-
-    outcome = await _run_with_builder(
-        svc, AsyncMock(side_effect=ValueError("missing_required_inputs:monthly_income"))
-    )
-    assert outcome.output is None
-    assert outcome.blocking_message == svc._MSG_INCOMPLETE_PROFILE
-
-
-@pytest.mark.asyncio
 async def test_engine_failure_returns_blocking():
     """An engine crash returns the generic engine-error gate, never raising."""
     from app.domains.additional_investment.services.ainv_engine import service as svc
@@ -344,6 +317,7 @@ async def test_sip_takes_no_snapshot_and_no_pin():
 
     snapshot_mock.assert_not_called()
     assert paa_mock.call_args.kwargs["corpus_pin"] is None
+    assert paa_mock.call_args.kwargs["monthly_sip"] == 25000.0
     assert builder_mock.call_args.kwargs["current_value_by_subgroup"] is None
     assert outcome.deficit_facts is None
 
@@ -379,8 +353,6 @@ def _sip_empty_target_input(deploy: float):
                 total=deploy,
             ),
         ],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="short_debt",
@@ -421,8 +393,6 @@ def _sip_populated_input(deploy: float):
                 total=1_000_000.0,
             ),
         ],
-        short_term_fulfilled=True,
-        medium_term_fulfilled=True,
         ranked_funds=[
             RankedFund(
                 asset_subgroup="low_beta_equities",
@@ -701,3 +671,265 @@ async def test_lumpsum_never_reads_rebalancing():
 
     read_mock.assert_not_called()
     assert "rebal_buy_isins_by_subgroup" not in builder_mock.call_args.kwargs
+
+
+def _fake_alloc_with_goal_funding(to_goals=0.0, from_corpus=0.0, subgroup="arbitrage"):
+    alloc = _fake_alloc()
+    alloc.result.goal_funding = SimpleNamespace(
+        monthly_sip_to_goals=to_goals, from_corpus=from_corpus, asset_subgroup=subgroup,
+        allocated_amount=0, goals=[],
+    )
+    return alloc
+
+
+async def _run_sip(svc, paa, builder, deploy):
+    from additional_investment.models import Cadence
+
+    user = SimpleNamespace(id=uuid.uuid4())
+    with patch.object(svc, "compute_practical_allocation_result", new=paa), patch.object(
+        svc, "build_additional_investment_input_for_user", new=builder
+    ), patch.object(svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)):
+        return await svc.compute_additional_investment_result(
+            user, "start a sip", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=deploy, cadence=Cadence.SIP_MONTHLY,
+            chat_ctx=SimpleNamespace(), persist=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_sip_goal_share_comes_from_the_real_corpus_run():
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    builder = AsyncMock(return_value=(_sip_populated_input(25_000.0), {}))
+    paa = AsyncMock(return_value=_fake_alloc_with_goal_funding(to_goals=15_000.0))
+    await _run_sip(svc, paa, builder, 25_000.0)
+    assert builder.call_args.kwargs["goal_share_inr"] == 15_000.0
+    assert builder.call_args.kwargs["goal_subgroup"] == "arbitrage"
+
+
+@pytest.mark.asyncio
+async def test_thin_long_term_plan_rebuilds_from_a_sized_run_keeping_the_goal_share():
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    paa = AsyncMock(side_effect=[
+        _fake_alloc_with_goal_funding(to_goals=5_000.0),
+        _fake_alloc_with_goal_funding(to_goals=0.0),
+    ])
+    builder = AsyncMock(side_effect=[
+        (_sip_empty_target_input(20_000.0), {}),
+        (_sip_populated_input(20_000.0), {}),
+    ])
+    outcome = await _run_sip(svc, paa, builder, 20_000.0)
+    assert paa.await_count == 2
+    assert builder.await_args_list[1].kwargs["goal_share_inr"] == 5_000.0
+    assert len(outcome.output.buys) >= 1
+
+
+@pytest.mark.asyncio
+async def test_sip_entirely_for_goals_needs_no_long_term_plan():
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    paa = AsyncMock(return_value=_fake_alloc_with_goal_funding(to_goals=20_000.0))
+    builder = AsyncMock(return_value=(_sip_empty_target_input(20_000.0), {}))
+    await _run_sip(svc, paa, builder, 20_000.0)
+    assert paa.await_count == 1
+    assert builder.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_lumpsum_uses_long_term_holdings_and_facts_count_goal_money():
+    from additional_investment.models import (
+        AdditionalInvestmentInput,
+        Cadence,
+        RankedFund,
+        SubgroupBucketAmounts,
+    )
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    snapshot = HoldingsSnapshot(by_subgroup={
+        "near_debt": 100_000.0, "arbitrage": 50_000.0, "low_beta_equities": 400_000.0,
+    })
+    alloc = SimpleNamespace(
+        result=SimpleNamespace(
+            aggregated_subgroups=[
+                SimpleNamespace(subgroup="arbitrage", total=250_000.0, short_term=250_000.0),
+                SimpleNamespace(subgroup="low_beta_equities", total=600_000.0, short_term=0.0),
+            ],
+            goal_funding=SimpleNamespace(
+                allocated_amount=250_000, from_corpus=100_000.0, monthly_sip_to_goals=0.0,
+                asset_subgroup="arbitrage", goals=[SimpleNamespace(from_holdings=150_000.0)],
+            ),
+            human_override_applied=None,
+            corpus_breakdown=_fake_corpus_breakdown(),
+        ),
+        blocking_message=None,
+    )
+    engine_input = AdditionalInvestmentInput(
+        deploy_amount_inr=300_000.0, cadence=Cadence.LUMPSUM,
+        subgroups=[
+            SubgroupBucketAmounts(subgroup="arbitrage", short_term=250_000.0, total=250_000.0),
+            SubgroupBucketAmounts(subgroup="low_beta_equities", long_term=600_000.0, total=600_000.0),
+        ],
+        current_value_by_subgroup={"low_beta_equities": 400_000.0},
+        goal_share_inr=100_000.0, goal_subgroup="arbitrage",
+        ranked_funds=[
+            RankedFund(asset_subgroup="arbitrage", sub_category="Arbitrage Fund", rank=1,
+                       isin="INF000000021", scheme_code="100021", recommended_fund="Arb Fund"),
+            RankedFund(asset_subgroup="low_beta_equities", sub_category="Large Cap Fund", rank=1,
+                       isin="INF000000022", scheme_code="100022", recommended_fund="Bluechip"),
+        ],
+    )
+    paa = AsyncMock(return_value=alloc)
+    builder = AsyncMock(return_value=(engine_input, {}))
+    user = SimpleNamespace(id=uuid.uuid4())
+    with patch.object(svc, "load_holdings_snapshot", new=AsyncMock(return_value=snapshot)), \
+            patch.object(svc, "compute_practical_allocation_result", new=paa), \
+            patch.object(svc, "build_additional_investment_input_for_user", new=builder):
+        outcome = await svc.compute_additional_investment_result(
+            user, "invest 3 lakh", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=300_000.0, cadence=Cadence.LUMPSUM,
+            chat_ctx=SimpleNamespace(), persist=False,
+        )
+
+    assert paa.call_args.kwargs["short_term_holdings"] == 150_000.0
+    assert builder.call_args.kwargs["current_value_by_subgroup"] == {
+        "near_debt": 0.0, "arbitrage": 0.0, "low_beta_equities": 400_000.0,
+    }
+    assert builder.call_args.kwargs["goal_share_inr"] == 100_000.0
+    facts = {f["subgroup"]: f for f in outcome.deficit_facts}
+    assert (facts["arbitrage"]["ideal_inr"], facts["arbitrage"]["current_inr"], facts["arbitrage"]["gap_inr"]) == (
+        250_000.0, 150_000.0, 100_000.0,
+    )
+    assert (facts["low_beta_equities"]["ideal_inr"], facts["low_beta_equities"]["current_inr"]) == (
+        600_000.0, 400_000.0,
+    )
+    assert [sg for sg, f in facts.items() if f["goal_row"]] == ["arbitrage"]
+    assert (facts["arbitrage"]["buy_inr"], facts["low_beta_equities"]["buy_inr"]) == (
+        100_000.0, 200_000.0,
+    )
+
+
+# ── held short-term money: only what the goals use leaves `current` ─────────
+_HELD = {
+    "near_debt": 500_000.0,
+    "short_debt": 500_000.0,
+    "low_beta_equities": 400_000.0,
+    "arbitrage_plus_income": 300_000.0,
+}
+
+
+def test_long_term_holdings_unchanged_when_goals_use_no_held_money():
+    from app.domains.additional_investment.services.ainv_engine.service import _long_term_holdings
+
+    assert _long_term_holdings(_HELD, 0.0) == _HELD
+
+
+def test_long_term_holdings_removes_goal_money_proportionally():
+    from app.domains.additional_investment.services.ainv_engine.service import _long_term_holdings
+
+    assert _long_term_holdings(_HELD, 600_000.0) == {
+        "near_debt": 200_000.0,
+        "short_debt": 200_000.0,
+        "low_beta_equities": 400_000.0,
+        "arbitrage_plus_income": 300_000.0,
+    }
+
+
+def test_long_term_holdings_zeroes_short_term_when_goals_use_it_all():
+    from app.domains.additional_investment.services.ainv_engine.service import _long_term_holdings
+
+    assert _long_term_holdings(_HELD, 1_500_000.0) == {
+        "near_debt": 0.0,
+        "short_debt": 0.0,
+        "low_beta_equities": 400_000.0,
+        "arbitrage_plus_income": 300_000.0,
+    }
+
+
+async def _run_lumpsum_through_real_builder(snapshot, rows, goal_funding, deploy):
+    """Lumpsum through the REAL input builder (only the ranking CSV is stubbed), so
+    the holdings map the service computes is the one the engine deploys against."""
+    from additional_investment.models import Cadence
+    from app.domains.additional_investment.services.ainv_engine import input_builder as ib
+    from app.domains.additional_investment.services.ainv_engine import service as svc
+
+    alloc = SimpleNamespace(
+        result=SimpleNamespace(
+            aggregated_subgroups=rows,
+            goal_funding=goal_funding,
+            human_override_applied=None,
+            corpus_breakdown=_fake_corpus_breakdown(),
+        ),
+        blocking_message=None,
+    )
+    ranking = {
+        r.subgroup: [SimpleNamespace(
+            asset_subgroup=r.subgroup, sub_category="Fund", rank=1, isin=f"INF{i:09d}",
+            scheme_code=f"{i}", fund_name=f"{r.subgroup} fund",
+        )]
+        for i, r in enumerate(rows)
+    }
+    builder = AsyncMock(side_effect=ib.build_additional_investment_input_for_user)
+    user = SimpleNamespace(id=uuid.uuid4())
+    with patch.object(svc, "load_holdings_snapshot", new=AsyncMock(return_value=snapshot)), \
+            patch.object(svc, "compute_practical_allocation_result", new=AsyncMock(return_value=alloc)), \
+            patch.object(svc, "build_additional_investment_input_for_user", new=builder), \
+            patch.object(ib, "get_fund_ranking", return_value=ranking):
+        outcome = await svc.compute_additional_investment_result(
+            user, "invest", db=SimpleNamespace(), acting_user_id=user.id,
+            chat_session_id=None, deploy_amount_inr=deploy, cadence=Cadence.LUMPSUM,
+            chat_ctx=SimpleNamespace(), persist=False,
+        )
+    return outcome, builder
+
+
+@pytest.mark.asyncio
+async def test_held_debt_beyond_the_goals_still_covers_the_emergency_target():
+    """10L held in short_debt, no short-term goals: that money still counts against
+    the 3L emergency target, so a 2L lumpsum buys no short_debt (as in 3.4.0)."""
+    from additional_investment.models import SubgroupBucketAmounts
+
+    snapshot = HoldingsSnapshot(by_subgroup={
+        "short_debt": 1_000_000.0, "low_beta_equities": 2_000_000.0,
+    })
+    rows = [
+        SubgroupBucketAmounts(subgroup="short_debt", emergency=300_000.0, total=300_000.0),
+        SubgroupBucketAmounts(subgroup="arbitrage_plus_income", long_term=900_000.0, total=900_000.0),
+        SubgroupBucketAmounts(subgroup="low_beta_equities", long_term=2_000_000.0, total=2_000_000.0),
+    ]
+    no_goals = SimpleNamespace(
+        allocated_amount=0, from_corpus=0.0, monthly_sip_to_goals=0.0,
+        asset_subgroup="short_debt", goals=[],
+    )
+    outcome, builder = await _run_lumpsum_through_real_builder(snapshot, rows, no_goals, 200_000.0)
+
+    assert builder.call_args.kwargs["current_value_by_subgroup"] == snapshot.by_subgroup
+    assert "short_debt" not in {b.asset_subgroup for b in outcome.output.buys}
+    assert outcome.output.deployed_inr == 200_000.0
+
+
+@pytest.mark.asyncio
+async def test_preference_run_counts_full_holdings_as_current():
+    """No goal_funding (a preference run): nothing is carved out, so the engine and
+    the facts see the full holdings, exactly as in 3.4.0."""
+    from additional_investment.models import SubgroupBucketAmounts
+
+    snapshot = HoldingsSnapshot(by_subgroup={
+        "short_debt": 100_000.0, "low_beta_equities": 400_000.0,
+    })
+    rows = [
+        SubgroupBucketAmounts(subgroup="short_debt", emergency=300_000.0, total=300_000.0),
+        SubgroupBucketAmounts(subgroup="low_beta_equities", long_term=600_000.0, total=600_000.0),
+    ]
+    outcome, builder = await _run_lumpsum_through_real_builder(snapshot, rows, None, 100_000.0)
+
+    assert builder.call_args.kwargs["current_value_by_subgroup"] == snapshot.by_subgroup
+    assert builder.call_args.kwargs["goal_share_inr"] == 0.0
+    facts = {f["subgroup"]: f for f in outcome.deficit_facts}
+    assert (facts["short_debt"]["ideal_inr"], facts["short_debt"]["current_inr"]) == (
+        300_000.0, 100_000.0,
+    )
+    assert (facts["low_beta_equities"]["ideal_inr"], facts["low_beta_equities"]["current_inr"]) == (
+        600_000.0, 400_000.0,
+    )
+    assert not any(f["goal_row"] for f in outcome.deficit_facts)

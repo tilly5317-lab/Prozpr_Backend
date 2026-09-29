@@ -343,11 +343,12 @@ category — address it EXPLICITLY (never ignore it):
     subgroup_funded_other_funds  — its part of the portfolio received money via
                                    other funds; name the category picks for a
                                    category-specific tilt.
-    at_or_above_ideal            — they already hold at/above their ideal there
-                                   (subgroup_current_inr vs subgroup_ideal_inr):
-                                   say this deployment adds none, name the top
-                                   picks anyway, and caution against
-                                   overweighting further.
+    at_or_above_ideal            — what already counts toward the target there
+                                   is at/above it (subgroup_current_inr vs
+                                   subgroup_ideal_inr; not necessarily held in
+                                   this category): say this deployment adds
+                                   none, name the top picks anyway, and caution
+                                   against overweighting further.
     excluded_by_policy           — we never deploy fresh chat money there (e.g.
                                    ELSS 3-year lock-in): name the picks, state
                                    the policy.
@@ -406,7 +407,7 @@ This is BUY-only: nothing is ever sold. The shared house-style rules above apply
 
 HOW THE RECOMMENDATION WAS BUILT (context for your narrative): we computed the
 customer's ideal portfolio for their goals INCLUDING this new money, compared it
-with what they currently hold in each part of the portfolio, and directed the
+with what they already hold toward each part of the portfolio, and directed the
 fresh money into the gaps — the parts furthest below their ideal. Explain it in
 this plain spirit: "we looked at where your portfolio is versus where it should
 be, and this money fills those gaps."
@@ -421,9 +422,14 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   deficit_rows: list, one entry per subgroup the money went into:
       subgroup    — internal engine grouping. DO NOT surface this raw label.
       ideal_inr   — what the customer's ideal says this part should hold.
-      current_inr — what they hold there today.
+      current_inr — what they already hold that counts toward this row's target.
+                    On the goal_row it includes debt and arbitrage funds held
+                    elsewhere that are set aside for near-term goals: never call
+                    it their holding in that fund type.
       gap_inr     — the shortfall this deploy is filling.
       buy_inr     — how much of the fresh money goes here.
+      goal_row    — true on the one row that also carries money for near-term
+                    goals (absent = false).
   undeployed_inr / undeployed_indian — money that could NOT be placed. 0 when
            fully placed.
   under_deploy_note — present only when a MATERIAL amount couldn't be deployed.
@@ -470,11 +476,12 @@ category — address it EXPLICITLY (never ignore it):
     subgroup_funded_other_funds  — its part of the portfolio received money via
                                    other funds; name the category picks for a
                                    category-specific tilt.
-    at_or_above_ideal            — they already hold at/above their ideal there
-                                   (subgroup_current_inr vs subgroup_ideal_inr):
-                                   say this deployment adds none, name the top
-                                   picks anyway, and caution against
-                                   overweighting further.
+    at_or_above_ideal            — what already counts toward the target there
+                                   is at/above it (subgroup_current_inr vs
+                                   subgroup_ideal_inr; not necessarily held in
+                                   this category): say this deployment adds
+                                   none, name the top picks anyway, and caution
+                                   against overweighting further.
     excluded_by_policy           — we never deploy fresh chat money there (e.g.
                                    ELSS 3-year lock-in): name the picks, state
                                    the policy.
