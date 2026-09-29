@@ -1,7 +1,7 @@
 # Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
-*Thesis version 1.6 · Internal & client reference · Last updated: September 2026*
+*Thesis version 1.7 · Internal & client reference · Last updated: September 2026*
 
 ---
 
@@ -38,7 +38,12 @@ We form a view on your *ability* to take risk (from your age, income and expense
 ### Step 2 — Carve-outs for short-term needs: protect the near term first
 
 - **Emergency fund (off by default today):** your default plan does NOT carve out an emergency reserve — it puts your full corpus to work against your goals. The approach supports reserving a few months of household expenses in liquid, low-volatility funds ahead of every other bucket, and you can see that effect on your plan as a what-if in chat; it just isn't part of the standard plan today.
-- **Short-term goals:** near-term outflows are kept entirely in fixed income so the money is available on demand. We favour the most tax-efficient fixed-income structure for your tax situation, leaning toward arbitrage-style funds for higher-tax clients and plain debt otherwise.
+- **Short-term goals:** near-term outflows are kept entirely in fixed income so the money is available on demand. Each goal is valued at what it will cost on its date, inflation included, and goals are funded nearest first from three sources, in order:
+  1. **Debt and arbitrage funds you already hold.**
+  2. **Your monthly SIP, front-loaded** — all of it counts toward the nearest goal not yet covered until that goal is covered, then toward the next, rather than being split across goals.
+  3. **Your existing savings** — set aside in fixed income now, but only for the part your SIP cannot build up by each goal's date.
+
+  We assume none of this money earns a return; any growth simply counts the next time your plan is worked out. If your savings cannot cover what is left, we report the shortfall rather than hide it, and any SIP your goals don't need goes to your long-term plan. This ideal plan assumes you hold nothing yet, so it starts from the SIP you have told us about; the plan built on the portfolio you actually own starts from the debt and arbitrage funds you hold (see `Practical_Asset_Allocation.md`). We favour the most tax-efficient fixed-income structure for your tax situation, leaning toward arbitrage-style funds for higher-tax clients and plain debt otherwise.
 - **Negative net financial assets:** when near-term liabilities exceed liquid assets, the shortfall is added to the protected pool and kept in debt before any equity exposure is contemplated.
 
 **Why this matters:** any short-term need must sit in less volatile investments. Equity and commodities are volatile in the short run but more predictable over the long run. Match short-term goals with short-duration assets, and long-term goals with long-term investments. One of the most common reasons long-term portfolios fail is a forced sale at the wrong time — carve-outs make that structurally unlikely.
@@ -87,6 +92,7 @@ The remaining corpus is allocated across **equities**, **debt** and **others** b
 | --- | --- |
 | **Why is my equity at X% and not higher?** | Usually one or more of: (a) a lower risk profile — we can identify which input (age, income and expenses, debt, property) is driving it; (b) short- and medium-term goals being funded first, which need less volatile assets and crowd out equity; (c) a currently cautious house view on equities, nudging the allocation toward the lower end of its band. |
 | **Why so much in liquid / short debt?** | Same triage: a lower risk profile leaning to debt, or significant near-term goals consuming the corpus — near-term money is kept in fixed income by construction. |
+| **Why isn't the full cost of my near-term goal set aside from my savings?** | Because your monthly SIP counts first. Whatever it can build up by the goal's date doesn't need to leave your savings today, so only the part it can't reach in time is set aside in fixed income now — and if even that is more than your savings can cover, we tell you the shortfall. In the plan built on the portfolio you actually own, debt and arbitrage funds you already hold count before the SIP (see `Practical_Asset_Allocation.md`). |
 | **Why hybrid (multi-asset) funds in particular?** | Tax efficiency on the debt portion, built-in diversification across equity styles and sometimes international assets and commodities, and lower churn because the manager rebalances within the fund. |
 | **Why won't you just chase the hot sector?** | Sector exposure is bounded by design and only ever a modest slice. We don't chase hot sectors; we allocate to sectors whose valuations have cheapened or that have genuine structural tailwinds. |
 | **What changes when markets change?** | Our market view nudges allocations toward conviction *within* the bands — never beyond them. We can always explain why the view is set the way it is. |
@@ -97,4 +103,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Allocation Thesis v1.6 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Allocation Thesis v1.7 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

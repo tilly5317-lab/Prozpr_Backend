@@ -1,7 +1,7 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.4 · Internal & client reference · Last updated: 19 September 2026*
+*Thesis version 1.5 · Internal & client reference · Last updated: 29 September 2026*
 
 ---
 
@@ -44,7 +44,7 @@ Every Ask PI rebalance is the output of a holdings-aware pre-stage and six delib
 
 ### Step 0 — Practical pre-stage: translate ideal into a holdings-aware plan
 
-Before anything is traded, the practical allocation step translates your ideal targets into the portfolio you actually hold: it accounts for locked tax-saving units, recognises direct-stock and PMS holdings up to a sensible ceiling, and flags any over-concentration to reduce. The output of that step is what this engine works from. See `Practical_Asset_Allocation.md`.
+Before anything is traded, the practical allocation step translates your ideal targets into the portfolio you actually hold: it accounts for locked tax-saving units, recognises direct-stock and PMS holdings up to a sensible ceiling, and flags any over-concentration to reduce. It also sets how much your near-term goals need in short-term debt: the debt and arbitrage funds already in the portfolio being rebalanced count first, then your monthly SIP, and savings are moved only for what the SIP can't build up by each goal's date. Debt beyond what those goals need is part of your long-term plan and is rebalanced like everything else. (A saved investment preference suspends this near-term carve-out.) The output of that step is what this engine works from. See `Practical_Asset_Allocation.md`.
 
 ### Step 1 — Size each fund under concentration caps
 
@@ -53,6 +53,8 @@ Each asset subgroup in your plan maps to one or more recommended funds, ordered 
 ### Step 2 — Compare to present holdings: hold, top up, trim or exit
 
 We join the targets to your current holdings and label each fund: hold, top up, trim or exit. A holding already close to its target emits no action — the recommendation lists only what is actually changing. Two situations override that: a fund our research team has explicitly marked for exit, or one whose quality has fallen below our floor, is exited regardless of how small the drift looks. A fund you hold that is merely no longer on our active recommended list sits in between: it gets no fresh money, its long-term units migrate to recommended funds when buys need funding, and its short-term units are left alone.
+
+Debt follows one more rule: we never sell a debt fund you hold just to buy another debt fund. Every planned debt sale is first set against the plan's debt buys — across every kind of debt fund, including ones no longer on our recommended list — and where the two match, your existing fund is kept, the buy shrinks, and the plan notes how much it kept. A debt fund marked for exit, or below our quality floor, is still exited, and debt with no matching debt buy — more than your plan needs — can still be sold to fund other parts of the plan, such as equity.
 
 ### Step 3 — Classify every lot for tax
 
@@ -76,10 +78,11 @@ We output the final trade list, each line with a plain-English reason, plus tota
 | --- | --- |
 | **You're not touching fund X — shouldn't we rebalance it?** | Its gap to target is within our "close enough" threshold. Trading it would risk a capital-gains tax bill for cosmetic precision. We act when it matters; we don't trade for the sake of trading. |
 | **Why are you exiting fund Y? It seems to be doing fine.** | Either our research team has explicitly marked it for exit (replaced or de-listed it), or its quality rating has dropped below our floor. Both are quality signals independent of recent performance, and they override the "close enough" threshold by design. |
-| **Fund W isn't on your recommended list any more — why aren't you exiting it?** | Not every off-list fund is a must-sell. Unless our research has marked it for exit or its rating breaks our floor, we simply stop adding to it: its long-term units migrate to recommended funds when buys need funding, and its short-term units stay put so you don't pay avoidable short-term tax on a fund that's still fine to hold. |
+| **Fund W isn't on your recommended list any more — why aren't you exiting it?** | Not every off-list fund is a must-sell. Unless our research has marked it for exit or its rating breaks our floor, we simply stop adding to it: its long-term units migrate to recommended funds when buys need funding, and its short-term units stay put so you don't pay avoidable short-term tax on a fund that's still fine to hold. A debt fund goes one step further: it is never sold just to buy another debt fund, so it keeps counting toward your debt target unless your plan needs less debt overall. |
+| **Why didn't you move my debt fund into your recommended one?** | Because switching one debt fund for another leaves what you actually hold unchanged and can trigger a tax bill. We set every planned debt sale against the plan's debt buys and keep your existing fund where they match. A debt fund marked for exit, or below our quality floor, is still exited, and if you hold more debt than your plan needs, the excess can still move into other parts of your plan. |
 | **Why are you selling my oldest units first?** | Tax. Long-term gains are taxed at 12.5% above a ₹1,25,000 annual exemption — usually the cheapest units to liquidate — and units sitting on a loss are cheaper still, because losses offset gains. For a routine trim we stop there: short-term units are sold only when a fund has to be exited outright. The policy is the same every run. |
 | **You wanted to trim fund Z but the trade is smaller — why?** | Most likely your short-term-gains budget for the year was hit before the full demand could execute. The deferred amount is re-attempted in the second pass against any carryforward losses you have. If both passes still leave it short, the residual is reported, not hidden. |
-| **Why are my buys smaller than the plan said?** | We fund every buy from a sell — buys never exceed sells. If allowed sells fell short (because the gains budget bit, losses ran out, or you held mostly fresh units), buys are scaled down proportionally and the shortfall reported. Fresh capital is handled in a separate step before rebalancing. |
+| **Why are my buys smaller than the plan said?** | We fund every buy from a sell — buys never exceed sells. If allowed sells fell short (because the gains budget bit, losses ran out, or you held mostly fresh units), buys are scaled down proportionally and the shortfall reported. A debt buy can also shrink because a debt fund you already hold was kept in its place. Fresh capital is handled in a separate step before rebalancing. |
 | **Why aren't you touching my ELSS even though it's off-target?** | Tax-saving (ELSS) units carry a statutory 3-year lock-in. We show the locked amount and count it toward your plan, but generate no trades for it until the units unlock. |
 | **You asked me to reduce my direct stocks without saying which — why?** | Single stocks and PMS sit outside our fund-level mandate. We can tell you *how much* to reduce based on your concentration, but picking *which* names to trim is a decision for you and your advisor. |
 | **What if I add money next month — will you re-run?** | Yes — rebalancing is event-based. There's no fixed cadence; we run it when an advisor asks. Inflows that change the corpus go through a fresh allocation step first, and rebalancing then aligns the result with your holdings. |
@@ -90,4 +93,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask PI · Rebalancing Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Rebalancing Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
