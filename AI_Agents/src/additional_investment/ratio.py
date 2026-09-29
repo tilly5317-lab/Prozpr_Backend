@@ -1,11 +1,9 @@
 """Subgroup splits for additional investment. Pure, no state, no I/O.
 
-Two split modes live here. LEGACY (SIP, or lumpsum without a holdings map): the
-deposit is deployed toward the nearest unfunded goal — subgroups are weighted by
-that horizon bucket's column (short / medium / long-term), renormalised to a
-ratio, and the deploy amount is split by it; emergency is never a target.
-DEFICIT FILL (lumpsum with a holdings map, spec 2026-07-03): the deposit fills
-the gaps between the post-investment ideal and current holdings.
+Goal money first: the goal share goes to the routed short-term subgroup by name.
+The rest follows the long-term column (SIP), or — with a holdings map (lumpsum)
+— the long-term deficits: each row's total minus its short-term column, against
+current holdings that exclude short-term money.
 """
 
 from __future__ import annotations
@@ -15,56 +13,6 @@ from .models import (
     SubgroupTarget,
     TargetBucket,
 )
-
-
-def select_target_bucket(short_term_fulfilled: bool, medium_term_fulfilled: bool) -> TargetBucket:
-    """First unfunded bucket in priority short → medium → long.
-
-    Long-term is the target whenever short and medium are both fulfilled — whether
-    long-term itself is still unfunded or every goal is funded (keep building long-term).
-    """
-    if not short_term_fulfilled:
-        return TargetBucket.SHORT_TERM
-    if not medium_term_fulfilled:
-        return TargetBucket.MEDIUM_TERM
-    return TargetBucket.LONG_TERM
-
-
-def _bucket_weight(row: SubgroupBucketAmounts, bucket: TargetBucket) -> float:
-    """Per-subgroup weight = its amount in the target bucket's column."""
-    return max(getattr(row, bucket.value), 0.0)
-
-
-def compute_targets(
-    subgroups: list[SubgroupBucketAmounts],
-    short_term_fulfilled: bool,
-    medium_term_fulfilled: bool,
-    deploy_amount: float,
-    exclude_subgroups: set[str] = frozenset(),
-) -> tuple[TargetBucket, list[SubgroupTarget]]:
-    """Weight subgroups by the target bucket's column, renormalise to ratios, and split the deploy amount.
-
-    Subgroups in `exclude_subgroups` get zero weight, so they receive no target and
-    their share renormalises onto the remaining (eligible) subgroups.
-    """
-    bucket = select_target_bucket(short_term_fulfilled, medium_term_fulfilled)
-    weights = {
-        r.subgroup: (0.0 if r.subgroup in exclude_subgroups else _bucket_weight(r, bucket))
-        for r in subgroups
-    }
-    total_weight = sum(weights.values())
-    targets: list[SubgroupTarget] = []
-    if total_weight <= 0:
-        return bucket, targets
-    for row in subgroups:
-        w = weights[row.subgroup]
-        if w <= 0:
-            continue
-        ratio = w / total_weight
-        targets.append(
-            SubgroupTarget(subgroup=row.subgroup, ratio=ratio, target_inr=ratio * deploy_amount)
-        )
-    return bucket, targets
 
 
 def compute_deficit_targets(
@@ -121,27 +69,62 @@ def compute_deficit_targets(
     return targets
 
 
-def dominant_bucket(
-    targets: list[SubgroupTarget],
+def compute_long_term_targets(
     subgroups: list[SubgroupBucketAmounts],
-) -> TargetBucket:
-    """Horizon that receives the most deployed money — the deficit-mode label.
+    deploy_amount: float,
+    exclude_subgroups: set[str] = frozenset(),
+) -> list[SubgroupTarget]:
+    """Split by each eligible subgroup's long-term column, renormalised."""
+    weights = {
+        r.subgroup: 0.0 if r.subgroup in exclude_subgroups else max(r.long_term, 0.0)
+        for r in subgroups
+    }
+    total_weight = sum(weights.values())
+    if total_weight <= 0:
+        return []
+    return [
+        SubgroupTarget(
+            subgroup=r.subgroup,
+            ratio=weights[r.subgroup] / total_weight,
+            target_inr=weights[r.subgroup] / total_weight * deploy_amount,
+        )
+        for r in subgroups
+        if weights[r.subgroup] > 0
+    ]
 
-    Each target's rupees are apportioned to short/medium/long by its subgroup's
-    horizon composition (bucket column / total). Deterministic tie-break: the
-    iteration order below means LONG_TERM wins ties (and the empty case).
-    """
-    rows = {r.subgroup: r for r in subgroups}
-    order = (TargetBucket.LONG_TERM, TargetBucket.MEDIUM_TERM, TargetBucket.SHORT_TERM)
-    scores = {b: 0.0 for b in order}
-    for t in targets:
-        row = rows.get(t.subgroup)
-        if row is None or row.total <= 0:
-            continue
-        for b in order:
-            scores[b] += t.target_inr * (max(getattr(row, b.value), 0.0) / row.total)
-    best = order[0]
-    for b in order:
-        if scores[b] > scores[best]:
-            best = b
-    return best
+
+def compute_goal_first_targets(
+    subgroups: list[SubgroupBucketAmounts],
+    deploy_amount: float,
+    goal_share: float,
+    goal_subgroup: str | None,
+    exclude_subgroups: set[str] = frozenset(),
+    current_by_subgroup: dict[str, float] | None = None,
+) -> tuple[TargetBucket, list[SubgroupTarget]]:
+    """Goal money first, into goal_subgroup by name — never weighted by the
+    short-term column, which is empty when the plan holds no short-term money."""
+    goal = min(goal_share, deploy_amount) if goal_subgroup else 0.0
+    rest = deploy_amount - goal
+    rest_targets: list[SubgroupTarget] = []
+    if rest > 0:
+        if current_by_subgroup is None:
+            rest_targets = compute_long_term_targets(subgroups, rest, exclude_subgroups)
+        else:
+            long_term_rows = [
+                r.model_copy(update={"total": max(0.0, r.total - r.short_term), "short_term": 0.0})
+                for r in subgroups
+            ]
+            rest_targets = compute_deficit_targets(
+                long_term_rows, current_by_subgroup, rest, exclude_subgroups
+            )
+    amounts: dict[str, float] = {}
+    if goal > 0:
+        amounts[goal_subgroup] = goal
+    for t in rest_targets:
+        amounts[t.subgroup] = amounts.get(t.subgroup, 0.0) + t.target_inr
+    targets = [
+        SubgroupTarget(subgroup=sg, ratio=amt / deploy_amount, target_inr=amt)
+        for sg, amt in amounts.items()
+    ]
+    bucket = TargetBucket.SHORT_TERM if goal * 2 >= deploy_amount else TargetBucket.LONG_TERM
+    return bucket, targets

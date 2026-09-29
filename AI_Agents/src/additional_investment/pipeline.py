@@ -11,7 +11,7 @@ from .models import (
 )
 from Rebalancing.config import SUBGROUP_FUND_COUNT_THRESHOLD_INR  # type: ignore[import-not-found]
 
-from .ratio import compute_deficit_targets, compute_targets, dominant_bucket
+from .ratio import compute_goal_first_targets
 from .selection import select_funds
 
 
@@ -58,21 +58,14 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     non-zero when fund scarcity (a subgroup with too few ranked funds, or a share
     rounding below one multiple) prevents fully deploying the requested amount.
     """
-    if inp.cadence is Cadence.LUMPSUM and inp.current_value_by_subgroup is not None:
-        # Deficit fill (spec 2026-07-03): deploy into the gaps between the
-        # post-investment ideal (caller ran PAA at corpus + deploy) and current
-        # holdings. target_bucket becomes the dominant horizon of the deployed
-        # money — a truthful label, not the split driver.
-        targets = compute_deficit_targets(
-            inp.subgroups, inp.current_value_by_subgroup,
-            inp.deploy_amount_inr, inp.exclude_subgroups,
-        )
-        bucket = dominant_bucket(targets, inp.subgroups)
-    else:
-        bucket, targets = compute_targets(
-            inp.subgroups, inp.short_term_fulfilled, inp.medium_term_fulfilled,
-            inp.deploy_amount_inr, inp.exclude_subgroups,
-        )
+    bucket, targets = compute_goal_first_targets(
+        inp.subgroups,
+        inp.deploy_amount_inr,
+        inp.goal_share_inr,
+        inp.goal_subgroup,
+        inp.exclude_subgroups,
+        inp.current_value_by_subgroup if inp.cadence is Cadence.LUMPSUM else None,
+    )
     # Each subgroup's target goes to its top-N ranked funds, N by corpus
     # (spec 2026-09-24); SIP and lumpsum now select identically.
     n_funds = _funds_per_subgroup(inp.investable_corpus_inr)

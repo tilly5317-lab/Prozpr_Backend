@@ -23,7 +23,7 @@ class Cadence(str, Enum):
 
 
 class TargetBucket(str, Enum):
-    """Horizon bucket the deposit is deployed toward (the nearest unfunded goal)."""
+    """Horizon that receives most of the deposit — a label, not the split driver."""
 
     SHORT_TERM = "short_term"
     MEDIUM_TERM = "medium_term"
@@ -68,14 +68,10 @@ class AdditionalInvestmentInput(BaseModel):
     # Investable corpus at deploy time (= total_corpus − non_mf_equity), pre-computed
     # by the caller; decides 1 vs 2 funds per subgroup (spec 2026-09-24). 0 → N=1.
     investable_corpus_inr: float = Field(default=0.0, ge=0)
-    # Goal-funding status (from the caller). Drives ONLY the legacy single-bucket
-    # path (SIP, or lumpsum without a holdings map): the deposit targets the
-    # nearest unfunded goal. Defaults exist because the deficit path ignores
-    # them (deficit-fill needs no goal flags — the post-investment ideal already
-    # encodes goal priority). long_term_fulfilled is intentionally not needed:
-    # long-term is always the fallback target.
-    short_term_fulfilled: bool = False
-    medium_term_fulfilled: bool = False
+    # Money for short-term goals, deployed first into goal_subgroup by name; the
+    # rest follows the long-term plan (SIP) or the long-term deficits (lumpsum).
+    goal_share_inr: float = Field(default=0.0, ge=0)
+    goal_subgroup: Optional[str] = None
     # Current holdings value per canonical asset subgroup (scheme_classification
     # vocabulary). When set AND cadence is LUMPSUM, the engine runs DEFICIT FILL:
     # deploy into max(0, ideal_total - current) gaps, proportionally. None (the
