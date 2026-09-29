@@ -1,7 +1,8 @@
 """Spec 2026-09-15 §5/§6/§8 — the preferences screen speaks a COMPLETE distribution.
 
 §5: `multi_asset` is attributed 65/25/10 for the class-fit check, the way the
-engine actually carves it — not wholly as equity.
+engine actually carves it — not wholly as equity — on the screen's
+whole-percent carve, so the screen's own balanced numbers pass.
 §6: a blank row is a zero, a zero is a valid entry, and it must round-trip.
 §8: the recommendation the screen shows keeps the carve-outs (it is Prozpr's
 actual advice), and accepting it verbatim must reproduce materially the same
@@ -10,6 +11,7 @@ per-subgroup allocation. That is the proof §7's pro-rata debt split is complete
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -104,7 +106,7 @@ def _accept_the_recommendation(inp, recommended):
         _class_mix(recommended),
         [
             {"subgroup": c.id, "pct_of_total": c.recommended_pct_of_total}
-            for c in subcategory_catalog(recommended)
+            for c in subcategory_catalog(recommended, inp)
         ],
     )
     return run_practical_allocation(
@@ -130,6 +132,17 @@ def _class_mix(out) -> dict:
 
 def _subgroups(out) -> dict:
     return {r.subgroup: r.total for r in out.aggregated_subgroups}
+
+
+def _screen_carve(ask: int) -> dict:
+    """The frontend's carve of a whole-percent sleeve, off the composition the
+    GET hands it: `Math.round` (half up) for debt and others, equity the rest."""
+    from asset_allocation_pydantic.tables import DEFAULT_MULTI_ASSET_COMPOSITION_PCTS
+
+    _, debt_pct, others_pct = DEFAULT_MULTI_ASSET_COMPOSITION_PCTS
+    debt = math.floor(ask * debt_pct / 100 + 0.5)
+    others = math.floor(ask * others_pct / 100 + 0.5)
+    return {"equity": ask - debt - others, "debt": debt, "others": others}
 
 
 # ---------------------------------------------------------------------------
@@ -168,20 +181,74 @@ class TestMultiAssetIsAttributed:
         )
         assert r.subgroup_emphasis["multi_asset"] == pytest.approx(20.0)
 
-    def test_the_slices_come_from_the_engine_not_a_literal(self):
-        """Read the proportions off `multi_asset_composition` so validation and
-        the engine's carve cannot drift apart."""
-        from asset_allocation_pydantic.tables import (
-            DEFAULT_MULTI_ASSET_COMPOSITION_PCTS,
+    @pytest.mark.parametrize(
+        ("ask", "equity", "debt", "others"),
+        [
+            (20, 13, 5, 2),
+            (55, 35, 14, 6),  # debt 13.75 -> 14, others 5.5 -> 6
+            (6, 3, 2, 1),  # debt 1.5 -> 2, others 0.6 -> 1
+            (10, 6, 3, 1),  # debt 2.5 -> 3 half up (banker's round gives 2)
+            (45, 29, 11, 5),  # others 4.5 -> 5 half up (banker's round gives 4)
+            (0, 0, 0, 0),
+        ],
+    )
+    def test_the_sleeve_is_charged_the_screens_whole_percent_carve(
+        self, ask, equity, debt, others
+    ):
+        from app.domains.profile.services.screen_preference_service import (
+            _class_budget_consumed,
         )
+
+        assert _class_budget_consumed("multi_asset", ask) == {
+            "equity": equity,
+            "debt": debt,
+            "others": others,
+        }
+
+    def test_the_carve_comes_from_the_engine_not_a_literal(self, monkeypatch):
+        """The check reads the proportions off `multi_asset_composition`, so
+        validation and the engine's carve cannot drift apart."""
         from app.domains.profile.services import screen_preference_service as svc
 
-        eq, dt, ot = DEFAULT_MULTI_ASSET_COMPOSITION_PCTS
-        assert svc._MULTI_ASSET_SLICES == {
-            "equity": eq / 100.0,
-            "debt": dt / 100.0,
-            "others": ot / 100.0,
+        monkeypatch.setattr(
+            svc, "_MULTI_ASSET_COMPOSITION", {"equity": 50.0, "debt": 30.0, "others": 20.0}
+        )
+        assert svc._class_budget_consumed("multi_asset", 10) == {
+            "equity": 5,
+            "debt": 3,
+            "others": 2,
         }
+
+    @pytest.mark.parametrize(
+        ("mix", "ask"),
+        [((78, 16, 6), x) for x in range(65)] + [((70, 20, 10), 66), ((85, 10, 5), 41)],
+        ids=lambda v: "/".join(map(str, v)) if isinstance(v, tuple) else f"sleeve{v}",
+    )
+    def test_the_screens_own_balanced_pins_validate(self, mix, ask):
+        """The screen carves the sleeve on WHOLE percents (debt and others
+        rounded half up, equity the rest) and fills each class's rows to
+        exactly `class % - that part`. Charged at the raw 65/25/10 instead, its
+        equity rows overshot by up to 0.9 and ~1 ask in 5 was rejected."""
+        from app.domains.profile.services.screen_preference_service import (
+            _settable_subcategory_ids,
+        )
+
+        e, d, o = mix
+        part = _screen_carve(ask)
+        filled = {
+            "multi_asset": ask,
+            "low_beta_equities": e - part["equity"],
+            "arbitrage_plus_income": d - part["debt"],
+            "gold_commodities": o - part["others"],
+        }
+        pins = [
+            {"subgroup": sg, "pct_of_total": filled.get(sg, 0)}
+            for sg in _settable_subcategory_ids()
+        ]
+
+        r = resolve_screen_preferences({"equity": e, "debt": d, "others": o}, pins)
+
+        assert r.subgroup_emphasis["multi_asset"] == ask
 
     def test_the_sleeve_still_shares_the_equity_bar_with_equity_rows(self):
         # 20% sleeve (13 equity) + 10% large-cap = 23 > a 20% equity bar.
@@ -309,7 +376,7 @@ class TestTheRecommendationIsAFixedPoint:
         inp, recommended = _neutral_run(_NEAR_TERM_GOALS)
         preferred = _accept_the_recommendation(inp, recommended)
 
-        catalog = {c.id: c.recommended_pct_of_total for c in subcategory_catalog(recommended)}
+        catalog = {c.id: c.recommended_pct_of_total for c in subcategory_catalog(recommended, inp)}
         placed = _subgroups(preferred)
         named = {sg: pct for sg, pct in catalog.items()
                  if pct > 0 and CLASS_OF[sg] == "debt"}
@@ -418,9 +485,9 @@ def test_settable_rows_cover_the_whole_portfolio():
     a catalog that stops covering the whole portfolio silently mis-targets every
     budget on it. The 0.6 tolerance is per-row rounding; anything larger means
     `elss_corpus` has become non-zero on this path."""
-    _, out = _neutral_run()
+    inp, out = _neutral_run()
 
-    total = sum(c.recommended_pct_of_total for c in subcategory_catalog(out))
+    total = sum(c.recommended_pct_of_total for c in subcategory_catalog(out, inp))
     assert total == pytest.approx(100.0, abs=0.6)
 
 
@@ -483,6 +550,7 @@ class TestCarveOutsAtRiskOnTheGetResponse:
         resp = ScreenPreferenceGetResponse(
             recommendation={"class_mix": {"equity": 60.0, "debt": 30.0, "others": 10.0}},
             subcategories=[],
+            multi_asset_composition={},
         )
         assert resp.carve_outs_at_risk == []
 
@@ -496,6 +564,7 @@ class TestCarveOutsAtRiskOnTheGetResponse:
             ScreenPreferenceGetResponse(
                 recommendation={"class_mix": {"equity": 100.0, "debt": 0.0, "others": 0.0}},
                 subcategories=[],
+                multi_asset_composition={},
                 carve_outs_at_risk=["something_else"],
             )
 
@@ -570,3 +639,53 @@ class TestWhereTheCustomerSitsTodayOnTheGetResponse:
         assert resp.current is None
         assert resp.subcategories
         assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+class TestTheScreensSplitRulesArriveOnTheGetResponse:
+    """The screen re-spreads a class bar across its rows and carves the sleeve
+    across the three bars. Both rules are the engine's, so both ride on the GET
+    rather than being written out a second time in the frontend."""
+
+    def _get(self, goals=None):
+        import asyncio
+
+        from app.domains.profile.services import screen_preference_service as svc
+
+        async def no_saved_row(db, user_id):
+            return None
+
+        originals = (svc.active_preference_row, svc.load_holdings_snapshot)
+        svc.active_preference_row = no_saved_row
+        svc.load_holdings_snapshot = _no_holdings
+        try:
+            return asyncio.run(svc.screen_read_model(None, _user(goals)))
+        finally:
+            svc.active_preference_row, svc.load_holdings_snapshot = originals
+
+    def test_the_multi_asset_composition_is_the_engines_own(self):
+        from asset_allocation_pydantic.tables import (
+            DEFAULT_MULTI_ASSET_COMPOSITION_PCTS,
+        )
+
+        comp = self._get().multi_asset_composition
+
+        assert comp == dict(zip(("equity", "debt", "others"), DEFAULT_MULTI_ASSET_COMPOSITION_PCTS))
+        assert sum(comp.values()) == 100.0
+
+    def test_every_class_weights_its_own_rows_to_one(self):
+        """Off a real neutral run, near-term goal and all: whichever path each
+        class takes (the plan's ratios or the engine's default home), its own
+        rows make a whole class and the sleeve carries no weight."""
+        subcategories = self._get(_NEAR_TERM_GOALS).subcategories
+
+        by_class: dict[str, list[float]] = {}
+        for c in subcategories:
+            if c.id == "multi_asset":
+                assert c.weight_in_class is None
+                continue
+            by_class.setdefault(c.class_, []).append(c.weight_in_class)
+
+        assert set(by_class) == {"equity", "debt", "others"}
+        for cls, weights in by_class.items():
+            assert all(w >= 0 for w in weights), cls
+            assert sum(weights) == pytest.approx(1.0), cls

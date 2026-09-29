@@ -59,6 +59,31 @@ def test_multi_asset_is_a_settable_pin():
     assert r.subgroup_emphasis["multi_asset"] == pytest.approx(18.0, abs=0.1)
 
 
+@pytest.mark.parametrize(
+    "class_mix, word",
+    [
+        ({"equity": 100, "debt": 0, "others": 0}, "debt"),
+        ({"equity": 90, "debt": 10, "others": 0}, "commodity"),
+        ({"equity": 0, "debt": 50, "others": 50}, "equity"),
+    ],
+)
+def test_multi_asset_is_refused_when_a_class_it_holds_has_no_share(class_mix, word):
+    # Zero means zero. 1% of the fund is 0.25% debt and 0.1% gold, which the
+    # whole-percent carve rounds to 0 and would let through — but the engine
+    # builds no sleeve without debt (`_sleeve_size`), so the pin would be
+    # silently dropped from the plan. Refuse it at save instead.
+    with pytest.raises(ScreenPreferenceError, match=word):
+        resolve_screen_preferences(class_mix, [{"subgroup": "multi_asset", "pct_of_total": 1}])
+
+
+def test_a_zero_multi_asset_pin_saves_in_a_mix_with_no_debt():
+    r = resolve_screen_preferences(
+        {"equity": 100, "debt": 0, "others": 0},
+        [{"subgroup": "multi_asset", "pct_of_total": 0}],
+    )
+    assert r.subgroup_emphasis["multi_asset"] == 0
+
+
 def test_locked_holding_rows_are_still_rejected():
     # ELSS and direct stock are HOLDINGS the engine cannot trade, not
     # preferences — unblocking the sleeve must not unblock them.
@@ -139,11 +164,20 @@ def _fake_run(grand, subgroups):
     )
 
 
+def _fake_input(score=7.0):
+    """The two facts the catalog's equity fallback reads off the engine input."""
+    from types import SimpleNamespace
+
+    from asset_allocation_pydantic.models import MarketCommentaryScores
+
+    return SimpleNamespace(effective_risk_score=score, market_commentary=MarketCommentaryScores())
+
+
 def test_catalog_lists_settable_subgroups_with_pct_of_total():
     from app.domains.profile.services.screen_preference_service import subcategory_catalog
 
     out = _fake_run(1_000_000, [("low_beta_equities", 150_000), ("gold_commodities", 80_000)])
-    cat = {c.id: c for c in subcategory_catalog(out)}
+    cat = {c.id: c for c in subcategory_catalog(out, _fake_input())}
     assert cat["low_beta_equities"].recommended_pct_of_total == 15.0
     assert cat["low_beta_equities"].class_ == "equity"
     assert cat["gold_commodities"].class_ == "others"
@@ -153,9 +187,126 @@ def test_catalog_offers_multi_asset_and_excludes_frozen_holdings():
     from app.domains.profile.services.screen_preference_service import subcategory_catalog
 
     out = _fake_run(1_000_000, [("multi_asset", 500_000), ("low_beta_equities", 150_000)])
-    cat = {c.id: c for c in subcategory_catalog(out)}
+    cat = {c.id: c for c in subcategory_catalog(out, _fake_input())}
     assert cat["multi_asset"].recommended_pct_of_total == 50.0
     assert "tax_efficient_equities" not in cat and "non_mf_equities" not in cat
+
+
+# ---------------------------------------------------------------------------
+# weight_in_class — each row's share of its class's OWN categories
+# ---------------------------------------------------------------------------
+
+_EQUITY_ROWS = {
+    "low_beta_equities",
+    "medium_beta_equities",
+    "high_beta_equities",
+    "value_equities",
+    "sector_equities",
+    "us_equities",
+}
+_DEBT_ROWS = {"short_debt", "arbitrage", "arbitrage_plus_income"}
+
+# The plan routes ALL debt and commodity through the sleeve — common, and the
+# case the engine-default fallback exists for.
+_SLEEVE_CARRIES_DEBT_AND_GOLD = [
+    ("multi_asset", 500_000),
+    ("low_beta_equities", 300_000),
+    ("us_equities", 200_000),
+]
+
+
+def _weights(out, inp=None):
+    from app.domains.profile.services.screen_preference_service import (
+        subcategory_catalog,
+    )
+
+    return {c.id: c.weight_in_class for c in subcategory_catalog(out, inp or _fake_input())}
+
+
+def _assert_a_whole_class(weights):
+    assert sum(weights.values()) == pytest.approx(1.0)
+
+
+def test_weights_are_the_plans_own_split_when_the_class_holds_money_of_its_own():
+    # Equity 200k + 160k -> 200/360 and 160/360. Debt 150k + 50k -> 0.75 / 0.25:
+    # the plan's own ratio wins over the engine's default home (which would put
+    # it all in arbitrage_plus_income). The sleeve's 400k is no class's own.
+    w = _weights(
+        _fake_run(
+            1_000_000,
+            [
+                ("low_beta_equities", 200_000),
+                ("medium_beta_equities", 160_000),
+                ("multi_asset", 400_000),
+                ("short_debt", 150_000),
+                ("arbitrage_plus_income", 50_000),
+                ("gold_commodities", 40_000),
+            ],
+        )
+    )
+    assert w["low_beta_equities"] == pytest.approx(200 / 360)
+    assert w["medium_beta_equities"] == pytest.approx(160 / 360)
+    assert w["high_beta_equities"] == 0.0
+    assert w["short_debt"] == 0.75
+    assert w["arbitrage_plus_income"] == 0.25
+    assert w["arbitrage"] == 0.0
+    assert w["gold_commodities"] == 1.0
+    _assert_a_whole_class({sg: w[sg] for sg in _EQUITY_ROWS})
+    _assert_a_whole_class({sg: w[sg] for sg in _DEBT_ROWS})
+
+
+def test_debt_with_no_money_of_its_own_goes_to_the_engines_default_home():
+    # pipeline.DEBT_DEFAULT_ORDER: the long-term residual lands in
+    # arbitrage_plus_income when nothing names a debt row, and plain
+    # arbitrage is never chosen unasked.
+    w = _weights(_fake_run(1_000_000, _SLEEVE_CARRIES_DEBT_AND_GOLD))
+    assert w["arbitrage_plus_income"] == 1.0
+    assert w["short_debt"] == 0.0
+    assert w["arbitrage"] == 0.0
+
+
+def test_others_with_no_money_of_its_own_goes_to_gold():
+    w = _weights(_fake_run(1_000_000, _SLEEVE_CARRIES_DEBT_AND_GOLD))
+    assert w["gold_commodities"] == 1.0
+
+
+def test_equity_with_no_money_of_its_own_takes_the_engines_own_split():
+    # All equity in the sleeve: the split is phase 5 + the slider, run for
+    # this customer's risk score — not a guess and not an even spread.
+    out = _fake_run(1_000_000, [("multi_asset", 800_000), ("short_debt", 200_000)])
+    w = _weights(out)
+    equity = {sg: w[sg] for sg in _EQUITY_ROWS}
+
+    _assert_a_whole_class(equity)
+    assert all(v >= 0 for v in equity.values())
+    assert sum(1 for v in equity.values() if v > 0) >= 2
+
+    # It is read off THIS customer's input: a cautious profile leans on
+    # large-caps harder than an aggressive one.
+    cautious = _weights(out, _fake_input(score=2.0))
+    aggressive = _weights(out, _fake_input(score=9.0))
+    assert cautious["low_beta_equities"] > aggressive["low_beta_equities"]
+
+
+def test_an_empty_engine_equity_split_falls_back_to_an_even_one(monkeypatch):
+    # Defensive: phase 5 always spends a positive pool, but should it ever
+    # place nothing the weights must still make a whole class.
+    import app.domains.profile.services.screen_preference_service as svc
+
+    monkeypatch.setattr(
+        svc, "phase5_equity_subgroups", lambda **kw: {sg: 0 for sg in _EQUITY_ROWS}
+    )
+    w = _weights(_fake_run(1_000_000, [("multi_asset", 1_000_000)]))
+    equity = {sg: w[sg] for sg in _EQUITY_ROWS}
+
+    _assert_a_whole_class(equity)
+    assert all(v == pytest.approx(1 / 6) for v in equity.values())
+
+
+def test_multi_asset_has_no_weight_in_class():
+    # The sleeve is one fund across all three classes — no class's own row.
+    for subgroups in (_SLEEVE_CARRIES_DEBT_AND_GOLD, [("low_beta_equities", 1_000_000)]):
+        assert _weights(_fake_run(1_000_000, subgroups))["multi_asset"] is None
 
 
 async def test_save_translates_persists_and_refreshes(monkeypatch):
@@ -318,6 +469,8 @@ def test_current_is_optional_on_the_get_response():
     # Frontend spec 2026-09-20 D8: absent, null and empty all read as "no today".
     from app.domains.profile.schemas import ScreenPreferenceGetResponse
 
-    resp = ScreenPreferenceGetResponse(recommendation={"class_mix": {}}, subcategories=[])
+    resp = ScreenPreferenceGetResponse(
+        recommendation={"class_mix": {}}, subcategories=[], multi_asset_composition={}
+    )
     assert resp.current is None
     assert "current" in resp.model_dump()

@@ -101,6 +101,12 @@ class ScreenSubcategory(BaseModel):
     class_: str = Field(alias="class", serialization_alias="class")
     label: str
     recommended_pct_of_total: float
+    weight_in_class: Optional[float] = None
+    """This row's share (0..1) of its class's OWN rows in Prozpr's plan — how
+    the screen spreads a class bar the customer moves. A class's rows sum to 1
+    (plain ratios; the screen normalises by their sum). Null for
+    ``multi_asset``, which is no class's own row. See
+    ``screen_preference_service.subcategory_catalog``."""
 
     model_config = {"populate_by_name": True}
 
@@ -139,6 +145,10 @@ class ScreenPreferenceGetResponse(BaseModel):
     saved: Optional[ScreenSaved] = None
     recommendation: dict[str, dict[str, float]]
     subcategories: list[ScreenSubcategory]
+    multi_asset_composition: dict[str, float]
+    """The engine's own equity / debt / others carve of the multi-asset fund, in
+    percent (sums to 100) — so the screen attributes the sleeve across the three
+    bars the way the engine does, rather than keeping a copy of the numbers."""
     carve_outs_at_risk: list[CarveOutAtRisk] = Field(default_factory=list)
     """Which bucket carve-outs saving a preference would cost this customer
     (spec 2026-09-15 §9.1) — the WARNING shown before they commit, as opposed to
