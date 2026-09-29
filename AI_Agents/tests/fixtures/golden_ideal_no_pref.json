@@ -313,5 +313,14 @@
   "total_corpus": 20000000.0
  },
  "future_investments_summary": [],
+ "goal_funding": {
+  "allocated_amount": 0,
+  "asset_subgroup": "short_debt",
+  "from_corpus": 0.0,
+  "goals": [],
+  "monthly_sip": 0.0,
+  "monthly_sip_to_goals": 0.0,
+  "shortfall": 0
+ },
  "grand_total": 20000000.0
 }

@@ -109,18 +109,20 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
         if g.time_to_goal_months < HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
     subgroup = _route(inp.effective_tax_rate, TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD)
+    funding = goal_waterfall(
+        goals_allocated, inp.short_term_holdings, inp.monthly_sip, remaining_corpus, subgroup,
+    )
 
-    total_goal_amount = round_to_100(sum(g.amount_needed for g in goals_allocated))
-    allocated_amount = min(total_goal_amount, remaining_corpus)
+    total_goal_amount = round_to_100(sum(_future_value(g) for g in goals_allocated))
+    allocated_amount = funding.allocated_amount
     new_remaining = remaining_corpus - allocated_amount
 
     subgroup_amounts: dict[str, int] = {}
     if allocated_amount > 0:
         subgroup_amounts[subgroup] = allocated_amount
 
-    # Future investment when corpus runs out mid-bucket.
     future_investment: FutureInvestment | None = None
-    if total_goal_amount > remaining_corpus:
+    if funding.shortfall > 0:
         negotiable = [
             g.goal_name for g in goals_allocated if g.goal_priority == "negotiable"
         ]
@@ -134,7 +136,7 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
         )
         future_investment = FutureInvestment(
             bucket="short_term",
-            future_investment_amount=total_goal_amount - remaining_corpus,
+            future_investment_amount=funding.shortfall,
             message=msg,
         )
 
@@ -146,4 +148,5 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
         remaining_corpus=new_remaining,
         future_investment=future_investment,
         subgroup_amounts=subgroup_amounts,
+        goal_funding=funding,
     )

@@ -269,4 +269,5 @@ def run(
         grand_total=step5.grand_total,
         all_amounts_in_multiples_of_100=all_mult,
         asset_class_breakdown=asset_class_breakdown,
+        goal_funding=step2.goal_funding,
     )

@@ -19,6 +19,7 @@ from asset_allocation_pydantic.models import (
     ClientSummary,
     FutureInvestment,
     Goal,
+    GoalFunding,
     MultiAssetBlock,
     Step1Output,
     Step2Output,
@@ -203,6 +204,7 @@ class PracticalAllocationOutput(BaseModel):
     asset_class_breakdown: AssetClassBreakdown
     corpus_breakdown: CorpusBreakdown
     human_override_applied: Optional[HumanOverrideApplied] = None
+    goal_funding: Optional[GoalFunding] = None
 
 
 @dataclass
@@ -1663,4 +1665,5 @@ def _build_output(
         all_amounts_in_multiples_of_100=all_mult_100,
         asset_class_breakdown=asset_class_breakdown,
         corpus_breakdown=corpus_breakdown,
+        goal_funding=s2.goal_funding,
     )

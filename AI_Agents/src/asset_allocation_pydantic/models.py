@@ -223,6 +223,7 @@ class GoalAllocationOutput(BaseModel):
     grand_total: float
     all_amounts_in_multiples_of_100: bool
     asset_class_breakdown: AssetClassBreakdown
+    goal_funding: Optional[GoalFunding] = None
 
 
 # ── Per-step output models ────────────────────────────────────────────────────
@@ -246,6 +247,7 @@ class Step2Output(BaseModel):
     remaining_corpus: int
     future_investment: Optional[FutureInvestment] = None
     subgroup_amounts: dict[str, int]
+    goal_funding: Optional[GoalFunding] = None
 
 
 class AssetClassAllocation(BaseModel):
