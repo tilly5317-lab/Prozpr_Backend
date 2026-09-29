@@ -10,6 +10,13 @@ def round_to_100(x: float) -> int:
     return int(x / 100.0 + 0.5) * 100
 
 
+def ceil_to_100(x: float) -> int:
+    """Round up to the next multiple of 100. Negative or zero inputs return 0."""
+    if x <= 0:
+        return 0
+    return int(ceil(x / 100.0)) * 100
+
+
 def ceil_to_half(score: float) -> float:
     """Round up to nearest 0.5; clamp to [1.0, 10.0]."""
     score = max(1.0, min(10.0, float(score)))

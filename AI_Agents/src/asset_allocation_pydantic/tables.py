@@ -146,6 +146,9 @@ EMERGENCY_FUND_MONTHS: dict[str, int] = {
 # at 24 months (medium-term removed): short < 24, long >= 24.
 HORIZON_BOUNDARY_MONTHS: int = 24
 
+# Months between reviews; the SIP's goal share is constant within one window.
+SIP_REVIEW_WINDOW_MONTHS: int = 6
+
 # Tax-rate thresholds (%) for routing debt allocations.
 #
 # Emergency + short-term: strict `>` comparison against 20%. Above 20% → pure

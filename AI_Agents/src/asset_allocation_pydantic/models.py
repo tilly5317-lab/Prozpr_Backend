@@ -22,6 +22,8 @@ class Goal(BaseModel):
     amount_needed: float = Field(..., gt=0)
     goal_priority: Literal["negotiable", "non_negotiable"]
     investment_goal: InvestmentGoal = "wealth_creation"
+    # Cost on the goal date. Read by step 2 only; None falls back to amount_needed.
+    amount_needed_fv: Optional[float] = Field(default=None, gt=0)
 
 
 class MultiAssetFundComposition(BaseModel):
@@ -72,6 +74,9 @@ class AllocationInput(BaseModel):
     # FY-end rather than today: a goal is short-term within HORIZON_BOUNDARY_MONTHS
     # of the FY-end (spec 2026-09-24). 0 (default) = anchored to today, unchanged.
     months_to_fy_end: int = Field(default=0, ge=0)
+    monthly_sip: float = Field(default=0.0, ge=0)
+    # Held debt + arbitrage funds (not income-plus-arbitrage). None = no holdings on file.
+    short_term_holdings: Optional[float] = Field(default=None, ge=0)
     market_commentary: MarketCommentaryScores = Field(
         default_factory=MarketCommentaryScores
     )
@@ -98,6 +103,26 @@ class FutureInvestment(BaseModel):
     )
     future_investment_amount: float = Field(default=0.0, ge=0)
     message: Optional[str] = None
+
+
+class GoalFundingRow(BaseModel):
+    goal_name: str
+    time_to_goal_months: int
+    amount_needed_fv: float = Field(..., ge=0)
+    from_holdings: float = Field(..., ge=0)
+    from_sip: float = Field(..., ge=0)
+    from_corpus: float = Field(..., ge=0)
+    shortfall: float = Field(..., ge=0)
+
+
+class GoalFunding(BaseModel):
+    allocated_amount: int = Field(..., ge=0)
+    from_corpus: float = Field(..., ge=0)
+    shortfall: int = Field(..., ge=0)
+    monthly_sip: float = Field(..., ge=0)
+    monthly_sip_to_goals: float = Field(..., ge=0)
+    asset_subgroup: Literal["short_debt", "arbitrage"]
+    goals: List[GoalFundingRow] = []
 
 
 class BucketAllocation(BaseModel):
