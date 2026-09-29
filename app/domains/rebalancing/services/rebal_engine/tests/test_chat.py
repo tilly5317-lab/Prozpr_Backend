@@ -77,6 +77,11 @@ def test_handle_returns_chat_handler_result_on_success(monkeypatch):
         AsyncMock(return_value=fake_outcome),
     )
     monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
+    monkeypatch.setattr(
+        rb_chat,
+        "_detect_rebal_action",
+        AsyncMock(return_value=rb_chat.RebalanceAction(mode="narrate")),
+    )
 
     with (
         patch(
@@ -105,6 +110,11 @@ def test_handle_returns_blocking_message(monkeypatch):
         "compute_rebalancing_result",
         AsyncMock(return_value=blocked),
     )
+    monkeypatch.setattr(
+        rb_chat,
+        "_detect_rebal_action",
+        AsyncMock(return_value=rb_chat.RebalanceAction(mode="narrate")),
+    )
     result = asyncio.run(rb_chat.handle(_ctx()))
     assert result.text == "No DOB"
     assert result.rebalancing_recommendation_id is None
@@ -124,6 +134,11 @@ def test_handle_tailors_data_gap_blocking_message(monkeypatch):
     blocked = RebalancingRunOutcome(response=None, blocking_message=_MSG_MISSING_DOB)
     monkeypatch.setattr(
         rb_chat, "compute_rebalancing_result", AsyncMock(return_value=blocked)
+    )
+    monkeypatch.setattr(
+        rb_chat,
+        "_detect_rebal_action",
+        AsyncMock(return_value=rb_chat.RebalanceAction(mode="narrate")),
     )
     relay = AsyncMock(return_value="RELAYED")
     monkeypatch.setattr(rb_chat, "format_relay_or_canned", relay)
@@ -154,6 +169,11 @@ def test_handle_forwards_rebalancing_response_when_present(monkeypatch):
         AsyncMock(return_value=fake),
     )
     monkeypatch.setattr(rb_chat, "build_rebal_facts_pack", lambda _r, **_kw: {})
+    monkeypatch.setattr(
+        rb_chat,
+        "_detect_rebal_action",
+        AsyncMock(return_value=rb_chat.RebalanceAction(mode="narrate")),
+    )
 
     with (
         patch(
@@ -233,6 +253,11 @@ class HandleRoutingTests(unittest.TestCase):
         with (
             patch.object(
                 mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
+            ),
+            patch.object(
+                mod,
+                "_detect_rebal_action",
+                new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate")),
             ),
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.format_answer",
@@ -606,6 +631,11 @@ class HandleRoutingTests(unittest.TestCase):
             patch.object(
                 mod, "compute_rebalancing_result", new=AsyncMock(return_value=outcome)
             ),
+            patch.object(
+                mod,
+                "_detect_rebal_action",
+                new=AsyncMock(return_value=mod.RebalanceAction(mode="narrate")),
+            ),
             patch(
                 "app.domains.ai_engine.answer_formatter.formatter.format_answer",
                 new=AsyncMock(return_value="fresh"),
@@ -670,22 +700,6 @@ class LastActionModeTests(unittest.TestCase):
         # manager and blows up — the same shape as a schema/driver failure. The
         # turn must continue (asking once more is the safe direction).
         self.assertIsNone(asyncio.run(mod._last_action_mode(_ctx("anything"))))
-
-
-def test_current_market_cap_mix_pct_buckets_beta_subgroups():
-    class SG:
-        def __init__(self, asset_subgroup, final):
-            self.asset_subgroup = asset_subgroup
-            self.suggested_final_holding_inr = final   # the REAL SubgroupSummary field
-
-    class Resp:
-        subgroups = [SG("low_beta_equities", 300), SG("medium_beta_equities", 200),
-                     SG("high_beta_equities", 100), SG("short_debt", 999)]
-
-    mix = mod._current_market_cap_mix_pct(Resp())
-    assert round(mix["large"], 1) == 50.0   # 300/600
-    assert round(mix["mid"], 1) == 33.3
-    assert round(mix["small"], 1) == 16.7
 
 
 def test_formatter_body_requires_group_table():

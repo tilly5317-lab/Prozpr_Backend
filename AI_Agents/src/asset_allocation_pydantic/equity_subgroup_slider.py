@@ -63,6 +63,7 @@ def apply_equity_subgroup_slider(
     equities_amount: int = 0,
     locked_amount: int = 0,
     share_denominator: Optional[int] = None,
+    exempt: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, int], float, float]:
     """Apply v2 slider to ``subgroup_amounts``: drop subgroups whose share of
     ``share_denominator`` is below ``min_pct_required``, then redistribute the
@@ -85,6 +86,15 @@ def apply_equity_subgroup_slider(
             non_mf_equity_actual`` so the comparison is against the share of
             the TOTAL equity pool (Excel R194+R187+R181), not just the
             MF-only residual.
+        exempt: subgroups the customer pinned explicitly (D-A1). The slider
+            exists to stop the ENGINE producing dust positions, and it cannot
+            tell an engine-made sliver from a number the customer typed — so a
+            5% pin on a small category would be silently deleted and spread
+            over the others. Exempt entries are therefore set aside before the
+            drop decision: never dropped, never rescaled, and out of the
+            redistribution base. Everything else is still policed exactly as
+            before. Defaults to empty — no caller is affected until it passes
+            one.
 
     Returns:
         ``(renormalised_subgroup_amounts, min_pct_required, avg_subgroup_pct)``
@@ -97,6 +107,24 @@ def apply_equity_subgroup_slider(
     share_denom = share_denominator if share_denominator is not None else equity_pool
     if share_denom <= 0:
         share_denom = equity_pool  # defensive — never divide by zero
+
+    # D-A1: hold the pins out of the whole drop-and-redistribute pass. The
+    # remainder is still policed against the ORIGINAL share denominator — a pin
+    # does not make the engine's own slivers any less of a sliver — but the
+    # redistribution base loses the pinned rupees, which are not up for grabs.
+    exempt_amounts = {sg: amt for sg, amt in subgroup_amounts.items() if sg in exempt}
+    if exempt_amounts:
+        policed, min_pct_required, avg_pct = apply_equity_subgroup_slider(
+            {sg: amt for sg, amt in subgroup_amounts.items() if sg not in exempt},
+            equity_pool=equity_pool - sum(exempt_amounts.values()),
+            equities_amount=equities_amount,
+            locked_amount=locked_amount,
+            share_denominator=share_denom,
+        )
+        out = {sg: 0 for sg in subgroup_amounts}
+        out.update(policed)
+        out.update(exempt_amounts)
+        return out, min_pct_required, avg_pct
 
     # R198: per-subgroup % of the equity pool used for the threshold comparison.
     pct_by_subgroup: dict[str, float] = {

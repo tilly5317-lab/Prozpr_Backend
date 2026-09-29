@@ -88,7 +88,10 @@ async def flow_portfolio_query(turn, ctx) -> ModuleOutput:
     )
 
     _think(turn, 45, "Looking through your portfolio holdings…")
-    return ModuleOutput(text=await answer_portfolio_query(turn.user_question, ctx))
+    reply = await answer_portfolio_query(turn.user_question, ctx)
+    return ModuleOutput(
+        text=reply.text, show_preferences_pill=reply.show_preferences_pill
+    )
 
 
 async def flow_mutual_fund_query(turn, ctx) -> ModuleOutput:

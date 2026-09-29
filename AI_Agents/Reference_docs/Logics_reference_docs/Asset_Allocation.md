@@ -1,11 +1,11 @@
 # Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
-*Thesis version 1.5 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.6 · Internal & client reference · Last updated: September 2026*
 
 ---
 
-> **About this document:** This is a directional reference for the *ideal* goal-based allocation — the philosophy, not the formula. The exact bands, weights and routing thresholds are proprietary and are deliberately not reproduced here. The risk score this approach consumes is explained in `Risk_Profiling.md`; the way these targets are translated into the portfolio you actually own is in `Practical_Asset_Allocation.md`.
+> **About this document:** This is a directional reference for the *ideal* goal-based allocation — the philosophy, not the formula. The exact bands, weights and routing thresholds are proprietary and are deliberately not reproduced here. Note that this ideal plan is deliberately computed **without** your stated investment preferences: it is what we would advise on the facts alone, so that it stays a genuine second opinion on your own instructions. Preferences are applied one layer later, in `Practical_Asset_Allocation.md`. The risk score this approach consumes is explained in `Risk_Profiling.md`; the way these targets are translated into the portfolio you actually own is in `Practical_Asset_Allocation.md`.
 
 ---
 
@@ -77,6 +77,7 @@ The remaining corpus is allocated across **equities**, **debt** and **others** b
 
 - **What-if questions are live but hypothetical.** Ask "what if my risk score were 7?", "what if I add ₹50 lakh?", or "what if I switch tax regime?" and the full plan recomputes on the spot for comparison — but the result is never saved.
 - **Chat does not save changes.** Saying "save this" or "lock it in" in chat does not persist anything. To change your plan durably, update your Profile — the plan regenerates from the updated inputs.
+- **Investment preferences are set on their own page, not in chat.** If you tell chat you want more equity or fewer mid caps, it will point you to your preferences page rather than rebuilding the plan on the spot — a standing instruction deserves a deliberate save, not a passing remark. Once set, the preference shapes every plan we build.
 - **The numbers you see are holdings-aware.** Chat shows the practical allocation built on these ideal targets (see `Practical_Asset_Allocation.md`), so the displayed mix reflects the portfolio you actually own, not just the theory.
 - **When the plan recomputes.** A fresh plan runs when you start a new conversation or when you explicitly ask for a full redo. If you update your profile, the fresh numbers show up the next time you start a new conversation — a same-session edit won't change the plan already in front of you until then.
 
@@ -96,4 +97,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Allocation Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Allocation Thesis v1.6 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

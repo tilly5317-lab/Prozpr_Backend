@@ -100,9 +100,9 @@ class ModuleOutput:
       payload       — the agent's structured output (e.g. an Allocation, a
                       RebalancingPlan, a CashflowProjection). Used by later
                       modules in the sequence.
-      persisted_run_id / snapshot_id / rebalancing_recommendation_id —
-                      IDs of rows the module just wrote, surfaced back to the
-                      HTTP layer.
+      persisted_run_id / snapshot_id / rebalancing_recommendation_id /
+                      additional_investment_run_id — IDs of rows the module
+                      just wrote, surfaced back to the HTTP layer.
       chart_payloads — frontend-ready chart specs.
       side_effects  — free-form dict reserved for cross-turn gates (e.g.
                       ``{"awaiting_save": True}``).
@@ -113,6 +113,15 @@ class ModuleOutput:
     persisted_run_id: uuid.UUID | None = None
     snapshot_id: uuid.UUID | None = None
     rebalancing_recommendation_id: uuid.UUID | None = None
+    additional_investment_run_id: uuid.UUID | None = None
+    # Cadence of that run ("sip_monthly" | "lumpsum"), for chat "View plan" routing.
+    additional_investment_cadence: str | None = None
+    # True when the turn produced a savable candidate preference (a what-if).
+    has_candidate_preference: bool = False
+    # True when the turn should route the customer to their investment
+    # preferences — they asked to change/clear the saved record, or named
+    # something we could not map. Chat never WRITES a preference.
+    show_preferences_pill: bool = False
     chart_payloads: list[dict[str, Any]] | None = None
     side_effects: dict[str, Any] = field(default_factory=dict)
 

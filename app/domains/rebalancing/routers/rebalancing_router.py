@@ -7,6 +7,7 @@ warnings so the UI gets one round-trip per run.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, get_effective_user
+from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
 from app.domains.identity.models.user import User
 from app.domains.mutual_funds.models.mf_transaction import MfTransaction
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
@@ -27,6 +28,7 @@ from app.domains.rebalancing.models.rebalancing_run import (
 from app.domains.rebalancing.schemas import (
     AssetClassBreakdownRow,
     RebalancingAssetClassBreakdown,
+    RebalancingPlanGap,
     RebalancingReadinessField,
     RebalancingReadinessResponse,
     RebalancingRunDetailResponse,
@@ -35,16 +37,26 @@ from app.domains.rebalancing.schemas import (
 )
 from app.domains.rebalancing.services.asset_class_breakdown import (
     current_mix_from_rows,
+    goal_asset_class_mix,
     plan_rows_from_run,
     run_current_asset_class_mix,
     target_asset_class_mix,
     target_mix_from_rows,
 )
+from app.domains.rebalancing.services.plan_gap import (
+    build_plan_gap,
+    short_term_locked_fund_count,
+    short_term_locked_inr,
+)
 from app.domains.rebalancing.services.saved_plan_service import (
+    ORIGIN_SAVED,
     committed_run_filter,
+    is_run_fresh,
     save_plan,
     select_current_run_id,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rebalancing", tags=["Rebalancing"])
 
@@ -140,6 +152,20 @@ async def get_current(
 
     Declared BEFORE ``/{run_id}`` so the literal ``current`` isn't parsed as a
     run UUID (mirrors ``/readiness``).
+
+    Self-healing freshness (S1 spec §4.5, Task 12): there is no stored stale
+    flag anywhere — a plan is fresh iff it points at the user's latest
+    ``asset_allocation_runs`` row. The eager refresh on preference save
+    (``preference_save_service._eager_refresh``) normally keeps this true; if
+    that refresh failed or was skipped, recompute once here before serving a
+    stale plan to the portfolio page.
+
+    Candidate→commit firewall: a committed plan
+    (``origin='saved'``) is INTENTIONALLY sticky — a GET must never replace,
+    demote, or outrank it. The backstop therefore applies only to the
+    uncommitted-current case (``origin`` is ``None``/plain); a stale saved
+    plan is served as-is. Re-saving (picking a fresh run and hitting Save) is
+    the customer's action, not this read's.
     """
     run_id = await select_current_run_id(db, user_id=current_user.id)
     if run_id is None:
@@ -160,9 +186,76 @@ async def get_current(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
         )
+
+    if run.origin != ORIGIN_SAVED and not await is_run_fresh(db, run):
+        run = await _refresh_stale_current(db, current_user.id) or run
+
     resp = RebalancingRunDetailResponse.model_validate(run)
     resp.asset_class_breakdown = _build_asset_class_breakdown(run)
     return resp
+
+
+async def _refresh_stale_current(
+    db: AsyncSession, user_id: uuid.UUID
+) -> RebalancingRun | None:
+    """Single, no-loop recompute backstop for a stale current plan.
+
+    Caller-gated: only invoked when the served run is NOT the customer's
+    committed plan (``origin != 'saved'``) — a committed plan is
+    intentionally sticky, and this backstop self-heals the uncommitted-
+    current view only; re-saving is the customer's action, never this read's.
+
+    ``origin=None`` on the recompute call — this never auto-commits a plan as
+    the customer's saved choice, it only brings the "latest computed" run in
+    line with the latest allocation so ``select_current_run_id`` can pick it
+    up. The whole body (user load, recompute, commit, re-select) is one
+    degrade-to-stale guard: any failure here — missing user, blocked compute,
+    engine error, or a re-select gone wrong — logs loudly and returns
+    ``None``, and the caller falls back to serving the original stale run
+    rather than 500ing the read.
+    """
+    try:
+        from app.domains.identity.services.user_context_loader import (
+            load_user_for_ai,
+        )
+        from app.domains.rebalancing.services.rebal_engine.service import (
+            compute_rebalancing_result,
+        )
+
+        user_ctx = await load_user_for_ai(db, user_id)
+        if user_ctx is None:
+            return None
+
+        await compute_rebalancing_result(
+            user_ctx,
+            "portfolio page freshness refresh",
+            db=db,
+            acting_user_id=user_id,
+            chat_session_id=None,
+            persist=True,
+            origin=None,
+        )
+        await db.commit()
+
+        new_run_id = await select_current_run_id(db, user_id=user_id)
+        if new_run_id is None:
+            return None
+        return (
+            await db.execute(
+                select(RebalancingRun)
+                .where(
+                    RebalancingRun.id == new_run_id,
+                    RebalancingRun.user_id == user_id,
+                )
+                .options(*_DETAIL_LOADS)
+            )
+        ).scalar_one_or_none()
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "current-plan freshness recompute failed for user_id=%s", user_id
+        )
+        return None
 
 
 @router.get("/{run_id}", response_model=RebalancingRunDetailResponse)
@@ -207,6 +300,11 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
     when it has no subgroup summaries either — the latter's statement-NAV total
     can sit a few percent off the engine's today's-NAV total, which rendered the
     Current bar shorter than the Target bar.
+
+    A third mix rides along: the GOAL (``goal_target_inr``) the plan aimed at, plus
+    the amber disclosure explaining why it stops short. Without them the page showed
+    a Target bar that a customer with a saved preference read as that preference —
+    see ``services/plan_gap.py``.
     """
     fund_rows = list(run.fund_rows or [])
     subs = list(run.subgroup_summaries or [])
@@ -222,19 +320,49 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
             holdings = list(run.portfolio.holdings) if run.portfolio else []
             current_mix = current_asset_class_mix(holdings)
 
+    goal_mix = goal_asset_class_mix(subs) if subs else {}
+    locked = short_term_locked_inr(fund_rows)
+    moved = float(run.totals.total_sell_inr or 0) if run.totals else 0.0
+
     rows = [
         AssetClassBreakdownRow(
             asset_class=asset_class,
             current_inr=round(current_mix.get(asset_class, 0.0), 2),
             target_inr=round(target_mix.get(asset_class, 0.0), 2),
+            goal_inr=round(goal_mix.get(asset_class, 0.0), 2),
         )
         for asset_class in _BREAKDOWN_ORDER
-        if current_mix.get(asset_class, 0.0) > 0 or target_mix.get(asset_class, 0.0) > 0
+        if current_mix.get(asset_class, 0.0) > 0
+        or target_mix.get(asset_class, 0.0) > 0
+        or goal_mix.get(asset_class, 0.0) > 0
     ]
     return RebalancingAssetClassBreakdown(
         rows=rows,
         current_total_inr=round(sum(current_mix.values()), 2),
         target_total_inr=round(sum(target_mix.values()), 2),
+        goal_total_inr=round(sum(goal_mix.values()), 2),
+        short_term_locked_inr=round(locked, 2),
+        gap=_plan_gap_schema(
+            build_plan_gap(
+                goal_mix,
+                target_mix,
+                locked_inr=locked,
+                moved_inr=moved,
+                locked_fund_count=short_term_locked_fund_count(fund_rows),
+            )
+        ),
+    )
+
+
+def _plan_gap_schema(gap) -> RebalancingPlanGap | None:
+    """Map the pure ``PlanGap`` onto the wire schema (None stays None)."""
+    if gap is None:
+        return None
+    return RebalancingPlanGap(
+        question=gap.question,
+        summary=gap.summary,
+        points=list(gap.points),
+        footnote=gap.footnote,
     )
 
 
@@ -266,15 +394,27 @@ async def save_run_as_plan(
     run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_effective_user),
+    user_ctx: User = Depends(get_ai_user_context),
 ):
     """Mark a run as the customer's committed plan (idempotent). Demotes any
     prior saved run so exactly one stays committed. Owns its commit, mirroring
-    ``update_status``."""
+    ``update_status``. Also activates the candidate preference the run was
+    computed under (S2b)."""
     run = await save_plan(db, user_id=current_user.id, run_id=run_id)
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rebalancing run not found"
         )
     await db.commit()
+    from app.domains.profile.services.preference_save_service import (
+        activate_candidate_for_run,
+    )
+
+    try:
+        await activate_candidate_for_run(db, user_ctx, run.saved_investment_preference_id)
+    except Exception:
+        logger.exception(
+            "save plan: candidate preference activation failed for run_id=%s", run_id
+        )
     await db.refresh(run)
     return RebalancingRunListItem.model_validate(run)

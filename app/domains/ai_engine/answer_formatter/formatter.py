@@ -52,6 +52,7 @@ ActionMode = Literal[
     "category_probe",  # additional_investment
     "gather",  # we can do this; one input is missing
     "redirect",  # we don't do this
+    "pointer",  # the customer does this themselves, on a screen we link to
 ]
 
 
@@ -92,6 +93,13 @@ FORMATTER_HOUSE_STYLE = build_system_prompt(
 )
 
 
+# Conversation ROWS (not exchanges) the answer writer sees. The classifier reads
+# 20 (`chat/services/chat_context.py`), so at 6 the writer had a third of the
+# routing layer's context — on turn 29 it saw turns 26-28 and nothing else, which
+# is the mechanical cause of the context-loss answers.
+FORMATTER_HISTORY_ROWS = 12
+
+
 class _Prompt(TypedDict):
     system: str
     user: str
@@ -123,7 +131,8 @@ def assemble_prompt(
         )
     system = "\n\n".join(system_parts)
     history_lines = [
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in (history or [])[-6:]
+        f"{m.get('role', 'user')}: {m.get('content', '')}"
+        for m in (history or [])[-FORMATTER_HISTORY_ROWS:]
     ]
     # Compact + literal ₹: pretty separators and \uXXXX escapes inflated a
     # 20-holding portfolio pack by 11% at zero information gain, and the money
@@ -445,6 +454,24 @@ _RELAY_BODY = (
     "`boundary_message`. Keep it to 2-4 sentences, warm."
 )
 
+_POINTER_BODY = (
+    "You are pointing the customer at a Prozpr screen where they see and change "
+    "something themselves. This is NOT a limit and NOT a refusal — the thing "
+    "they asked about is available to them, one tap away.\n"
+    "\n"
+    "CUSTOMER_RECORD has a single field, `boundary_message`: the pointer to "
+    "convey.\n"
+    "\n"
+    "- Convey it faithfully in PI's voice, keeping its meaning and its positive "
+    'framing. Never say what you cannot see or do, never call anything '
+    '"unavailable" or "still being built", and do not apologise.\n'
+    "- A control sits directly below your reply and opens that screen, so "
+    "telling them to tap below is accurate.\n"
+    "- Do NOT state, guess or imply what is currently set there — you were not "
+    "given it.\n"
+    "- Keep it to 1-3 sentences, warm and matter-of-fact."
+)
+
 _GATHER_BODY = (
     "You are asking the customer for ONE missing input so you can do what they "
     "asked. This is not a refusal and not a limit — we can do this, we just need "
@@ -464,6 +491,19 @@ _GATHER_BODY = (
 )
 
 
+_CONFIRM_BODY = (
+    "You are confirming something Prozpr has just DONE for the customer, or "
+    "restating their current saved state.\n"
+    "\n"
+    "CUSTOMER_RECORD has a single field, `boundary_message`: the exact facts to "
+    "convey.\n"
+    "\n"
+    "Relay the message's facts faithfully in PI's voice, warm and brief (2-4 "
+    "sentences); no caveats about limits, no offers to do more, do not restate "
+    "the whole plan."
+)
+
+
 async def format_relay_or_canned(
     *,
     ctx: TurnContext,
@@ -476,12 +516,20 @@ async def format_relay_or_canned(
 
     Pass ``action_mode="gather"`` when the message asks the customer for an input
     we need — it selects a body prompt that leads with the question instead of a
+    limit; ``action_mode="compute"`` when the message confirms something we just
+    did or restates their saved state; ``action_mode="pointer"`` when it sends
+    them to a screen where they do it themselves, which must not be framed as a
     limit. The default relays a genuine boundary.
     """
+    body_prompt = {
+        "gather": _GATHER_BODY,
+        "compute": _CONFIRM_BODY,
+        "pointer": _POINTER_BODY,
+    }.get(action_mode, _RELAY_BODY)
     return await format_with_telemetry(
         ctx=ctx,
         facts_pack={"boundary_message": message},
-        body_prompt=_GATHER_BODY if action_mode == "gather" else _RELAY_BODY,
+        body_prompt=body_prompt,
         module_name=module_name,
         action_mode=action_mode,
         profile={"first_name": getattr(ctx.user_ctx, "first_name", None)},

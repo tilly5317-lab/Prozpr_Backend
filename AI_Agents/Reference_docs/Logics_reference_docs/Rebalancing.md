@@ -1,7 +1,7 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.3 · Internal & client reference · Last updated: 25 August 2026*
+*Thesis version 1.4 · Internal & client reference · Last updated: 19 September 2026*
 
 ---
 
@@ -32,9 +32,11 @@ We are a rebalancing approach, not a market-timing engine. We do not raise cash 
 
 We won't tilt your portfolio to chase a market view — but you may want to shape it for reasons of your own, and that is a different thing entirely. You might want to lean further into equity, favour a category like mid-cap, or keep a whole kind of fund out — anything with a lock-in, say. When you tell us, we honour it. This is your money, and we are your advisor, not a gatekeeper — the call is yours to make.
 
-What we won't do is let you make it blind. Whenever your instruction moves the portfolio away from what we would otherwise recommend, we put the two plans next to each other — how the shape differs, and what the deviation costs, including any extra tax your change sets in motion. You get the plan you asked for *and* a clear-eyed view of the trade-off, every time. Comply, and caution — never one without the other.
+**Where you tell us matters.** A standing instruction about how your money is invested belongs on your investment preferences page, not in passing conversation — so if you raise one mid-chat, we point you there rather than quietly rebuilding the plan around a remark. It takes one extra moment, and in exchange the instruction is deliberate, visible, and applied to *every* plan we build afterwards rather than to a single reply you may never see again. Asks that aren't standing instructions — *"what if I put in another ₹5 lakh"*, a corrected tax rate — are still answered on the spot, in the same turn.
 
-And where we genuinely cannot honour a request, we say so plainly rather than pretend. Ask us to favour a kind of fund we don't research and we will tell you we don't cover it — we won't quietly drop the ask, and we won't manufacture a view we don't hold. An honest "not here" is worth more than a confident answer we can't stand behind.
+What we won't do is let you decide blind. Whenever your preference moves the portfolio away from what we would otherwise recommend, the plan says so: how the shape differs, and what the deviation costs, including any extra tax your change sets in motion. Our own recommendation is always computed as if you had said nothing, precisely so that comparison stays honest. You get the plan you asked for *and* a clear-eyed view of the trade-off, every time. Comply, and caution — never one without the other.
+
+And where we genuinely cannot honour a request in full, we say so plainly rather than pretend. If the categories you asked for together want more than their asset class can hold, we scale them to fit and tell you that happened. Ask us to favour a kind of fund we don't research and we will tell you we don't cover it — we won't quietly drop the ask, and we won't manufacture a view we don't hold. An honest "not here" is worth more than a confident answer we can't stand behind.
 
 ## How a rebalance is built — at a high level
 
@@ -88,4 +90,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask PI · Rebalancing Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly*
+*Ask PI · Rebalancing Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

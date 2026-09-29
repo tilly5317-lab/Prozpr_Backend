@@ -248,12 +248,19 @@ EQUITY_SUBGROUPS: tuple[str, ...] = (
     "value_equities",
 )
 
-# Every subgroup step 4 may write: multi-asset + long-term equity split + one
-# debt bucket (arbitrage_plus_income when tax-efficient, else short_debt) + gold.
+# Every subgroup step 4 may write: multi-asset + long-term equity split + the
+# debt rows (arbitrage_plus_income when tax-efficient, else short_debt) + gold.
+#
+# `arbitrage` (spec 2026-09-15 §4): plain arbitrage is a short/medium-term
+# instrument and Prozpr does NOT recommend it for long-term money — the engine
+# never routes here on its own, because the default debt row is unchanged. It is
+# listed only so a customer who names it on the preferences screen can be given
+# what they asked for; a stated preference overrides a recommendation by design.
 STEP4_SUBGROUPS: tuple[str, ...] = (
     "multi_asset",
     *EQUITY_SUBGROUPS,
     "short_debt",
+    "arbitrage",
     "arbitrage_plus_income",
     "gold_commodities",
 )

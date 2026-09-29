@@ -507,6 +507,9 @@ class PortfolioQueryOutcome:
 
     text: str
     suggested_intent: str | None = None
+    # The customer asked to CHANGE the saved preference record; chat cannot
+    # write it, so the client offers a route to their investment preferences.
+    show_preferences_pill: bool = False
     # Which internal path the agent took: "X" out of scope, "M" market, "P"
     # portfolio. Telemetry only — this agent has no detector and nothing branches
     # on it; the choice has already shaped the reply by the time we see it.
@@ -528,6 +531,16 @@ _PORTFOLIO_TOOL_FIELDS: dict[str, Any] = {
         "description": (
             "Polite, one-sentence redirect when `guardrail_triggered` is true. Null when "
             "the answer is in-scope."
+        ),
+    },
+    "preference_question": {
+        "type": "boolean",
+        "description": (
+            "True for ANY question about the customer's saved investment "
+            "preferences — reading them, changing them, clearing them, or asking "
+            "for more/less of an asset class or fund category. Chat neither reads "
+            "back nor writes the record: point them at their preferences page. "
+            "False for every other question."
         ),
     },
     "path": {
@@ -628,6 +641,7 @@ async def generate_portfolio_query_response(
         text=_apply_guardrail_backstop(text, extras),
         suggested_intent=extras.get("suggested_intent"),
         path=extras.get("path"),
+        show_preferences_pill=bool(extras.get("preference_question")),
     )
 
 
@@ -636,7 +650,16 @@ async def generate_portfolio_query_response(
 # ---------------------------------------------------------------------------
 
 
-async def answer_portfolio_query(question: str, ctx) -> str:
+@dataclass(frozen=True)
+class PortfolioQueryReply:
+    """What the flow needs from a portfolio_query turn: the answer, plus whether
+    to route the customer to their investment preferences."""
+
+    text: str
+    show_preferences_pill: bool = False
+
+
+async def answer_portfolio_query(question: str, ctx) -> PortfolioQueryReply:
     """Answer a question about the user's current portfolio (read-only).
 
     ``ctx`` is the brain's ``TurnContext`` — it already carries the preloaded
@@ -655,7 +678,9 @@ async def answer_portfolio_query(question: str, ctx) -> str:
     )
     await _record_path(ctx, outcome)
     await _record_intent_disagreement(question, ctx, outcome)
-    return outcome.text
+    return PortfolioQueryReply(
+        text=outcome.text, show_preferences_pill=outcome.show_preferences_pill
+    )
 
 
 async def _record_path(ctx, outcome: PortfolioQueryOutcome) -> None:

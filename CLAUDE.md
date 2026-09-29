@@ -46,6 +46,8 @@ Cross-cutting flows live with their home folders:
 - Chat turn (`ChatBrain.run_turn`) → `app/domains/ai_engine/CLAUDE.md`.
 - Allocation (computed in `asset_allocation/services/aa_engine/`, persisted/read by the same domain; `ai_engine` only sequences the call from `flow_asset_allocation`) → `app/domains/asset_allocation/CLAUDE.md`.
 - CAMS CAS PDF ingest, SimBanks sync, Finvu (legacy) → `app/domains/ingestion/CLAUDE.md`.
+- Investment preferences (screen → `profile/` resolver → the single load point in `practical_asset_allocation/services/paa_engine/input_builder.py` → every engine; each run tagged with the preference row's FK) → `app/domains/profile/CLAUDE.md`.
+- DPDP rights — consent ledger, access/export, two-stage erasure, retention → `app/domains/privacy/CLAUDE.md`.
 
 ## Don't read
 

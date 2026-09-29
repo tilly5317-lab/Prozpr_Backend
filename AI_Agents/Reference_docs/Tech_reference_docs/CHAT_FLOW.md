@@ -1,6 +1,6 @@
 # How the Prozpr AI Chat Works — A Flow Guide
 
-> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder.
+> **Who this is for:** anyone who wants to understand *how a customer's question travels through Prozpr's AI chat* — product, business, operations, QA, or new engineers getting oriented. **No coding knowledge needed.** This document explains the *journey* of a question, not the engineering internals. For the low-level technical view, see `ARCHITECTURE.html` in this same folder. *(Last reconciled with the code: 2026-09-19.)*
 
 ---
 
@@ -130,7 +130,7 @@ Turns a target mix into an **actual trade plan**. Given the ideal mix (from Prac
 
 It is **tax-aware**. It knows how long each holding has been owned and what tax would apply if sold, and it chooses the order of sales to keep the customer's tax bill as low as possible (for example, favouring holdings that trigger lower tax, and using past losses to offset gains where possible). It also respects per-fund limits. The customer sees a readable summary of the recommended trades, *why* each one is suggested, and the tax impact. The recommendation is **saved**.
 
-**It now also takes fund preferences.** A customer can steer the plan in their own words — *"increase my equity,"* *"only equity funds,"* *"more mid cap,"* *"nothing with a lock-in,"* *"fewer funds"* — and the plan is rebuilt their way and shown **side by side** with the recommended one, so they see the trade-off instead of being refused. It never silently ignores a preference: if one can't be applied — a category we don't rank, or swapping in a specific named fund (which is coming later) — it says so plainly. These preference views are a **what-if**: they're **not saved**, and asking for the full plan again brings back the recommendation.
+**Saved preferences already shape this plan** — see *Investment preferences* below. If the customer states a preference mid-conversation (*"increase my equity"*, *"more mid cap"*, *"nothing with a lock-in"*), the reply points them at their preferences page rather than rebuilding the plan on the spot. It can still act on things that aren't preferences: *"what if I add ₹5 lakh"* or a corrected tax rate is answered in the same turn. It can also **consolidate** — *"fewer funds"* trims the plan to a target fund count.
 
 ### Additional Investment
 Answers **"I have fresh money — where should it go?"** Given a lumpsum or a monthly SIP amount, it works out where the new money fits best in the customer's plan and recommends specific funds to **buy** (it never sells anything).
@@ -181,6 +181,18 @@ In a chat turn, this commentary is produced first and handed to General Chat to 
 
 ### General Chat
 The friendly **catch-all writer**. It handles conversational questions that don't need a specialist, and it writes the **final answer for market questions** (using the commentary that Market Commentary just gathered). It reads the question, the conversation history, and any market context — and it can also run a quick **web search of its own** to ground the reply in fresh facts before writing. If the market context happens to be missing or causes a hiccup, it simply answers from the question alone — the conversation never breaks.
+
+### Investment preferences — a standing record, not a module
+
+A customer can tell Prozpr, once, how they want their money invested: a split across equity / debt / commodity, and whether to lean into or refuse particular categories (mid cap, gold, sectoral funds, anything with a lock-in). That record is **standing** — it shapes every plan we build from then on, not just the next answer.
+
+Three things are worth being clear about:
+
+- **Preferences live on the preferences page, not in chat.** Chat can *read* the record back ("what preferences do I have set?") but it cannot change it. Any ask to change, clear or undo a preference — including an indirect one like *"I want more equity"* while a plan is on screen — gets one consistent reply pointing at the page, plus a control to open it. This is deliberate: chat writing to a stored record is a large hallucination surface, and one shared message means the wording cannot drift between rebalancing, allocation and additional investment.
+- **The plans still follow the record.** Every recommendation is built with the saved preference applied, and the reply says so when a preference shaped it. What we advise and what the customer asked for stay distinguishable: Prozpr's own recommendation is computed preference-free, so *"here's what we'd suggest, here's your version"* is a real contrast rather than two views of the same number.
+- **Setting a preference has a cost, and the customer is told before they commit.** When a preference is applied we stop carving out the safety buckets first — the emergency fund, money earmarked for goals in the next five years, and the offset we hold against borrowings. The whole corpus is invested to the requested shape instead. The preferences page names which of these apply to *that* customer before they save, and the same facts are attached to the resulting plan.
+
+If an ask cannot be met in full — pinned categories that together want more than their asset class holds, or a multi-asset choice larger than the split can fund — the plan says what was trimmed and why. It is never silently ignored.
 
 ---
 
@@ -323,6 +335,7 @@ sequenceDiagram
 - **Stays on financial topics.** Off-topic, gibberish, or security-probing messages get a gentle redirect rather than an answer.
 - **No invented numbers.** As described above, the Answer Writer can only use figures the specialist actually computed.
 - **No silent failures.** If a step errors or times out, the customer gets a graceful fallback message or a fact-based summary — never a crash.
+- **No writing to stored records.** Chat can read a customer's investment preferences back to them, but it cannot set, change or clear them — that happens on the preferences page. Nothing the customer says in chat quietly alters a saved record.
 
 ---
 

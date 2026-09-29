@@ -1,7 +1,7 @@
 # Ask PI · Additional Investment Thesis
 
 *Why fresh money goes where it goes — and why it never chases last quarter's winner*
-*Thesis version 1.1 · Internal & client reference · Last updated: July 2026*
+*Thesis version 1.4 · Internal & client reference · Last updated: 21 September 2026*
 
 ---
 
@@ -11,7 +11,7 @@
 
 ## The one-line thesis
 
-Fresh money should close the gap between the portfolio you hold and the portfolio you should hold — not chase last quarter's winner, and not scatter evenly for the look of it. When you add a lumpsum, we recompute your ideal portfolio *including* the new money, compare it with what you actually own, and direct the money into the gaps — the biggest gaps first. When you start a monthly SIP, we point it at the goals that need funding soonest. Either way, every rupee lands in a specific named fund for a reason we can state plainly.
+Fresh money should close the gap between the portfolio you hold and the portfolio you should hold — not chase last quarter's winner, and not scatter evenly for the look of it. When you add a lumpsum, we recompute your ideal portfolio *including* the new money, compare it with what you actually own, and direct the money into the gaps — the biggest gaps first. When you start a monthly SIP, we point it at the goals that need funding soonest — unless you have told us the split you want, in which case the instalment follows your stated percentages exactly. Either way, every rupee lands in a specific named fund for a reason we can state plainly.
 
 ## Eight principles that drive every deployment
 
@@ -19,7 +19,7 @@ Fresh money should close the gap between the portfolio you hold and the portfoli
 | --- | --- |
 | **1. Buy-only, by design** | This step only adds money. It never sells, swaps or trims — so a fresh investment can never trigger a tax bill or an exit you didn't ask for. If your existing portfolio needs re-shaping, that's a rebalance, handled separately with full tax awareness. |
 | **2. Fill the biggest gaps first** | A lumpsum is split across the parts of your plan that are furthest below their target, in proportion to how far below they are. Bigger gaps get more money. This is the opposite of performance-chasing: the money flows to what your plan is missing, not to what went up recently. |
-| **3. A SIP follows your goals; a lumpsum follows your holdings** | One-time money is deployed against your actual portfolio — filling today's gaps. Monthly money is pointed at the goal horizon that needs funding soonest, because a SIP is a stream that builds toward a date, not a patch on today's shape. Two different questions, two different answers. |
+| **3. A SIP follows your goals; a lumpsum follows your holdings — and a stated split overrides both for the SIP** | One-time money is deployed against your actual portfolio — filling today's gaps. Monthly money is pointed at the goal horizon that needs funding soonest, because a SIP is a stream that builds toward a date, not a patch on today's shape. But if you have told us how you want your money split, your monthly instalment is deployed in exactly those percentages — we don't quietly re-point it at a goal horizon, and we don't blend your split with anything of our own. Your lumpsum still fills the gaps in what you hold. |
 | **4. Fresh money follows the plan, not a rush to inflate the reserve** | We don't invent reasons to add to your emergency reserve — it isn't a growth engine and we don't treat it as one. But if your low-volatility holdings sit below what the plan calls for overall (of which the reserve is one part), a lumpsum brings that up to target the same way it would for any other underfunded part of your plan. |
 | **5. Locked and untradeable holdings sit outside fresh deployment** | No fresh money goes into tax-saving (ELSS) funds — their lock-in cuts against the flexibility fresh money should keep — and none goes into direct stocks or PMS, where fund-style deployment doesn't apply. Their value still counts toward your plan; they're just not buy targets. |
 | **6. No single fund dominates the deployment** | Each part of your plan maps to funds ranked by our research. Money goes to the top-ranked fund first, but only up to a cap; the overflow walks down to the next-ranked fund we have conviction in. You end up with meaningful positions in funds we rate highly, never a single outsized bet. |
@@ -34,13 +34,15 @@ Every Ask PI deployment moves through four deliberate, auditable steps. We can w
 
 ### Step 0 — For a lumpsum, refresh the plan with the new money included
 
-Before a lumpsum is placed, the practical allocation step recomputes your plan on the corpus *including* the fresh amount — pinned to your actual holdings. This is the honest baseline: the target your portfolio should have once the new money is in. (A SIP doesn't trigger this refresh — it's judged against your goal timeline instead; see Step 1.)
+Before a lumpsum is placed, the practical allocation step recomputes your plan on the corpus *including* the fresh amount — pinned to your actual holdings. This is the honest baseline: the target your portfolio should have once the new money is in. (A SIP doesn't trigger this refresh — it's judged against your goal timeline, or against your stated split when you have given us one; see Step 1.)
 
 ### Step 1 — Split the amount
 
 For a **lumpsum**, we compare that post-investment ideal with what you hold today, part by part. Wherever you're below target there's a gap; the money is split across all the gaps in proportion to their size. If your portfolio is already at or above target everywhere, we fall back to deploying in your plan's overall proportions — the money keeps building toward the ideal rather than sitting out.
 
 For a **monthly SIP**, we look at your goals by horizon and point the stream at the nearest horizon that isn't yet fully funded, spreading within it according to your plan's shape for that horizon.
+
+If you have stated how you want your money split, that replaces the horizon step for the SIP entirely: the instalment is deployed in your stated percentages, and the goal-horizon carve-outs do not apply to it. You asked for a split, so the split is what you get — right down to the sub-categories, when you named those too. Small rounding differences can appear once the money lands in whole rupees across named funds, and if part of your split names something we have no fund for, that part is reported back to you rather than moved somewhere else (see Principle 7).
 
 ### Step 2 — Pick the funds
 
@@ -54,9 +56,17 @@ You see the named funds with amounts, a plain-English line on why the split lean
 
 A lumpsum changes your portfolio *today*, so it's judged against your portfolio today: fill the gaps, restore the shape. A SIP is a promise of future money arriving monthly, so it's judged against your *timeline*: fund the nearest goal that needs it. Treating them the same would either leave today's gaps standing or misdirect years of future contributions — so we don't.
 
+A stated split changes this for the SIP only. Once you have told us the percentages you want, your instalment follows them and nothing else — your timeline no longer re-points it. The lumpsum still works the way it always did, against the portfolio you actually hold.
+
 ## When you ask for one category
 
 Ask "should I put this in small-caps?" and we answer honestly against your plan: whether that category is part of your current deployment, already covered by other funds, or at target with no room for more. If it has a place, we'll name our picks in it. But we won't route an entire deployment into one category on request, and every category answer carries the same caveat: concentrating in one pocket isn't what we'd recommend — your plan spreads money across your goals for a reason.
+
+## Where your standing preferences fit
+
+New money is deployed against the plan your preferences already shaped — the split and the category choices you saved are baked into the targets this step fills, so fresh money is never quietly deployed to a shape you have already ruled out.
+
+Changing that record is a separate, deliberate act. If you state a preference while deploying money (*"put more of this into mid caps from now on"*), we deploy the money as asked against your current plan and point you at your preferences page for the standing part, rather than treating one sentence as a permanent instruction. A one-off question about *this* deployment and a permanent change to *every* deployment deserve different handling, and conflating them is how people end up with a portfolio shaped by remarks they don't remember making.
 
 ## Why a customer should trust this approach
 
@@ -65,7 +75,8 @@ Ask "should I put this in small-caps?" and we answer honestly against your plan:
 | **I'm adding ₹5 lakh — how do you decide which funds it goes into?** | We recompute your ideal plan including the ₹5 lakh, compare it with what you hold, and split the money across the gaps — biggest gaps first, in proportion. Each gap then maps to our top-ranked funds in that part of the plan, capped so no single fund dominates. Every buy is a named fund with a stated reason. |
 | **Why did most of it go to one area instead of spreading evenly?** | Because that's where your portfolio is furthest below target. An even spread would look tidy but would leave your biggest gap standing. If your holdings were already balanced, the split would naturally come out broader. |
 | **I asked to put it all in small-caps — why did you spread it instead?** | We'll tell you honestly how small-caps fit your plan, and name our picks if there's room. But deploying everything into one category concentrates risk in a single pocket, so we don't execute that — we show you the plan-shaped alternative and let you decide with full information. |
-| **What's the difference between a lumpsum and a monthly SIP here?** | A lumpsum fills today's gaps in your actual holdings. A SIP is pointed at the goal horizon that needs funding soonest and builds toward it monthly. One fixes the present shape; the other funds the future timeline. |
+| **What's the difference between a lumpsum and a monthly SIP here?** | A lumpsum fills today's gaps in your actual holdings. A SIP is pointed at the goal horizon that needs funding soonest and builds toward it monthly. One fixes the present shape; the other funds the future timeline. If you've stated a split, the SIP follows your percentages instead of a horizon. |
+| **I told you the split I want — will my SIP actually follow it?** | Yes. Your monthly instalment is deployed in the percentages you gave, not blended with a view of our own and not re-pointed at a goal horizon. Expect small rounding differences once the money is placed in whole rupees across named funds. |
 | **You didn't ask whether I meant a lumpsum or a SIP — why?** | Because in chat we assume a one-time deployment unless your own words say otherwise ("every month", "monthly SIP"). Asking two questions before showing you anything made the opening feel like a form. If we read it wrong, say so and we'll re-run it as the other kind. |
 | **Why didn't any money go into my ELSS or my direct stocks?** | ELSS carries a statutory lock-in — fresh money shouldn't surrender flexibility it doesn't have to. Direct stocks and PMS sit outside our fund-level mandate. Both still count toward your plan's totals; they just aren't buy targets. |
 | **You said some of the amount couldn't be deployed — where did it go?** | Nowhere — it stays with you, and we tell you exactly how much and why (usually a cap or eligibility rule). We'd rather report a remainder than force money into a position we don't believe in. |
@@ -78,4 +89,4 @@ This document is a directional reference for the *why* of fresh-money deployment
 
 ---
 
-*Ask PI · Additional Investment Thesis v1.2 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-08-04*
+*Ask PI · Additional Investment Thesis v1.3 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

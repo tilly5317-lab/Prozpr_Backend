@@ -112,6 +112,25 @@ class AssetClassBreakdownRow(BaseModel):
     asset_class: str  # "Equity" | "Debt" | "Others"
     current_inr: float
     target_inr: float
+    # What the customer's goals, risk profile and saved preference call for. NOT
+    # where the plan lands — see ``goal_total_inr`` below. 0 on runs with no
+    # subgroup summaries.
+    goal_inr: float = 0.0
+
+
+class RebalancingPlanGap(BaseModel):
+    """Why this plan's target mix differs from the customer's goal mix.
+
+    ``question`` is the one amber line the Invest page shows collapsed — it carries
+    both percentages, so it answers *what* on its own; tapping it reveals the
+    ``summary`` / ``points`` / ``footnote``, which answer *why*. Copy is built in
+    ``services/plan_gap.py`` so chat and the page cannot word one plan two ways.
+    """
+
+    question: str
+    summary: str
+    points: List[str]
+    footnote: Optional[str] = None
 
 
 class RebalancingAssetClassBreakdown(BaseModel):
@@ -121,11 +140,24 @@ class RebalancingAssetClassBreakdown(BaseModel):
     frontend renders these numbers directly without any client-side classification.
     ``current`` mirrors the dashboard donut (from holdings); ``target`` reconciles
     with the trade list (from the rebalancing plan's per-subgroup totals).
+
+    THREE bars, not two (2026-09-27). ``target`` is where THIS PLAN lands; ``goal``
+    is the mix the customer asked for. They legitimately differ — a rebalance is
+    cash-neutral and cannot sell short-term units — and showing only the first two
+    made customers who had set an explicit preference read the Target bar as that
+    preference and report it broken. ``gap`` is the why: one amber line the page
+    shows collapsed, plus the detail it reveals on tap. Built by
+    ``services/plan_gap.py``; None when the plan effectively reaches the goal.
     """
 
     rows: List[AssetClassBreakdownRow]
     current_total_inr: float
     target_total_inr: float
+    goal_total_inr: float = 0.0
+    # ₹ the plan wanted to sell but could not because the units are short-term
+    # (``rebalancing_fund_rows.pass2_undersell_amount``). 0 when nothing is blocked.
+    short_term_locked_inr: float = 0.0
+    gap: Optional[RebalancingPlanGap] = None
 
 
 # ── Top-level response schemas ──────────────────────────────────────────

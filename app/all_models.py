@@ -27,6 +27,7 @@ from app.domains.profile.models import (  # noqa: F401
     review_preference,
     other_investment,
     user_current_property,
+    saved_investment_preference,
 )
 from app.domains.goals.models import (  # noqa: F401
     enums,

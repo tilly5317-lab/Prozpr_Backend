@@ -16,10 +16,19 @@ from app.domains.asset_allocation.services.aa_engine.overrides import (
     _ALLOWED_OVERRIDE_KEYS,
 )
 
+# Keys in _ALLOWED_OVERRIDE_KEYS that belong to a DIFFERENT one-off-override
+# consumer than the AA what-if chat detector below, and so are never meant to
+# appear in its "ALLOWED override keys" prompt block. human_override_preferences
+# is a structured dict consumed by the PAA input builder's preference merge
+# (build_practical_allocation_input_for_user); the AA what-if LLM only ever
+# emits scalar overrides.
+_NON_AA_CHAT_KEYS = frozenset({"human_override_preferences"})
+
 
 def test_override_keys_in_prompt_match_code() -> None:
     """Keys listed in ``_DETECT_SYSTEM``'s 'ALLOWED override keys' block
-    must match the keys in ``_ALLOWED_OVERRIDE_KEYS``.
+    must match the keys in ``_ALLOWED_OVERRIDE_KEYS`` (minus keys owned by
+    other one-off-override consumers, see ``_NON_AA_CHAT_KEYS``).
     """
     # Locate the "ALLOWED override keys" section, bounded by the blank-line
     # before "If the customer's value is out-of-range".
@@ -35,7 +44,7 @@ def test_override_keys_in_prompt_match_code() -> None:
     block = match.group(0)
     # Each key is on its own indented line: "  key_name: <range/type>"
     prompt_keys = set(re.findall(r"^\s+(\w+):", block, re.MULTILINE))
-    code_keys = set(_ALLOWED_OVERRIDE_KEYS)
+    code_keys = set(_ALLOWED_OVERRIDE_KEYS) - _NON_AA_CHAT_KEYS
     assert prompt_keys == code_keys, (
         f"Override key drift between _DETECT_SYSTEM prompt and "
         f"_ALLOWED_OVERRIDE_KEYS frozenset in overrides.py:\n"

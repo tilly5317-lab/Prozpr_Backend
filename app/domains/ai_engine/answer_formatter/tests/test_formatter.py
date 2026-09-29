@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from app.domains.ai_engine.answer_formatter import (
+    FORMATTER_HISTORY_ROWS,
     FORMATTER_HOUSE_STYLE,
     FormatterFailure,
     assemble_prompt,
@@ -41,8 +42,10 @@ def test_assemble_prompt_truncates_long_history():
         question="?", action_mode="narrate", module_name="x",
         facts_pack={}, body_prompt="b", history=long_history, profile={},
     )
-    # Only the last 6 history entries should appear.
+    # Exactly the last FORMATTER_HISTORY_ROWS entries, no more and no fewer.
     assert "msg 49" in prompt["user"]
+    assert f"msg {50 - FORMATTER_HISTORY_ROWS}" in prompt["user"]
+    assert f"msg {50 - FORMATTER_HISTORY_ROWS - 1}" not in prompt["user"]
     assert "msg 0" not in prompt["user"]
 
 

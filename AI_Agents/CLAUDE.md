@@ -8,7 +8,7 @@ Hosts all Prozpr AI agent pipelines, runtime reference data, and archived implem
 - **Reference_docs/** — runtime data consumed by agents (market-commentary cache, fund ranking) plus human-facing docs: the `ARCHITECTURE` walkthrough, per-module engineer guides (`Module_reference_docs/`), and client-facing Logics theses. Agents may overwrite the cache files on a schedule. See `Reference_docs/CLAUDE.md`.
 - **archive/** — historical agent implementations; not on active import paths.
 - **lifecycle_sim_testing/** — DEV-ONLY (gitignored) multi-year lifecycle simulation harness: replays the engines over a simulated portfolio and writes HTML reports. Not imported by runtime.
-- **tests/** — pytest/eval harness for the bundled agents: a reusable suite runner (`_eval_harness.py`) + its self-tests, an intent-classifier test, and a `cashflow_statement/` eval subfolder. Not imported by runtime.
+- **tests/** — cross-agent tests the individual agent `Testing/` folders cannot hold: the preference golden/contract suite (no-preference output must stay byte-identical, carve-out suspension, the phase-2 class override, whole-portfolio basis, end-to-end propagation), plus a reusable eval-suite runner (`_eval_harness.py`) and LLM eval suites for routing and the rebalancing detector. Tracked in git, unlike the per-agent `Testing/` folders. Not imported by runtime.
 
 ## Files at this level
 

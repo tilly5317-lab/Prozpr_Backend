@@ -1,6 +1,6 @@
 # AI_Agents/src/asset_allocation_pydantic/ — goal-based asset-allocation pipeline
 
-Pure-Python pipeline over pydantic models: processes emergency carve-out, short / medium / long-term goals, then aggregates, applies guardrails, and assembles the presentation. LLM use is isolated to an optional rationale step.
+Pure-Python pipeline over pydantic models: processes emergency carve-out, short / medium / long-term goals, then aggregates, applies guardrails, and assembles the presentation. LLM use is isolated to an optional rationale step. This is the **ideal** engine — Prozpr's own recommendation, deliberately preference-free.
 
 ## Entry / contract
 - `run_allocation` (`__init__.py`, defined in `pipeline.py`) is the public entry. Its sibling `run_allocation_with_state` returns `(per-step state dict, output)` and is NOT re-exported from `__init__.py`, but the app's allocation bridge imports it directly from `pipeline.py` — treat its signature as a live contract.
@@ -19,8 +19,9 @@ Pure-Python pipeline over pydantic models: processes emergency carve-out, short 
 
 ## Gotchas & invariants
 - **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names / ISINs / SEBI sub-category strings. Enforced by `Testing/test_no_fund_mapping.py`.
+- **`phase2_asset_class_pcts` has a preference seam, and it OUTRANKS the engine's own judgement.** An optional `requested_class_pcts` (already reconciled to the step by the caller) simply IS the split: the market-view tilt and the phase-1 bounds — the others-gate included — are bypassed (spec 2026-09-14 D3, `steps/step4_long_term.py:167`). Only `practical_asset_allocation` passes it, so this module stays preference-free in its own right; it is no longer diff-free against that caller.
 - **Phase-5 guardrail denominator.** Equity-subgroup shares are validated against `step4.multi_asset.equity_for_subgroups` — the pool left after the multi-asset carve-out, which Phase 5 itself split — NOT total equity. Wrong base silently flags valid plans (`steps/step6_guardrails.py`).
-- **Symbols re-used cross-agent.** `practical_asset_allocation/` (spec §B.1, the first cross-`src/` import) imports steps 1–3 + 5, selected `step4_long_term` helpers, the slider, `tables`, `utils.round_to_100`, and the public models. Do not rename without a cross-module sweep.
+- **Symbols re-used cross-agent.** `practical_asset_allocation/` (spec §B.1, the first cross-`src/` import) imports steps 1–3 + 5, selected `step4_long_term` helpers (`phase2_asset_class_pcts`, `phase4_multi_asset`, `phase5_equity_subgroups` among them), the slider, `tables`, `utils.round_to_100`, and the public models. Do not rename without a cross-module sweep.
 
 ## Testing
 - Tests live in `Testing/` (`test_part_a.py`, `test_no_fund_mapping.py`). `Master_testing/` is a large-scale profile-sweep runner; output lands in `Master_testing/results/`.

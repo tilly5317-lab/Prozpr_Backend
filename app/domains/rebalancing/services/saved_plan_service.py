@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import case, or_, select, update
+from sqlalchemy import case, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.rebalancing.models.rebalancing_run import RebalancingRun
@@ -97,3 +97,19 @@ async def select_current_run_id(
         .limit(1)
     )
     return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def is_run_fresh(db: AsyncSession, run) -> bool:
+    """Derived freshness (S1 spec §4.5): a plan is fresh iff it points at the
+    user's latest allocation run. No stored stale flag anywhere."""
+    from app.domains.asset_allocation.models.run import AssetAllocationRun
+
+    latest_id = (
+        await db.execute(
+            select(AssetAllocationRun.id)
+            .where(AssetAllocationRun.user_id == run.user_id)
+            .order_by(desc(AssetAllocationRun.created_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return latest_id is None or run.source_allocation_run_id == latest_id

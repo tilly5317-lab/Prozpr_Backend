@@ -4,6 +4,10 @@ asyncio_mode = "auto"
 markers = [
     "real_llm: requires ENABLE_LLM_SMOKE=1; not run in CI",
     "rebal_detector_eval: live Haiku eval of the rebalancing action detector; requires RUN_REBAL_DETECTOR_EVAL=1",
+    "intent_routing_eval: live Haiku eval of classifier stickiness on preference asks; requires RUN_INTENT_ROUTING_EVAL=1",
+    "preference_chat_e2e: live in-memory end-to-end preference chat harness; requires RUN_PREFERENCE_CHAT_E2E=1",
+    "ainv_preference_eval: live Haiku eval of the AINV deploy-request extractor's phrasing coverage; requires RUN_AINV_PREFERENCE_EVAL=1",
+    "aa_preference_eval: live Haiku eval of the AA detector's preference extraction; requires RUN_AA_PREFERENCE_EVAL=1",
     "slow: long-running tests",
     "excel_parity: requires LibreOffice or pre-extracted fixtures",
     "performance: latency/memory regression checks",

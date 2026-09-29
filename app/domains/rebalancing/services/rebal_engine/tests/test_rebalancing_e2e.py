@@ -46,6 +46,8 @@ async def test_rebalancing_chat_dispatch_returns_sectioned_markdown(
         "the trigger."
     )
 
+    from app.domains.rebalancing.services.rebal_engine.chat import RebalanceAction
+
     with (
         patch(
             "app.domains.ai_engine.answer_formatter.formatter.format_answer",
@@ -54,6 +56,10 @@ async def test_rebalancing_chat_dispatch_returns_sectioned_markdown(
         patch(
             "app.domains.ai_engine.answer_formatter.formatter.record_ai_module_run",
             new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.domains.rebalancing.services.rebal_engine.chat._detect_rebal_action",
+            new=AsyncMock(return_value=RebalanceAction(mode="narrate")),
         ),
     ):
         result = await dispatch_chat("rebalancing", ctx)

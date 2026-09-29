@@ -309,6 +309,9 @@ def build_aa_facts_pack(
     output: GoalAllocationOutput,
     current_mix: dict[str, Any] | None = None,
     annual_income: float | None = None,
+    active_preferences: dict[str, Any] | None = None,
+    preference_impact: dict[str, Any] | None = None,
+    preference_pointer: str | None = None,
 ) -> dict[str, Any]:
     """Curated facts the LLM is allowed to cite.
 
@@ -419,6 +422,15 @@ def build_aa_facts_pack(
         facts["your_actual_holdings_today_pct"] = current_mix["pct"]
         facts["your_actual_holdings_today_inr"] = current_mix["inr"]
         facts["your_actual_holdings_today_indian"] = current_mix["indian"]
+    # An unsaved what-if's own contrast wins the turn; a SAVED preference is
+    # disclosed only when no candidate contrast is present, so the reply never
+    # credits the customer with a save they have not made.
+    if preference_impact is not None:
+        facts["preference_impact"] = preference_impact
+    elif active_preferences is not None:
+        facts["active_preferences"] = active_preferences
+    if preference_pointer is not None:
+        facts["preference_pointer"] = preference_pointer
     return facts
 
 
@@ -600,6 +612,9 @@ async def compute_allocation_result(
                 input_payload=alloc_input.model_dump(mode="json"),
                 engine_result=output,
                 financial_goal_ids_by_name=goal_id_map,
+                # The ideal engine is Prozpr's preference-free recommendation
+                # (spec 2026-09-14); preferences shape the practical plan only.
+                saved_investment_preference_id=None,
             )
             trace_line(f"persisted: asset_allocation_run_id={aa_run_id}")
         except Exception:

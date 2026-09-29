@@ -26,6 +26,7 @@ from app.domains.asset_allocation.services.aa_engine.input_builder import (
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
+    from practical_asset_allocation.human_override import HumanOverridePreferences
 
 ensure_ai_agents_path()
 
@@ -55,9 +56,35 @@ class CorpusPin:
     elss_corpus: float
 
 
+def load_human_override_for_user(user: Any) -> "HumanOverridePreferences | None":
+    """Saved-row → ``HumanOverridePreferences`` mapping (S1 spec §4.3).
+
+    The single source of truth for turning a ``SavedInvestmentPreference``
+    row (read off the preloaded ``User.saved_investment_preference``
+    relationship — no DB access here) into the pure engine-side preference
+    model. Returns ``None`` when the user has no row, or the row carries no
+    settable fields. Reused by the PAA input builder (merges a one-off on
+    top) and by the asset_allocation service (ideal-parity, no one-off).
+    """
+    from practical_asset_allocation.human_override import HumanOverridePreferences
+
+    saved = getattr(user, "saved_investment_preference", None)
+    if saved is None:
+        return None
+    saved_fields = {
+        "asset_class_requested": saved.asset_class_requested,
+        "subgroup_emphasis": saved.resolved_targets or {},
+    }
+    merged = {k: v for k, v in saved_fields.items() if v not in (None, [], {})}
+    if not merged:
+        return None
+    return HumanOverridePreferences(**merged)
+
+
 def build_practical_allocation_input_for_user(
     ctx: "TurnContext",
     corpus_pin: CorpusPin | None = None,
+    apply_saved_preferences: bool = True,
 ) -> tuple[PracticalAllocationInput, Dict[str, Any]]:
     """Return ``(PracticalAllocationInput, debug)`` for the User in ``ctx``."""
     base_input, debug = build_goal_allocation_input_for_user(ctx)
@@ -65,6 +92,27 @@ def build_practical_allocation_input_for_user(
     shared = {k: getattr(base_input, k) for k in AllocationInput.model_fields}
     if corpus_pin is not None:
         shared["total_corpus"] = corpus_pin.total_corpus
+
+    # ── The SINGLE preference load point (S1 spec §4.3). Engines stay DB-free:
+    # the row rides the preloaded User relationship; a per-turn override dict
+    # merges field-level over it (precedence: one-off > saved > none).
+    from practical_asset_allocation.human_override import HumanOverridePreferences
+    from app.domains.asset_allocation.services.aa_engine.overrides import (
+        effective_param,
+    )
+
+    human_override = None
+    if apply_saved_preferences and ctx is not None:
+        saved_prefs = load_human_override_for_user(ctx.user_ctx)
+        saved_fields = saved_prefs.model_dump() if saved_prefs is not None else {}
+        one_off = effective_param(ctx, "human_override_preferences", None)
+        merged = {
+            k: v
+            for k, v in {**saved_fields, **(one_off or {})}.items()
+            if v not in (None, [], {})
+        }
+        if merged:
+            human_override = HumanOverridePreferences(**merged)
 
     practical_input = PracticalAllocationInput(
         # Every shared AllocationInput field, verbatim (total_corpus included —
@@ -77,6 +125,7 @@ def build_practical_allocation_input_for_user(
         non_mf_equity_corpus=(corpus_pin.non_mf_equity_corpus if corpus_pin else 0.0),
         elss_corpus=(corpus_pin.elss_corpus if corpus_pin else 0.0),
         max_non_mf_equity_pct_client_input=None,
+        human_override=human_override,
     )
 
     debug = {
@@ -86,5 +135,6 @@ def build_practical_allocation_input_for_user(
         "mf_corpus": practical_input.mf_corpus,
         "non_mf_equity_corpus": practical_input.non_mf_equity_corpus,
         "elss_corpus": practical_input.elss_corpus,
+        "human_override_set": human_override is not None,
     }
     return practical_input, debug

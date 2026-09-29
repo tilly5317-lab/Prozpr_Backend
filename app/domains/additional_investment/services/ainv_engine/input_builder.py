@@ -129,6 +129,12 @@ async def build_additional_investment_input_for_user(
         short_term_fulfilled, medium_term_fulfilled = await _goal_funding_flags(
             user, asof
         )
+        # A stated preference suspends the bucket carve-outs, so this plan's
+        # long_term column IS the stated split.
+        if cadence is Cadence.SIP_MONTHLY and (
+            getattr(allocation_output, "human_override_applied", None) is not None
+        ):
+            short_term_fulfilled = medium_term_fulfilled = True
 
     # 3. Ranked funds: flatten the per-subgroup ranking, carrying scheme_code (T2).
     ranking = get_fund_ranking()

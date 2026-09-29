@@ -134,7 +134,21 @@ class AdditionalInvestmentRun(CasScoped, Base):
     request_input: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )
+    # FK to the immutable preference row that shaped this run (2026-09-04
+    # restructure); NULL = computed with no preference.
+    saved_investment_preference_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("saved_investment_preferences.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     user_question: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
+    # Provenance / draft state, mirroring ``RebalancingRun.origin``. NULL = a
+    # plain committed deploy (the customer's current plan); "candidate" = an
+    # unsaved what-if the customer previewed but did not save — persisted so the
+    # chat "Save preference" pill can act on it, but firewalled out of the
+    # Invest-page reads (``get_latest_*``). AINV has no "saved" run state: Save
+    # activates the preference row, and the eager refresh writes a fresh plain run.
+    origin: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

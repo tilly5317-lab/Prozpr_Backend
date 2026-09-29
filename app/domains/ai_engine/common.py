@@ -180,3 +180,32 @@ def trace_response_preview(label: str, text: str, max_chars: int = 600) -> None:
     if len(t) > max_chars:
         t = t[:max_chars] + "…"
     trace_line(f"{label} (preview): {t}")
+
+
+def buy_changes_vs_recommended(
+    recommended: dict[str, float],
+    requested: dict[str, float],
+    *,
+    noise_inr: float,
+    top: int = 6,
+) -> list[dict[str, Any]]:
+    """Per-fund buy change between two fund -> amount maps, pre-formatted for
+    the formatter: biggest moves first, deltas under ``noise_inr`` dropped."""
+    rows: list[dict[str, Any]] = []
+    for name in set(recommended) | set(requested):
+        rec, req = recommended.get(name, 0.0), requested.get(name, 0.0)
+        delta = req - rec
+        if abs(delta) < noise_inr:
+            continue
+        rows.append(
+            {
+                "fund": name,
+                "recommended_indian": format_inr_indian(rec),
+                "requested_indian": format_inr_indian(req),
+                "change_indian": ("+" if delta > 0 else "−")
+                + (format_inr_indian(abs(delta)) or "₹0"),
+                "_abs": abs(delta),
+            }
+        )
+    rows.sort(key=lambda r: r.pop("_abs"), reverse=True)
+    return rows[:top]

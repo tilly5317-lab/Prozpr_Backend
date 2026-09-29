@@ -52,6 +52,7 @@ async def compute_goal_planning_snapshot(
     anchor_date: date,
     db: AsyncSession | None = None,
     overrides: dict[str, Any] | None = None,
+    milestone_target_inr: float | None = None,
 ) -> GoalPlanningServiceOutcome:
     """Run the cashflow engine for the given user and produce a facts_pack.
 
@@ -158,6 +159,7 @@ async def compute_goal_planning_snapshot(
         retirement_age=gp_input.retirement.retirement_age,
         retirement_modelled=gp_input.model_retirement,
         portfolio_value=portfolio_value,
+        milestone_target_inr=milestone_target_inr,
     )
     fallback_text = _build_fallback_text(output)
 
@@ -311,6 +313,33 @@ def _retirement_facts(
     return facts
 
 
+def _corpus_milestone(output: Any, target_inr: float | None) -> dict[str, Any] | None:
+    """First projected year whose closing corpus reaches ``target_inr``.
+
+    Resolved here, not in the prompt: scanning 20-40 ``corpus_closing`` rows for
+    the first crossing is what answered "when do I reach ₹10 crore?" with
+    FY2034/₹10.44cr and FY2035/₹11.85cr on consecutive calls.
+    """
+    if not target_inr or target_inr <= 0:
+        return None
+    corpus_today = float(output.headline.corpus_today or 0)
+    milestone: dict[str, Any] = {
+        "target_inr": target_inr,
+        "target_indian": format_inr_indian(target_inr),
+        "already_reached": corpus_today >= target_inr,
+        "reached_fy_label": None,
+        "reached_corpus_indian": None,
+    }
+    if milestone["already_reached"]:
+        return milestone
+    for row in output.annual_cashflow:
+        if float(row.corpus_closing) >= target_inr:
+            milestone["reached_fy_label"] = row.fy_label
+            milestone["reached_corpus_indian"] = format_inr_indian(row.corpus_closing)
+            break
+    return milestone
+
+
 def _build_facts_pack(
     output: Any,
     user: User,
@@ -318,6 +347,7 @@ def _build_facts_pack(
     retirement_age: int | None = None,
     retirement_modelled: bool = False,
     portfolio_value: float | None = None,
+    milestone_target_inr: float | None = None,
 ) -> dict[str, Any]:
     """Build the facts_pack dict consumed by the answer-formatter LLM."""
 
@@ -451,6 +481,9 @@ def _build_facts_pack(
         entry["corpus_closing_indian"] = format_inr_indian(row.corpus_closing)
         facts["annual_cashflow"].append(entry)
 
+    milestone = _corpus_milestone(output, milestone_target_inr)
+    if milestone is not None:
+        facts["corpus_milestone"] = milestone
 
     return facts
 

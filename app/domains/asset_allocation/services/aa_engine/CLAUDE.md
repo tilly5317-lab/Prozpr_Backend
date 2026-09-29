@@ -24,6 +24,8 @@
 - **Import `chat` lazily.** It is deliberately NOT re-exported from `__init__.py` — eager import triggers a circular import via `chat_core.turn_context` (`__init__.py` docstring).
 - **Rupee formatting comes from the app layer**, not the agent: `format_inr_indian` is imported from `app.domains.ai_engine.common` (`service.py`).
 - **Two aggregate rows per run** — `planned` (pre-guardrail) and `actual`; do not collapse to one (`persistence/write_aggregate.py`).
+- **Bare risk words are a RISK SCORE here, an equity preference in rebalancing** (`chat.py::_DETECT_SYSTEM`). "I can take more risk", no class named → `effective_risk_score`: this domain owns the risk profile, rebalancing has no risk lever so it reads the same words as `[{equity, more}]`. Naming a class or category is a preference ask on either surface. Deliberate asymmetry — spec 2026-09-16 D5.
+- **A preference ask points at the preferences page; it does NOT reshape (ruling 2026-09-17).** `_dispatch_action` relays `preference_view.PREFERENCE_REDIRECT_MESSAGE` with `show_preferences_pill=True`. `_handle_preference_what_if_aa` (one engine call, contrasting against the rehydrated snapshot) is UNREFERENCED but kept as the re-enable seam, and its tests are annotated as covering that seam rather than live behaviour. SAVED preferences still shape the displayed practical allocation and are still disclosed.
 
 ## Don't read
 - `__pycache__/`, `tests/`.

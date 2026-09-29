@@ -274,8 +274,8 @@
   <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven &middot; Haiku</div></div>
   <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
   <div class="cell"><div class="k">Trigger / caller</div><div class="v"><code>portfolio_query</code> intent → <code>flow_portfolio_query</code> → <code>answer_portfolio_query</code></div></div>
-  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>PortfolioQueryOrchestrator.run</code></div></div>
-  <div class="cell"><div class="k">LLM passes</div><div class="v">1 &middot; forced-tool call<br/>(inside a 4-step pipeline)</div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>PortfolioQueryOrchestrator</code> &mdash; <code>query_body</code> + <code>build_facts</code></div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">0 in this module<br/>(the shared formatter makes the call)</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">rupee figures pre-computed<br/>path-routing + wording probabilistic</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v">none — only <code>common.py</code> + <code>persona.py</code></div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — the app gateway does</div></div>
@@ -295,7 +295,7 @@ It is triggered by the intent classifier's `portfolio_query` label and routed by
 
 The defining design decision, shared with `mutual_fund_query` but stricter here because a whole portfolio's worth of rupee figures is in play: **the LLM never converts a rupee amount.** Every `*_inr` figure is paired with a pre-computed Indian-notation `*_indian` sibling string, and the prompt tells Haiku to copy it verbatim. A confidently-wrong "₹22.6 lakh" for what is really ₹2.26 crore is treated as a worse failure than a plainer answer.
 
-### The 4-step, single-call shape
+### The prepare-only shape
 
 ```mermaid
 flowchart LR
@@ -305,12 +305,11 @@ flowchart LR
     S1a --> S2
     S1b --> S2
     S1 --> S2["<b>Step 2</b><br/>enrich *_inr → *_indian<br/>+ compact-JSON the context"]
-    S2 --> S3["<b>Step 3 · one Haiku call</b><br/>skill + guardrails + persona<br/>forced tool-use"]
-    S3 --> S4["<b>Step 4</b><br/>validate → PortfolioQueryResponse"]
-    S4 --> R([answer OR redirect_message<br/>+ guardrail_triggered])
+    S2 --> S3["<b>Step 3</b><br/>query_body: skill prompt<br/>+ guardrails filled in"]
+    S3 --> R([facts pack + body prompt<br/>→ shared answer_formatter])
 ```
 
-The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a single class, ~226 lines, and makes **exactly one** LLM call per turn — the three paths (X/M/P) are all decided *inside* that one call by the prompt, not by separate passes. **The middle "build the facts" work is deliberately outside the engine:** the app-layer gateway does every DB/ORM read and hands the engine finished DTOs, so the orchestrator can be unit-tested without a database.
+The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a single class that **prepares but does not answer**: it owns `query_body` (the skill prompt with `guardrails.md` filled in — the in/out-of-scope Path X/M/P rules) and `build_facts` (commentary + client + portfolio as one INR-enriched dict). The reply itself is written by the shared answer formatter. Since 2026-08-05 this module makes **no LLM call of its own** — which is also why it cannot answer standalone.
 
 ---
 
@@ -391,14 +390,14 @@ A **deterministic backstop** runs in a pydantic `model_validator(mode="after")`:
 
 ## 5. How it thinks
 
-The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) — no pipeline of stages, just a 4-step `run` around **one** forced-tool Haiku call.
+The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) — no pipeline of stages, just the preparation the shared answer formatter then answers from.
 
 | Step | Where | What happens |
 |---|---|---|
 | 1 · load commentary **(conditional)** | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_market_commentary` | **only when `want_market_commentary`**. Reads `market_commentary_latest.md` BOM-aware; **missing ⇒ `FileNotFoundError`**, empty ⇒ `ValueError`; truncates to `_MAX_COMMENTARY_CHARS` (7 000). Otherwise a `_COMMENTARY_NOT_REQUESTED` placeholder is substituted and no file is read |
 | 2 · enrich + serialise | `_enrich_inr_fields` / `_dump_enriched_json` | walks the DTO dicts, adds an `*_indian` sibling for every `*_inr`, then compact-JSONs (`exclude_none`, no indent, literal `₹`) |
-| 3 · one Haiku call | `SkillExecutor.render` + `build_system_prompt` + `LLMClient.call_structured` | renders the skill, prepends the PI persona, forces the `return_portfolio_query_response` tool. `temperature=0`. Streams the `answer` field when the turn has an open token stream (§5.3) |
-| 4 · validate | `PortfolioQueryResponse.model_validate` | typed model + the guardrail backstop (§4) |
+| 3 · build the body prompt | `query_body` → `SkillExecutor.render` | renders the skill with `guardrails.md` filled in. The persona, the tool binding and the call itself belong to the shared answer formatter. `temperature=0`. Streams the `answer` field when the turn has an open token stream (§5.3) |
+| 4 · validate | `PortfolioQueryResponse.model_validate` | typed model + the guardrail backstop (§4) — still deterministic, still enforced here |
 
 ### 5.1 The commentary gate — the classifier's `tools_needed` in action
 
@@ -427,7 +426,7 @@ A related prompt rule landed alongside: **a ranked answer must actually be in ra
 
 The narrating call streams when — and only when — the turn has an open token stream (`current_token_stream() is not None`) **and** the caller named a field. With no open stream this is the exact `ainvoke` path it has always been, so the non-streaming endpoint is unaffected.
 
-`stream_field="answer"` is passed from the orchestrator. The `FINE_GRAINED_TOOL_STREAMING` beta is attached only while streaming: without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. See §4.1 of the ARCHITECTURE walkthrough for the measurements and the trade-off.
+Streaming is the **formatter's** concern since the 2026-08-05 centralisation — this module names no field and holds no client. The `FINE_GRAINED_TOOL_STREAMING` beta is attached only while streaming: without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. See §4.1 of the ARCHITECTURE walkthrough for the measurements and the trade-off.
 
 ### Prompt plumbing
 
@@ -496,16 +495,16 @@ Not every turn even reaches the model — several failures are caught in the **g
 
 ## 6. Where the LLM is
 
-**One Haiku call per turn, forced-tool-use — and it does no arithmetic.** Everything numeric is deterministic and happens *before* the call:
+**Not in this module — and it does no arithmetic anywhere.** The reply LLM was centralised into `app/domains/ai_engine/answer_formatter` on 2026-08-05 (`3b923228`); `llm_client.py` and `dev_run.py` were deleted with it. What survives here is deterministic preparation:
 
 | Part | Where | Deterministic vs LLM |
 |---|---|---|
 | XIRR, cost-basis gains, allocation & sub-category roll-ups, itemization + counts | gateway (`portfolio_query_service.py`) | deterministic Python |
 | `*_inr` → `*_indian` Indian-notation strings | `orchestrator._enrich_inr_fields` → `common.format_inr_indian` | deterministic |
-| path routing (X / M / P) + wording | the single Haiku call | probabilistic |
+| path routing (X / M / P) + wording | the shared answer formatter's call | probabilistic |
 | guardrail contract enforcement | `PortfolioQueryResponse` validator | deterministic backstop |
 
-The LLM client is [`llm_client.py`](../../src/portfolio_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type":"tool","name":...}`, marks the system prompt `cache_control: ephemeral` (Anthropic prompt caching), returns `(tool_input, usage)`, and resolves the `"haiku"` alias via `MODEL_MAP` to the pinned id.
+The module hands the formatter two things and nothing else: `query_body` (the skill prompt) and the facts pack from `build_facts`. Tool binding, forced tool-use, prompt caching, streaming and token accounting are all the formatter's concern now — see `app/domains/ai_engine/CLAUDE.md`. The guardrail contract is still enforced here, deterministically, by the `PortfolioQueryResponse` validator.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
@@ -518,13 +517,11 @@ The LLM client is [`llm_client.py`](../../src/portfolio_query/llm_client.py) —
 
 | File | Role |
 |---|---|
-| [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — the 4-step `run`, commentary load, INR enrichment, the `_PORTFOLIO_QUERY_TOOL` schema |
+| [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — `query_body` (skill prompt + guardrails) and `build_facts` (commentary load, INR enrichment). Prepares; never answers |
 | [`models.py`](../../src/portfolio_query/models.py) | pydantic I/O: `ConversationTurn`, `ClientContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`, `PortfolioContext`, `PortfolioQueryResponse` (+ guardrail validator) |
 | [`skill_executor.py`](../../src/portfolio_query/skill_executor.py) | `SkillExecutor` — front-matter split + `## `-section carve + `{{var}}` render |
-| [`llm_client.py`](../../src/portfolio_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting; optional `stream_field` streaming path (§5.3) |
 | [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | skill prompt (System + User sections) + config front-matter; **runtime source, not docs** |
 | [`guardrails.md`](../../src/portfolio_query/guardrails.md) | scope rules embedded via `{{guardrail_rules}}`; **runtime source** |
-| [`dev_run.py`](../../src/portfolio_query/dev_run.py) | developer smoke test (`python -m portfolio_query.dev_run`) — in-scope + guardrail scenarios |
 | [`__init__.py`](../../src/portfolio_query/__init__.py) | re-exports the models + orchestrator (the app-layer contract surface) |
 
 App-layer companion (not part of the engine, but where the DTOs come from):
@@ -539,7 +536,7 @@ App-layer companion (not part of the engine, but where the DTOs come from):
 
 - **The commentary load is CONDITIONAL now.** `want_market_commentary` gates it (§5.1). It defaults to `True`, so if you add a caller and forget to pass the classifier's verdict, you silently get the old always-load behaviour back — and with it the valuation-vs-allocation confusion the gate exists to prevent.
 - **`stream_field` must be passed explicitly, and only for `answer`.** The parameter has no default on purpose: an internal field must never be streamed to a customer by accident. `redirect_message` in particular is substituted wholesale by the guardrail backstop, so streaming it would paint text the validator may then null.
-- **Streamed turns report usage on `usage_metadata`, not `response_metadata["usage"]`.** `llm_client` carries an explicit fallback; without it, token and cost accounting records **zeros for every streamed turn** and per-module cost attribution quietly goes wrong.
+- **Streamed turns report usage on `usage_metadata`, not `response_metadata["usage"]`.** The fallback now lives with the shared answer formatter, since that is where the call moved; without it, token and cost accounting records **zeros for every streamed turn** and per-module cost attribution quietly goes wrong.
 - **Per-fund XIRR failure is swallowed on purpose.** `_xirr_by_scheme` returns `{}` on any exception. That is correct — one missing number must not fail a turn — but it means a broken lookup shows up as "the model stopped citing per-fund XIRR", not as an error. Check the warning log.
 - **The market commentary is a file contract, not an import.** `orchestrator._load_market_commentary` reads `Reference_docs/market_commentary_latest.md` and **raises `FileNotFoundError` if it's absent** (empty ⇒ `ValueError`). The gateway catches that and tells the customer to refresh commentary. Don't "fix" it by importing the `market_commentary` module — the file boundary is why this agent stays a peer.
 - **Every `*_inr` needs its `*_indian` sibling.** `_enrich_inr_fields` builds them; the prompt says copy verbatim. Hand Haiku a bare rupee number and you re-open the lakh/crore bug (§6). Any new rupee DTO field gets the sibling automatically — but only if it *ends in* `_inr`.
@@ -560,7 +557,6 @@ App-layer companion (not part of the engine, but where the DTOs come from):
 
   | Level | Where | Covers |
   |---|---|---|
-  | engine smoke | [`dev_run.py`](../../src/portfolio_query/dev_run.py) | in-scope multi-turn + guardrail scenarios end-to-end (real Haiku call; needs `ANTHROPIC_API_KEY` + a commentary file) |
   | intent gate | [`app/domains/ai_engine/tests/eval_gate/`](../../../app/domains/ai_engine/tests/eval_gate/) | that `pq/*` questions classify to `portfolio_query` (`golden_cases.py` intent cases) |
   | logic-doc guard | [`answer_formatter/tests/test_logic_docs.py`](../../../app/domains/ai_engine/answer_formatter/tests/test_logic_docs.py) | asserts this module has **no** logic doc: `get_logic_reference("portfolio_query") is None` |
 
@@ -577,7 +573,7 @@ App-layer companion (not part of the engine, but where the DTOs come from):
   resp = await orch.run("what's my biggest holding?", my_client, my_portfolio, [])
   ```
 
-  Hand-build a `ClientContext` + `PortfolioContext` (the `dev_run.py` fixtures are a ready template) and you can reproduce any answer quirk — prompt assembly and INR enrichment included — with no database and no Anthropic call. (Note `run` still needs `market_commentary_latest.md` on disk, since Step 1 reads it before the call.)
+  Hand-build a `ClientContext` + `PortfolioContext` and you can reproduce prompt assembly and INR enrichment with no database and no Anthropic call — `build_facts` and `query_body` are pure. (It still needs `market_commentary_latest.md` on disk when the commentary gate is open.) To exercise an actual answer you must drive a real chat turn, since the reply is the formatter's.
 
 ---
 
