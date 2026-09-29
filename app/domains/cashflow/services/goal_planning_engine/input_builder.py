@@ -49,6 +49,30 @@ _ORM_GOAL_TYPE_TO_ENGINE: dict[str, GoalType] = {
 }
 
 
+def map_custom_goal(g: Any) -> CustomGoal:
+    """Engine goal for one ORM goal; callers filter status and date."""
+    gt = getattr(g, "goal_type", None)
+    gt_name = (gt.value if hasattr(gt, "value") else str(gt or "")).upper()
+    inflation_override = None
+    infl = getattr(g, "inflation_rate", None)
+    if infl is not None:
+        try:
+            inflation_override = float(infl) / 100.0 if float(infl) > 1 else float(infl)
+        except (TypeError, ValueError):
+            pass
+    return CustomGoal(
+        name=getattr(g, "name", None) or getattr(g, "goal_name", None) or "goal",
+        goal_type=_ORM_GOAL_TYPE_TO_ENGINE.get(gt_name, GoalType.custom),
+        goal_value_pv=float(
+            getattr(g, "goal_value_pv", None)
+            or getattr(g, "present_value_amount", None)
+            or 0.0
+        ),
+        goal_date=getattr(g, "target_date", None) or getattr(g, "goal_date", None),
+        inflation_rate_override=inflation_override,
+    )
+
+
 def _map_custom_goals(
     financial_goals: List[Any],
     today: date,
@@ -67,8 +91,6 @@ def _map_custom_goals(
         if not target or target <= today:
             continue
 
-        gt = getattr(g, "goal_type", None)
-        gt_name = (gt.value if hasattr(gt, "value") else str(gt or "")).upper()
         goal_name = getattr(g, "name", None) or getattr(g, "goal_name", None) or "goal"
         norm = goal_name.casefold()
         if norm in seen_names:
@@ -82,35 +104,13 @@ def _map_custom_goals(
         # type RETIREMENT) now flows through as a normal custom goal rather than
         # being skipped. (See model_retirement=False below.)
 
-        engine_type = _ORM_GOAL_TYPE_TO_ENGINE.get(gt_name, GoalType.custom)
-        pv = float(
-            getattr(g, "goal_value_pv", None)
-            or getattr(g, "present_value_amount", None)
-            or 0.0
-        )
-        inflation_override = None
-        infl = getattr(g, "inflation_rate", None)
-        if infl is not None:
-            try:
-                inflation_override = (
-                    float(infl) / 100.0 if float(infl) > 1 else float(infl)
-                )
-            except (TypeError, ValueError):
-                pass
-        if engine_type == GoalType.property:
+        goal = map_custom_goal(g)
+        if goal.goal_type == GoalType.property:
             issues.append(
                 f"goal:{goal_name} (HOME_PURCHASE) modeled as a cash goal — "
                 "downpayment and mortgage data are not yet captured on the profile"
             )
-        mapped.append(
-            CustomGoal(
-                name=goal_name,
-                goal_type=engine_type,
-                goal_value_pv=pv,
-                goal_date=target,
-                inflation_rate_override=inflation_override,
-            )
-        )
+        mapped.append(goal)
     return mapped, issues
 
 

@@ -36,6 +36,23 @@ def expected_roi_for_goal(goal_date: date, ctx: RunContext) -> float:
     return ctx.long_term_roi
 
 
+def _goal_inflation(goal: CustomGoal, assumptions: Assumptions) -> float:
+    if goal.inflation_rate_override is not None:
+        return goal.inflation_rate_override
+    return getattr(
+        assumptions,
+        _INFLATION_BY_GOAL_TYPE.get(goal.goal_type, "inflation_household_expense"),
+    )
+
+
+def custom_goal_fv(goal: CustomGoal, assumptions: Assumptions, as_of: date) -> float:
+    """Cost at EOMONTH(goal_date), rounded to ₹1,000 — the figure the plan funds."""
+    if goal.goal_value_fv is not None:
+        return goal.goal_value_fv
+    years = (eomonth(goal.goal_date, 0) - as_of).days / 365
+    return _round_thousand(inflate(goal.goal_value_pv, _goal_inflation(goal, assumptions), years))
+
+
 def build_goals_table(
     retirement_snap: RetirementSnapshot,
     goal_property_outcomes: list[GoalPropertyOutcome],
@@ -103,30 +120,16 @@ def build_goals_table(
         # Past-date check handled at engine entry (validate_input_only) — no guard needed here.
         # Day-precise convention: inflate to EOMONTH(goal_date), symmetric with _fund_today_pv.
         inflation_years = (eomonth(g.goal_date, 0) - ctx.latest_update_date).days / 365
-        inflation = (
-            g.inflation_rate_override
-            if g.inflation_rate_override is not None
-            else getattr(
-                assumptions,
-                _INFLATION_BY_GOAL_TYPE.get(g.goal_type, "inflation_household_expense"),
-            )
-        )
         # Goal_value_pv is unrounded by design; goal_value_fv is the rounded anchor.
         # When reverse-deriving goal_value_pv from goal_value_fv, drift may be sub-₹500.
         # PV is informational; FV is the cashflow driver. For custom goals (no mortgage)
         # corpus_required_fv == goal_value_fv — the corpus pays the full FV.
-        if g.goal_value_fv is not None:
-            corpus_required_fv = g.goal_value_fv
-            goal_value_pv = (
-                g.goal_value_pv
-                if g.goal_value_pv is not None
-                else g.goal_value_fv / (1 + inflation) ** inflation_years
-            )
+        inflation = _goal_inflation(g, assumptions)
+        corpus_required_fv = custom_goal_fv(g, assumptions, ctx.latest_update_date)
+        if g.goal_value_fv is not None and g.goal_value_pv is None:
+            goal_value_pv = g.goal_value_fv / (1 + inflation) ** inflation_years
         else:
             goal_value_pv = g.goal_value_pv
-            corpus_required_fv = _round_thousand(
-                inflate(goal_value_pv, inflation, inflation_years)
-            )
 
         roi = expected_roi_for_goal(g.goal_date, ctx)
         fund_pv = _fund_today_pv(corpus_required_fv, roi, ctx, g.goal_date)

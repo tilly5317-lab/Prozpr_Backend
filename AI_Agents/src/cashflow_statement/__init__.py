@@ -4,7 +4,7 @@ Bridge code imports from here only. Internal types (RunContext, MortgageSchedule
 live in engine/_types.py and are NOT exported.
 """
 
-from .engine import compute_full_projection, validate_input_only, ENGINE_VERSION
+from .engine import compute_full_projection, validate_input_only, ENGINE_VERSION, custom_goal_fv
 from .models import (
     # Inputs
     GoalPlanningInput,
@@ -68,6 +68,7 @@ __all__ = [
     "compute_full_projection",
     "validate_input_only",
     "ENGINE_VERSION",
+    "custom_goal_fv",
     "cashflow_statement_graph",
     "run_cashflow_statement",
     "GoalPlanningInput",
