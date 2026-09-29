@@ -56,7 +56,7 @@ async def _latest_navs(
 
     Resolved in SQL (max-date subquery + join) — fetching every scheme's full
     NAV history to keep one row each pulled ~75k rows per call and pushed the
-    /portfolio/twr endpoint past the frontend's 45s request timeout.
+    caller past the frontend's 45s request timeout.
     """
     if not scheme_codes:
         return {}
@@ -201,7 +201,7 @@ async def compute_portfolio_xirr(db: AsyncSession, user_id: uuid.UUID) -> XirrRe
 
     Fetches only the columns ``_build_cashflows`` reads (Row supports the same
     attribute access) — hydrating full ORM entities for thousands of
-    transactions dominated the /portfolio/twr response time.
+    transactions dominated the response time.
     """
     txns = list(
         (

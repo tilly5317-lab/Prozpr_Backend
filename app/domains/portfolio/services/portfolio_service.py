@@ -9,12 +9,13 @@ import logging
 import uuid
 from datetime import date
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.domains.mutual_funds.models import MfNavHistory
 from app.domains.portfolio.models.portfolio import Portfolio
+from app.domains.portfolio.services.networth.clock import ist_today
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +48,49 @@ async def _latest_nav_on_or_before(
     ``key`` is a holding's ``ticker_symbol``, which may be an AMFI scheme code *or*
     an ISIN (the CAS ingest stores whichever it could resolve). ``mf_nav_history`` is
     keyed by AMFI scheme code but also carries the ISIN, so we match on either.
+
+    The two keys are looked up as SEPARATE indexed branches and merged — never as one
+    ``OR``. Written as an ``OR`` the planner can use neither index to satisfy
+    ``ORDER BY nav_date DESC LIMIT 1``, so it walks ``ix_mf_nav_history_nav_date``
+    backwards and applies the key as a mere *filter*. A key with no recent row — an
+    ISIN absent from the table — therefore scans all ~14M rows / 4.85 GB before
+    returning NULL: ~5 minutes per holding, inside the request's transaction, which is
+    how one portfolio load convoyed the whole database on 2026-09-27. Split, each
+    branch is an index range scan (``uq_mf_nav_scheme_date`` / ``ix_mf_nav_isin_upper``)
+    and a miss costs ~10 ms.
     """
-    nav = (
-        await db.execute(
-            select(MfNavHistory.nav)
-            .where(
-                or_(
-                    MfNavHistory.scheme_code == key,
-                    func.upper(MfNavHistory.isin) == key.upper(),
-                ),
-                MfNavHistory.nav_date <= on_day,
-            )
+
+    def _branch(condition):
+        return (
+            select(MfNavHistory.nav, MfNavHistory.nav_date)
+            .where(condition, MfNavHistory.nav_date <= on_day)
             .order_by(MfNavHistory.nav_date.desc())
             .limit(1)
         )
+
+    # Merge Append over the two branches preserves ``nav_date DESC``, so the outer
+    # LIMIT 1 still returns the single most recent NAV matching *either* key — the
+    # same row the OR returned, without the scan.
+    merged = (
+        _branch(MfNavHistory.scheme_code == key)
+        .union_all(_branch(func.upper(MfNavHistory.isin) == key.upper()))
+        .subquery()
+    )
+    nav = (
+        await db.execute(
+            select(merged.c.nav).order_by(merged.c.nav_date.desc()).limit(1)
+        )
     ).scalar()
     return float(nav) if nav is not None else None
+
+
+def _owned_by_statement(row: object, snapshot_id: uuid.UUID | None) -> bool:
+    """The CAS NULL rule, applied by hand: a row is visible when it belongs to the
+    active statement or to no statement at all (manual entries, SimBanks, legacy)."""
+    if snapshot_id is None:
+        return True
+    owner = getattr(row, "cas_upload_id", None)
+    return owner is None or owner == snapshot_id
 
 
 async def revalue_primary_portfolio_at_latest_nav(
@@ -94,11 +122,28 @@ async def revalue_primary_portfolio_at_latest_nav(
     if portfolio is None:
         return None
 
-    holdings = list(portfolio.holdings)
-    if not holdings:
+    all_holdings = list(portfolio.holdings)
+    if not all_holdings:
         return portfolio
 
-    today = date.today()
+    # Only the ACTIVE statement's holdings — plus rows no statement owns — may enter
+    # the headline. The CAS read hook applies that rule to the loads above *when it is
+    # running*; it is process-global state (listeners installed, ContextVar set), and a
+    # caller without it — a scheduler, a script, an older process — re-marked this row
+    # to the sum of EVERY statement the user ever uploaded: Rs 60,792 held read as
+    # Rs 15.1 crore. Repeating the rule here makes the headline independent of who
+    # called. An active statement with NO holdings left falls through to a zero
+    # roll-up (then the ledger fallback) instead of keeping the polluted total.
+    from app.core.cas_scope import effective_scope
+
+    snapshot_id = await effective_scope(db, user_id)
+    holdings = [h for h in all_holdings if _owned_by_statement(h, snapshot_id)]
+    allocations = [
+        a for a in portfolio.allocations if _owned_by_statement(a, snapshot_id)
+    ]
+
+    # IST, not the UTC box's calendar day - see services/networth/clock.py.
+    today = ist_today()
 
     # Resolve each held scheme's *latest* NAV. ``get_latest_nav_with_source_fallback``
     # reads local ``mf_nav_history`` and only reaches out to mfapi.in when the stored
@@ -108,20 +153,40 @@ async def revalue_primary_portfolio_at_latest_nav(
     from app.domains.mutual_funds.services.nav_history_service import (
         get_latest_nav_with_source_fallback,
     )
+    from app.domains.mutual_funds.services.scheme_resolver import (
+        build_isin_to_amfi_map,
+        is_amfi_code,
+    )
 
-    scheme_codes = {
+    tickers = {
         h.ticker_symbol
         for h in holdings
         if h.instrument_type == "mutual_fund" and h.ticker_symbol
     }
+    # A ticker that is not a numeric AMFI code is an ISIN (or a bare RTA code) the
+    # ingest could not resolve. Both ``mf_nav_history`` and mfapi.in are keyed by the
+    # AMFI code, so handing the source fallback an ISIN is a guaranteed-miss network
+    # round-trip *per holding* — 38 of them on one real account. Resolve them here in
+    # ONE batched metadata query (``mf_fund_metadata`` is ~9k rows) instead, which also
+    # means a resolvable ISIN now gets priced rather than silently falling through.
+    unresolved = {t for t in tickers if not is_amfi_code(t)}
+    isin_to_amfi = await build_isin_to_amfi_map(db, unresolved) if unresolved else {}
+
     nav_by_scheme: dict[str, float] = {}
-    for code in scheme_codes:
+    for ticker in tickers:
+        code = (
+            ticker if is_amfi_code(ticker) else isin_to_amfi.get(ticker.strip().upper())
+        )
+        if not code:
+            # Nothing the source could answer for. The local scheme/ISIN lookup below
+            # still runs, and it is now two index probes rather than a table scan.
+            continue
         try:
             row = await get_latest_nav_with_source_fallback(db, code)
         except Exception:  # noqa: BLE001 — never fail the read on a NAV lookup
             row = None
         if row is not None and row.nav is not None and float(row.nav) > 0:
-            nav_by_scheme[code] = float(row.nav)
+            nav_by_scheme[ticker] = float(row.nav)
 
     repriced = False
     for h in holdings:
@@ -158,13 +223,16 @@ async def revalue_primary_portfolio_at_latest_nav(
     # fallback when there are no priced holdings (e.g. transactions imported without a CAS
     # holdings snapshot), never to override a non-zero holdings total.
     if total_value <= 0:
-        from app.domains.portfolio.services.networth_history_service import (
+        from app.domains.portfolio.services.networth.asof import (
             compute_today_networth,
         )
 
         ledger = await compute_today_networth(db, user_id)
         if ledger is not None and ledger[0] > 0:
-            total_value, ledger_invested, _ = ledger
+            # The ledger path returns Decimals; the rest of this function is
+            # float arithmetic over ORM columns, so convert at the boundary.
+            total_value = float(ledger[0])
+            ledger_invested = float(ledger[1])
             if ledger_invested > 0:
                 total_invested = ledger_invested
 
@@ -177,7 +245,6 @@ async def revalue_primary_portfolio_at_latest_nav(
 
     # Re-scale the bucket allocation amounts so the donut rupee figures track today's
     # value (the asset-class *mix* is unchanged, so percentages stay put).
-    allocations = list(portfolio.allocations)
     old_alloc_total = sum(float(a.amount or 0) for a in allocations)
     if allocations and old_alloc_total > 0 and total_value > 0:
         scale = total_value / old_alloc_total

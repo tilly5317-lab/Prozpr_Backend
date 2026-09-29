@@ -12,12 +12,11 @@ snapshot of the user's mutual-fund holdings, so re-uploading one rebuilt every
 downstream figure from scratch rather than merging onto whatever stale, cached
 state a previous upload left behind. It wipes all of a user's financial and
 computed data in one FK-safe pass so the fresh statement is the sole source of
-truth — and takes every plan, projection and net-worth point with it, which is
-exactly why snapshots replaced it.
+truth — and takes every plan and projection with it, which is exactly why
+snapshots replaced it.
 
 WHAT IS DELETED (everything derived from / computed off a portfolio):
-  * portfolio container + holdings + allocations + history, daily net-worth series,
-    net-worth backfill jobs;
+  * portfolio container + holdings + allocations + history;
   * the mutual-fund ledger and its audit trail (mf_transactions, mf_aa_imports +
     summaries + staging transactions, SIP mandates, per-fund snapshots, allocation
     snapshots, watchlists, user-scoped funds);
@@ -114,13 +113,19 @@ _RESET_STATEMENTS: tuple[str, ...] = (
     "DELETE FROM funds WHERE user_id = :uid",
     # ── equities ──
     "DELETE FROM stock_transactions WHERE user_id = :uid",
-    # ── portfolio (children via portfolio_id, then containers, then user-scoped series) ──
+    # ── net-worth series (derived; keyed by user_id, not portfolio_id) ──
+    # All three are pure derivations of the ledger, so they are rebuilt from scratch
+    # on the next CAS upload. A derived table left OUT of this list is a silent
+    # stale-data bug: the chart keeps showing a portfolio the user no longer has.
+    "DELETE FROM user_portfolio_nav_history WHERE user_id = :uid",
+    "DELETE FROM user_scheme_position WHERE user_id = :uid",
+    "DELETE FROM user_networth_series_state WHERE user_id = :uid",
+    "DELETE FROM portfolio_networth_jobs WHERE user_id = :uid",
+    # ── portfolio (children via portfolio_id, then containers) ──
     "DELETE FROM portfolio_history WHERE portfolio_id IN (SELECT id FROM portfolios WHERE user_id = :uid)",
     "DELETE FROM portfolio_allocations WHERE portfolio_id IN (SELECT id FROM portfolios WHERE user_id = :uid)",
     "DELETE FROM portfolio_holdings WHERE portfolio_id IN (SELECT id FROM portfolios WHERE user_id = :uid)",
     "DELETE FROM portfolios WHERE user_id = :uid",
-    "DELETE FROM portfolio_networth_jobs WHERE user_id = :uid",
-    "DELETE FROM user_portfolio_nav_history WHERE user_id = :uid",
     # ── advisory (meeting notes + IPS) ──
     "DELETE FROM meeting_note_items WHERE meeting_note_id IN (SELECT id FROM meeting_notes WHERE user_id = :uid)",
     "DELETE FROM meeting_notes WHERE user_id = :uid",

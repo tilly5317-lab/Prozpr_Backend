@@ -1,8 +1,8 @@
 """The rupee value of one MF transaction, healed against a mis-parsed amount.
 
 Single definition shared by every reader of ``mf_transactions`` (snapshot,
-holding detail, net-worth series, XIRR, TWR, benchmark) so no two of them can
-price the same ledger row differently.
+holding detail, XIRR, benchmark) so no two of them can price the same ledger
+row differently.
 """
 
 from __future__ import annotations

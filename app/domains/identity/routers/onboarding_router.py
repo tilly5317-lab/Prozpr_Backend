@@ -17,8 +17,8 @@ from app.domains.identity.models.user import User
 from app.domains.identity.services.onboarding_generation_service import (
     create_job as create_generation_job,
     generation_steps,
-    get_latest_job as get_latest_generation_job,
     has_mf_transactions,
+    get_latest_job as get_latest_generation_job,
     has_running_job as has_running_generation_job,
     run_onboarding_generation,
 )
@@ -333,11 +333,8 @@ def _generation_status(
     """Map a job row (or its absence) to the polled status shape.
 
     The checklist derives from ``steps_spec`` — the steps this user's job will
-    actually run (see ``generation_steps``; a user with no imported holdings has
-    no net-worth history to build, so that row is absent rather than shown
-    ticking over nothing). Everything before the current phase is done, the
-    current phase is active while the job runs, and a successful job marks every
-    step done.
+    actually run. Everything before the current phase is done, the current phase
+    is active while the job runs, and a successful job marks every step done.
     """
     keys = [k for k, _ in steps_spec]
     if job is None:
@@ -397,7 +394,9 @@ async def start_generation(
     instead of starting a duplicate, so the button and the loading page can
     both call this safely.
     """
-    steps_spec = generation_steps(await has_mf_transactions(db, current_user.id))
+    steps_spec = generation_steps(
+        await has_mf_transactions(db, current_user.id)
+    )
     running = await has_running_generation_job(db, current_user.id)
     if running is not None:
         current = _generation_status(running, steps_spec)
@@ -419,7 +418,9 @@ async def generation_status(
     current_user: CurrentUser = Depends(get_effective_user),
 ):
     """Latest personalisation-job status — the loading page polls this."""
-    steps_spec = generation_steps(await has_mf_transactions(db, current_user.id))
+    steps_spec = generation_steps(
+        await has_mf_transactions(db, current_user.id)
+    )
     return _generation_status(
         await get_latest_generation_job(db, current_user.id), steps_spec
     )

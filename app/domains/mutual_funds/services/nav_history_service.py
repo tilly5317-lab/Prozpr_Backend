@@ -337,8 +337,7 @@ async def ensure_nav_history_for_chart(
     target row count is based on ``max(date_from, fund_inception)``..``date_to``.
 
     ``require_from_start``: set when the caller knows the fund was actually *held*
-    from ``date_from`` (e.g. the net-worth backfill passes the fund's first
-    transaction date). Then a leading gap — stored NAV that only starts well after
+    from ``date_from`` (e.g. the fund's first transaction date). Then a leading gap — stored NAV that only starts well after
     ``date_from``, typically because daily latest-NAV top-ups seeded a few recent
     rows but the older history was never fetched — forces a full-history backfill.
     Without this, ``coverage_start = max(date_from, g_earliest)`` would shrink the
@@ -397,7 +396,9 @@ async def ensure_nav_history_for_chart(
     # has a leading gap: its units would value at ₹0 for the pre-window months. Only
     # trusted when the caller vouches that date_from is a real hold-start.
     leading_gap_days = (g_earliest - date_from).days if g_earliest else 0
-    has_leading_gap = require_from_start and leading_gap_days > _LEADING_GAP_TOLERANCE_DAYS
+    has_leading_gap = (
+        require_from_start and leading_gap_days > _LEADING_GAP_TOLERANCE_DAYS
+    )
 
     if in_window >= min_rows and not has_leading_gap:
         logger.debug(
@@ -658,6 +659,26 @@ async def _persist_source_nav_and_metadata(
     Returns the number of NAV rows actually inserted (0 on failure).
     """
     from app.core.database import _get_session_factory
+
+    # The metadata upsert and the NAV rows share one transaction, so a label that
+    # overflows its column (category is VARCHAR(50), amc_name VARCHAR(100)) used to
+    # roll back the fund's entire history download — 4,961 rows lost per fund, four
+    # funds per run on 2026-09-27, and again on every retry. Fit the labels first.
+    def _fit(value: str, limit: int, field: str) -> str:
+        text_value = (value or "").strip()
+        if len(text_value) > limit:
+            logger.warning(
+                "scheme %s: %s truncated from %d to %d chars for storage",
+                scheme_code,
+                field,
+                len(text_value),
+                limit,
+            )
+            return text_value[:limit]
+        return text_value
+
+    category = _fit(category, 50, "category")
+    amc_name = _fit(amc_name, 100, "amc_name")
 
     factory = _get_session_factory()
     async with factory() as bg_db:

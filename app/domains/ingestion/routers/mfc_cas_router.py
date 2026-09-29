@@ -55,10 +55,8 @@ from app.domains.ingestion.services.mfc_cas_ingest import (
     start_cas_request,
     verify_consent_otp,
 )
-from app.domains.portfolio.services.networth_history_service import (
-    create_job,
-    has_running_job,
-    run_networth_backfill,
+from app.domains.portfolio.services.networth.trigger import (
+    schedule_rebuild_after_cas,
 )
 from app.domains.profile.services._effective_risk import (
     maybe_recalculate_effective_risk,
@@ -294,13 +292,17 @@ async def validate_mfc_qr(
     )
     await db.commit()
 
-    if ingest.mf_transactions_inserted > 0:
-        try:
-            if await has_running_job(db, current_user.id) is None:
-                job = await create_job(db, current_user.id)
-                background.add_task(run_networth_backfill, current_user.id, job.id)
-        except Exception:  # noqa: BLE001 — never fail an import over the kickoff
-            logger.exception("could not auto-start net-worth backfill after MFC import")
+    # Rebuild the net-worth series from the statement that is now active — the
+    # SAME hook the PDF path calls, so the two import paths cannot disagree about
+    # when a rebuild is due. Queued after the commit above, where the snapshot is
+    # promoted; an earlier start would pin the statement this import replaced.
+    await schedule_rebuild_after_cas(
+        db,
+        background,
+        current_user.id,
+        ingest_failed=ingest.status == "FAILED",
+        trigger="mfc_cas_import",
+    )
 
     message = (
         f"Imported {ingest.schemes} scheme(s) across {ingest.folios} folio(s) "
