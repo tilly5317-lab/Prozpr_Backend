@@ -90,7 +90,7 @@ class AllocationInput(BaseModel):
 
     risk_willingness: Optional[float] = None
     risk_capacity_score: Optional[float] = None
-    net_financial_assets: Optional[float] = None
+    financial_assets: Optional[float] = None
     occupation_type: Optional[str] = None
 
 
@@ -232,7 +232,6 @@ class GoalAllocationOutput(BaseModel):
 class Step1Output(BaseModel):
     emergency_fund_months: int
     emergency_fund_amount: int
-    nfa_carveout_amount: int
     total_emergency: int
     remaining_corpus: int
     future_investment: Optional[FutureInvestment] = None

@@ -20,10 +20,7 @@ def run(inp: AllocationInput) -> Step1Output:
             emergency_fund_months * inp.monthly_household_expense
         )
 
-    nfa = inp.net_financial_assets
-    nfa_carveout_amount = round_to_100(abs(nfa)) if (nfa is not None and nfa < 0) else 0
-
-    total_emergency = emergency_fund_amount + nfa_carveout_amount
+    total_emergency = emergency_fund_amount
     total_corpus_int = int(inp.total_corpus)
 
     if total_emergency > total_corpus_int:
@@ -43,7 +40,6 @@ def run(inp: AllocationInput) -> Step1Output:
     return Step1Output(
         emergency_fund_months=emergency_fund_months,
         emergency_fund_amount=emergency_fund_amount,
-        nfa_carveout_amount=nfa_carveout_amount,
         total_emergency=total_emergency,
         remaining_corpus=remaining_corpus,
         future_investment=future_investment,

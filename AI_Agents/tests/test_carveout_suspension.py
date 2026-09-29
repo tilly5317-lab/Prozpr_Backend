@@ -1,8 +1,7 @@
 """Spec 2026-09-15 §3/§4/§7 — a stated preference suspends the bucket carve-outs.
 
 §3: if the customer has told us where their money goes, the engine is not also
-deciding to hold back an emergency reserve, a near-term goal pot, or a liability
-offset. Steps 1-3 are replaced with zeroed outputs carrying the whole corpus
+deciding to hold back an emergency reserve or a near-term goal pot. Steps 1-3 are replaced with zeroed outputs carrying the whole corpus
 forward, so the long-term step receives `rebalancing_corpus` intact.
 
 §4: `arbitrage` becomes a subgroup step 4 may write to. Only reachable through a
@@ -132,34 +131,6 @@ class TestCarveOutSuspension:
         )
 
         assert sum(_subgroups(out).values()) == pytest.approx(CORPUS, abs=500)
-
-
-class TestNfaCarveOut:
-    """§3.4: the NFA offset is a LIABILITY offset, computed regardless of
-    `emergency_fund_needed`. It goes too — a distinct fact from the emergency
-    fund, and the case that breaks the "already an exercised shape" argument."""
-
-    _LEVERAGED = dict(
-        emergency_fund_needed=False,
-        net_financial_assets=-800_000.0,
-        elss_corpus=0.0,
-        non_mf_equity_corpus=0.0,
-        mf_corpus=CORPUS,
-    )
-
-    def test_the_offset_is_carved_today(self):
-        out = _run(**self._LEVERAGED)
-
-        assert _buckets(out)["emergency"] == 800_000
-
-    def test_a_preference_suspends_the_offset(self):
-        out = _run(
-            **self._LEVERAGED,
-            human_override=_prefs(subgroup_emphasis={"low_beta_equities": 20.0}),
-        )
-
-        assert _buckets(out)["emergency"] == 0
-        assert _buckets(out)["long_term"] == pytest.approx(CORPUS, abs=200)
 
 
 MULTI_ASSET_SPLIT = {"equity": 0.65, "debt": 0.25, "others": 0.10}
@@ -451,28 +422,11 @@ class TestTheSuspensionIsDisclosed:
         funded long-term and loses nothing."""
         assert "five years" not in _reason(goals=[_goal(60)], **_A_PREFERENCE)
 
-    def test_a_liability_offset_is_disclosed_on_its_own(self):
-        """§3.4: the NFA offset is a distinct fact from the emergency fund and
-        is computed regardless of `emergency_fund_needed`. A leveraged customer
-        with no emergency need must be told about the offset and nothing else."""
-        reason = _reason(
-            emergency_fund_needed=False, net_financial_assets=-800_000.0, **_A_PREFERENCE
-        )
-
-        assert "borrowings" in reason
-        assert "emergency fund" not in reason
-
-    def test_all_three_are_disclosed_together(self):
-        reason = _reason(
-            emergency_fund_needed=True,
-            net_financial_assets=-800_000.0,
-            goals=[_goal(18)],
-            **_A_PREFERENCE,
-        )
+    def test_both_are_disclosed_together(self):
+        reason = _reason(emergency_fund_needed=True, goals=[_goal(18)], **_A_PREFERENCE)
 
         assert "emergency fund" in reason
         assert "five years" in reason
-        assert "borrowings" in reason
 
     def test_it_composes_with_the_other_disclosures(self):
         """`shortfall_reason` carries every note; the suspension must join them
@@ -489,7 +443,7 @@ class TestTheSuspensionIsDisclosed:
 
 
 class TestCarveOutsAtRisk:
-    """§9.1. The same three conditions, read off the profile — one source of
+    """§9.1. The same two conditions, read off the profile — one source of
     truth with the disclosure above, so the warning shown BEFORE the customer
     commits and the record attached AFTER cannot disagree."""
 
@@ -509,24 +463,16 @@ class TestCarveOutsAtRisk:
     def test_emergency_fund_alone(self):
         assert self._at_risk(emergency_fund_needed=True) == ["emergency_fund"]
 
-    def test_liability_offset_alone(self):
-        """The case §3.4 exists for, and the one a single boolean flag would
-        have got wrong."""
-        assert self._at_risk(
-            emergency_fund_needed=False, net_financial_assets=-800_000.0
-        ) == ["liability_offset"]
-
     def test_near_term_goals_alone(self):
         assert self._at_risk(goals=[_goal(18), _goal(120, name="Retirement")]) == [
             "near_term_goals"
         ]
 
-    def test_all_three_together(self):
-        assert self._at_risk(
-            emergency_fund_needed=True,
-            net_financial_assets=-800_000.0,
-            goals=[_goal(18)],
-        ) == ["emergency_fund", "near_term_goals", "liability_offset"]
+    def test_both_together(self):
+        assert self._at_risk(emergency_fund_needed=True, goals=[_goal(18)]) == [
+            "emergency_fund",
+            "near_term_goals",
+        ]
 
     def test_it_does_not_depend_on_a_preference_being_set(self):
         """It is a WARNING shown before the customer commits, so it is computed

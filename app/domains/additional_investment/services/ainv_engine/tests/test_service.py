@@ -473,7 +473,7 @@ def test_sizing_corpus_populates_the_target_bucket():
             total_corpus=total_corpus,
             monthly_household_expense=100_000,
             effective_tax_rate=15.0,
-            net_financial_assets=total_corpus,
+            financial_assets=total_corpus,
             goals=[],
             mf_corpus=total_corpus,
             non_mf_equity_corpus=0.0,

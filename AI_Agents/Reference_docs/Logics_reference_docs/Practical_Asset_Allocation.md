@@ -1,7 +1,7 @@
 # Ask PI · Practical Asset Allocation Thesis
 
 *Why we translate the ideal portfolio into the portfolio you can actually own — and what we do about the holdings we cannot trade*
-*Thesis version 1.4 · Internal & client reference · Last updated: September 2026*
+*Thesis version 1.5 · Internal & client reference · Last updated: September 2026*
 
 ---
 
@@ -59,7 +59,7 @@ A preference is a real instruction, so we apply it in full — and we are equall
 
 **It is expressed as a share of your whole portfolio.** Asking for a quarter in mid caps means a quarter of everything you hold, not a quarter of some sub-pool you would have to work out for yourself. Refusing a category removes it outright rather than shrinking it to a token holding; if you tell us no gold, the fund that holds gold does not appear at all.
 
-**It changes the order of priorities, not just the mix.** Ordinarily we carve out the protective layers first — a separate emergency fund, money earmarked for goals inside the next five years, and an amount held back against your borrowings — and only then invest what remains. When you set a preference, we stop making those carve-outs and invest the whole corpus to the shape you asked for — none of your savings, existing debt or monthly SIP is set aside for near-term goals, and your SIP follows your stated split. That is a genuine trade, so we name the ones that apply to *your* situation before you commit, and attach the same facts to the plan that follows. A customer with no borrowings is not warned about an offset they never had.
+**It changes the order of priorities, not just the mix.** Ordinarily we carve out the protective layers first — a separate emergency fund and money earmarked for goals inside the next five years — and only then invest what remains. When you set a preference, we stop making those carve-outs and invest the whole corpus to the shape you asked for — none of your savings, existing debt or monthly SIP is set aside for near-term goals, and your SIP follows your stated split. That is a genuine trade, so we name the ones that apply to *your* situation before you commit, and attach the same facts to the plan that follows.
 
 **Where two instructions collide, we say so rather than silently picking one.** Your asset-class split and the holdings we cannot trade outrank a category-level ask — so if the categories you pinned together want more than their asset class can hold, they are scaled back to fit and the plan tells you that happened. A core diversified holding that is larger than your split can fund is reduced to the largest one that fits, for the same reason. Nothing is trimmed quietly.
 
@@ -80,4 +80,4 @@ This document is a directional reference. It is not a tax-planning tool, not a s
 
 ---
 
-*Ask PI · Practical Asset Allocation Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Practical Asset Allocation Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-29*

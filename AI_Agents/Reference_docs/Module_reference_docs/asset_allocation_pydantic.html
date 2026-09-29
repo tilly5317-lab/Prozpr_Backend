@@ -294,7 +294,7 @@ The pipeline ([`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py)) 
 ```mermaid
 flowchart TB
     IN([AllocationInput<br/>risk score · corpus · goals · market view]) --> S1
-    S1["<b>Step 1 · emergency</b><br/>carve out cushion + negative-NFA"] -->|remaining_corpus| S2
+    S1["<b>Step 1 · emergency</b><br/>carve out cushion"] -->|remaining_corpus| S2
     S2["<b>Step 2 · short-term</b><br/>goals below the FY-anchored boundary → one debt bucket"] -->|remaining_corpus| S4
     S4["<b>Step 4 · long-term</b><br/>Phase 1–5: asset classes → multi-asset → equity subgroups"] --> S5
     S5["<b>Step 5 · aggregation</b><br/>roll subgroups up across buckets"] --> S6
@@ -348,10 +348,10 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 | `effective_tax_rate` | `float` 0–100 | routes debt: arbitrage vs short_debt (short-term `>20%`, long `≥15%`) |
 | `market_commentary` | `MarketCommentaryScores` | 1–10 views per asset class + equity subgroup; **defaults to neutral 5.0** so a caller that supplies nothing gets the un-tilted plan |
 | `multi_asset_composition` | `MultiAssetFundComposition` | equity/debt/others split of the multi-asset fund; default `(65, 25, 10)` |
-| `net_financial_assets` | `float?` | if **negative**, its magnitude is carved into the emergency bucket (debt) |
+| `financial_assets` | `float?` | not used by this engine's own steps — carried on `AllocationInput` for `practical_asset_allocation`'s direct-equity cap band |
 | `emergency_fund_needed`, `primary_income_from_portfolio`, `intergenerational_transfer` | flags | toggle whether a cushion exists (3 vs 6 months) and the Phase-1 override |
 
-`age`, `annual_income`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`, `effective_tax_rate` are required; several risk-decomposition fields (`risk_willingness`, `risk_capacity_score`, `net_financial_assets`, `occupation_type`) are optional and used narrowly.
+`age`, `annual_income`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`, `effective_tax_rate` are required; several risk-decomposition fields (`risk_willingness`, `risk_capacity_score`, `financial_assets`, `occupation_type`) are optional and used narrowly.
 
 ---
 
@@ -382,7 +382,7 @@ Six steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/p
 
 | Step | File | What it decides |
 |---|---|---|
-| **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); adds the magnitude of any **negative** `net_financial_assets`; always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
+| **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
 | **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals below the FY-anchored short/long boundary (`HORIZON_BOUNDARY_MONTHS + months_to_fy_end`), funded **nearest-date first** by `goal_waterfall`: held short-term money (`short_term_holdings`), then the front-loaded monthly SIP (`monthly_sip` — whole SIP to the nearest uncovered goal before the next, `SIP_REVIEW_WINDOW_MONTHS` = 6 review window), then corpus for what the SIP can't reach by each goal's date. Goals value at FV (`Goal.amount_needed_fv`, sourced from the cashflow engine's `custom_goal_fv`) when set, else PV `amount_needed`. The whole bucket still shares **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Shortfall ⇒ `FutureInvestment`; the per-goal breakdown rides out as `goal_funding`. |
 | **4 · long-term** | [`step4_long_term.py`](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | the heavy step (see below) — five phases from asset-class bounds down to the equity-subgroup split. |
 | **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == round_to_100(total_corpus)`). It flags — it does not assert. |
@@ -424,7 +424,7 @@ Phase 3 (goal sizing) is folded into the orchestration; the numbered phases foll
   <div class="label">Step 1 · emergency → Step1Output</div>
 <pre><code>emergency_fund_months = 3            # standard income source
 emergency_fund_amount = 150000       # round_to_100(3 × 50000)
-total_emergency       = 150000       # no negative NFA to carve
+total_emergency       = 150000       # equals emergency_fund_amount
 subgroup_amounts      = { "short_debt": 150000 }
 remaining_corpus      = 850000       # 1,000,000 − 150,000</code></pre>
 </div>

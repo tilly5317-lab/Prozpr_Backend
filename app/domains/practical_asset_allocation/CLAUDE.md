@@ -1,7 +1,7 @@
 # app/domains/practical_asset_allocation/ — holdings-aware goal-based allocation
 
 ## Entry / contract
-- App-layer gateway to `AI_Agents/src/practical_asset_allocation` (holdings-aware variant: ELSS freeze, non-MF equity NFA-banded cap, v2 equity-subgroup slider).
+- App-layer gateway to `AI_Agents/src/practical_asset_allocation` (holdings-aware variant: ELSS freeze, non-MF equity cap banded on financial assets, v2 equity-subgroup slider).
 - Runs as the **first step of the rebalancing flow** (`flow_rebalancing` in `app/domains/ai_engine/services/flow.py`) — produces the target allocation the rebalancing engine rebalances toward, handed over via the `prior` dict. No standalone chat intent.
 - Also recomputed by `additional_investment`'s deficit-fill path via `compute_practical_allocation_result(..., corpus_pin=...)` — see that domain's `CLAUDE.md`.
 

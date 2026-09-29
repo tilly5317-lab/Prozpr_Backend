@@ -985,7 +985,7 @@ class TestAPinNeverAbsorbsTheSliderFreedRoom:
             self.CLASS,
             {"low_beta_equities": 45.0},
             total_corpus=self.CORPUS,
-            net_financial_assets=self.CORPUS,
+            financial_assets=self.CORPUS,
             mf_corpus=self.CORPUS - 2_000_000.0,
             effective_risk_score=9.4,
         )
@@ -1051,7 +1051,7 @@ class TestADebtPinRoutesTheResidualToItsOwnRow:
             self.CLASS,
             emphasis,
             total_corpus=self.CORPUS,
-            net_financial_assets=self.CORPUS,
+            financial_assets=self.CORPUS,
             mf_corpus=self.CORPUS - 2_000_000.0,
         )
 

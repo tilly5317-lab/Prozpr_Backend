@@ -21,7 +21,7 @@ def make_practical_input(**overrides):
         osi=0.0, savings_rate_adjustment="none", gap_exceeds_3=False,
         shortfall_amount=0.0, total_corpus=20_000_000.0,
         monthly_household_expense=100_000, effective_tax_rate=15.0,
-        net_financial_assets=20_000_000.0, goals=[],
+        financial_assets=20_000_000.0, goals=[],
         mf_corpus=18_000_000.0, non_mf_equity_corpus=1_000_000.0,
         elss_corpus=1_000_000.0,
     )

@@ -111,7 +111,7 @@ class ScreenSaved(BaseModel):
     saved_at: Optional[datetime] = None
 
 
-CarveOutAtRisk = Literal["emergency_fund", "near_term_goals", "liability_offset"]
+CarveOutAtRisk = Literal["emergency_fund", "near_term_goals"]
 
 
 class ScreenPreferenceGetResponse(BaseModel):

@@ -92,29 +92,29 @@ SLEEVE_CLAMP_DISCLOSURE_FLOOR_PCT: float = 0.25
 PRACTICAL_OTHERS_GATE_SCORE_THRESHOLD: float = 8.0
 PRACTICAL_OTHERS_GATE_VIEW_THRESHOLD: float = 7.0
 
-# Spec §B.5 step 7 (R182) — NFA-banded max non-MF equity %.
+# Spec §B.5 step 7 (R182) — max non-MF equity %, banded on financial assets
+# (liabilities are not deducted).
 # > 5Cr → 75%, > 2Cr → 60%, > 1Cr → 50%, else → 33%.
-NFA_BAND_5CR_INR: float = 50_000_000.0
-NFA_BAND_2CR_INR: float = 20_000_000.0
-NFA_BAND_1CR_INR: float = 10_000_000.0
-NFA_BAND_PCT_ABOVE_5CR: float = 0.75
-NFA_BAND_PCT_ABOVE_2CR: float = 0.60
-NFA_BAND_PCT_ABOVE_1CR: float = 0.50
-NFA_BAND_PCT_DEFAULT: float = 0.33
+ASSET_BAND_5CR_INR: float = 50_000_000.0
+ASSET_BAND_2CR_INR: float = 20_000_000.0
+ASSET_BAND_1CR_INR: float = 10_000_000.0
+ASSET_BAND_PCT_ABOVE_5CR: float = 0.75
+ASSET_BAND_PCT_ABOVE_2CR: float = 0.60
+ASSET_BAND_PCT_ABOVE_1CR: float = 0.50
+ASSET_BAND_PCT_DEFAULT: float = 0.33
 
 
-def _nfa_banded_max_non_mf_equity_pct(nfa: Optional[float]) -> float:
-    """R182: returns the NFA-banded max non-MF equity %. Treats None NFA as the
-    bottom band (33%) — defensive: callers normally pass NFA always."""
-    if nfa is None:
-        return NFA_BAND_PCT_DEFAULT
-    if nfa > NFA_BAND_5CR_INR:
-        return NFA_BAND_PCT_ABOVE_5CR
-    if nfa > NFA_BAND_2CR_INR:
-        return NFA_BAND_PCT_ABOVE_2CR
-    if nfa > NFA_BAND_1CR_INR:
-        return NFA_BAND_PCT_ABOVE_1CR
-    return NFA_BAND_PCT_DEFAULT
+def _asset_banded_max_non_mf_equity_pct(financial_assets: Optional[float]) -> float:
+    """R182: max non-MF equity % for the financial-assets band; None → bottom band."""
+    if financial_assets is None:
+        return ASSET_BAND_PCT_DEFAULT
+    if financial_assets > ASSET_BAND_5CR_INR:
+        return ASSET_BAND_PCT_ABOVE_5CR
+    if financial_assets > ASSET_BAND_2CR_INR:
+        return ASSET_BAND_PCT_ABOVE_2CR
+    if financial_assets > ASSET_BAND_1CR_INR:
+        return ASSET_BAND_PCT_ABOVE_1CR
+    return ASSET_BAND_PCT_DEFAULT
 
 
 class InfeasibleGoalError(ValueError):
@@ -143,7 +143,7 @@ class PracticalAllocationInput(AllocationInput):
     lock-in — surfaced as a frozen long-term row."""
 
     max_non_mf_equity_pct_client_input: Optional[float] = Field(default=None)
-    """Advisor override for the NFA-banded non-MF equity cap (Option A)."""
+    """Advisor override for the financial-assets-banded non-MF equity cap (Option A)."""
 
     human_override: Optional[HumanOverridePreferences] = None
     """Standing/one-off customer preference. None → the human_override step is
@@ -173,11 +173,11 @@ class CorpusBreakdown(BaseModel):
     rebalancing_corpus_inr: int = Field(..., ge=0)
     """total_corpus_inr - elss_corpus_inr (ELSS is frozen)."""
     non_mf_equity_actual_inr: int = Field(..., ge=0)
-    """<= input, NFA-capped — what the engine could absorb."""
+    """<= input, band-capped — what the engine could absorb."""
     excess_direct_stocks_inr: int = Field(..., ge=0)
     """input - actual; drives the SELL_DIRECT_STOCKS recommendation downstream."""
     max_non_mf_equity_pct_computed: float = Field(..., ge=0.0, le=1.0)
-    """NFA-banded value used (or override if the advisor provided one)."""
+    """Banded value used (or override if the advisor provided one)."""
     lt_equities_amount_inr: int = Field(..., ge=0)
     """Long-term equity budget (Excel R177). Denominator for the non-MF cap."""
     non_mf_equity_cap_inr: int = Field(..., ge=0)
@@ -268,14 +268,8 @@ def carve_outs_at_risk(inp: AllocationInput) -> list[str]:
     the warning the screen shows BEFORE the customer commits, and the record
     attached to the run afterwards. One source of truth, or the two disagree.
 
-    Three values rather than one flag because they are three different facts
-    with three different triggers. The NFA offset in particular is a LIABILITY
-    offset computed regardless of `emergency_fund_needed` (§3.4), so a leveraged
-    customer with no emergency-fund need must be told about the offset and
-    nothing else — which a single boolean would have got wrong.
-
     NOTE: `emergency_fund_needed` is hardcoded `False` by the app-side input
-    builder (not yet a DB column), so today only the other two can fire on the
+    builder (not yet a DB column), so today only near-term goals can fire on the
     screen's path. The condition is written out anyway — it is the profile's
     own flag, and it starts working the day the column lands.
     """
@@ -289,9 +283,6 @@ def carve_outs_at_risk(inp: AllocationInput) -> list[str]:
         # Not merely a lost bucket linkage: step 4 only selects goals at or past
         # the boundary, so a nearer one leaves the plan entirely (§3.3).
         at_risk.append("near_term_goals")
-    nfa = inp.net_financial_assets
-    if nfa is not None and nfa < 0:
-        at_risk.append("liability_offset")
     return at_risk
 
 
@@ -331,7 +322,6 @@ def _no_carveout_buckets(
         Step1Output(
             emergency_fund_months=0,
             emergency_fund_amount=0,
-            nfa_carveout_amount=0,
             total_emergency=0,
             remaining_corpus=corpus,
             subgroup_amounts={},
@@ -549,7 +539,7 @@ def _run_practical_long_term(
     remaining_corpus: int,
     elss_amount: float,
     non_mf_equity_input: float,
-    nfa: Optional[float],
+    financial_assets: Optional[float],
     max_non_mf_equity_pct_client_input: Optional[float],
     requested_class_pcts: Optional[dict[str, float]] = None,
     subgroup_pins: Optional[dict[str, int]] = None,
@@ -729,8 +719,8 @@ def _run_practical_long_term(
     # R180: ELSS frozen amount.
     elss_amount_frozen = int(round(elss_amount))
 
-    # R182-R184: NFA-banded cap + advisor override (Option A — client wins).
-    max_non_mf_equity_pct_computed = _nfa_banded_max_non_mf_equity_pct(nfa)
+    # R182-R184: financial-assets-banded cap + advisor override (Option A — client wins).
+    max_non_mf_equity_pct_computed = _asset_banded_max_non_mf_equity_pct(financial_assets)
     max_non_mf_equity_pct_considered = (
         max_non_mf_equity_pct_client_input
         if max_non_mf_equity_pct_client_input is not None
@@ -1158,8 +1148,8 @@ def run_practical_allocation(
     if preference_set:
         # Spec 2026-09-15 §3: a stated preference SUSPENDS the bucket carve-outs.
         # If the customer has told us where their money goes, the engine is not
-        # also deciding to hold back an emergency reserve, a near-term goal pot,
-        # or an NFA liability offset. Steps 1-3 are replaced with zeroed outputs
+        # also deciding to hold back an emergency reserve or a near-term goal
+        # pot. Steps 1-3 are replaced with zeroed outputs
         # carrying the whole corpus forward, so the long-term step receives
         # `rebalancing_corpus` intact.
         #
@@ -1169,8 +1159,7 @@ def run_practical_allocation(
         # same subgroups — can no longer double-count.
         #
         # Deliberately accepted: a goal under 24 months leaves the plan entirely
-        # (step 4 only selects >= 24 months), and a leveraged customer loses the
-        # liability offset. Both are disclosed — see human_override's
+        # (step 4 only selects >= 24 months). It is disclosed — see human_override's
         # suspended-buffer reason and `carve_outs_at_risk` on the screen.
         s1, s2 = _no_carveout_buckets(rebalancing_corpus)
     else:
@@ -1205,7 +1194,7 @@ def run_practical_allocation(
         remaining_corpus=s2.remaining_corpus,
         elss_amount=inp.elss_corpus,
         non_mf_equity_input=inp.non_mf_equity_corpus,
-        nfa=inp.net_financial_assets,
+        financial_assets=inp.financial_assets,
         max_non_mf_equity_pct_client_input=inp.max_non_mf_equity_pct_client_input,
         requested_class_pcts=requested_lt_class_pcts,
         subgroup_pins=subgroup_pins,
@@ -1231,10 +1220,10 @@ def run_practical_allocation(
                     "elss_corpus": float(inp.elss_corpus),
                     "non_mf_equity_corpus": float(inp.non_mf_equity_corpus),
                     "mf_corpus": float(inp.mf_corpus),
-                    "net_financial_assets": (
+                    "financial_assets": (
                         None
-                        if inp.net_financial_assets is None
-                        else float(inp.net_financial_assets)
+                        if inp.financial_assets is None
+                        else float(inp.financial_assets)
                     ),
                     "max_non_mf_equity_pct_client_input": inp.max_non_mf_equity_pct_client_input,
                 },

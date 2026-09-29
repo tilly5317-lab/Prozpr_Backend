@@ -1,7 +1,7 @@
 # Ask PI · Asset Allocation Thesis
 
 *Why we recommend the way we do*
-*Thesis version 1.7 · Internal & client reference · Last updated: September 2026*
+*Thesis version 1.8 · Internal & client reference · Last updated: September 2026*
 
 ---
 
@@ -44,7 +44,6 @@ We form a view on your *ability* to take risk (from your age, income and expense
   3. **Your existing savings** — set aside in fixed income now, but only for the part your SIP cannot build up by each goal's date.
 
   We assume none of this money earns a return; any growth simply counts the next time your plan is worked out. If your savings cannot cover what is left, we report the shortfall rather than hide it, and any SIP your goals don't need goes to your long-term plan. This ideal plan assumes you hold nothing yet, so it starts from the SIP you have told us about; the plan built on the portfolio you actually own starts from the debt and arbitrage funds you hold (see `Practical_Asset_Allocation.md`). We favour the most tax-efficient fixed-income structure for your tax situation, leaning toward arbitrage-style funds for higher-tax clients and plain debt otherwise.
-- **Negative net financial assets:** when near-term liabilities exceed liquid assets, the shortfall is added to the protected pool and kept in debt before any equity exposure is contemplated.
 
 **Why this matters:** any short-term need must sit in less volatile investments. Equity and commodities are volatile in the short run but more predictable over the long run. Match short-term goals with short-duration assets, and long-term goals with long-term investments. One of the most common reasons long-term portfolios fail is a forced sale at the wrong time — carve-outs make that structurally unlikely.
 
@@ -103,4 +102,4 @@ This document is a directional reference. It is not a prediction, not a guarante
 
 ---
 
-*Ask PI · Allocation Thesis v1.7 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Allocation Thesis v1.8 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-29*

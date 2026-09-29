@@ -34,7 +34,7 @@ def _step2b(rows):
         effective_risk_score=5.5, age=40, annual_income=2_000_000, osi=0.0,
         savings_rate_adjustment="none", gap_exceeds_3=False, shortfall_amount=0.0,
         total_corpus=float(CORPUS), monthly_household_expense=100_000,
-        effective_tax_rate=15.0, net_financial_assets=float(CORPUS), goals=[],
+        effective_tax_rate=15.0, financial_assets=float(CORPUS), goals=[],
         mf_corpus=float(CORPUS), non_mf_equity_corpus=0, elss_corpus=0,
     )
     req = RebalancingComputeRequest(

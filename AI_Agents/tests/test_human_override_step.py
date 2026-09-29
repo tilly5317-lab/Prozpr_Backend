@@ -203,7 +203,7 @@ class TestClassTargetReshape:
         out = _run_practical(
             total_corpus=6_000_000.0, mf_corpus=5_000_000.0,
             elss_corpus=4_000_000.0, non_mf_equity_corpus=1_000_000.0,
-            net_financial_assets=6_000_000.0,
+            financial_assets=6_000_000.0,
         )
         prefs = HumanOverridePreferences(
             asset_class_requested={"equity": 10.0, "debt": 80.0, "others": 10.0}

@@ -166,11 +166,6 @@ def build_goal_allocation_input_for_user(
             savings_rate_adjustment = "skipped"
         gap_exceeds_3 = bool(calc.get("gap_exceeds_3", False))
         shortfall_amount = calc.get("shortfall_amount")
-        net_financial_assets: Optional[float] = (
-            float(calc["net_financial_assets"])
-            if calc.get("net_financial_assets") is not None
-            else None
-        )
     else:
         defaults_applied.append("effective_risk_assessment_missing")
         effective_risk_score = _DEFAULT_RISK_SCORE
@@ -180,7 +175,6 @@ def build_goal_allocation_input_for_user(
         savings_rate_adjustment = "skipped"
         gap_exceeds_3 = False
         shortfall_amount = None
-        net_financial_assets = None
 
     if dob is None:
         defaults_applied.append("date_of_birth_missing")
@@ -276,7 +270,7 @@ def build_goal_allocation_input_for_user(
         short_term_holdings=0.0,
         risk_willingness=risk_willingness,
         risk_capacity_score=risk_capacity_score,
-        net_financial_assets=net_financial_assets,
+        financial_assets=pf.financial_assets_pfp(pfp),
         occupation_type=occupation_type,
     )
 

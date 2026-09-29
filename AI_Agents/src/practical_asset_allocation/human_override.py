@@ -131,12 +131,11 @@ def excludes(prefs, subgroup: str) -> bool:
 # words. Qualitative and amount-free on purpose: naming the ₹6,00,000 we would
 # have set aside would mean running step 1 to learn it, and §3 is explicit that
 # steps 1-3 genuinely do not run when a preference is set. Only the conditions
-# that actually hold are named — telling a leveraged customer with no emergency
+# that actually hold are named — telling a customer with no emergency
 # need that we stopped carving their emergency fund would simply be false.
 _SUSPENSION_PHRASES: dict[str, str] = {
     "emergency_fund": "setting aside a separate emergency fund",
     "near_term_goals": "earmarking money for goals in the next five years",
-    "liability_offset": "holding back an amount against your borrowings",
 }
 
 
