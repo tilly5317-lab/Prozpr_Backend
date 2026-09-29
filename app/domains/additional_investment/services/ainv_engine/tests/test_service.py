@@ -318,6 +318,7 @@ async def test_sip_takes_no_snapshot_and_no_pin():
     snapshot_mock.assert_not_called()
     assert paa_mock.call_args.kwargs["corpus_pin"] is None
     assert paa_mock.call_args.kwargs["monthly_sip"] == 25000.0
+    assert paa_mock.call_args.kwargs["short_term_holdings"] is None
     assert builder_mock.call_args.kwargs["current_value_by_subgroup"] is None
     assert outcome.deficit_facts is None
 
@@ -411,54 +412,9 @@ def _sip_populated_input(deploy: float):
 
 
 @pytest.mark.asyncio
-async def test_sip_with_empty_target_bucket_still_names_funds():
-    """No-CAMS SIP: the real-corpus allocation leaves the target bucket empty
-    (everything sits in emergency), so the first engine run deploys nothing. The
-    orchestrator must recover the ideal mix from a sized allocation and still name
-    funds — not hand back an empty plan."""
-    from additional_investment.models import Cadence
-    from app.domains.additional_investment.services.ainv_engine import service as svc
-
-    deploy = 20_000.0
-    user = SimpleNamespace(id=uuid.uuid4())
-    builder = AsyncMock(
-        side_effect=[
-            (_sip_empty_target_input(deploy), {"mode": "real_corpus"}),
-            (_sip_populated_input(deploy), {"mode": "sized"}),
-        ]
-    )
-    with patch.object(
-        svc, "load_holdings_snapshot", new=_empty_snapshot_mock()
-    ), patch.object(
-        svc, "compute_practical_allocation_result", new=AsyncMock(return_value=_fake_alloc())
-    ), patch.object(
-        svc, "build_additional_investment_input_for_user", new=builder
-    ), patch.object(
-        svc, "latest_buy_trades_by_subgroup", new=AsyncMock(return_value=None)
-    ):
-        outcome = await svc.compute_additional_investment_result(
-            user,
-            "start a sip of 20000",
-            db=SimpleNamespace(),
-            acting_user_id=user.id,
-            chat_session_id=None,
-            deploy_amount_inr=deploy,
-            cadence=Cadence.SIP_MONTHLY,
-            chat_ctx=SimpleNamespace(),
-            persist=False,
-        )
-
-    assert outcome.output is not None
-    assert outcome.blocking_message is None
-    assert len(outcome.output.buys) >= 1, (
-        "SIP should recover funds from a sized allocation, not return an empty plan"
-    )
-
-
-@pytest.mark.asyncio
 async def test_funded_sip_does_not_trigger_sized_fallback():
-    """A SIP that already names funds must NOT re-run the allocation — the sized
-    fallback fires only on an empty plan, so funded/CAMS users are unaffected."""
+    """A SIP whose long-term plan is at least `_SIP_MIN_LONG_TERM_COLUMN_INR` must
+    not re-run the allocation."""
     from additional_investment.models import Cadence
     from app.domains.additional_investment.services.ainv_engine import service as svc
 
@@ -722,6 +678,8 @@ async def test_thin_long_term_plan_rebuilds_from_a_sized_run_keeping_the_goal_sh
     outcome = await _run_sip(svc, paa, builder, 20_000.0)
     assert paa.await_count == 2
     assert builder.await_args_list[1].kwargs["goal_share_inr"] == 5_000.0
+    assert paa.await_args_list[1].kwargs["monthly_sip"] == 20_000.0
+    assert paa.await_args_list[1].kwargs["corpus_pin"].total_corpus == svc._SIP_RATIO_SIZING_CORPUS_INR
     assert len(outcome.output.buys) >= 1
 
 
@@ -792,6 +750,7 @@ async def test_lumpsum_uses_long_term_holdings_and_facts_count_goal_money():
         )
 
     assert paa.call_args.kwargs["short_term_holdings"] == 150_000.0
+    assert paa.call_args.kwargs["monthly_sip"] is None
     assert builder.call_args.kwargs["current_value_by_subgroup"] == {
         "near_debt": 0.0, "arbitrage": 0.0, "low_beta_equities": 400_000.0,
     }
@@ -933,3 +892,26 @@ async def test_preference_run_counts_full_holdings_as_current():
         600_000.0, 400_000.0,
     )
     assert not any(f["goal_row"] for f in outcome.deficit_facts)
+
+
+@pytest.mark.asyncio
+async def test_routed_subgroup_without_goal_money_is_not_a_goal_row():
+    """The routed subgroup gets money (step 1's reserve) but the plan holds no goal
+    money: a plain row, never the near-term-goals copy."""
+    from additional_investment.models import SubgroupBucketAmounts
+
+    snapshot = HoldingsSnapshot(by_subgroup={
+        "short_debt": 50_000.0, "low_beta_equities": 950_000.0,
+    })
+    rows = [
+        SubgroupBucketAmounts(subgroup="short_debt", emergency=300_000.0, total=300_000.0),
+        SubgroupBucketAmounts(subgroup="low_beta_equities", long_term=900_000.0, total=900_000.0),
+    ]
+    no_goal_money = SimpleNamespace(
+        allocated_amount=0, from_corpus=0.0, monthly_sip_to_goals=0.0,
+        asset_subgroup="short_debt", goals=[],
+    )
+    outcome, _ = await _run_lumpsum_through_real_builder(snapshot, rows, no_goal_money, 300_000.0)
+
+    facts = {f["subgroup"]: f for f in outcome.deficit_facts}
+    assert facts["short_debt"]["goal_row"] is False

@@ -286,12 +286,13 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
   cadence: always "sip_monthly" on this surface — the same plan repeats every
            month; frame amounts per-month (use each buy's
            monthly_amount_indian).
-  target_bucket: "short_term" or "long_term" — the horizon the deploy amount was
-           weighted toward, i.e. the customer's NEAREST UNFUNDED goal. "short_term"
-           means a goal under ~2 years is still unfunded, so the money leans toward
-           short-term subgroups; "long_term" means the short-term goals are funded
-           (or there are none) so the money builds the long-term subgroups. This is
-           engine context — explain the WHY in plain English; never surface the raw label.
+  target_bucket: "short_term" or "long_term" — "short_term" when at least half
+           of the monthly amount goes to near-term goals (under ~2 years), else
+           "long_term". Goal money goes first into one short-term debt or
+           arbitrage fund; the rest builds the long-term plan. "long_term" does
+           NOT mean the near-term goals are already funded — part of the SIP can
+           still go to them (see per_subgroup_target). Engine context — explain
+           the WHY in plain English; never surface the raw label.
   undeployed_inr / undeployed_indian — money that could NOT be placed (per-fund
            caps bound, or a subgroup lacked eligible funds). 0 when fully placed.
   under_deploy_note — present only when a MATERIAL amount couldn't be deployed
@@ -1128,10 +1129,10 @@ async def handle(ctx: TurnContext) -> ChatHandlerResult:
     cadence is never asked, it defaults to lumpsum unless the customer's own
     wording reads recurring/monthly. An amount that also carries a preference
     ask ("25k SIP, mostly small cap") routes to the what-if handler. When the
-    orchestrator returns a ``blocking_message`` (failed pre-check / incomplete
-    profile) the handler relays that gate text via ``format_relay_or_canned``
-    rather than formatting a BUY list. Every success path persists a run (the
-    orchestrator owns persistence), but the run id is surfaced on
+    orchestrator returns a ``blocking_message`` (failed pre-check) the handler
+    relays that gate text via ``format_relay_or_canned`` rather than formatting
+    a BUY list. Every success path persists a run (the orchestrator owns
+    persistence), but the run id is surfaced on
     ``ChatHandlerResult.additional_investment_run_id`` ONLY for preference
     what-if turns — the field's sole client is the chat "Save preference" pill,
     which is meaningless without a candidate preference. An ordinary deploy

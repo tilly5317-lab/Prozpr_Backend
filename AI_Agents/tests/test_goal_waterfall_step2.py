@@ -6,7 +6,7 @@ from __future__ import annotations
 import random
 
 from asset_allocation_pydantic.models import AllocationInput, Goal
-from asset_allocation_pydantic.steps import step2_short_term
+from asset_allocation_pydantic.steps import step1_emergency, step2_short_term
 from asset_allocation_pydantic.tables import HORIZON_BOUNDARY_MONTHS
 from asset_allocation_pydantic.utils import round_to_100
 
@@ -50,6 +50,18 @@ def test_defaults_reproduce_the_old_step2():
         got_gap = out.future_investment.future_investment_amount if out.future_investment else None
         assert got_gap == gap
         assert out.subgroup_amounts == ({out.asset_subgroup: allocated} if allocated > 0 else {})
+
+
+def test_held_money_used_is_capped_at_the_corpus_step1_leaves():
+    """10L held in debt against a 7L corpus: only 7L can fund the 9L goal."""
+    goals = [Goal(goal_name="Car", time_to_goal_months=12, amount_needed=900_000.0,
+                  goal_priority="non_negotiable")]
+    inp = _inp(goals, total_corpus=700_000.0, short_term_holdings=1_000_000.0,
+               emergency_fund_needed=False)
+    funding = step2_short_term.run(inp, step1_emergency.run(inp).remaining_corpus).goal_funding
+    assert (funding.allocated_amount, funding.shortfall) == (700_000, 200_000)
+    car = funding.goals[0]
+    assert (car.from_holdings, car.from_corpus, car.shortfall) == (700_000, 0, 200_000)
 
 
 def _car_input():

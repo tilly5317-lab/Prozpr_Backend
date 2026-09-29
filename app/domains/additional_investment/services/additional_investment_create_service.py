@@ -63,8 +63,8 @@ async def create_sip_plan_for_user(
     """Compute + persist a fresh monthly SIP plan, then return it in read shape.
 
     Runs the chat compute path without a chat session. Raises ``HTTPException``
-    with the engine's customer-facing gate text (422) when the profile is too
-    incomplete to plan, or 500 when the recommendation could not be persisted.
+    with the engine's customer-facing gate text (422) when the plan can't be
+    computed, or 500 when the recommendation could not be persisted.
     The caller's request session is committed here on success.
     """
     ctx = TurnContext(
@@ -94,8 +94,7 @@ async def create_sip_plan_for_user(
     )
 
     if outcome.blocking_message:
-        # Incomplete profile / engine pre-check — surface the customer-facing gate
-        # so the Invest page can tell the user what to complete.
+        # Engine pre-check failed — surface its customer-facing gate text.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=outcome.blocking_message,

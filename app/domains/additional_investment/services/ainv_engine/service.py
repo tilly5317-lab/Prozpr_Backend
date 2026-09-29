@@ -85,12 +85,10 @@ _MSG_ENGINE_ERROR = (
     "moment, and if it keeps happening let us know via the help option."
 )
 
-# Notional corpus used ONLY to recover corpus-independent allocation ratios for a
-# SIP when the customer has no investable corpus of their own yet (the no-CAMS
-# cohort, where corpus ≈ 0 so the whole allocation collapses into the emergency
-# bucket and a horizon-targeted SIP deploys nothing). Sized comfortably above the
-# emergency and near-goal buckets so the target bucket is populated; the resulting
-# subgroup ratios are scale-invariant, so the exact figure doesn't matter.
+# Notional corpus for the sized allocation that supplies a SIP's long-term split
+# when the real plan's long-term column is under _SIP_MIN_LONG_TERM_COLUMN_INR
+# (e.g. no-CAMS, corpus ≈ 0). Long-term ratios are scale-invariant, so the exact
+# figure doesn't matter.
 _SIP_RATIO_SIZING_CORPUS_INR = 10_000_000.0  # ₹1 crore
 
 # A SIP's long-term share needs a long-term plan at least this big to split by;
@@ -159,8 +157,8 @@ class AdditionalInvestmentRunOutcome:
     run_id: "uuid.UUID | None" = None
     blocking_message: str | None = None
     # Deficit-fill facts for the chat formatter (lumpsum only): one row per
-    # deployed subgroup {subgroup, ideal_inr, current_inr, gap_inr, buy_inr}.
-    # None on the SIP / legacy path.
+    # deployed subgroup {subgroup, ideal_inr, current_inr, gap_inr, buy_inr, goal_row}.
+    # None on the SIP path.
     deficit_facts: "list[dict] | None" = None
     # The practical (holdings-aware) allocation the run was built from —
     # human_override_applied lives on it. Set on the SUCCESS path only; a
@@ -220,10 +218,11 @@ async def compute_additional_investment_result(
         await progress(8, "Reading your profile & goals…")
 
     # Deficit fill (spec 2026-07-03), lumpsum only: the ideal is PAA at actual
-    # holdings + fresh money. Lumpsum pins the corpus and held short-term money to
-    # one holdings snapshot; SIP reads held short-term money off the preloaded
-    # user. No fallback by product decision (2026-07-04, CAMS upload mandatory): a
-    # snapshot failure propagates.
+    # holdings + fresh money. Lumpsum pins the corpus, held short-term money and the
+    # deficit's `current` side to one holdings snapshot, so current_value staleness
+    # cancels; SIP reads held short-term money off the preloaded user. No fallback
+    # by product decision (2026-07-04, CAMS upload mandatory): a snapshot failure
+    # propagates.
     snapshot: HoldingsSnapshot | None = None
     corpus_pin: CorpusPin | None = None
     if cadence is Cadence.LUMPSUM:
@@ -256,9 +255,9 @@ async def compute_additional_investment_result(
         ),
     )
     if paa_outcome.result is None:
-        # Pre-check failed (practical allocation could not be produced /
-        # incomplete profile): return a blocking outcome the chat handler relays
-        # via format_relay_or_canned — never an engine BUY list, never a raise.
+        # Pre-check failed (practical allocation could not be produced): return a
+        # blocking outcome the chat handler relays via format_relay_or_canned —
+        # never an engine BUY list, never a raise.
         return AdditionalInvestmentRunOutcome(
             output=None,
             blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
@@ -275,10 +274,8 @@ async def compute_additional_investment_result(
     # rejects (ge=0) and would spuriously gate the SIP.
     cb = paa_outcome.result.corpus_breakdown
     investable_corpus_inr = max(0.0, float(cb.total_corpus_inr - cb.non_mf_equity_input_inr))
-    goal_share_inr, goal_subgroup = goal_share_for(
-        paa_outcome.result, cadence, deploy_amount_inr
-    )
     funding = getattr(paa_outcome.result, "goal_funding", None)
+    goal_share_inr, goal_subgroup = goal_share_for(funding, cadence, deploy_amount_inr)
     held_for_goals = sum(g.from_holdings for g in funding.goals) if funding is not None else 0.0
     current_lt = (
         _long_term_holdings(snapshot.by_subgroup, held_for_goals) if snapshot is not None else None
@@ -323,8 +320,6 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
-    trace_line(f"additional_investment input debug: {debug}")
-
     if (
         cadence is Cadence.SIP_MONTHLY
         and deploy_amount_inr - goal_share_inr > 0
@@ -360,6 +355,8 @@ async def compute_additional_investment_result(
                 "the real-corpus split"
             )
 
+    trace_line(f"additional_investment input debug: {debug}")
+
     if progress:
         await progress(75, "Allocating your monthly amount…")
 
@@ -387,7 +384,11 @@ async def compute_additional_investment_result(
             row = rows_by.get(t.subgroup)
             ideal = float(row.total - row.short_term) if row is not None else 0.0
             current = current_lt.get(t.subgroup, 0.0)
-            goal_row = funding is not None and t.subgroup == funding.asset_subgroup
+            goal_row = (
+                funding is not None
+                and funding.allocated_amount > 0
+                and t.subgroup == funding.asset_subgroup
+            )
             if goal_row:
                 ideal += funding.allocated_amount
                 current += held_for_goals

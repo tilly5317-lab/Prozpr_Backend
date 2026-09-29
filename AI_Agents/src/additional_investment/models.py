@@ -56,11 +56,7 @@ class RankedFund(BaseModel):
 
 
 class AdditionalInvestmentInput(BaseModel):
-    """Engine input: how much to deploy plus the allocation / goal context.
-
-    Holding-agnostic: recommendations come purely from `ranked_funds`; the
-    customer's existing holdings are deliberately not an input here.
-    """
+    """Engine input: how much to deploy plus the allocation / goal context."""
 
     deploy_amount_inr: float = Field(gt=0)
     cadence: Cadence

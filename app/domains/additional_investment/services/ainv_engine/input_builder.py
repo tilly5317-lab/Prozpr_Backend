@@ -41,10 +41,9 @@ _EXCLUDE_SUBGROUPS = frozenset({"tax_efficient_equities", "non_mf_equities"})
 
 
 def goal_share_for(
-    allocation_output: Any, cadence: Cadence, deploy_amount_inr: float
+    funding: Any, cadence: Cadence, deploy_amount_inr: float
 ) -> tuple[float, str | None]:
     """Money for short-term goals out of this deployment, and the subgroup it buys."""
-    funding = getattr(allocation_output, "goal_funding", None)
     if funding is None:
         return 0.0, None
     share = (

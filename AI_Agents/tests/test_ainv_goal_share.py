@@ -64,12 +64,8 @@ def test_goal_share_is_capped_at_the_deploy_amount():
 
 
 def test_lumpsum_deficit_fill_and_sip_long_term_plan_diverge_on_the_same_holdings_map():
-    # Fix round 1: with only one long-term-bearing row (as in the fixtures
-    # above), deficit-fill and the long-term-column split give the same
-    # answer, so neither the LUMPSUM-only map gate (pipeline.py) nor the
-    # deficit branch itself (ratio.py) is actually exercised by them. Two
-    # long-term rows at different currents makes the two paths diverge.
-    rows = [_row("arbitrage", short=200_000), _row("low_beta_equities", long=600_000),
+    """Two long-term rows at different holdings, so lumpsum deficit-fill and the SIP long-term split diverge."""
+    rows =[_row("arbitrage", short=200_000), _row("low_beta_equities", long=600_000),
             _row("medium_beta_equities", long=400_000)]
     current = {"low_beta_equities": 600_000, "medium_beta_equities": 200_000}
 

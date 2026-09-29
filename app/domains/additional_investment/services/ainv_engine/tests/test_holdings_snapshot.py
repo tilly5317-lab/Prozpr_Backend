@@ -4,9 +4,7 @@ tests via monkeypatch)."""
 
 import pytest
 
-from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
-    aggregate_holdings,
-)
+from app.domains.portfolio.services.holdings_snapshot import aggregate_holdings
 
 
 def test_classifies_mf_rows_to_subgroups_and_sums():

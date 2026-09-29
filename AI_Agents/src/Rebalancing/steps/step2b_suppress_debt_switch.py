@@ -112,8 +112,10 @@ def apply(
 
     debt = [r for r in rows if r.asset_subgroup in DEBT_POOL]
 
-    # Force-exits are never netted: a bad fund is still a bad fund. Off-list
-    # (rank 0) debt IS netted — a held debt fund is not sold to buy another.
+    # Same eligibility as step4's `optional` / `buyers` pools, so we never cancel
+    # intent step4 would not execute. Force-exits are never netted (a bad fund is
+    # still a bad fund); off-list (rank 0) debt is — a held debt fund is not sold
+    # to buy another.
     sells = [
         r
         for r in debt

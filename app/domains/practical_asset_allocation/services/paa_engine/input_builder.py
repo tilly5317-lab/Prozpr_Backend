@@ -10,7 +10,10 @@ New scalars — no app-side data source wired yet, so they take safe defaults:
   non_mf_equity_corpus = 0.0           (direct stocks / PMS — "stocks")
   elss_corpus          = 0.0           (ELSS MF subset, SEBI-locked)
   max_non_mf_equity_pct_client_input = None  (no advisor override)
-  short_term_holdings  = held debt + arbitrage from the preloaded user (None = no holdings); a caller may pass its own
+
+``short_term_holdings`` (an AllocationInput field: held debt and arbitrage funds,
+not income-plus-arbitrage) is read from the preloaded user's holdings — None when
+none are on file — unless the caller passes it.
 
 Entry: ``build_practical_allocation_input_for_user(ctx)`` →
 ``(PracticalAllocationInput, debug)``.

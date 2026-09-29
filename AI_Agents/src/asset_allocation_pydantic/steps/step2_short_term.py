@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
+from common import format_inr_indian
+
 from ..models import (
     AllocationInput,
     FutureInvestment,
@@ -40,7 +42,8 @@ def goal_waterfall(
     short_term_holdings=None means no holdings on file, so the SIP share
     assumes no corpus can be moved."""
     plan: list[tuple[Goal, float, float, float]] = []
-    left = short_term_holdings or 0.0
+    # Step 1's carve (e.g. an NFA offset) can leave less corpus than is held.
+    left = min(short_term_holdings or 0.0, remaining_corpus)
     cum_gap = 0.0
     corpus_needed = 0.0
     for g in sorted(goals, key=lambda g: g.time_to_goal_months):
@@ -123,16 +126,11 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
 
     future_investment: FutureInvestment | None = None
     if funding.shortfall > 0:
-        negotiable = [
-            g.goal_name for g in goals_allocated if g.goal_priority == "negotiable"
-        ]
-        negotiable_str = ", ".join(negotiable) if negotiable else "none flagged"
         msg = (
-            f"Your short-term goals ask for a bit more than your current corpus "
-            f"alone. The remaining amount is wealth to create through your "
-            f"monthly investments before these goals come due — stepping up "
-            f"your SIPs (or flexing negotiable goals like {negotiable_str}) "
-            f"makes each one comfortably reachable."
+            "Your current savings plus your monthly investment won't fully reach "
+            "your short-term goals by their dates — the gap is "
+            f"{format_inr_indian(funding.shortfall)}. You can close it by stepping up "
+            "your SIP or by reducing some of your goals."
         )
         future_investment = FutureInvestment(
             bucket="short_term",

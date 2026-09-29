@@ -66,7 +66,7 @@ async def create_lumpsum_plan_for_user(
 
     Runs the chat compute path (``cadence=lumpsum``) without a chat session.
     Raises ``HTTPException`` with the engine's customer-facing gate text (422)
-    when the profile is too incomplete to plan, when ``action='withdraw'`` (not
+    when the plan can't be computed, when ``action='withdraw'`` (not
     supported), or 500 when the recommendation could not be persisted. The
     caller's request session is committed here on success.
     """

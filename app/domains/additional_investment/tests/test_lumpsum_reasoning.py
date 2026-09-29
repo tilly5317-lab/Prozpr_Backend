@@ -66,6 +66,26 @@ def test_a_nearly_covered_plain_row_keeps_the_top_up_line():
     )
 
 
+def test_a_plain_row_with_nothing_held_yet():
+    row = {"ideal_inr": 600_000.0, "current_inr": 0.0, "gap_inr": 600_000.0,
+           "goal_row": False}
+    assert _reason(row) == (
+        "You don't hold anything toward your large-cap equity target of ₹6 lakh yet — "
+        "we put ₹2 lakh into Bluechip Fund, our top-ranked Large Cap Fund pick, to "
+        "help close that gap."
+    )
+
+
+def test_a_goal_row_with_nothing_held_yet():
+    row = {"ideal_inr": 250_000.0, "current_inr": 0.0, "gap_inr": 250_000.0,
+           "goal_row": True}
+    assert _arbitrage_reason(row) == (
+        "Your near-term goals and plan need ₹2.5 lakh in arbitrage, and nothing you "
+        "hold counts toward it yet — we put ₹1 lakh into Arb Fund, our top-ranked "
+        "Arbitrage Fund pick."
+    )
+
+
 def test_no_deficit_row_keeps_the_rank_line():
     assert _reason(None) == (
         "₹2 lakh goes into Bluechip Fund, our top-ranked Large Cap Fund pick for "

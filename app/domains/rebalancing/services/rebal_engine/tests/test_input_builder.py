@@ -165,12 +165,13 @@ def test_short_term_holdings_from_rows_count_held_debt_only():
 
     rows = [
         SimpleNamespace(asset_subgroup="near_debt", present_allocation_inr=Decimal("300000")),
+        SimpleNamespace(asset_subgroup="near_debt", present_allocation_inr=Decimal("100000")),
         SimpleNamespace(asset_subgroup="arbitrage", present_allocation_inr=Decimal("200000")),
-        SimpleNamespace(asset_subgroup="arbitrage_plus_income", present_allocation_inr=Decimal("500000")),
+        SimpleNamespace(asset_subgroup="arbitrage_plus_income", present_allocation_inr=Decimal("400000")),
         SimpleNamespace(asset_subgroup="low_beta_equities", present_allocation_inr=Decimal("900000")),
         SimpleNamespace(asset_subgroup="short_debt", present_allocation_inr=Decimal("0")),
     ]
-    assert _short_term_holdings_from_rows(rows) == 500_000.0
+    assert _short_term_holdings_from_rows(rows) == 600_000.0
 
 
 @pytest.mark.asyncio

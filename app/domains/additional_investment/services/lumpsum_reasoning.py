@@ -98,6 +98,12 @@ def build_fund_reason(
         # The goal row's current includes debt and arbitrage funds held elsewhere,
         # so it must never be called a holding in this subgroup.
         if deficit_row.get("goal_row", False):
+            if current < 1.0:
+                return (
+                    f"Your near-term goals and plan need {format_inr_indian(ideal)} in "
+                    f"{label}, and nothing you hold counts toward it yet — we put "
+                    f"{amount} into {recommended_fund}, {rank_phrase} {sub_category} pick."
+                )
             if gap >= 100.0:
                 return (
                     f"Your near-term goals and plan need {format_inr_indian(ideal)} in "
@@ -111,6 +117,13 @@ def build_fund_reason(
                 "Your near-term goals and plan are already close to covered in "
                 f"{label}, so {amount} tops it up through {recommended_fund}, "
                 f"{rank_phrase} {sub_category} pick."
+            )
+        if current < 1.0:
+            return (
+                f"You don't hold anything toward your {label} target of "
+                f"{format_inr_indian(ideal)} yet — we put {amount} into "
+                f"{recommended_fund}, {rank_phrase} {sub_category} pick, to help close "
+                "that gap."
             )
         if gap >= 100.0:
             return (

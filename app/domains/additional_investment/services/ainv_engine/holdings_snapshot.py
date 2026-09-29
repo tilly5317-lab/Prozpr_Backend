@@ -1,7 +1,7 @@
 """Load the current-holdings snapshot for the deficit-fill lumpsum path (spec 2026-07-03).
 
 The snapshot model and its pure aggregation live in
-``app.domains.portfolio.services.holdings_snapshot`` and are re-exported here.
+``app.domains.portfolio.services.holdings_snapshot``.
 """
 
 from __future__ import annotations
@@ -15,16 +15,10 @@ from sqlalchemy.orm import selectinload
 from app.domains.portfolio.models.portfolio import Portfolio, PortfolioHolding
 from app.domains.portfolio.services.holdings_snapshot import (
     HoldingsSnapshot,
-    aggregate_holdings,
     snapshot_from_holdings,
 )
 
-__all__ = [
-    "HoldingsSnapshot",
-    "aggregate_holdings",
-    "load_holdings_snapshot",
-    "snapshot_from_holdings",
-]
+__all__ = ["HoldingsSnapshot", "load_holdings_snapshot"]
 
 
 async def load_holdings_snapshot(

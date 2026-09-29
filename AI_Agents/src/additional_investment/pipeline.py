@@ -56,7 +56,8 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
 
     Returns the BUY list plus deployed/undeployed accounting; `undeployed_inr` is
     non-zero when fund scarcity (a subgroup with too few ranked funds, or a share
-    rounding below one multiple) prevents fully deploying the requested amount.
+    rounding below one multiple), or no eligible long-term row for the post-goal
+    remainder, prevents fully deploying the requested amount.
     """
     bucket, targets = compute_goal_first_targets(
         inp.subgroups,

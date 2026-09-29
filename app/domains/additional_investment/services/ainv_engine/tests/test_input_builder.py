@@ -201,9 +201,9 @@ async def test_lumpsum_keeps_the_holdings_map(monkeypatch):
 
 
 def _funding(to_goals=15000.0, from_corpus=900000.0, subgroup="arbitrage"):
-    return SimpleNamespace(goal_funding=SimpleNamespace(
+    return SimpleNamespace(
         monthly_sip_to_goals=to_goals, from_corpus=from_corpus, asset_subgroup=subgroup,
-    ))
+    )
 
 
 def test_goal_share_for_sip_is_the_monthly_goal_share():
@@ -215,5 +215,4 @@ def test_goal_share_for_lumpsum_is_from_corpus_capped_at_deploy():
 
 
 def test_goal_share_for_a_preference_run_is_zero():
-    assert ib.goal_share_for(SimpleNamespace(goal_funding=None), ib.Cadence.SIP_MONTHLY, 25000.0) == (0.0, None)
-    assert ib.goal_share_for(SimpleNamespace(), ib.Cadence.LUMPSUM, 25000.0) == (0.0, None)
+    assert ib.goal_share_for(None, ib.Cadence.SIP_MONTHLY, 25000.0) == (0.0, None)

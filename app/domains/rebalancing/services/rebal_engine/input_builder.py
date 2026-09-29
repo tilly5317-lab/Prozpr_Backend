@@ -211,12 +211,7 @@ def _build_row(
 
 
 def _short_term_holdings_from_rows(rows: list[FundRowInput]) -> float:
-    """Held short-term money, summed from the rows this run is about to trade.
-
-    Sources the practical builder's ``short_term_holdings`` from the same
-    ledger the rebalancer already built, instead of a second read of the
-    user's holdings via ``short_term_holdings_for_user``.
-    """
+    """Valued from the rows this run trades, not a second read of the user's holdings."""
     by_subgroup: dict[str, float] = {}
     for r in rows:
         if r.present_allocation_inr > 0:

@@ -140,8 +140,8 @@ async def create_sip_plan(
     Runs the same additional-investment engine chat uses (``cadence=sip_monthly``)
     for the given per-month amount, persists the run, and returns it in the read
     shape. ``get_ai_user_context`` already resolves the effective (family-member)
-    user, so ``user.id`` is the acting user. 422 carries a customer-facing gate
-    message when the profile is too incomplete to plan.
+    user, so ``user.id`` is the acting user. 422 carries the engine's
+    customer-facing message when the plan can't be computed.
     """
     # Publish each pipeline stage to the in-process progress store so the
     # Invest page's poller (GET /sip/progress) can show real stage + %.
@@ -196,7 +196,7 @@ async def create_lumpsum_plan(
     one-time amount, which fills the customer's largest goal-based gaps, persists
     the run, and returns it in the read shape (with reasoning). ``action='add'``
     only — ``withdraw`` is rejected 422 (the engine is BUY-only). 422 also carries
-    a customer-facing gate message when the profile is too incomplete to plan.
+    the engine's customer-facing message when the plan can't be computed.
     """
     return await create_lumpsum_plan_for_user(
         db,

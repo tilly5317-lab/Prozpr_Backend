@@ -542,7 +542,7 @@ def test_a_blocking_outcome_carries_no_practical_result(monkeypatch):
     """A gate has no plan to read a preference off; carrying the PAA result there
     invites the what-if handler to treat a blocked run as an applied one."""
     outcome, _paa, _ainv, _res = _run_compute(
-        monkeypatch, persist=False, builder_error=ValueError("missing_date_of_birth")
+        monkeypatch, persist=False, builder_error=RuntimeError("builder failed")
     )
     assert outcome.blocking_message is not None
     assert outcome.practical_result is None

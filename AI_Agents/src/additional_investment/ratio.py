@@ -24,11 +24,10 @@ def compute_deficit_targets(
 ) -> list[SubgroupTarget]:
     """Deficit-fill split for a one-time lumpsum (holdings-aware, buy-only).
 
-    ideal_i is each ELIGIBLE subgroup's ``total`` column (the post-investment
-    practical allocation — the caller ran PAA at corpus + deploy_amount).
-    deficit_i = max(0, ideal_i - current_i); the deploy amount is split across
-    positive deficits proportionally. ratio_i = target_i / deploy_amount, so the
-    legacy identity ``target_inr = ratio * deploy_amount`` holds in both modes.
+    ideal_i is each ELIGIBLE row's ``total`` — the caller passes long-term rows
+    (total − short_term of the post-investment practical allocation).
+    deficit_i = max(0, ideal_i − current_i), split proportionally;
+    ratio_i = target_i / deploy_amount.
 
     CONTRACT: iterate the IDEAL rows and look up current values with
     ``current_by_subgroup.get(subgroup, 0.0)`` — never the reverse. A held
