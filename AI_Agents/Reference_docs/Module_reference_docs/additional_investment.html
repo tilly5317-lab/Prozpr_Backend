@@ -298,7 +298,7 @@ Goal money goes first, then one of two splits decides the rest's per-subgroup am
 
 ```mermaid
 flowchart TD
-    IN([AdditionalInvestmentInput<br/>amount + cadence + subgroups<br/>+ goal_share_inr / goal_subgroup<br/>+ ranked funds]) --> GOAL["<b>Goal money first</b><br/>compute_goal_first_targets<br/>min(goal_share, deploy) → goal_subgroup by name"]
+    IN([AdditionalInvestmentInput<br/>amount + cadence + subgroups<br/>+ goal_share_inr / goal_subgroup<br/>+ ranked funds]) --> GOAL["<b>Goal money first</b><br/>compute_goal_first_targets<br/>min(goal_share, deploy) → goal_subgroup by name<br/>(SIP: goal_share rounded UP to ₹100 first)"]
     GOAL --> SW{cadence == LUMPSUM<br/>AND current_value_<br/>by_subgroup set?}
     SW -->|yes| DEF["<b>Long-term deficit split</b><br/>compute_deficit_targets<br/>on the rest, vs holdings<br/>(total − short_term per row)"]
     SW -->|no| LT["<b>Long-term column split</b><br/>compute_long_term_targets<br/>on the rest, by long_term column"]
@@ -386,7 +386,7 @@ The whole engine is three small pure modules orchestrated by [`pipeline.py`](../
 
 | Step | File · symbol | What it does |
 |---|---|---|
-| **1 · Goal money first** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_goal_first_targets` | `min(goal_share_inr, deploy)` into `goal_subgroup` by name — never weighted by the short-term column. Also sets the `target_bucket` label: `short_term` when that goal money is ≥ half the deploy, else `long_term` |
+| **1 · Goal money first** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_goal_first_targets` | `min(goal_share_inr, deploy)` into `goal_subgroup` by name — never weighted by the short-term column. For a SIP, [`pipeline.py`](../../src/additional_investment/pipeline.py) first rounds the share **up** to ₹100: the allocation engines hand it over in exact rupees (₹33,334 for a ₹2L gap over six months), and nearest-₹100 would buy ₹33,300 and leave the goal short every month. Also sets the `target_bucket` label: `short_term` when that goal money is ≥ half the deploy, else `long_term` |
 | **2a · Long-term deficit split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_deficit_targets` | LUMPSUM with a holdings map: on the rest, `deficit_i = max(0, (total_i − short_term_i) − current_i)` over eligible subgroups; split proportionally to positive deficits. All at/above ideal ⇒ fall back to the ideal ratios |
 | **2b · Long-term column split** | [`ratio.py`](../../src/additional_investment/ratio.py) `compute_long_term_targets` | SIP (or a lumpsum with no holdings map): on the rest, weight subgroups by their `long_term` column, renormalised |
 | **3 · Fund select** | [`selection.py`](../../src/additional_investment/selection.py) `select_funds` | per subgroup, split the target equally across the top 1 or 2 ranked funds (`_funds_per_subgroup` by `investable_corpus_inr`: 2 at/above ₹50L, else 1), rounded to nearest ₹100. No per-fund cap. **Both cadences use this** (spec 2026-09-24) |
@@ -462,7 +462,7 @@ The LLM lives strictly **outside** this package, in the app-layer gateway:
 
 | File | Role |
 |---|---|
-| [`pipeline.py`](../../src/additional_investment/pipeline.py) | entry `run_additional_investment` — split-mode switch, SIP cadence framing, dust reconcile, output assembly |
+| [`pipeline.py`](../../src/additional_investment/pipeline.py) | entry `run_additional_investment` — SIP goal-share round-up, split-mode switch, SIP cadence framing, dust reconcile, output assembly |
 | [`ratio.py`](../../src/additional_investment/ratio.py) | the subgroup splits: `compute_goal_first_targets` (goal money first + the `target_bucket` label), `compute_deficit_targets` (long-term deficit-fill, lumpsum), `compute_long_term_targets` (long-term column split, SIP) |
 | [`selection.py`](../../src/additional_investment/selection.py) | BUY-only fund selection: `select_funds` (both cadences, top 1-2 per subgroup) + nearest-₹100 `_round_to_multiple` |
 | [`models.py`](../../src/additional_investment/models.py) | pydantic I/O: `AdditionalInvestmentInput`/`Output`, `SubgroupBucketAmounts`, `RankedFund`, `SubgroupTarget`, `FundBuy`, `Cadence`, `TargetBucket` |
@@ -491,7 +491,7 @@ App-layer companions (not part of the engine, but where its input is built and o
 - **`exclude_subgroups` get zero weight/deficit and the share renormalises** ([`ratio.py`](../../src/additional_investment/ratio.py)). Caller policy excludes `non_mf_equities` (direct stocks, no funds) and `tax_efficient_equities` (ELSS lock-in). They are handed to the engine, **not** hand-dropped from the subgroup list.
 - **Under-deployment is a signal, not a bug.** Fund scarcity (too few ranked funds, or a per-fund share rounding below ₹100) leaves a gap in `undeployed_inr`; `_reconcile_rounding_dust` only absorbs the sub-₹100-per-subgroup rounding residual, never a genuine scarcity shortfall — the caller relies on that distinction.
 - **Equal-split can slightly overshoot on SIP** ([`selection.py`](../../src/additional_investment/selection.py) `select_funds`). Each per-fund share rounds independently, so the total can edge over the target; the lumpsum path absorbs this in `_reconcile_rounding_dust`, but SIP does not. **Accepted, characterization-tested** — do not "fix" it.
-- **Money is `float`.** Follows the allocation family, not Rebalancing's `Decimal`. No tax-lot math here; buys round to the nearest ₹100 (`_round_to_multiple`, halves up), so precision is bounded.
+- **Money is `float`.** Follows the allocation family, not Rebalancing's `Decimal`. No tax-lot math here; buys round to the nearest ₹100 (`_round_to_multiple`, halves up), so precision is bounded. This is one of the two places ₹100 rounding lives (the other is Rebalancing's trades): the allocation engines upstream work in whole rupees, so the plan amounts arriving here are not ₹100 multiples — rounding them is this engine's job, not theirs. The SIP goal share is the one amount rounded **up** rather than to nearest (see step 1).
 
 ---
 

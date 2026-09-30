@@ -254,7 +254,7 @@
   </nav>
   <main>
     <div class="header-strip">
-      <div class="pill">Deterministic engine · optional LLM rationale</div>
+      <div class="pill">Deterministic engine · no LLM</div>
       <div class="meta">
         Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
       </div>
@@ -266,17 +266,17 @@
 <script type="text/markdown" id="source-md">
 # `asset_allocation_pydantic` — the goal-based allocation engine
 
-> **One line:** given a customer's risk score, corpus, and goals, this module decides *how much money goes where* — emergency cushion, then short / medium / long-term buckets, then asset classes, then equity subgroups — using **seven deterministic Python steps**. The only place an LLM is allowed near it is the last step, and only to *narrate*, never to compute.
+> **One line:** given a customer's risk score, corpus, and goals, this module decides *how much money goes where* — emergency cushion, then short / medium / long-term buckets, then asset classes, then equity subgroups — using **seven deterministic Python steps**. No step calls an LLM — even step 7's "why" text is fixed templates.
 >
 > This is the engineer's guide to the module. For the client-facing philosophy (the "protect what you can't lose, grow what you can" thesis), see [Logics_reference_docs/Asset_Allocation.md](../Logics_reference_docs/Asset_Allocation.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
 
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(computes; never narrates numbers)</div></div>
-  <div class="cell"><div class="k">Model</div><div class="v">none for the math<br/><code>claude-haiku-4-5</code> for optional rationale</div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">none</div></div>
   <div class="cell"><div class="k">Caller / gateway</div><div class="v"><code>asset_allocation_module_service.run</code> → dispatch → <code>aa_engine</code> (chat → service)</div></div>
-  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_allocation(inp, rationale_fn=None)</code></div></div>
+  <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_allocation(inp)</code></div></div>
   <div class="cell"><div class="k">Steps</div><div class="v">7 · <code>steps/step1…step7</code></div></div>
-  <div class="cell"><div class="k">Determinism</div><div class="v">steps 1–6 fully deterministic<br/>step 7 numbers deterministic, prose optional-LLM</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">all seven steps fully deterministic<br/>step-7 prose is fixed templates</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v">none — imported <em>by</em> practical_asset_allocation</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer builds input + persists output</div></div>
 </div>
@@ -285,7 +285,7 @@
 
 ## 1. What it's about
 
-The module lives at [`AI_Agents/src/asset_allocation_pydantic/`](../../src/asset_allocation_pydantic/). It is the **ideal** goal-based allocation engine: pure Python over pydantic models, no I/O, no database, and — for the arithmetic — no LLM. You hand it an [`AllocationInput`](../../src/asset_allocation_pydantic/models.py) and it returns a fully-reconciled [`GoalAllocationOutput`](../../src/asset_allocation_pydantic/models.py).
+The module lives at [`AI_Agents/src/asset_allocation_pydantic/`](../../src/asset_allocation_pydantic/). It is the **ideal** goal-based allocation engine: pure Python over pydantic models, no I/O, no database, no LLM. You hand it an [`AllocationInput`](../../src/asset_allocation_pydantic/models.py) and it returns a fully-reconciled [`GoalAllocationOutput`](../../src/asset_allocation_pydantic/models.py).
 
 "Ideal" because it plans the *target* portfolio from first principles — what a customer with this risk score and these goals *should* hold — independent of what they actually own today. The holdings-aware variant ([`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py)) wraps this engine; rebalancing wraps that. This is the bottom of that stack.
 
@@ -299,11 +299,11 @@ flowchart TB
     S4["<b>Step 4 · long-term</b><br/>Phase 1–5: asset classes → multi-asset → equity subgroups"] --> S5
     S5["<b>Step 5 · aggregation</b><br/>roll subgroups up across buckets"] --> S6
     S6["<b>Step 6 · guardrails</b><br/>validate only — flags, never mutates"] -.state.-> OUT
-    S5 --> S7["<b>Step 7 · presentation</b><br/>assemble output + attach rationale"]
+    S5 --> S7["<b>Step 7 · presentation</b><br/>assemble output + attach template rationale"]
     S7 --> OUT([GoalAllocationOutput])
 ```
 
-The defining design decision: **every rupee is decided by code.** The optional LLM at step 7 writes the *why* ("we set aside a safety cushion so an unexpected expense won't force you to touch the rest") — it never touches an amount, a percentage, or a subgroup. Pull the LLM out entirely and the numbers are byte-for-byte identical.
+The defining design decision: **every rupee is decided by code.** Step 7 attaches fixed template sentences that explain the *why* ("we set aside a safety cushion so an unexpected expense won't force you to touch the rest") — they never touch an amount, a percentage, or a subgroup. Until 2026-09-30 a Haiku call wrote that text; §6 says why it was removed.
 
 ---
 
@@ -317,9 +317,9 @@ The engine is a peer agent that imports **no other agent**. Its two "external" i
 | **Upstream (view)** | `market_commentary/` (conceptually) | the `market_commentary` `MarketCommentaryScores` block — **caller-wireable**, but the ideal-engine gateway currently leaves it at neutral `5.0` defaults |
 | **Gateway** | [`asset_allocation_module_service.run`](../../../app/domains/asset_allocation/services/asset_allocation_module_service.py) → dispatch → [`aa_engine/chat.py`](../../../app/domains/asset_allocation/services/aa_engine/chat.py) → [`aa_engine/service.py`](../../../app/domains/asset_allocation/services/aa_engine/service.py) | the chat-flow entry for the `asset_allocation` intent: the module service does not import the engine — it `dispatch_chat("asset_allocation", …)` to the registered handler, which builds the input from a `User` graph, runs the pipeline in a thread, persists, formats chat markdown |
 | **Input build** | [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | `User` ORM row → `AllocationInput` (persisted DB rows only; absent risk row ⇒ score `7.0`) |
-| **Downstream (peer)** | [`practical_asset_allocation/`](../../src/practical_asset_allocation/pipeline.py) | imports steps 1–3 + 5, selected step-4 helpers, the slider, `tables`, `utils.round_to_100`, and the public models — the **first blessed cross-agent import** ([Practical_Asset_Allocation.md](../Logics_reference_docs/Practical_Asset_Allocation.md)) |
+| **Downstream (peer)** | [`practical_asset_allocation/`](../../src/practical_asset_allocation/pipeline.py) | imports steps 1–3 + 5, selected step-4 helpers, the slider, `tables`, `utils.round_to_rupee`, and the public models — the **first blessed cross-agent import** ([Practical_Asset_Allocation.md](../Logics_reference_docs/Practical_Asset_Allocation.md)) |
 
-> **The engine touches no DB and no network** (for the math). If you are asking "where does the corpus / the goals / the risk score come from", it is **not** in this module — it is the app-layer `input_builder`. The engine only receives the finished `AllocationInput`.
+> **The engine touches no DB and no network.** If you are asking "where does the corpus / the goals / the risk score come from", it is **not** in this module — it is the app-layer `input_builder`. The engine only receives the finished `AllocationInput`.
 
 ### What `ctx` must carry (chat path)
 
@@ -329,7 +329,7 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 |---|---|
 | a pre-loaded `User` graph | age, income, goals, holdings-free profile fields the input builder reads |
 | the persisted `effective_risk_assessment` row | `effective_risk_score`; absent ⇒ deterministic `7.0` fallback in the input builder |
-| an Anthropic API key (settings) | the step-7 rationale prose. In the **app path** the gateway *pre-gates* on the key: if `get_anthropic_asset_allocation_key()` returns nothing, `service.py` returns a "briefly unavailable, try again" blocking message and the pipeline never runs. (The pure engine, run directly, would instead fall back to deterministic template prose with numbers unaffected — see §6.) |
+| an Anthropic API key (settings) | **not** the engine — it needs none since 2026-09-30. The app gateway still *pre-gates* on it: if `get_anthropic_asset_allocation_key()` returns nothing, `service.py` returns a "briefly unavailable, try again" blocking message and the pipeline never runs. The same key serves the allocation chat's own turn classifier (`aa_engine/chat.py`). |
 
 ---
 
@@ -349,7 +349,7 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 | `market_commentary` | `MarketCommentaryScores` | 1–10 views per asset class + equity subgroup; **defaults to neutral 5.0** so a caller that supplies nothing gets the un-tilted plan |
 | `multi_asset_composition` | `MultiAssetFundComposition` | equity/debt/others split of the multi-asset fund; default `(65, 25, 10)` |
 | `financial_assets` | `float?` | not used by this engine's own steps — carried on `AllocationInput` for `practical_asset_allocation`'s direct-equity cap band |
-| `emergency_fund_needed`, `primary_income_from_portfolio`, `intergenerational_transfer` | flags | toggle whether a cushion exists (3 vs 6 months) and the Phase-1 override |
+| `emergency_fund_needed`, `primary_income_from_portfolio`, `intergenerational_transfer` | flags | `emergency_fund_needed` toggles the cushion (3 months for everyone since 2026-09-30 — `primary_income_from_portfolio` no longer changes the count; the production input builder leaves the cushion off unless a chat override turns it on); `intergenerational_transfer` drives the Phase-1 override |
 
 `age`, `annual_income`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`, `effective_tax_rate` are required; several risk-decomposition fields (`risk_willingness`, `risk_capacity_score`, `financial_assets`, `occupation_type`) are optional and used narrowly.
 
@@ -362,11 +362,11 @@ The engine itself takes a pydantic model, but the *chat* path reaches it through
 | Field | Type | Notes |
 |---|---|---|
 | `client_summary` | `ClientSummary` | echoed inputs (age, score, corpus, goals, cushion months) |
-| `bucket_allocations` | `list[BucketAllocation]` | one per bucket (emergency / short / long): goals, `allocated_amount`, `subgroup_amounts`, plus `rationale` + per-goal `goal_rationales` (step-7 prose) |
+| `bucket_allocations` | `list[BucketAllocation]` | one per bucket (emergency / short / long): goals, `allocated_amount`, `subgroup_amounts`, plus `rationale` + per-goal `goal_rationales` (step-7 template prose) |
 | `aggregated_subgroups` | `list[AggregatedSubgroupRow]` | the money-by-subgroup grid, one row per non-zero subgroup, in canonical order |
 | `future_investments_summary` | `list[FutureInvestment]` | per bucket where goals exceeded available corpus — "wealth to create through monthly investing", never framed as a shortfall |
-| `grand_total` | `float` | equals step 5's `grand_total`, which reconciles against `round_to_100(total_corpus)` |
-| `all_amounts_in_multiples_of_100` | `bool` | self-check — every reported amount is an exact ₹100 multiple |
+| `grand_total` | `float` | equals step 5's `grand_total`, which equals `int(total_corpus)` exactly — every split pushes its rounding remainder onto its largest part |
+| `all_amounts_in_multiples_of_100` | `bool` | legacy flag from before 2026-09-30 — almost always `False` now that amounts are whole rupees; still persisted |
 | `asset_class_breakdown` | `AssetClassBreakdown` | `planned` (pre-multi-asset) vs `recommended` (post-adjustment deployment) equity/debt/others, per bucket and total, plus a nested subgroup breakdown |
 | `goal_funding` | `GoalFunding?` | step 2's goal-waterfall breakdown — `allocated_amount`, `from_corpus`, `shortfall`, `monthly_sip`, `monthly_sip_to_goals`, `asset_subgroup`, and per-goal `goals` rows (`from_holdings`/`from_sip`/`from_corpus`/`shortfall`/`amount_needed_fv`). Always populated via `run_allocation`; `None` is only reachable by a caller that builds `Step2Output` directly without running the waterfall (`practical_asset_allocation`'s preference-suspended carve-outs do this) |
 
@@ -382,12 +382,12 @@ Six steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/p
 
 | Step | File | What it decides |
 |---|---|---|
-| **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months standard, 6 if income comes from the portfolio); always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
+| **1 · emergency** | [`step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) | cushion = `EMERGENCY_FUND_MONTHS[key] × expense` (3 months for everyone since 2026-09-30; the portfolio-income key is kept, also at 3, so the split can return); always routed to `short_debt`. Overflow ⇒ an emergency `FutureInvestment`. |
 | **2 · short-term** | [`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py) | goals below the FY-anchored short/long boundary (`HORIZON_BOUNDARY_MONTHS + months_to_fy_end`), funded **nearest-date first** by `goal_waterfall`: held short-term money (`short_term_holdings`), then the front-loaded monthly SIP (`monthly_sip` — whole SIP to the nearest uncovered goal before the next, `SIP_REVIEW_WINDOW_MONTHS` = 6 review window), then corpus for what the SIP can't reach by each goal's date. Goals value at FV (`Goal.amount_needed_fv`, sourced from the cashflow engine's `custom_goal_fv`) when set, else PV `amount_needed`. The whole bucket still shares **one** tax gate — `arbitrage` if tax `> 20%`, else `short_debt`. Shortfall ⇒ `FutureInvestment`; the per-goal breakdown rides out as `goal_funding`. |
 | **4 · long-term** | [`step4_long_term.py`](../../src/asset_allocation_pydantic/steps/step4_long_term.py) | the heavy step (see below) — five phases from asset-class bounds down to the equity-subgroup split. |
-| **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == round_to_100(total_corpus)`). It flags — it does not assert. |
+| **5 · aggregation** | [`step5_aggregation.py`](../../src/asset_allocation_pydantic/steps/step5_aggregation.py) | rolls every bucket's `subgroup_amounts` into `CANONICAL_SUBGROUP_ORDER` rows; sets the boolean `grand_total_matches_corpus` = (`grand_total == int(total_corpus)`). It flags — it does not assert. |
 | **6 · guardrails** | [`step6_guardrails.py`](../../src/asset_allocation_pydantic/steps/step6_guardrails.py) | **validation only** — checks Phase-1 asset-class bounds, Phase-5 equity-subgroup shares, and subgroup→asset-class mapping. Collects `violations_found`; **never mutates the plan.** |
-| **7 · presentation** | [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | assembles `GoalAllocationOutput`, builds the planned-vs-recommended breakdowns, and calls `rationale_fn` for the prose. |
+| **7 · presentation** | [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | assembles `GoalAllocationOutput`, builds the planned-vs-recommended breakdowns, and attaches the fixed template prose. |
 
 > **The short/long boundary is FY-anchored.** Steps 2 and 4 split goals at `HORIZON_BOUNDARY_MONTHS + months_to_fy_end` — the flat 24-month line pushed out to the current financial-year end. `AllocationInput.months_to_fy_end` defaults to 0 (engine tests and the no-preference goldens see the flat line); the production `aa_engine/input_builder.py` threads the real offset from today, so the boundary is live for customers (spec 2026-09-25).
 
@@ -397,7 +397,7 @@ Six steps, run in order by [`pipeline.py`](../../src/asset_allocation_pydantic/p
 flowchart LR
     P1["<b>Phase 1</b><br/>asset-class min/max<br/>from PHASE1_RISK_BOUNDS<br/>+ intergen / others-gate overrides"] --> P2
     P2["<b>Phase 2</b><br/>tilt to market view,<br/>clamp+redistribute to<br/>eq/debt/others % summing 100"] --> P4
-    P4["<b>Phase 4</b><br/>multi-asset fund carve-out<br/>(equity slice ≤ 50% of equity)"] --> P5
+    P4["<b>Phase 4</b><br/>multi-asset fund carve-out<br/>(equity slice ≤ 40% of equity)"] --> P5
     P5["<b>Phase 5</b><br/>equity_for_subgroups split<br/>across 6 subgroups + v2 slider"]
 ```
 
@@ -405,10 +405,10 @@ Phase 3 (goal sizing) is folded into the orchestration; the numbered phases foll
 
 ### A run, end to end (worked example)
 
-*All rupee figures below are **illustrative**, chosen to show the flow — not a captured run. Don't grep for them.*
+*Figures below were captured from a real run on 2026-09-30 (whole-rupee engine, 40% multi-asset cap), with the required fields from §9's snippet filled in. Re-run §9's snippet to reproduce them.*
 
 <div class="step-panel">
-  <div class="label">Input · AllocationInput (illustrative)</div>
+  <div class="label">Input · AllocationInput</div>
 <pre><code>{ "effective_risk_score": 7.0, "age": 35,
   "total_corpus": 1000000, "monthly_household_expense": 50000,
   "effective_tax_rate": 12.0, "emergency_fund_needed": true,
@@ -422,26 +422,27 @@ Phase 3 (goal sizing) is folded into the orchestration; the numbered phases foll
 
 <div class="step-panel">
   <div class="label">Step 1 · emergency → Step1Output</div>
-<pre><code>emergency_fund_months = 3            # standard income source
-emergency_fund_amount = 150000       # round_to_100(3 × 50000)
+<pre><code>emergency_fund_months = 3            # 3 for everyone
+emergency_fund_amount = 150000       # round_to_rupee(3 × 50000)
 total_emergency       = 150000       # equals emergency_fund_amount
 subgroup_amounts      = { "short_debt": 150000 }
 remaining_corpus      = 850000       # 1,000,000 − 150,000</code></pre>
 </div>
 
-<div class="flow-arrow">↓ (no goals &lt; 24 mo or 24–59 mo → steps 2 &amp; 3 pass 850,000 through untouched)</div>
+<div class="flow-arrow">↓ (no goals below the short-term boundary → step 2 passes 850,000 through untouched)</div>
 
 <div class="step-panel">
-  <div class="label">Step 4 · long-term → Step4Output (illustrative split at score 7.0, neutral view)</div>
+  <div class="label">Step 4 · long-term → Step4Output (score 7.0, neutral view)</div>
 <pre><code>asset_class_allocation = { equities_pct: 62, debt_pct: 28, others_pct: 10 }  # Phase 1–2 → 527000 / 238000 / 85000 of 850000
-multi_asset.multi_asset_amount   = 405000    # Phase 4, equity slice capped at 50% of equity
-multi_asset.equity_for_subgroups = 264000    # equity left AFTER the multi-asset carve
-subgroup_amounts = { multi_asset: 405000,
-                     low_beta_equities: 75000, medium_beta_equities: 84000,
-                     high_beta_equities: 50000, us_equities: 55000,   # Phase 5 + v2 slider → sum 264000 = equity_for_subgroups
-                     short_debt: 136000,        # debt left after the multi-asset debt slice
-                     gold_commodities: 45000 }  # others left after the multi-asset others slice
-                     # long-term subgroups total 850000 (value/sector gated out at neutral view)</code></pre>
+multi_asset.multi_asset_amount   = 324308    # Phase 4: 0.40 × 527000 / 0.65 — equity slice capped at 40% of equity
+                                             # slices 210800 / 81077 / 32431 (65/25/10) add back to exactly 324308
+multi_asset.equity_for_subgroups = 316200    # equity left AFTER the multi-asset carve (527000 − 210800)
+subgroup_amounts = { multi_asset: 324308,
+                     low_beta_equities: 91698, medium_beta_equities: 91698,
+                     high_beta_equities: 44268, us_equities: 88536,   # Phase 5 + v2 slider → sum 316200 = equity_for_subgroups
+                     short_debt: 156923,        # debt left after the multi-asset debt slice
+                     gold_commodities: 52569 }  # others left after the multi-asset others slice
+                     # long-term subgroups total exactly 850000 (value/sector gated out at neutral view)</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
@@ -455,7 +456,7 @@ grand_total_matches_corpus = true    # 150,000 (emergency) + 850,000 (long-term)
 <div class="flow-arrow">↓  step 6 validates the split (flags nothing here) · step 7 assembles + narrates</div>
 
 <div class="step-panel">
-  <div class="label">Step 7 · rationale_fn (deterministic fallback shown) attaches prose — numbers untouched</div>
+  <div class="label">Step 7 · attaches the fixed template prose — numbers untouched</div>
 <pre><code>bucket "emergency".rationale =
   "We set aside a safety cushion so an unexpected expense won't force you
    to touch the rest of your money."
@@ -465,25 +466,20 @@ bucket "long_term".goal_rationales["Retirement"] =
    heavy lifting…"</code></pre>
 </div>
 
-Notice the money is fully decided by step 5. Step 7's prose describes that plan; it can be swapped for LLM prose or deterministic templates without moving a single rupee.
+Notice the money is fully decided by step 5. Step 7's prose describes that plan and never moves a rupee.
 
 ---
 
-## 6. Where the LLM is
+## 6. No LLM (removed 2026-09-30)
 
-**Steps 1–6 never call an LLM. Step 7 calls one only for prose, and only if wired.**
+**No step calls an LLM.** Every amount, percentage and subgroup is pure Python, and step 7's `rationale` / `goal_rationales` text comes from fixed templates in [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) (`_BUCKET_RATIONALES` per bucket, `_goal_rationale` per goal — tailored to the goal's type, horizon and amount).
 
-| Part | Deterministic? | Detail |
-|---|---|---|
-| all amounts, %, subgroups, guardrails | **yes, fully** | pure Python; identical output for identical input |
-| step-7 `bucket_rationales`, `goal_rationales`, `future_investment_messages` | LLM **or** template | `rationale_fn` is injected; default is `generate_rationales` (Haiku), auto-fallback on no-key/exception is `_fallback_response` (template constants). `no_llm_rationale_fn` is the drop-in you pass to skip the LLM outright |
+Until 2026-09-30, step 7 called Haiku to write that text, falling back to these same templates on any error. It was removed because:
 
-The LLM seam is `rationale_fn` — a `Callable` passed into `run_allocation`. When the gateway has an Anthropic key it passes [`generate_rationales`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) (a `ChatAnthropic` structured-output call, `claude-haiku-4-5-20251001`, `temperature=0`, `LLM_MAX_RETRIES=2`). At the **engine seam**, with no key or on any exception, step 7 falls back to `_fallback_response` — hand-written per-bucket and per-goal templates. **The numbers are the same either way.** (Note: the *app* gateway pre-gates on the key and blocks the whole run before it starts when the key is absent — see §2 — so that deterministic-prose fallback fires mainly when the engine is run directly or the LLM call itself errors.)
+- **Nobody saw it.** Chat displays the *practical* allocation, which carries no rationale text; the ideal output's Haiku prose was persisted but never read back. It surfaced only when the practical engine crashed and chat fell back to the ideal plan — where the templates now appear instead.
+- **Everyone waited for it.** The call was the default whenever no `rationale_fn` was passed, and the app passed none, so every allocation — and every test that ran the pipeline — waited on a Haiku round trip. Removing it took the allocation test suite from about 4 minutes to 9 seconds.
 
-<div class="callout danger">
-  <div class="title">⚠ Why the LLM is fenced out of the arithmetic</div>
-  <p>Haiku reliably <strong>drops an order of magnitude</strong> when asked to convert rupee amounts at inference time (₹5,00,000 → "₹50,000"). The defence is structural: the engine computes every number, and the rationale payload ships each rupee field <strong>already formatted</strong> as a sibling <code>*_indian</code> string (via <code>format_inr_indian</code>) with a prompt that says <em>copy these verbatim, do not convert</em>. The model writes the <em>why</em>; it is never asked to do math. If you extend the rationale prompt, keep that contract — never hand the model a raw number and ask it to phrase an amount.</p>
-</div>
+[`test_no_rationale_llm.py`](../../../app/domains/asset_allocation/services/tests/test_no_rationale_llm.py) fails on any Anthropic import in this package, so the call cannot drift back in unnoticed.
 
 ---
 
@@ -494,11 +490,10 @@ The LLM seam is `rationale_fn` — a `Callable` passed into `run_allocation`. Wh
 | [`__init__.py`](../../src/asset_allocation_pydantic/__init__.py) | flat public API: `run_allocation`, `AllocationInput`, `Goal`, `GoalAllocationOutput` |
 | [`pipeline.py`](../../src/asset_allocation_pydantic/pipeline.py) | `run_allocation` + `run_allocation_with_state` — runs steps 1–7, returns output (+ state dict) |
 | [`models.py`](../../src/asset_allocation_pydantic/models.py) | all pydantic I/O: `AllocationInput`, `Goal`, `GoalAllocationOutput`, and every `StepNOutput` |
-| [`tables.py`](../../src/asset_allocation_pydantic/tables.py) | static lookups + tuneable constants: `PHASE1_RISK_BOUNDS`, `PHASE5_EQUITY_SUBGROUP_BOUNDS`, `HORIZON_BOUNDARY_MONTHS`, tax thresholds, LLM settings. **Asset-class only — no fund/ISIN mappings.** |
-| [`utils.py`](../../src/asset_allocation_pydantic/utils.py) | `round_to_100` (round-half-up, negatives→0), `ceil_to_half` (risk-score lookup key), `proportional_scale` |
+| [`tables.py`](../../src/asset_allocation_pydantic/tables.py) | static lookups + tuneable constants: `PHASE1_RISK_BOUNDS`, `PHASE5_EQUITY_SUBGROUP_BOUNDS`, `HORIZON_BOUNDARY_MONTHS`, tax thresholds, `EMERGENCY_FUND_MONTHS` (3), `MULTI_ASSET_EQUITY_CAP_PCT` (0.40). **Asset-class only — no fund/ISIN mappings.** |
+| [`utils.py`](../../src/asset_allocation_pydantic/utils.py) | `round_to_rupee` / `ceil_to_rupee` (whole-rupee rounding, negatives→0), `ceil_to_half` (risk-score lookup key), `proportional_scale` |
 | [`equity_subgroup_slider.py`](../../src/asset_allocation_pydantic/equity_subgroup_slider.py) | single source of truth for the v2 average-based equity-subgroup slider; **shared with the practical engine** |
-| [`steps/step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) … [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | one file per step |
-| [`steps/_rationale_llm.py`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) | the optional LLM rationale: `generate_rationales`, `no_llm_rationale_fn`, template fallbacks, `apply_rationales` |
+| [`steps/step1_emergency.py`](../../src/asset_allocation_pydantic/steps/step1_emergency.py) … [`step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) | one file per step; step 7 also holds the rationale templates |
 | [`CLAUDE.md`](../../src/asset_allocation_pydantic/CLAUDE.md) | the folder's own context card (invariants, cross-agent reuse) |
 
 App-layer companions (not part of the engine, but its chat-flow caller):
@@ -518,13 +513,12 @@ App-layer companions (not part of the engine, but its chat-flow caller):
 - **`phase2_asset_class_pcts` has a preference seam that OUTRANKS the engine's own judgement.** An optional `requested_class_pcts` — a customer split the caller has already reconciled to this step — simply *is* the returned mix: the market-view tilt and the phase-1 bounds, the others-gate included, are bypassed (spec 2026-09-14 D3). Only `practical_asset_allocation` ever passes it, so **this module stays preference-free in its own right** and continues to carry Prozpr's own recommendation. It is, however, no longer diff-free against that caller — a change to this signature is a cross-module change.
 - **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names, ISINs, or SEBI sub-category strings. Fund picking lives in Rebalancing's ranking CSV, not here. Enforced by [`Testing/test_no_fund_mapping.py`](../../src/asset_allocation_pydantic/Testing/test_no_fund_mapping.py).
 - **Phase-5 guardrail denominator is `step4.multi_asset.equity_for_subgroups`, not total equity.** Phase 5 splits the pool left *after* the multi-asset carve-out; step 6 must validate shares against that same base. Use total equity and you silently flag valid plans (`step6_guardrails.py` Rule 3, and the same denominator in `step4._drop_small_equity_subgroups`).
-- **Step 2 is the goal waterfall, not a corpus cap.** `goal_waterfall` ([`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py)) funds short-term goals nearest-date first from held short-term money, then the front-loaded SIP, then corpus for only what the SIP can't reach in time — it no longer just takes `min(sum of goal FVs, corpus)`. It rounds before capping (`need = round_to_100(held + corpus_needed)`), so the SIP-free, holdings-free default reproduces the old step 2 exactly; [`AI_Agents/tests/test_goal_waterfall_step2.py`](../../tests/test_goal_waterfall_step2.py) guards that (the goldens carry no goals, so they don't). `amount_needed_fv` is read by step 2 only — step 4's long-term goals still size off `amount_needed`.
-- **Step 6 never mutates.** It only *reports* violations into `Step6Output.validation` (the `violations_found` list); the pipeline stores `s6` into the state dict and returns step 7's output regardless. Hard correctness is enforced upstream by `step4._verify_invariants`, which **asserts** at runtime (asset-class pcts sum to 100, equity subgroups sum to `equity_for_subgroups`, everything a non-negative ₹100 multiple). Don't relocate correctness into step 6 expecting it to fix anything.
-- **Money is integers in ₹100 multiples.** `round_to_100` is round-half-up and clamps negatives/zero to `0`. Reconciliation drift below `ASSET_CLASS_RECONCILIATION_TOLERANCE` (₹500) and Phase-5 share tolerance `PHASE5_SHARE_TOLERANCE_PP` (1pp) are absorbed on purpose — they come from independent rounding, not logic errors.
+- **Step 2 is the goal waterfall, not a corpus cap.** `goal_waterfall` ([`step2_short_term.py`](../../src/asset_allocation_pydantic/steps/step2_short_term.py)) funds short-term goals nearest-date first from held short-term money, then the front-loaded SIP, then corpus for only what the SIP can't reach in time — it no longer just takes `min(sum of goal FVs, corpus)`. It rounds before capping (`need = round_to_rupee(held + corpus_needed)`), so the SIP-free, holdings-free default reproduces the old step 2 exactly; [`AI_Agents/tests/test_goal_waterfall_step2.py`](../../tests/test_goal_waterfall_step2.py) guards that (the goldens carry no goals, so they don't). `amount_needed_fv` is read by step 2 only — step 4's long-term goals still size off `amount_needed`.
+- **Step 6 never mutates.** It only *reports* violations into `Step6Output.validation` (the `violations_found` list); the pipeline stores `s6` into the state dict and returns step 7's output regardless. Hard correctness is enforced upstream by `step4._verify_invariants`, which **asserts** at runtime (asset-class pcts sum to 100, equity subgroups sum to `equity_for_subgroups`, everything a non-negative whole-rupee amount). Don't relocate correctness into step 6 expecting it to fix anything.
+- **Money is whole rupees, and totals conserve exactly — do not round to ₹100 here.** `round_to_rupee` is round-half-up and clamps negatives/zero to `0`. Every split — asset classes, the multi-asset sleeve's three slices, the Phase-5 subgroups, the slider — pushes its rounding remainder onto its largest part, so the grand total equals `int(total_corpus)` ([`AI_Agents/tests/test_rounding_at_final_step.py`](../../tests/test_rounding_at_final_step.py)). Until 2026-09-30 each part was rounded to ₹100 separately: totals missed the corpus by up to ₹150, and the sleeve's slices failed to add back to the sleeve on about one input in four. ₹100 rounding belongs where money moves — Rebalancing's `rounding_step` on trades, additional-investment's `rounding_multiple_inr` on buys. `ASSET_CLASS_RECONCILIATION_TOLERANCE` (₹500) and `PHASE5_SHARE_TOLERANCE_PP` (1pp) remain as safety margins.
 - **Risk-score lookups go through `ceil_to_half`.** `PHASE1_RISK_BOUNDS` and `PHASE5_EQUITY_SUBGROUP_BOUNDS` are keyed at 0.5 granularity; a raw float will `KeyError`. Always round the score first.
-- **The LLM must never state a computed number.** The rationale payload ships pre-formatted `*_indian` strings for the model to copy; the prompt bans it from converting amounts. Keep that when editing `_rationale_llm.py`.
 - **`recommended` ≠ current holdings.** The `AliasChoices("recommended", "actual")` alias is historical; it is the deployment plan, not what the customer owns.
-- **Symbols are re-used cross-agent.** `practical_asset_allocation` imports steps 1–3 + 5, step-4 helpers, the slider, `tables`, `utils.round_to_100`, and the public models. Renaming any of them needs a cross-`src/` sweep — this is the one blessed cross-agent edge, so it is easy to break silently.
+- **Symbols are re-used cross-agent.** `practical_asset_allocation` imports steps 1–3 + 5, step-4 helpers, the slider, `tables`, `utils.round_to_rupee`, and the public models. Renaming any of them needs a cross-`src/` sweep — this is the one blessed cross-agent edge, so it is easy to break silently.
 - **`market_commentary` defaults to neutral.** The current gateway leaves the view at `5.0` across the board, so the shipped plan is the un-tilted one. If you wire a live house view in, remember it tilts the Phase-2 asset-class split and the Phase-5 gates drop `value`/`sector` equities at views `≤ 7` — a change to the view materially changes the plan, and the Logics thesis doc must move with it.
 
 ---
@@ -555,8 +549,8 @@ App-layer companions (not part of the engine, but its chat-flow caller):
   s4 = step4_long_term.run(inp, s1.remaining_corpus)   # → Step4Output, dump .model_dump()
   ```
 
-- **Trace a whole run** without the LLM: `run_allocation_with_state(inp, rationale_fn=no_llm_rationale_fn)` returns `(state, output)` where `state["step4_long_term"]` etc. is each `StepNOutput` — deterministic prose, no Anthropic call, nothing to stub.
-- **Change the rationale wording/guardrails** → edit [`steps/_rationale_llm.py`](../../src/asset_allocation_pydantic/steps/_rationale_llm.py) (`_RATIONALE_BODY`, template fallbacks). Because these are customer-facing, bump [Logics_reference_docs/Asset_Allocation.md](../Logics_reference_docs/Asset_Allocation.md) when the *approach* changes, and run the prompt eval gate before merging.
+- **Trace a whole run:** `run_allocation_with_state(inp)` returns `(state, output)` where `state["step4_long_term"]` etc. is each `StepNOutput` — no network, nothing to stub.
+- **Change the rationale wording** → edit the templates in [`steps/step7_presentation.py`](../../src/asset_allocation_pydantic/steps/step7_presentation.py) (`_BUCKET_RATIONALES`, `_goal_rationale`). The ideal golden (`AI_Agents/tests/fixtures/golden_ideal_no_pref.json`) pins this text, so a wording change moves it. The text is customer-facing, so bump [Logics_reference_docs/Asset_Allocation.md](../Logics_reference_docs/Asset_Allocation.md) when the *approach* changes.
 - **Change a band/threshold** → edit [`tables.py`](../../src/asset_allocation_pydantic/tables.py) only (step code reads from it) — then re-run the profile sweep to confirm the `_verify_invariants` asserts and step-6 guardrails still pass across the profile matrix, and update the matching Logics doc.
 
 ---

@@ -1,7 +1,7 @@
 # Ask PI · Practical Asset Allocation Thesis
 
 *Why we translate the ideal portfolio into the portfolio you can actually own — and what we do about the holdings we cannot trade*
-*Thesis version 1.5 · Internal & client reference · Last updated: September 2026*
+*Thesis version 1.6 · Internal & client reference · Last updated: September 2026*
 
 ---
 
@@ -17,7 +17,7 @@ The ideal allocation is a clean answer to *how* to invest a fresh rupee. The pra
 
 | Principle | What it means in practice |
 | --- | --- |
-| **1. The ideal portfolio is the *destination*, not the starting line** | Every practical allocation begins from the ideal one: the same emergency carve-out, near-term protection, medium-term balance, and long-term growth split. That clean target is the destination. The practical layer only *re-shapes the path* so the destination is reachable from the portfolio you hold today, without sells we don't want to make. |
+| **1. The ideal portfolio is the *destination*, not the starting line** | Every practical allocation begins from the ideal one: the same emergency carve-out, near-term protection and long-term growth split. That clean target is the destination. The practical layer only *re-shapes the path* so the destination is reachable from the portfolio you hold today, without sells we don't want to make. |
 | **2. Tax-saving (ELSS) units are frozen, not ignored** | ELSS units carry a statutory 3-year lock-in. We do not put fresh money into ELSS, and we do not pretend the lock-in isn't there. The locked amount is *counted* toward your long-term equity so the portfolio meets its growth target on paper, shown to you plainly as a frozen holding, and kept out of any trade plan until the units unlock. |
 | **3. Direct stocks and PMS get a sensible ceiling, not a blanket allow or block** | Single-stock and PMS holdings can't be trimmed the precise, tax-efficient way mutual-fund units can. We treat them as a separate envelope and cap how much of your long-term growth allocation that envelope can occupy — with the cap set more generously for wealthier portfolios that can carry concentration, tighter for smaller ones — and an advisor can set a different ceiling for your specific situation, which then takes precedence over the wealth-based default. Anything above the ceiling is surfaced as an amount to reduce, never as a stock-by-stock instruction, because stock-picking is not our mandate. |
 | **4. The same growth-fund discipline, applied to what's left** | After the frozen and untradeable holdings are accounted for, the remaining growth allocation follows exactly the same sub-strategy as the ideal portfolio — the same eligible equity styles, the same valuation and market-view discipline. Smaller leftover pools naturally consolidate into fewer, more meaningful positions rather than a scatter of slivers. |
@@ -31,9 +31,9 @@ We are a translation layer — not a tax optimiser, not a fund-picker, and not a
 
 Every Ask PI practical allocation moves through five deliberate stages. We can walk through the reasoning behind any of them on demand.
 
-### Stage 1 — Start from the ideal near- and medium-term plan
+### Stage 1 — Start from the ideal near-term plan
 
-The emergency reserve, near-term protection and medium-term balance follow the rules the ideal thesis describes, working only with the money that is actually free to move. Locked tax-saving units are not available to fund these.
+The emergency reserve and near-term protection follow the rules the ideal thesis describes, working only with the money that is actually free to move. Locked tax-saving units are not available to fund these.
 
 Near-term goals use the ideal plan's nearest-first rule, but from where you actually stand. The ideal plan assumes you hold nothing yet; here, the debt and arbitrage funds you already hold count first (income-plus-arbitrage funds aside — we treat those as long-term debt), then your monthly SIP, and your savings are set aside only for what the SIP cannot build up by each goal's date. Debt you hold beyond what your goals need is simply part of your long-term plan and is rebalanced like everything else, so it may be moved into equity. If we have no holdings on file for you, we can't count on any savings being moved for your goals yet, so your SIP carries as much of them as it can.
 
@@ -51,7 +51,7 @@ Whatever growth allocation is left after the core and the untradeable holdings i
 
 ### Stage 5 — Present one holdings-aware picture
 
-The final output mirrors the ideal allocation, with added lines showing what is frozen, what is kept, and what is deployed. All amounts are presented in clean, round figures.
+The final output mirrors the ideal allocation, with added lines showing what is frozen, what is kept, and what is deployed. The amounts in your plan are worked out to the rupee, so they add up to exactly what you hold; the amounts you actually invest or move are rounded to clean ₹100 figures.
 
 ## What stating a preference changes
 
@@ -80,4 +80,4 @@ This document is a directional reference. It is not a tax-planning tool, not a s
 
 ---
 
-*Ask PI · Practical Asset Allocation Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-29*
+*Ask PI · Practical Asset Allocation Thesis v1.6 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-29*

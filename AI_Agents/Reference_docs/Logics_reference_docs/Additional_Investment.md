@@ -1,11 +1,11 @@
 # Ask PI · Additional Investment Thesis
 
 *Why fresh money goes where it goes — and why it never chases last quarter's winner*
-*Thesis version 1.4 · Internal & client reference · Last updated: 29 September 2026*
+*Thesis version 1.5 · Internal & client reference · Last updated: 30 September 2026*
 
 ---
 
-> **About this document:** This is a directional reference for how we deploy fresh money — the philosophy, not the formula. The exact per-fund caps, horizon boundaries and the fund ranking itself are proprietary and are deliberately not reproduced here. This step runs *after* the practical allocation step (see `Practical_Asset_Allocation.md`), which translates your ideal targets into a holdings-aware plan. It deploys new money only — it never sells; moving money you already hold is the rebalancer's job (see the Rebalancing thesis).
+> **About this document:** This is a directional reference for how we deploy fresh money — the philosophy, not the formula. The exact horizon boundaries, the portfolio size at which we use two funds per category, and the fund ranking itself are proprietary and are deliberately not reproduced here. This step runs *after* the practical allocation step (see `Practical_Asset_Allocation.md`), which translates your ideal targets into a holdings-aware plan. It deploys new money only — it never sells; moving money you already hold is the rebalancer's job (see the Rebalancing thesis).
 
 ---
 
@@ -22,8 +22,8 @@ Fresh money should close the gap between the portfolio you hold and the portfoli
 | **3. A SIP follows your goals; a lumpsum follows your holdings** | Both put your near-term goals first, nearest goal first, and share that work. Monthly money funds those goals as far as it can by each goal's date — the SIP goes to the nearest goal not yet covered, then the next, all of it while the goals need that much, rather than being split thinly across them — because a SIP is a stream that builds toward a date, not a patch on today's shape; what the goals don't need follows your long-term plan. One-time money covers the part the SIP can't reach in time, then is deployed against your actual portfolio — filling today's gaps. Two different questions, two different answers. |
 | **4. Fresh money follows the plan, not a rush to inflate the reserve** | We don't invent reasons to add to your emergency reserve — it isn't a growth engine and we don't treat it as one. But if your low-volatility holdings sit below what the plan calls for overall (of which the reserve is one part), a lumpsum brings that up to target the same way it would for any other underfunded part of your plan. |
 | **5. Locked and untradeable holdings sit outside fresh deployment** | No fresh money goes into tax-saving (ELSS) funds — their lock-in cuts against the flexibility fresh money should keep — and none goes into direct stocks or PMS, where fund-style deployment doesn't apply. Their value still counts toward your plan; they're just not buy targets. |
-| **6. No single fund dominates the deployment** | Each part of your plan maps to funds ranked by our research. Money goes to the top-ranked fund first, but only up to a cap; the overflow walks down to the next-ranked fund we have conviction in. You end up with meaningful positions in funds we rate highly, never a single outsized bet. |
-| **7. If money can't be placed, we say so** | Caps and eligibility rules occasionally mean part of an amount can't be deployed as asked. That remainder is reported to you with the reason — never quietly absorbed, never silently dropped. |
+| **6. A few meaningful positions, in the funds we rate highest** | Each part of your plan maps to funds ranked by our research. The money for each part goes to our top-ranked fund — or is split equally across the top two once your portfolio is large enough for both to hold a meaningful amount. You end up with meaningful positions in funds we rate highly, never a long tail of small ones. |
+| **7. If money can't be placed, we say so** | Occasionally part of an amount can't be deployed as asked — a part of your plan may have no fund we currently rank, or its share may be too small to buy. That remainder is reported to you with the reason — never quietly absorbed, never silently dropped. |
 | **8. One category is never the whole answer** | You can ask us to focus on a category — and we'll tell you honestly how that category fits your plan. But concentrating fresh money in one pocket is not what we'd recommend, and we'll always say so alongside the answer. |
 
 We are a fresh-money deployment approach — not a market-timing engine, not a fund-tips channel, and not a rebalancer. New money is an opportunity to make your portfolio more like your plan; that is the entire job.
@@ -46,7 +46,7 @@ The split is meant to be revisited at regular reviews as your goals fill up; tho
 
 ### Step 2 — Pick the funds
 
-Each part of the plan maps to our ranked fund list. Money flows to the highest-ranked fund first, capped so no single fund dominates; overflow walks to the next rank. Amounts are rounded to clean figures. We never invent a position outside your plan.
+Each part of the plan maps to our ranked fund list. The money for each part goes to our top-ranked fund, or is split equally across the top two once your portfolio is large enough for both to hold a meaningful amount. Each amount you invest is rounded to a clean ₹100 figure — and the monthly amount going to a near-term goal is rounded up, never down, so rounding never leaves the goal short. We never invent a position outside your plan.
 
 ### Step 3 — Present the buys, and any remainder
 
@@ -70,21 +70,21 @@ Changing that record is a separate, deliberate act. If you state a preference wh
 
 | Question | Our answer |
 | --- | --- |
-| **I'm adding ₹5 lakh — how do you decide which funds it goes into?** | We recompute your ideal plan including the ₹5 lakh. If your near-term goals still need money that would otherwise come out of your existing savings, that is covered first; the rest is compared with what you hold and split across the gaps — biggest gaps first, in proportion. Each gap then maps to our top-ranked funds in that part of the plan, capped so no single fund dominates. Every buy is a named fund with a stated reason. |
+| **I'm adding ₹5 lakh — how do you decide which funds it goes into?** | We recompute your ideal plan including the ₹5 lakh. If your near-term goals still need money that would otherwise come out of your existing savings, that is covered first; the rest is compared with what you hold and split across the gaps — biggest gaps first, in proportion. Each gap then goes to our top-ranked fund in that part of the plan — or the top two, for a larger portfolio. Every buy is a named fund with a stated reason. |
 | **Why did most of it go to one area instead of spreading evenly?** | Because that's where your portfolio is furthest below target — or because your near-term goals still needed that money, and they come first. An even spread would look tidy but would leave your biggest gap standing. If your holdings were already balanced, the split would naturally come out broader. |
 | **I asked to put it all in small-caps — why did you spread it instead?** | We'll tell you honestly how small-caps fit your plan, and name our picks if there's room. But deploying everything into one category concentrates risk in a single pocket, so we don't execute that — we show you the plan-shaped alternative and let you decide with full information. |
 | **What's the difference between a lumpsum and a monthly SIP here?** | Both put your near-term goals first. A lumpsum then fills today's gaps in your actual holdings. A SIP sends your nearest goals what they still need, month by month, and the rest follows your long-term plan. One fixes the present shape; the other funds the future timeline. |
 | **Why is part of my SIP going into a debt or arbitrage fund?** | Because a near-term goal still needs money that won't otherwise be ready by its date. After the debt and arbitrage funds you already hold, your SIP funds your nearest goal first, then the next; that share goes into short-duration debt or arbitrage so the money is there when the goal arrives, and the rest follows your long-term plan. The split is set when your SIP is worked out and is refreshed when you set it up again or change it. With saved preferences, your SIP follows your stated split instead. |
 | **You didn't ask whether I meant a lumpsum or a SIP — why?** | Because in chat we assume a one-time deployment unless your own words say otherwise ("every month", "monthly SIP"). Asking two questions before showing you anything made the opening feel like a form. If we read it wrong, say so and we'll re-run it as the other kind. |
 | **Why didn't any money go into my ELSS or my direct stocks?** | ELSS carries a statutory lock-in — fresh money shouldn't surrender flexibility it doesn't have to. Direct stocks and PMS sit outside our fund-level mandate. Both still count toward your plan's totals; they just aren't buy targets. |
-| **You said some of the amount couldn't be deployed — where did it go?** | Nowhere — it stays with you, and we tell you exactly how much and why (usually a cap or eligibility rule). We'd rather report a remainder than force money into a position we don't believe in. |
+| **You said some of the amount couldn't be deployed — where did it go?** | Nowhere — it stays with you, and we tell you exactly how much and why (usually a part of the plan with no fund we currently rank, or a share too small to buy). We'd rather report a remainder than force money into a position we don't believe in. |
 | **Will you sell anything to make room for the new money?** | No. This step is buy-only by design. If your existing portfolio needs re-shaping, that's a rebalance — a separate, tax-aware exercise you'd see proposed explicitly. |
 | **Why do you need my holdings before recommending a lumpsum?** | Because a lumpsum is deployed against your *actual* gaps, and we can't see the gaps without seeing the holdings. Without them we'd be guessing — and guessing is exactly what this approach exists to replace. |
 
 ## What this thesis is — and is not
 
-This document is a directional reference for the *why* of fresh-money deployment. It is not a market call, not a fund tip-sheet, and not a substitute for the actual recommendation, which is always personalised to your holdings, your goals and the amount. The caps, horizon boundaries and fund rankings behind it are reviewed periodically and may evolve. When they do, this thesis is updated and dated.
+This document is a directional reference for the *why* of fresh-money deployment. It is not a market call, not a fund tip-sheet, and not a substitute for the actual recommendation, which is always personalised to your holdings, your goals and the amount. The horizon boundaries, fund-count rule and fund rankings behind it are reviewed periodically and may evolve. When they do, this thesis is updated and dated.
 
 ---
 
-*Ask PI · Additional Investment Thesis v1.4 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Additional Investment Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*

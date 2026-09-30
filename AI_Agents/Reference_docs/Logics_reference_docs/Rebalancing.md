@@ -1,11 +1,11 @@
 # Ask PI · Portfolio Rebalancing Thesis
 
 *Why we change the portfolio when we do — and why we leave it alone the rest of the time*
-*Thesis version 1.5 · Internal & client reference · Last updated: 29 September 2026*
+*Thesis version 1.6 · Internal & client reference · Last updated: 30 September 2026*
 
 ---
 
-> **About this document:** This is a directional reference for how we think about rebalancing — the philosophy, not the formula. The exact drift thresholds, concentration caps and rating floors are proprietary and are deliberately not reproduced here. Statutory tax facts (capital-gains rates, holding-period thresholds) are public and are stated plainly. Rebalancing runs *after* the practical allocation step (see `Practical_Asset_Allocation.md`), which translates your ideal targets into a holdings-aware plan.
+> **About this document:** This is a directional reference for how we think about rebalancing — the philosophy, not the formula. The exact drift thresholds, ranking bands and rating floors are proprietary and are deliberately not reproduced here. Statutory tax facts (capital-gains rates, holding-period thresholds) are public and are stated plainly. Rebalancing runs *after* the practical allocation step (see `Practical_Asset_Allocation.md`), which translates your ideal targets into a holdings-aware plan.
 
 ---
 
@@ -20,7 +20,7 @@ A rebalance is a **disciplined return to the plan** — not a reaction to market
 | **1. Rebalance to the plan, not to the market** | The targets we measure against are the goal-based allocation we computed for *you*. We do not raise equity because equity has run, and we do not cut equity because equity has fallen. If your goals and risk profile have not changed, the target shape has not changed, and rebalancing simply pulls the portfolio back onto that shape. |
 | **2. Don't trade for trading's sake** | Every trade risks a capital-gains tax bill, and we refuse to pay it for cosmetic alignment. A holding that is already close to its target is left alone. The "close enough" threshold is a deliberate policy choice, reviewed over time — not folklore. |
 | **3. Quality bar trumps comfort** | Two things make a fund a must-sell regardless of how small the drift looks: our research team has explicitly marked it for exit (typically because they have replaced it or it failed an ongoing screen), or its quality rating has fallen below our floor. We do not keep a sub-standard fund around just because exiting it is inconvenient or tax-expensive. A fund that has merely slipped off our active recommended list without an exit call is treated more gently — see Step 2. |
-| **4. Concentration caps over single-fund bets** | No single fund is allowed to dominate the portfolio. Caps vary by category — a category with only a handful of genuinely good funds to choose from can carry a larger single-fund share than one with many strong alternatives, but all are capped. When a top-ranked fund in a category hits its cap, the overflow walks to the next-ranked fund we have conviction in, within the same asset subgroup. Caps protect you from single-manager risk; the rank ladder makes sure displaced money still goes somewhere we believe in. |
+| **4. A few strong funds per category, without needless switching** | Each part of your plan is held in our top-ranked fund — or split across the top two once your portfolio is large enough for both to hold a meaningful amount. If you already hold a recommended fund ranked close to the top of that category, you keep it rather than selling a good fund just to buy the one ranked a step higher; only the rest of the target is split across the top funds. You end up in funds we rate highly, without churn for its own sake. |
 | **5. Tax-aware selling, cheapest units first** | When we sell — to trim, to exit, or to fund a buy — which units leave is the single biggest lever on the tax bill. We always sell the tax-cheapest units first: long-term lots lead (long-term capital gains are taxed at 12.5% above a ₹1,25,000 annual exemption), and lots sitting on a realised loss are cheaper still (losses offset gains and unlock more rebalancing). Routine trims go one step further: they only ever touch long-term units — short-term units are sold only when a fund must be exited outright. A delisted or low-rated fund still gets sold even if it's the most tax-expensive — but among funds we *could* sell, the tax-cheap ones always go first. |
 | **6. Respect your short-term-gains budget; put losses to work** | If you tell us how much short-term capital gain you're willing to realise this year, we stop adding new short-term gains once that budget is hit and defer the rest. In a second pass, carryforward losses from prior years plus losses realised in this run are pooled, and as much of the deferred demand as those losses can absorb is converted into actual sells. This is the central tax move of the engine: losses don't cut tax on past returns, but they unlock additional rebalancing without raising this year's tax bill. |
 | **7. The engine never invents cash** | We treat every rebalance as a closed system: every buy is funded from a sell, so total buys never exceed total sells. If demanded buys exceed allowed sells, buys are scaled down proportionally and the shortfall is reported, never hidden. If a must-exit fund raises more cash than the buys need, the surplus is released to you as cash and reported. Fresh inflows and goal outflows are handled by a separate allocation step *before* rebalancing — we don't pretend to find money that isn't on the table. |
@@ -46,9 +46,9 @@ Every Ask PI rebalance is the output of a holdings-aware pre-stage and six delib
 
 Before anything is traded, the practical allocation step translates your ideal targets into the portfolio you actually hold: it accounts for locked tax-saving units, recognises direct-stock and PMS holdings up to a sensible ceiling, and flags any over-concentration to reduce. It also sets how much your near-term goals need in short-term debt: the debt and arbitrage funds already in the portfolio being rebalanced count first, then your monthly SIP, and savings are moved only for what the SIP can't build up by each goal's date. Debt beyond what those goals need is part of your long-term plan and is rebalanced like everything else. (A saved investment preference suspends this near-term carve-out.) The output of that step is what this engine works from. See `Practical_Asset_Allocation.md`.
 
-### Step 1 — Size each fund under concentration caps
+### Step 1 — Decide which funds hold each part of the plan
 
-Each asset subgroup in your plan maps to one or more recommended funds, ordered by rank. No single fund may dominate; when a top-ranked fund's target exceeds its cap, the overflow walks to the next-ranked fund in the same subgroup. Sizing only redistributes across funds that already exist in your plan — we never invent new positions — and if overflow can't be absorbed, it's flagged rather than silently dropped.
+Each asset subgroup in your plan maps to one or more recommended funds, ordered by rank. A recommended fund you already hold, ranked close to the top of its subgroup, keeps what it holds; the rest of the subgroup's target goes to the top-ranked fund, or is split equally across the top two once your portfolio is large enough. Sizing only uses funds on our recommended list — we never invent new positions.
 
 ### Step 2 — Compare to present holdings: hold, top up, trim or exit
 
@@ -70,7 +70,7 @@ Carryforward losses from prior years, plus losses realised in the first pass, fo
 
 ### Step 6 — Presentation: trades, totals and rationale
 
-We output the final trade list, each line with a plain-English reason, plus totals (gross buys and sells, realised gains and losses) and any warnings (unabsorbed overflow, deferred demand, scaled-down buys). Frozen tax-saving units and untradeable direct holdings are shown but carry no trade lines; over-concentrated direct stocks get a single "reduce by this amount" instruction. Every changed line traces back to a documented rule.
+We output the final trade list, each line with a plain-English reason, plus totals (gross buys and sells, realised gains and losses) and any warnings (deferred demand, scaled-down buys). Frozen tax-saving units and untradeable direct holdings are shown but carry no trade lines; over-concentrated direct stocks get a single "reduce by this amount" instruction. Every changed line traces back to a documented rule.
 
 ## Why a customer should trust this approach
 
@@ -93,4 +93,4 @@ This document is a directional reference for the *why* of rebalancing decisions.
 
 ---
 
-*Ask PI · Rebalancing Thesis v1.5 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
+*Ask PI · Rebalancing Thesis v1.6 · Owner: Investment Research · Cycle: reviewed quarterly · last reconciled with production wiring 2026-09-19*
