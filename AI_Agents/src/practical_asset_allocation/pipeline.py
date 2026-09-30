@@ -51,7 +51,7 @@ from asset_allocation_pydantic.tables import (
     STEP4_SUBGROUPS,
     SUBGROUP_TO_ASSET_CLASS,
 )
-from asset_allocation_pydantic.utils import round_to_100
+from asset_allocation_pydantic.utils import round_to_rupee
 from practical_asset_allocation.allocation_snap import apply_current_allocation_snap
 from practical_asset_allocation.human_override import (
     ASSET_CLASSES,
@@ -289,14 +289,14 @@ def carve_outs_at_risk(inp: AllocationInput) -> list[str]:
 def _split_pro_rata(total: int, asks: dict[str, int]) -> dict[str, int]:
     """Split ``total`` across ``asks`` in proportion to them — spec 2026-09-15 §7.
 
-    Rounded to ₹100 like every other amount the engine emits, with the whole
+    Rounded to the rupee like every other amount the engine emits, with the whole
     remainder parked on the largest ask so the rupees always conserve exactly.
     Ties break on the name so the result is deterministic.
     """
     ask_total = sum(asks.values())
     if ask_total <= 0:
         return {sg: 0 for sg in asks}
-    out = {sg: round_to_100(total * amt / ask_total) for sg, amt in asks.items()}
+    out = {sg: round_to_rupee(total * amt / ask_total) for sg, amt in asks.items()}
     largest = max(asks, key=lambda sg: (asks[sg], sg))
     out[largest] = max(0, out[largest] + total - sum(out.values()))
     return out
@@ -415,7 +415,7 @@ def _subgroup_pins(
         if excludes(prefs, sg):
             excluded.add(sg)
             continue
-        pins[sg] = round_to_100(total_corpus * share / 100.0)
+        pins[sg] = round_to_rupee(total_corpus * share / 100.0)
     return pins, frozenset(excluded), "gold_commodities" in excluded
 
 
@@ -434,9 +434,9 @@ def _fit_pins_to_room(
         return dict(pins), False
     if room <= 0:
         return {sg: 0 for sg in pins}, True
-    scaled = {sg: round_to_100(amt * room / total) for sg, amt in pins.items()}
-    # round_to_100 rounds half UP, so the scaled set can overshoot `room` by up
-    # to ₹50 a pin. Phase 5 raises when the pins exceed its pool, so shave the
+    scaled = {sg: round_to_rupee(amt * room / total) for sg, amt in pins.items()}
+    # round_to_rupee rounds half UP, so the scaled set can overshoot `room` by up
+    # to 50 paise a pin. Phase 5 raises when the pins exceed its pool, so shave the
     # drift off the largest rather than hand the caller an unfittable set.
     drift = sum(scaled.values()) - room
     if drift > 0:
@@ -530,7 +530,7 @@ def _sleeve_size(
     # no sleeve, and an all-INF candidate means the fund holds neither.
     if candidate == INF or candidate <= 0 or deployable_equity <= 0 or debt <= 0:
         return 0
-    return round_to_100(candidate)
+    return round_to_rupee(candidate)
 
 
 def _run_practical_long_term(
@@ -575,7 +575,7 @@ def _run_practical_long_term(
         g for g in inp.goals
         if g.time_to_goal_months >= HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
-    sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
+    sum_goals = round_to_rupee(sum(g.amount_needed for g in lt_goals))
     future_investment: Optional[FutureInvestment] = None
     if sum_goals > remaining_corpus:
         future_investment = FutureInvestment(
@@ -680,12 +680,12 @@ def _run_practical_long_term(
             allocation_2_others_pct = 0
 
     # R177-R179: amounts.
-    equities_amount = round_to_100(
+    equities_amount = round_to_rupee(
         total_long_term_corpus * allocation_2_equity_pct / 100
     )
-    others_amount = round_to_100(total_long_term_corpus * allocation_2_others_pct / 100)
+    others_amount = round_to_rupee(total_long_term_corpus * allocation_2_others_pct / 100)
     debt_amount = max(0, total_long_term_corpus - equities_amount - others_amount)
-    debt_amount = round_to_100(debt_amount)
+    debt_amount = round_to_rupee(debt_amount)
 
     # Reconcile rounding drift onto the largest amount (mirrors upstream pattern).
     drift = total_long_term_corpus - (equities_amount + debt_amount + others_amount)
@@ -790,7 +790,7 @@ def _run_practical_long_term(
         pins = fitted
 
     # R187: multi-asset block. The upstream helper already caps the multi-asset
-    # equity slice at MULTI_ASSET_EQUITY_CAP_PCT and rounds to 100. We feed it
+    # equity slice at MULTI_ASSET_EQUITY_CAP_PCT and rounds to the rupee. We feed it
     # the practical RESIDUAL equity (post-ELSS, post-non-MF) rather than
     # equities_amount, so the multi-asset cap respects what we can actually
     # deploy via MFs.
@@ -866,10 +866,10 @@ def _run_practical_long_term(
         multi_asset_others_excess > 0
         and (allocation_2_debt_pct + allocation_2_equity_pct) > 0
     ):
-        # Spec wording: excess_to_debt = min(round_to_100(excess × allocation_2_debt
+        # Spec wording: excess_to_debt = min(round_to_rupee(excess × allocation_2_debt
         # / 100), debt_amount − multi_asset_debt_component).
         excess_to_debt = min(
-            round_to_100(multi_asset_others_excess * allocation_2_debt_pct / 100),
+            round_to_rupee(multi_asset_others_excess * allocation_2_debt_pct / 100),
             debt_capacity_after_multi,
         )
         excess_to_equity = multi_asset_others_excess - excess_to_debt
@@ -901,8 +901,8 @@ def _run_practical_long_term(
     # strand the rest of the class.
     equity_pins = {sg: amt for sg, amt in pins.items() if sg in EQUITY_SUBGROUPS}
     if equity_pins:
-        # round_to_100 rounds half UP, so the sleeve's equity slice can land up
-        # to ~₹100 past the room the pins left behind. Phase 5 REFUSES to
+        # round_to_rupee rounds half UP, so the sleeve's equity slice can land up
+        # to ~₹1 past the room the pins left behind. Phase 5 REFUSES to
         # truncate a customer's number (it raises), so re-fit against the pool
         # that actually has to hold them.
         equity_pins, scaled = _fit_pins_to_room(
@@ -1015,7 +1015,7 @@ def _run_practical_long_term(
         others_amount
         - (multi_asset_block.others_component - multi_asset_others_excess),
     )
-    residual_other_corpus = round_to_100(others_minus_multi)
+    residual_other_corpus = round_to_rupee(others_minus_multi)
 
     # R217-R219: assemble the long-term subgroup_amounts dict, exhaustive
     # over STEP4_SUBGROUPS.
@@ -1395,7 +1395,7 @@ def _step5_aggregation_with_frozen(
         )
 
     grand_total = sum(row.total for row in rows)
-    grand_total_matches_corpus = abs(grand_total - round_to_100(total_corpus)) <= 500
+    grand_total_matches_corpus = abs(grand_total - round_to_rupee(total_corpus)) <= 500
 
     return Step5Output(
         rows=rows,
@@ -1577,7 +1577,7 @@ def _build_output(
     long_bucket = BucketAllocation(
         bucket="long_term",
         goals=s4_practical.goals_allocated,
-        total_goal_amount=round_to_100(
+        total_goal_amount=round_to_rupee(
             sum(g.amount_needed for g in s4_practical.goals_allocated),
         ),
         allocated_amount=sum(s4_practical.long_term_subgroup_amounts.values()),

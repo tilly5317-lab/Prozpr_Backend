@@ -231,13 +231,6 @@ def build_goal_allocation_input_for_user(
     _emergency_override = effective_param(ctx, "emergency_fund_needed", None)
     _tax_regime_override = effective_param(ctx, "tax_regime", None)
 
-    # Snap corpus down to a multiple of 100. The asset_allocation pipeline
-    # asserts every subgroup amount is a non-negative multiple of 100
-    # (step4_long_term._verify_invariants); a fractional input corpus produces
-    # a non-multiple-of-100 drift that propagates to subgroup amounts and trips
-    # the assertion. Sheds at most ₹99.
-    total_corpus = float(int(max(total_corpus, 0.0) // 100 * 100))
-
     today = date.today()
     goals = _map_goals(financial_goals)
     if not goals:

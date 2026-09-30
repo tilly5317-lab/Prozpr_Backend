@@ -10,43 +10,51 @@
   },
   {
    "emergency": 0.0,
-   "long_term": 7309900.0,
+   "long_term": 7581538.0,
    "medium_term": 0.0,
    "short_term": 0.0,
    "subgroup": "arbitrage_plus_income",
-   "total": 7309900.0
+   "total": 7581538.0
   },
   {
    "emergency": 0.0,
-   "long_term": 5432300.0,
+   "long_term": 4345846.0,
    "medium_term": 0.0,
    "short_term": 0.0,
    "subgroup": "multi_asset",
-   "total": 5432300.0
+   "total": 4345846.0
   },
   {
    "emergency": 0.0,
-   "long_term": 2055300.0,
+   "long_term": 1877851.0,
    "medium_term": 0.0,
    "short_term": 0.0,
    "subgroup": "low_beta_equities",
-   "total": 2055300.0
+   "total": 1877851.0
   },
   {
    "emergency": 0.0,
-   "long_term": 1475700.0,
+   "long_term": 1011150.0,
+   "medium_term": 0.0,
+   "short_term": 0.0,
+   "subgroup": "medium_beta_equities",
+   "total": 1011150.0
+  },
+  {
+   "emergency": 0.0,
+   "long_term": 1348200.0,
    "medium_term": 0.0,
    "short_term": 0.0,
    "subgroup": "us_equities",
-   "total": 1475700.0
+   "total": 1348200.0
   },
   {
    "emergency": 0.0,
-   "long_term": 1426800.0,
+   "long_term": 1535415.0,
    "medium_term": 0.0,
    "short_term": 0.0,
    "subgroup": "gold_commodities",
-   "total": 1426800.0
+   "total": 1535415.0
   },
   {
    "emergency": 0.0,
@@ -65,15 +73,15 @@
    "total": 1000000.0
   }
  ],
- "all_amounts_in_multiples_of_100": true,
+ "all_amounts_in_multiples_of_100": false,
  "asset_class_breakdown": {
   "planned": {
-   "debt_total": 8967975,
-   "debt_total_pct": 44.839875,
-   "equity_total": 9061995,
-   "equity_total_pct": 45.309975,
-   "others_total": 1970030,
-   "others_total_pct": 9.85015,
+   "debt_total": 8967999,
+   "debt_total_pct": 44.839995,
+   "equity_total": 9062001,
+   "equity_total_pct": 45.310005,
+   "others_total": 1970000,
+   "others_total_pct": 9.85,
    "per_bucket": [
     {
      "bucket": "emergency",
@@ -95,22 +103,22 @@
     },
     {
      "bucket": "long_term",
-     "debt": 8667975,
-     "debt_pct": 43.9998730964467,
-     "equity": 9061995,
-     "equity_pct": 45.99997461928934,
-     "others": 1970030,
-     "others_pct": 10.00015228426396
+     "debt": 8667999,
+     "debt_pct": 43.99999492385787,
+     "equity": 9062001,
+     "equity_pct": 46.00000507614213,
+     "others": 1970000,
+     "others_pct": 10.0
     }
    ]
   },
   "recommended": {
-   "debt_total": 8967975,
-   "debt_total_pct": 44.839875,
-   "equity_total": 9061995,
-   "equity_total_pct": 45.309975,
-   "others_total": 1970030,
-   "others_total_pct": 9.85015,
+   "debt_total": 8967999,
+   "debt_total_pct": 44.839995,
+   "equity_total": 9062001,
+   "equity_total_pct": 45.310005,
+   "others_total": 1970000,
+   "others_total_pct": 9.85,
    "per_bucket": [
     {
      "bucket": "emergency",
@@ -132,12 +140,12 @@
     },
     {
      "bucket": "long_term",
-     "debt": 8667975,
-     "debt_pct": 43.9998730964467,
-     "equity": 9061995,
-     "equity_pct": 45.99997461928934,
-     "others": 1970030,
-     "others_pct": 10.00015228426396
+     "debt": 8667999,
+     "debt_pct": 43.99999492385787,
+     "equity": 9062001,
+     "equity_pct": 46.00000507614213,
+     "others": 1970000,
+     "others_pct": 10.0
     }
    ]
   },
@@ -162,28 +170,33 @@
      "bucket": "long_term",
      "subgroups": [
       {
-       "amount": 5432300,
-       "pct_of_bucket": 27.5751269035533,
+       "amount": 4345846,
+       "pct_of_bucket": 22.06013197969543,
        "subgroup": "multi_asset"
       },
       {
-       "amount": 1475700,
-       "pct_of_bucket": 7.490862944162436,
+       "amount": 1348200,
+       "pct_of_bucket": 6.843654822335026,
        "subgroup": "us_equities"
       },
       {
-       "amount": 2055300,
-       "pct_of_bucket": 10.432994923857867,
+       "amount": 1877851,
+       "pct_of_bucket": 9.532238578680204,
        "subgroup": "low_beta_equities"
       },
       {
-       "amount": 7309900,
-       "pct_of_bucket": 37.106091370558374,
+       "amount": 1011150,
+       "pct_of_bucket": 5.132741116751269,
+       "subgroup": "medium_beta_equities"
+      },
+      {
+       "amount": 7581538,
+       "pct_of_bucket": 38.48496446700508,
        "subgroup": "arbitrage_plus_income"
       },
       {
-       "amount": 1426800,
-       "pct_of_bucket": 7.242639593908629,
+       "amount": 1535415,
+       "pct_of_bucket": 7.793984771573604,
        "subgroup": "gold_commodities"
       },
       {
@@ -218,28 +231,33 @@
      "bucket": "long_term",
      "subgroups": [
       {
-       "amount": 5432300,
-       "pct_of_bucket": 27.5751269035533,
+       "amount": 4345846,
+       "pct_of_bucket": 22.06013197969543,
        "subgroup": "multi_asset"
       },
       {
-       "amount": 1475700,
-       "pct_of_bucket": 7.490862944162436,
+       "amount": 1348200,
+       "pct_of_bucket": 6.843654822335026,
        "subgroup": "us_equities"
       },
       {
-       "amount": 2055300,
-       "pct_of_bucket": 10.432994923857867,
+       "amount": 1877851,
+       "pct_of_bucket": 9.532238578680204,
        "subgroup": "low_beta_equities"
       },
       {
-       "amount": 7309900,
-       "pct_of_bucket": 37.106091370558374,
+       "amount": 1011150,
+       "pct_of_bucket": 5.132741116751269,
+       "subgroup": "medium_beta_equities"
+      },
+      {
+       "amount": 7581538,
+       "pct_of_bucket": 38.48496446700508,
        "subgroup": "arbitrage_plus_income"
       },
       {
-       "amount": 1426800,
-       "pct_of_bucket": 7.242639593908629,
+       "amount": 1535415,
+       "pct_of_bucket": 7.793984771573604,
        "subgroup": "gold_commodities"
       },
       {
@@ -289,15 +307,15 @@
    "rationale": null,
    "subgroup_amounts": {
     "arbitrage": 0,
-    "arbitrage_plus_income": 7309900,
-    "gold_commodities": 1426800,
+    "arbitrage_plus_income": 7581538,
+    "gold_commodities": 1535415,
     "high_beta_equities": 0,
-    "low_beta_equities": 2055300,
-    "medium_beta_equities": 0,
-    "multi_asset": 5432300,
+    "low_beta_equities": 1877851,
+    "medium_beta_equities": 1011150,
+    "multi_asset": 4345846,
     "sector_equities": 0,
     "short_debt": 0,
-    "us_equities": 1475700,
+    "us_equities": 1348200,
     "value_equities": 0
    },
    "total_goal_amount": 0.0

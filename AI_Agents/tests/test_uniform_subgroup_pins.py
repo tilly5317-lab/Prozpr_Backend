@@ -137,16 +137,16 @@ class TestPhase4RequestedSleeve:
     truth (D-A4): no slice of the sleeve may over-draw the class that funds it.
     """
 
-    # 6.5m / 2.5m / 1.0m at 65/25/10 auto-sizes to 5,000,000 (the 0.50
+    # 6.5m / 2.5m / 1.0m at 65/25/10 auto-sizes to 4,000,000 (the 0.40
     # diversification cap on equity binds); every class room sits at 10,000,000.
-    AUTO = 5_000_000
+    AUTO = 4_000_000
 
     def test_a_request_inside_every_class_budget_is_used_verbatim(self):
         assert _phase4(requested_amount=2_000_000).multi_asset_amount == 2_000_000
         assert _phase4().multi_asset_amount == self.AUTO  # and it is not the auto-size
 
     def test_a_request_above_the_auto_cap_is_honoured(self):
-        # The 0.50 cap is the AUTO path's diversification policy; a caller that
+        # The 0.40 cap is the AUTO path's diversification policy; a caller that
         # names a size has already made that call for itself.
         assert _phase4(requested_amount=8_000_000).multi_asset_amount == 8_000_000
 
@@ -180,15 +180,15 @@ class TestPhase4AutoSizeUnchanged:
 
     # (equities, debt, others, composition) -> the block today's code returns.
     PINNED = [
-        (6500000, 2500000, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 5000000, 'equity_component': 3250000, 'debt_component': 1250000, 'others_component': 500000, 'equity_for_subgroups': 3250000, 'debt_for_subgroups': 1250000, 'remaining_others_for_gold': 500000}),  # default 65/25/10
-        (6500000, 2500000, 0, (65.0, 25.0, 10.0), {'multi_asset_amount': 5000000, 'equity_component': 3250000, 'debt_component': 1250000, 'others_component': 500000, 'equity_for_subgroups': 2750000, 'debt_for_subgroups': 1250000, 'remaining_others_for_gold': 0}),  # others gate zeroed
-        (6500000, 1000000, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 4000000, 'equity_component': 2600000, 'debt_component': 1000000, 'others_component': 400000, 'equity_for_subgroups': 3900000, 'debt_for_subgroups': 0, 'remaining_others_for_gold': 600000}),  # debt room binds
+        (6500000, 2500000, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 4000000, 'equity_component': 2600000, 'debt_component': 1000000, 'others_component': 400000, 'equity_for_subgroups': 3900000, 'debt_for_subgroups': 1500000, 'remaining_others_for_gold': 600000}),  # default 65/25/10
+        (6500000, 2500000, 0, (65.0, 25.0, 10.0), {'multi_asset_amount': 4000000, 'equity_component': 2600000, 'debt_component': 1000000, 'others_component': 400000, 'equity_for_subgroups': 3500000, 'debt_for_subgroups': 1500000, 'remaining_others_for_gold': 0}),  # others gate zeroed
+        (6500000, 800000, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 3200000, 'equity_component': 2080000, 'debt_component': 800000, 'others_component': 320000, 'equity_for_subgroups': 4420000, 'debt_for_subgroups': 0, 'remaining_others_for_gold': 680000}),  # debt room binds
         (0, 2500000, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 0, 'equity_component': 0, 'debt_component': 0, 'others_component': 0, 'equity_for_subgroups': 0, 'debt_for_subgroups': 2500000, 'remaining_others_for_gold': 1000000}),  # zero equity
         (6500000, 0, 1000000, (65.0, 25.0, 10.0), {'multi_asset_amount': 0, 'equity_component': 0, 'debt_component': 0, 'others_component': 0, 'equity_for_subgroups': 6500000, 'debt_for_subgroups': 0, 'remaining_others_for_gold': 1000000}),  # zero debt
-        (6500000, 2500000, 1000000, (65.0, 0.0, 35.0), {'multi_asset_amount': 5000000, 'equity_component': 3250000, 'debt_component': 0, 'others_component': 1750000, 'equity_for_subgroups': 2500000, 'debt_for_subgroups': 2500000, 'remaining_others_for_gold': 0}),  # no debt slice (INF)
+        (6500000, 2500000, 1000000, (65.0, 0.0, 35.0), {'multi_asset_amount': 4000000, 'equity_component': 2600000, 'debt_component': 0, 'others_component': 1400000, 'equity_for_subgroups': 3500000, 'debt_for_subgroups': 2500000, 'remaining_others_for_gold': 0}),  # no debt slice (INF)
         (6500000, 2500000, 1000000, (0.0, 50.0, 50.0), {'multi_asset_amount': 5000000, 'equity_component': 0, 'debt_component': 2500000, 'others_component': 2500000, 'equity_for_subgroups': 5000000, 'debt_for_subgroups': 0, 'remaining_others_for_gold': 0}),  # no equity slice (INF)
         (6500000, 2500000, 1000000, (0.0, 0.0, 100.0), {'multi_asset_amount': 0, 'equity_component': 0, 'debt_component': 0, 'others_component': 0, 'equity_for_subgroups': 6500000, 'debt_for_subgroups': 2500000, 'remaining_others_for_gold': 1000000}),  # both slices zero
-        (1234567, 987654, 345678, (65.0, 25.0, 10.0), {'multi_asset_amount': 949700, 'equity_component': 617300, 'debt_component': 237400, 'others_component': 95000, 'equity_for_subgroups': 617300, 'debt_for_subgroups': 750300, 'remaining_others_for_gold': 250700}),  # rounding-sensitive
+        (1234567, 987654, 345678, (65.0, 25.0, 10.0), {'multi_asset_amount': 759734, 'equity_component': 493827, 'debt_component': 189934, 'others_component': 75973, 'equity_for_subgroups': 740740, 'debt_for_subgroups': 797720, 'remaining_others_for_gold': 269705}),  # rounding-sensitive
     ]
 
     def test_every_field_of_the_auto_sized_block_is_unmoved(self):
@@ -232,7 +232,7 @@ class TestPhase4AutoSizeUnchanged:
             )
         assert (
             digest.hexdigest()
-            == "b9f33371742e86fbd888eb3f16332c30a02d1e3f4ee9ebab9aa1281721151d0a"
+            == "b89ff6c7a57b65f79bff41e5ff59f3145f5bca82a78d96c36c64020b58aab62a"
         )
 
 
@@ -393,18 +393,18 @@ class TestSleeveSize:
     """The uniform `min()`. Every sub-group pin — equity, debt or gold — is a
     bound on how large the multi-asset sleeve may be; the tightest binds."""
 
-    # 0.50 x 10,000,000 / 0.65, rounded to 100.
-    CAP = 7_692_300
+    # 0.40 x 10,000,000 / 0.65, rounded to the rupee.
+    CAP = 6_153_846
 
     def test_the_diversification_cap_binds_when_nothing_else_does(self):
         assert _sleeve() == self.CAP
 
     def test_the_equity_room_binds_when_equity_is_pinned(self):
-        # (10,000,000 - 8,000,000) / 0.65 = 3,076,923 -> 3,076,900.
-        assert _sleeve(pins={"low_beta_equities": 8_000_000}) == 3_076_900
+        # (10,000,000 - 8,000,000) / 0.65 = 3,076,923.08 -> 3,076,923.
+        assert _sleeve(pins={"low_beta_equities": 8_000_000}) == 3_076_923
 
     def test_the_debt_room_binds(self):
-        # (1,000,000 - 0) / 0.25 = 4,000,000, tighter than the 0.50 cap.
+        # (1,000,000 - 0) / 0.25 = 4,000,000, tighter than the 0.40 cap.
         assert _sleeve(dt=1_000_000) == 4_000_000
 
     def test_a_debt_pin_tightens_the_debt_room(self):
@@ -442,7 +442,7 @@ class TestSleeveSize:
         assert _sleeve(requested=3_000_000, preference_set=True) == 3_000_000
 
     def test_a_request_above_the_cap_is_honoured(self):
-        """D-A6 — the 0.50 cap is the engine's own diversification policy; a
+        """D-A6 — the 0.40 cap is the engine's own diversification policy; a
         customer who named a sleeve size has made that judgement themselves."""
         assert _sleeve(requested=9_000_000, preference_set=True) == 9_000_000
 
@@ -453,8 +453,8 @@ class TestSleeveSize:
         assert _sleeve(oth=500_000, requested=20_000_000, preference_set=True) == 5_000_000
 
     def test_a_request_is_still_clamped_by_the_equity_room(self):
-        # The FULL equity room (10,000,000 / 0.65), not the 0.50 cap.
-        assert _sleeve(requested=20_000_000, preference_set=True) == 15_384_600
+        # The FULL equity room (10,000,000 / 0.65), not the 0.40 cap.
+        assert _sleeve(requested=20_000_000, preference_set=True) == 15_384_615
 
     def test_the_zero_sleeve_guards_survive_a_request(self):
         assert _sleeve(eq=0, requested=2_000_000, preference_set=True) == 0
@@ -477,7 +477,7 @@ class TestSleeveSizeNoDrift:
     VARIANTS = {
         "default": {},
         "heavy_elss": {"elss_corpus": 5_000_000.0},
-        "risk_9_5": {"effective_risk_score": 9.5},
+        "risk_10": {"effective_risk_score": 10.0},
     }
 
     @staticmethod
@@ -539,9 +539,9 @@ class TestSleeveSizeNoDrift:
         """Without this the guard above could pass vacuously — all three
         variants binding on the same term would test one branch three times."""
         expected = {
-            "default": (5_432_300, 7_062_000, 8_668_000, 1_970_000),  # 0.50 cap binds
-            "heavy_elss": (2_355_400, 3_062_000, 8_668_000, 1_970_000),  # 0.50 cap binds
-            "risk_9_5": (11_032_000, 14_942_000, 2_758_000, 0),  # debt room binds
+            "default": (4_345_846, 7_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
+            "heavy_elss": (1_884_308, 3_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
+            "risk_10": (8_668_000, 15_533_000, 2_167_000, 0),  # debt room binds
         }
         for name, overrides in self.VARIANTS.items():
             _inp, s4 = self._live(**overrides)
@@ -552,7 +552,7 @@ class TestSleeveSizeNoDrift:
                 s4["others_amount"],
             )
             assert got == expected[name], f"{name}: {got} != {expected[name]}"
-        # risk_9_5 has others == 0: proof the commodity term MUST stay off the
+        # risk_10 has others == 0: proof the commodity term MUST stay off the
         # default path (D-B1), or this variant's sleeve would collapse to 0.
 
 
@@ -574,11 +574,12 @@ class TestSleeveSizeNoDrift:
 # Percentages of grand_total, 2dp, rows with a positive total.
 NEUTRAL_SUBGROUP_MIX = {
     "short_debt": 1.5,
-    "arbitrage_plus_income": 36.55,
-    "multi_asset": 27.16,
-    "low_beta_equities": 10.28,
-    "us_equities": 7.38,
-    "gold_commodities": 7.13,
+    "arbitrage_plus_income": 37.91,
+    "multi_asset": 21.73,
+    "low_beta_equities": 9.39,
+    "medium_beta_equities": 5.06,
+    "us_equities": 6.74,
+    "gold_commodities": 7.68,
     "tax_efficient_equities": 5.0,
     "non_mf_equities": 5.0,
 }
@@ -618,9 +619,9 @@ def _mix(out):
 def _pin_of(inp, share: float) -> int:
     """The rupee pin a ``share``-of-TOTAL ask becomes — the same one multiply
     ``_subgroup_pins`` performs (D-A3)."""
-    from asset_allocation_pydantic.utils import round_to_100
+    from asset_allocation_pydantic.utils import round_to_rupee
 
-    return round_to_100(inp.total_corpus * share / 100.0)
+    return round_to_rupee(inp.total_corpus * share / 100.0)
 
 
 class TestEquityPinsWiredIn:
@@ -816,10 +817,10 @@ class TestTheDefaultPathNeverMoves:
 
     def test_the_risk_9_5_sleeve_survives_its_zero_commodity_class(self):
         """The profile that proves the trap is real: others == 0 with a live
-        ₹1.1cr sleeve. Clamping by the commodity room here would zero it."""
+        ₹92L sleeve. Clamping by the commodity room here would zero it."""
         _inp, _out, s4 = _run(effective_risk_score=9.5)
         assert s4["others_amount"] == 0
-        assert s4["multi_asset_block"]["multi_asset_amount"] == 11_032_000
+        assert s4["multi_asset_block"]["multi_asset_amount"] == 9_195_077
 
 
 class TestExcludedResidualRowsAreActuallyEmptied:

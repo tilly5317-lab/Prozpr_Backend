@@ -237,14 +237,14 @@ class TestSubgroupStages:
     def test_emphasis_on_beta_subgroup_carries_market_cap_ask(self):
         # "smallcap heavy" resolves app-side to emphasis on high_beta_equities
         # (share of the whole portfolio, not just the beta sleeve).
-        from asset_allocation_pydantic.utils import round_to_100
+        from asset_allocation_pydantic.utils import round_to_rupee
         from practical_asset_allocation.human_override import HumanOverridePreferences
 
         out, s4 = _run_practical_with_prefs_traced(
             HumanOverridePreferences(subgroup_emphasis={"high_beta_equities": 22.5})
         )
         rows = {r.subgroup: r.total for r in out.aggregated_subgroups}
-        assert s4["equity_subgroup_amounts"]["high_beta_equities"] == round_to_100(
+        assert s4["equity_subgroup_amounts"]["high_beta_equities"] == round_to_rupee(
             out.grand_total * 0.225
         )
         # And the placement survives to the table the customer reads.
@@ -256,12 +256,12 @@ class TestSubgroupStages:
         from practical_asset_allocation.human_override import HumanOverridePreferences
 
         base = {r.subgroup: r.total for r in _run_practical().aggregated_subgroups}
-        assert base.get("medium_beta_equities", 0.0) == 0.0, "fixture must start empty"
+        assert base.get("high_beta_equities", 0.0) == 0.0, "fixture must start empty"
         out, _s4 = _run_practical_with_prefs_traced(
-            HumanOverridePreferences(subgroup_emphasis={"medium_beta_equities": 40.0})
+            HumanOverridePreferences(subgroup_emphasis={"high_beta_equities": 40.0})
         )
         rows = {r.subgroup: r.total for r in out.aggregated_subgroups}
-        assert rows.get("medium_beta_equities", 0.0) > 0
+        assert rows.get("high_beta_equities", 0.0) > 0
 
     # test_exclusion_zeroes_row_and_redistributes_within_class_per_column was
     # DELETED (spec 2026-09-14, Task C1): it asserted the per-column pro-rata
@@ -274,7 +274,7 @@ class TestSubgroupStages:
     # spec 2026-09-14: placed at phase 5 against the WHOLE portfolio (see the
     # basis note on test_emphasis_on_beta_subgroup_carries_market_cap_ask).
     def test_emphasis_lifts_named_row_within_class(self):
-        from asset_allocation_pydantic.utils import round_to_100
+        from asset_allocation_pydantic.utils import round_to_rupee
         from practical_asset_allocation.human_override import HumanOverridePreferences
 
         out, s4 = _run_practical_with_prefs_traced(
@@ -286,7 +286,7 @@ class TestSubgroupStages:
         # The pin is PLACED at phase 5 exactly; the slider then drops the dust
         # rows around it and hands their rupees to the one survivor, so the
         # final row sits at or above the ask (D-A5 — a pin is a floor).
-        assert s4["initial_equity_subgroup_amounts"]["value_equities"] == round_to_100(
+        assert s4["initial_equity_subgroup_amounts"]["value_equities"] == round_to_rupee(
             out.grand_total * 0.135
         )
         assert val >= out.grand_total * 0.135 - 1000
@@ -361,7 +361,7 @@ class TestSubgroupStages:
     def test_fitting_multi_ask_honored_exactly(self):
         # 13.5 + 9 = 22.5% of the portfolio asked: both honored exactly; the
         # engine fills the rest of the class itself; nothing to disclose.
-        from asset_allocation_pydantic.utils import round_to_100
+        from asset_allocation_pydantic.utils import round_to_rupee
         from practical_asset_allocation.human_override import HumanOverridePreferences
         from test_human_override_golden import trim_disclosure
 
@@ -371,8 +371,8 @@ class TestSubgroupStages:
             })
         )
         tot = out.grand_total
-        assert s4["equity_subgroup_amounts"]["low_beta_equities"] == round_to_100(tot * 0.135)
-        assert s4["equity_subgroup_amounts"]["high_beta_equities"] == round_to_100(tot * 0.09)
+        assert s4["equity_subgroup_amounts"]["low_beta_equities"] == round_to_rupee(tot * 0.135)
+        assert s4["equity_subgroup_amounts"]["high_beta_equities"] == round_to_rupee(tot * 0.09)
         rows = {r.subgroup: r.total for r in out.aggregated_subgroups}
         assert abs(rows["low_beta_equities"] - tot * 0.135) < 500
         assert abs(rows["high_beta_equities"] - tot * 0.09) < 500

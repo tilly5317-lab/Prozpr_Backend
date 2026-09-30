@@ -17,7 +17,7 @@ from ..tables import (
     SIP_REVIEW_WINDOW_MONTHS,
     TAX_RATE_SHORT_TERM_ARBITRAGE_THRESHOLD,
 )
-from ..utils import ceil_to_100, round_to_100
+from ..utils import ceil_to_rupee, round_to_rupee
 
 
 def _route(
@@ -55,7 +55,7 @@ def goal_waterfall(
         plan.append((g, fv, from_holdings, fv - from_holdings))
 
     held = sum(p[2] for p in plan)
-    need = round_to_100(held + corpus_needed)
+    need = round_to_rupee(held + corpus_needed)
     allocated = min(need, remaining_corpus)
     from_corpus = max(0.0, allocated - held)
     corpus_for_sip = 0.0 if short_term_holdings is None else from_corpus
@@ -69,7 +69,7 @@ def goal_waterfall(
             running += gap
             if g.time_to_goal_months < SIP_REVIEW_WINDOW_MONTHS:
                 rate = max(rate, (running - corpus_for_sip) / g.time_to_goal_months)
-        to_goals = min(monthly_sip, ceil_to_100(rate))
+        to_goals = min(monthly_sip, ceil_to_rupee(rate))
 
     rows: list[GoalFundingRow] = []
     sip_used = 0.0
@@ -116,7 +116,7 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
         goals_allocated, inp.short_term_holdings, inp.monthly_sip, remaining_corpus, subgroup,
     )
 
-    total_goal_amount = round_to_100(sum(_future_value(g) for g in goals_allocated))
+    total_goal_amount = round_to_rupee(sum(_future_value(g) for g in goals_allocated))
     allocated_amount = funding.allocated_amount
     new_remaining = remaining_corpus - allocated_amount
 

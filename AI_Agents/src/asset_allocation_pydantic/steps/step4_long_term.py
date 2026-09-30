@@ -34,7 +34,7 @@ from ..tables import (
     STEP4_SUBGROUPS,
     TAX_RATE_MEDIUM_LONG_ARBITRAGE_THRESHOLD,
 )
-from ..utils import ceil_to_half, round_to_100
+from ..utils import ceil_to_half, round_to_rupee
 
 
 # ── Phase 1 — asset class min/max with overrides ──────────────────────────────
@@ -231,7 +231,7 @@ def phase4_multi_asset(
     room, because the class split is the outer truth (D-A4): each slice of the
     sleeve is funded out of one class budget, so a sleeve that would over-draw
     any of them is not affordable no matter who asked for it. The equity clamp
-    on this path is the FULL equity room, not the 0.50 cap — that cap is the
+    on this path is the FULL equity room, not MULTI_ASSET_EQUITY_CAP_PCT — that cap is the
     auto path's diversification policy, and a caller naming a size has already
     made that call for itself.
 
@@ -258,21 +258,30 @@ def phase4_multi_asset(
     if candidate == INF or candidate <= 0 or equities_amount <= 0 or debt_amount <= 0:
         multi_asset_amount = 0
     else:
-        multi_asset_amount = round_to_100(candidate)
+        multi_asset_amount = round_to_rupee(candidate)
 
-    equity_component = round_to_100(multi_asset_amount * eq_pct)
-    debt_component = round_to_100(multi_asset_amount * dt_pct)
-    others_component = round_to_100(multi_asset_amount * oth_pct)
+    slices = [
+        round_to_rupee(multi_asset_amount * eq_pct),
+        round_to_rupee(multi_asset_amount * dt_pct),
+        round_to_rupee(multi_asset_amount * oth_pct),
+    ]
+    # Rounded separately, the slices can miss the sleeve and strand a rupee of
+    # corpus; the largest absorbs it.
+    drift = multi_asset_amount - sum(slices)
+    if drift != 0:
+        largest = max(range(3), key=lambda i: slices[i])
+        slices[largest] += drift
+    equity_component, debt_component, others_component = slices
 
     # If the multi-asset fund's others slice exceeds the budgeted others_amount
     # (e.g. others_gate zeroed it), the excess is funded by shrinking the equity
     # subgroup pool — not by trimming the fund.
     overage = max(0, others_component - others_amount)
-    equity_for_subgroups = round_to_100(
+    equity_for_subgroups = round_to_rupee(
         max(0, equities_amount - equity_component - overage)
     )
-    debt_for_subgroups = round_to_100(max(0, debt_amount - debt_component))
-    remaining_others_for_gold = round_to_100(max(0, others_amount - others_component))
+    debt_for_subgroups = round_to_rupee(max(0, debt_amount - debt_component))
+    remaining_others_for_gold = round_to_rupee(max(0, others_amount - others_component))
 
     return MultiAssetBlock(
         multi_asset_amount=multi_asset_amount,
@@ -410,7 +419,7 @@ def phase5_equity_subgroups(
 
     # Convert to amounts. The denominator is ``room``, not the whole pool —
     # the pinned rupees are already sitting in ``result``.
-    amounts = [round_to_100(room * p / 100) for p in ints]
+    amounts = [round_to_rupee(room * p / 100) for p in ints]
     # Exact-sum fix: adjust largest amount by any residual.
     S = sum(amounts)
     residual = room - S
@@ -458,7 +467,7 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
         g for g in inp.goals
         if g.time_to_goal_months >= HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end
     ]
-    sum_goals = round_to_100(sum(g.amount_needed for g in lt_goals))
+    sum_goals = round_to_rupee(sum(g.amount_needed for g in lt_goals))
 
     if sum_goals > remaining_corpus:
         future_investment = FutureInvestment(
@@ -480,9 +489,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step4Output:
     )
     eq_pct, dt_pct, oth_pct = phase2_asset_class_pcts(bounds, inp.market_commentary)
 
-    equities_amount = round_to_100(total_long_term_corpus * eq_pct / 100)
-    debt_amount = round_to_100(total_long_term_corpus * dt_pct / 100)
-    others_amount = round_to_100(total_long_term_corpus * oth_pct / 100)
+    equities_amount = round_to_rupee(total_long_term_corpus * eq_pct / 100)
+    debt_amount = round_to_rupee(total_long_term_corpus * dt_pct / 100)
+    others_amount = round_to_rupee(total_long_term_corpus * oth_pct / 100)
 
     # Reconcile rounding drift so the three sum to total_long_term_corpus.
     drift = total_long_term_corpus - (equities_amount + debt_amount + others_amount)
@@ -605,6 +614,6 @@ def _verify_invariants(out: Step4Output) -> None:
     )
     assert sum(alloc.values()) == out.total_allocated
     for sg, v in alloc.items():
-        assert v >= 0 and v % 100 == 0, (
-            f"{sg}={v} is not a non-negative multiple of 100"
+        assert v >= 0 and v == int(v), (
+            f"{sg}={v} is not a non-negative whole-rupee amount"
         )

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .utils import round_to_100
+from .utils import round_to_rupee
 
 
 # ── Spec §B.5 step 9 slider parameters ────────────────────────────────────────
@@ -158,7 +158,7 @@ def apply_equity_subgroup_slider(
 
     target_total = surviving_sum + freed
     redistributed = {
-        sg: round_to_100(amt + freed * amt / surviving_sum)
+        sg: round_to_rupee(amt + freed * amt / surviving_sum)
         for sg, amt in surviving.items()
     }
     drift = target_total - sum(redistributed.values())

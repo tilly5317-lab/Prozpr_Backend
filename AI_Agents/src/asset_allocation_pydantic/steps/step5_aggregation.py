@@ -7,7 +7,6 @@ from ..models import (
     Step4Output,
     Step5Output,
 )
-from ..utils import round_to_100
 
 
 CANONICAL_SUBGROUP_ORDER = [
@@ -52,7 +51,8 @@ def run(
             )
 
     grand_total = sum(row.total for row in rows)
-    grand_total_matches_corpus = grand_total == round_to_100(total_corpus)
+    # int(), matching step 1's own base (`int(inp.total_corpus)`).
+    grand_total_matches_corpus = grand_total == int(total_corpus)
 
     return Step5Output(
         rows=rows,

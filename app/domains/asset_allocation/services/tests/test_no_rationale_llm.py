@@ -1,37 +1,32 @@
 """The allocation pipeline is pure Python — no LLM, no env mutation.
 
-``_invoke_pipeline`` used to pass ``rationale_fn=generate_rationales``, an LLM step
-that wrote per-bucket prose, and to do it it assigned ``os.environ["ANTHROPIC_API_KEY"]``
-around the call — process-global mutation under async concurrency, the same pattern
-that was removed from the goal-planning summarizer.
-
-The prose was also unread. ``service.py`` swaps the ideal output for the PRACTICAL
-allocation before the facts pack is built, and the practical pipeline sets no
-rationales (its only mention is a comment saying it deliberately avoids "that file's
-LLM rationale plumbing"), so ``goals[].rationale`` was ``None`` on every successful
-turn. It surfaced only on the fallback path where the practical engine throws.
+Step 7 once called Haiku for per-bucket prose (removed 2026-09-30). The prose was
+never shown: chat displays the PRACTICAL allocation, which carries none. Step 7
+now attaches fixed template sentences.
 """
 
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 from app.domains.asset_allocation.services.aa_engine import service
 
 
-def test_the_rationale_llm_is_not_wired_in():
-    source = inspect.getsource(service)
+def test_the_allocation_engine_imports_no_llm():
+    import asset_allocation_pydantic
 
-    assert "rationale_fn=" not in source
-    assert "generate_rationales" not in source
+    engine_dir = Path(asset_allocation_pydantic.__file__).parent
+    for path in engine_dir.glob("**/*.py"):
+        if {"Testing", "Master_testing"} & set(path.parts):
+            continue
+        source = path.read_text()
+        assert "langchain_anthropic" not in source, path
+        assert "ChatAnthropic" not in source, path
 
 
 def test_the_pipeline_call_does_not_mutate_the_environment():
-    """Global env assignment races across concurrent turns.
-
-    Checks executable lines only — the docstring explaining the removal
-    legitimately names the pattern it forbids.
-    """
+    """Global env assignment races across concurrent turns."""
     fn = service._invoke_pipeline
     code = inspect.getsource(fn).replace(fn.__doc__ or "", "")
 

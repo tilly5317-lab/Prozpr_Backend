@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..models import AllocationInput, FutureInvestment, Step1Output
 from ..tables import EMERGENCY_FUND_MONTHS
-from ..utils import round_to_100
+from ..utils import round_to_rupee
 
 
 def run(inp: AllocationInput) -> Step1Output:
@@ -16,7 +16,7 @@ def run(inp: AllocationInput) -> Step1Output:
             else "standard"
         )
         emergency_fund_months = EMERGENCY_FUND_MONTHS[key]
-        emergency_fund_amount = round_to_100(
+        emergency_fund_amount = round_to_rupee(
             emergency_fund_months * inp.monthly_household_expense
         )
 

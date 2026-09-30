@@ -417,13 +417,12 @@ async def build_rebalancing_input_for_user(
             )
             neutral_count += 1
 
-    # 7. Total corpus = sum of held market values. Snap down to a multiple of
-    #    100 so the practical pipeline's multiple-of-100 invariant holds.
+    # 7. Total corpus = sum of held market values, in whole rupees.
     total_corpus = sum(
         (r.present_allocation_inr for r in rows if r.present_allocation_inr > 0),
         start=Decimal(0),
     )
-    total_corpus = Decimal(int(max(total_corpus, Decimal(0)) // 100 * 100))
+    total_corpus = Decimal(int(max(total_corpus, Decimal(0))))
 
     # 7b. Practical allocation input — the Rebalancing engine runs the practical
     #     (holdings-aware) allocation internally and lifts its per-subgroup MF

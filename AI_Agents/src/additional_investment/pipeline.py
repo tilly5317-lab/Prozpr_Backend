@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import ceil
+
 from .models import (
     AdditionalInvestmentInput,
     AdditionalInvestmentOutput,
@@ -59,10 +61,16 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     rounding below one multiple), or no eligible long-term row for the post-goal
     remainder, prevents fully deploying the requested amount.
     """
+    goal_share = inp.goal_share_inr
+    if inp.cadence is Cadence.SIP_MONTHLY and inp.rounding_multiple_inr > 0:
+        # The allocation engines hand over an exact rupee share; round it UP,
+        # never to nearest, or the monthly SIP under-funds the goal.
+        step = inp.rounding_multiple_inr
+        goal_share = min(ceil(goal_share / step) * step, inp.deploy_amount_inr)
     bucket, targets = compute_goal_first_targets(
         inp.subgroups,
         inp.deploy_amount_inr,
-        inp.goal_share_inr,
+        goal_share,
         inp.goal_subgroup,
         inp.exclude_subgroups,
         inp.current_value_by_subgroup if inp.cadence is Cadence.LUMPSUM else None,

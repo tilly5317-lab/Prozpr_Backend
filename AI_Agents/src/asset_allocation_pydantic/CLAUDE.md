@@ -1,29 +1,30 @@
 # AI_Agents/src/asset_allocation_pydantic/ — goal-based asset-allocation pipeline
 
-Pure-Python pipeline over pydantic models: processes emergency carve-out, short / long-term goals (single 24-month horizon line, anchored to the financial-year end via `months_to_fy_end`; medium-term removed 2026-09-24), then aggregates, applies guardrails, and assembles the presentation. LLM use is isolated to an optional rationale step. This is the **ideal** engine — Prozpr's own recommendation, deliberately preference-free.
+Pure-Python pipeline over pydantic models: processes emergency carve-out, short / long-term goals (single 24-month horizon line, anchored to the financial-year end via `months_to_fy_end`; medium-term removed 2026-09-24), then aggregates, applies guardrails, and assembles the presentation. No LLM anywhere. This is the **ideal** engine — Prozpr's own recommendation, deliberately preference-free.
 
 ## Entry / contract
 - `run_allocation` (`__init__.py`, defined in `pipeline.py`) is the public entry. Its sibling `run_allocation_with_state` returns `(per-step state dict, output)` and is NOT re-exported from `__init__.py`, but the app's allocation bridge imports it directly from `pipeline.py` — treat its signature as a live contract.
 - Input `AllocationInput`; output `GoalAllocationOutput` (asset-class-only — see invariant).
-- LLM rationale is opt-OUT, not opt-in: step7 defaults to `_rationale_llm.generate_rationales` (Anthropic) when no `rationale_fn` is injected, and any failure falls through to deterministic fallbacks. Pass `_rationale_llm.no_llm_rationale_fn` to suppress the call — that is what the Master_testing runners do. Note that no production caller injects anything today, so the live allocation path lands on the LLM default.
+- Step 7's per-bucket and per-goal "why" text is fixed templates (`steps/step7_presentation.py::_attach_rationales`). A Haiku call wrote it until 2026-09-30; it was removed because chat shows the practical allocation, which carries no such text. Keep the engine LLM-free — `app/domains/asset_allocation/services/tests/test_no_rationale_llm.py` fails on any Anthropic import here.
 
 ## Files
 - `__init__.py` — flat public API: `run_allocation` + the public models.
 - `pipeline.py` — runs steps 1–7 in order.
 - `models.py` — `AllocationInput`, `Goal`, `GoalAllocationOutput`, per-step `StepNOutput` schemas.
 - `tables.py` — static lookup tables (default market-commentary scores, multi-asset composition). Asset-class only — no fund mappings.
-- `utils.py` — shared rounding/helpers (`round_to_100`, `ceil_to_half`).
+- `utils.py` — shared rounding/helpers (`round_to_rupee`, `ceil_to_rupee`, `ceil_to_half`).
 - `equity_subgroup_slider.py` — single source of truth for the v2 average-based equity-subgroup slider; shared with the practical engine.
-- `steps/` — one file per step (`step1_emergency.py` … `step7_presentation.py`) plus `_rationale_llm.py` for the optional LLM rationale.
+- `steps/` — one file per step (`step1_emergency.py` … `step7_presentation.py`).
 - `docs/plan.md` — implementation plan; planning reference, not product docs.
 
 ## Gotchas & invariants
+- **Whole rupees here; ₹100 rounding only at the final amounts** (2026-09-30). Every split pushes its rounding remainder onto the largest part, so the ideal total equals `int(total_corpus)` exactly (`AI_Agents/tests/test_rounding_at_final_step.py`). Do not reintroduce ₹100 rounding inside the engines: rounding each part separately stranded up to ₹150 of corpus and broke the multi-asset slices on ~1 input in 4. Customer-facing amounts round at their own step — Rebalancing `rounding_step`, additional_investment `rounding_multiple_inr`.
 - **Output is asset-class-only — no fund-level data.** `FUND_MAPPING` was removed from `tables.py`; `GoalAllocationOutput` must never carry fund names / ISINs / SEBI sub-category strings. Enforced by `Testing/test_no_fund_mapping.py`.
 - **`phase2_asset_class_pcts` has a preference seam, and it OUTRANKS the engine's own judgement.** An optional `requested_class_pcts` (already reconciled to the step by the caller) simply IS the split: the market-view tilt and the phase-1 bounds — the others-gate included — are bypassed (spec 2026-09-14 D3, `steps/step4_long_term.py:167`). Only `practical_asset_allocation` passes it, so this module stays preference-free in its own right; it is no longer diff-free against that caller.
 - **Phase-5 guardrail denominator.** Equity-subgroup shares are validated against `step4.multi_asset.equity_for_subgroups` — the pool left after the multi-asset carve-out, which Phase 5 itself split — NOT total equity. Wrong base silently flags valid plans (`steps/step6_guardrails.py`).
-- **Symbols re-used cross-agent.** `practical_asset_allocation/` (spec §B.1, the first cross-`src/` import) imports steps 1, 2 + 5, selected `step4_long_term` helpers (`phase2_asset_class_pcts`, `phase4_multi_asset`, `phase5_equity_subgroups` among them), the slider, `tables`, `utils.round_to_100`, and the public models. Do not rename without a cross-module sweep.
+- **Symbols re-used cross-agent.** `practical_asset_allocation/` (spec §B.1, the first cross-`src/` import) imports steps 1, 2 + 5, selected `step4_long_term` helpers (`phase2_asset_class_pcts`, `phase4_multi_asset`, `phase5_equity_subgroups` among them), the slider, `tables`, `utils.round_to_rupee`, and the public models. Do not rename without a cross-module sweep.
 - **Horizon boundary is FY-anchored.** Short vs long is decided at `HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end` (`steps/step2_short_term.py`, `steps/step4_long_term.py`), not a flat 24 months. `AllocationInput.months_to_fy_end` defaults to 0 — engine-only callers and the no-preference goldens see the flat line — while the production aa input builder threads the real offset from today (spec 2026-09-25), so a goal reads as long-term only once it is ≥24 months past the current financial-year end.
-- **Step 2 is the goal waterfall** (`steps/step2_short_term.py::goal_waterfall`): held short-term money, then the front-loaded SIP, then corpus for only what the SIP cannot reach; it rounds before capping (`need = round_to_100(held + corpus_needed)`), so defaults reproduce the old step 2 exactly — `AI_Agents/tests/test_goal_waterfall_step2.py` guards that, not the goldens (they have no goals). `amount_needed_fv` is read by step 2 only.
+- **Step 2 is the goal waterfall** (`steps/step2_short_term.py::goal_waterfall`): held short-term money, then the front-loaded SIP, then corpus for only what the SIP cannot reach; it rounds before capping (`need = round_to_rupee(held + corpus_needed)`), so defaults reproduce the old step 2 exactly — `AI_Agents/tests/test_goal_waterfall_step2.py` guards that, not the goldens (they have no goals). `amount_needed_fv` is read by step 2 only.
 
 ## Testing
 - Tests live in `Testing/` (`test_part_a.py`, `test_no_fund_mapping.py`). `Master_testing/` is a large-scale profile-sweep runner; output lands in `Master_testing/results/`.

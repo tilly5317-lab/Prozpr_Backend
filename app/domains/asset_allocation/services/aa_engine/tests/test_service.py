@@ -11,7 +11,6 @@ from app.domains.ai_engine.common import ensure_ai_agents_path
 ensure_ai_agents_path()
 
 from asset_allocation_pydantic import AllocationInput, Goal, run_allocation  # type: ignore[import-not-found]
-from asset_allocation_pydantic.steps._rationale_llm import no_llm_rationale_fn  # type: ignore[import-not-found]
 
 from app.domains.asset_allocation.services.aa_engine.service import (
     build_aa_facts_pack,
@@ -171,7 +170,7 @@ def sample_output():
             ),
         ],
     )
-    return run_allocation(inp, rationale_fn=no_llm_rationale_fn)
+    return run_allocation(inp)
 
 
 def test_facts_pack_is_a_plain_dict(sample_output):

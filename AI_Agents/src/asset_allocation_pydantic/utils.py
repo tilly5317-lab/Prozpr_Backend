@@ -3,18 +3,22 @@ from __future__ import annotations
 from math import ceil
 
 
-def round_to_100(x: float) -> int:
-    """Round to nearest multiple of 100 using round-half-up. Negative or zero inputs return 0."""
+def round_to_rupee(x: float) -> int:
+    """Round to the nearest whole rupee using round-half-up. Negative or zero inputs return 0.
+
+    The engines stay at rupee precision; ₹100 rounding belongs to the final
+    trade / SIP / lump-sum amounts (Rebalancing `rounding_step`,
+    additional_investment `rounding_multiple_inr`)."""
     if x <= 0:
         return 0
-    return int(x / 100.0 + 0.5) * 100
+    return int(x + 0.5)
 
 
-def ceil_to_100(x: float) -> int:
-    """Round up to the next multiple of 100. Negative or zero inputs return 0."""
+def ceil_to_rupee(x: float) -> int:
+    """Round up to the next whole rupee. Negative or zero inputs return 0."""
     if x <= 0:
         return 0
-    return int(ceil(x / 100.0)) * 100
+    return int(ceil(x))
 
 
 def ceil_to_half(score: float) -> float:

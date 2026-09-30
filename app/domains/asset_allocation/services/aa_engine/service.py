@@ -41,18 +41,7 @@ from app.domains.asset_allocation.services.aa_engine.input_builder import (
 def _invoke_pipeline(
     alloc_input: AllocationInput,
 ) -> tuple[dict[str, Any], GoalAllocationOutput]:
-    """Run the 7-step allocation pipeline. Pure Python — no LLM, no credential.
-
-    No ``rationale_fn``. That optional step called Haiku to write per-bucket prose,
-    and reaching it required assigning ``os.environ["ANTHROPIC_API_KEY"]`` around
-    the call — process-global mutation that races across concurrent turns.
-
-    The prose was also unread on the happy path: ``compute_allocation_result``
-    replaces this output with the PRACTICAL allocation for display, and the
-    practical pipeline sets no rationales, so ``goals[].rationale`` reached the
-    facts pack as ``None`` every time. It appeared only when the practical engine
-    threw and the code fell back to showing the ideal output.
-    """
+    """Run the 7-step allocation pipeline. Pure Python — no LLM, no credential."""
     return run_allocation_with_state(alloc_input)
 
 

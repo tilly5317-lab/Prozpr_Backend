@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import List
 
 from ..models import (
     AggregatedSubgroupRow,
@@ -11,6 +11,7 @@ from ..models import (
     BucketAssetClassSplit,
     ClientSummary,
     FutureInvestment,
+    Goal,
     GoalAllocationOutput,
     Step1Output,
     Step2Output,
@@ -20,14 +21,69 @@ from ..models import (
     SubgroupBucketAllocation,
     SubgroupBucketSplit,
 )
-from . import _rationale_llm
-from ._rationale_llm import RationaleResponse
 
 
-RationaleFn = Callable[
-    [ClientSummary, List[BucketAllocation], List[AggregatedSubgroupRow]],
-    RationaleResponse,
-]
+_BUCKET_RATIONALES: dict[str, str] = {
+    "emergency": (
+        "We set aside a safety cushion so an unexpected expense won't force you "
+        "to touch the rest of your money."
+    ),
+    "short_term": (
+        "For goals coming up soon, the money stays in steady, predictable "
+        "options so it's ready when you need it."
+    ),
+    "long_term": (
+        "With many years to go, more of the money can aim for growth since "
+        "short-term ups and downs have time to even out."
+    ),
+}
+
+
+_INVESTMENT_GOAL_CONTEXT: dict[str, str] = {
+    "retirement": "your retirement nest egg",
+    "education": "your child's education",
+    "home_purchase": "your home purchase",
+    "intergenerational_transfer": "what you'll pass on",
+    "wealth_creation": "building long-term wealth",
+    "other": "this goal",
+}
+
+
+def _horizon_phrase(months: int) -> str:
+    if months < 12:
+        return f"{months} month{'s' if months != 1 else ''} away"
+    years = months / 12
+    if years == int(years):
+        y = int(years)
+        return f"{y} year{'s' if y != 1 else ''} away"
+    return f"about {years:.1f} years away"
+
+
+def _goal_rationale(bucket: str, goal: Goal) -> str:
+    context = _INVESTMENT_GOAL_CONTEXT.get(goal.investment_goal, "this goal")
+    horizon = _horizon_phrase(goal.time_to_goal_months)
+    amount_str = f"₹{goal.amount_needed:,.0f}"
+
+    if bucket == "short_term":
+        return (
+            f"For {goal.goal_name} ({context}) — {horizon}, earmarking "
+            f"{amount_str} — the money stays in steady, predictable instruments. "
+            f"This close to the deadline, protecting the capital matters more "
+            f"than chasing returns."
+        )
+    return (
+        f"For {goal.goal_name} ({context}) — {horizon}, earmarking "
+        f"{amount_str} — we lean into growth. Over this horizon compounding "
+        f"does the heavy lifting, and short-term dips have plenty of time "
+        f"to recover."
+    )
+
+
+def _attach_rationales(bucket_allocations: List[BucketAllocation]) -> None:
+    for b in bucket_allocations:
+        b.rationale = _BUCKET_RATIONALES.get(b.bucket)
+        if b.bucket != "emergency":
+            b.goal_rationales = {g.goal_name: _goal_rationale(b.bucket, g) for g in b.goals}
 
 
 def _client_summary(inp: AllocationInput, step1: Step1Output) -> ClientSummary:
@@ -223,7 +279,6 @@ def run(
     step2: Step2Output,
     step4: Step4Output,
     step5: Step5Output,
-    rationale_fn: Optional[RationaleFn] = None,
 ) -> GoalAllocationOutput:
     client_summary = _client_summary(inp, step1)
     bucket_allocations = _bucket_allocations(inp, step1, step2, step4)
@@ -235,15 +290,7 @@ def run(
         if b.future_investment is not None
     ]
 
-    fn: RationaleFn = rationale_fn or _rationale_llm.generate_rationales
-    try:
-        rationales = fn(client_summary, bucket_allocations, aggregated_subgroups)
-    except Exception:
-        rationales = _rationale_llm._fallback_response(bucket_allocations)
-
-    _rationale_llm.apply_rationales(
-        bucket_allocations, future_investments_summary, rationales
-    )
+    _attach_rationales(bucket_allocations)
 
     all_mult = all(
         float(v).is_integer() and int(v) % 100 == 0

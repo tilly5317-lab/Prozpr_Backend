@@ -136,10 +136,11 @@ DEFAULT_MARKET_COMMENTARY_SCORES: dict[str, dict[str, float]] = {
 # Default composition of the multi-asset fund (equity, debt, others), summing to 100.
 DEFAULT_MULTI_ASSET_COMPOSITION_PCTS: tuple[float, float, float] = (65.0, 25.0, 10.0)
 
-# Emergency fund months by income source.
+# Emergency fund months by income source. 3 for everyone since 2026-09-30; the
+# key is kept so the portfolio-income case can be split out again.
 EMERGENCY_FUND_MONTHS: dict[str, int] = {
     "standard": 3,
-    "primary_income_from_portfolio": 6,
+    "primary_income_from_portfolio": 3,
 }
 
 # Bucket boundary (in months). Since 2026-09-24 there is a SINGLE horizon line
@@ -182,7 +183,7 @@ INTERGEN_SCORE_CAP: float = 9.0
 
 # Phase 4 multi-asset equity cap: the fund's equity slice may consume at most
 # this fraction of the long-term equity corpus.
-MULTI_ASSET_EQUITY_CAP_PCT: float = 0.50
+MULTI_ASSET_EQUITY_CAP_PCT: float = 0.40
 
 # Phase 5 market-view gates: subgroups are dropped when the view <= threshold.
 PHASE5_MARKET_VIEW_GATES: dict[str, float] = {
@@ -238,8 +239,3 @@ STEP4_SUBGROUPS: tuple[str, ...] = (
     "arbitrage_plus_income",
     "gold_commodities",
 )
-
-# LLM settings for the rationale call (Step 7).
-LLM_MODEL_ID: str = "claude-haiku-4-5-20251001"
-LLM_MAX_TOKENS: int = 1500
-LLM_MAX_RETRIES: int = 2

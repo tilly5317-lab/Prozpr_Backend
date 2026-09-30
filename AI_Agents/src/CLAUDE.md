@@ -12,7 +12,7 @@ Python package hosting the Prozpr AI financial-advisor agents. Each top-level fo
 
 ## Child modules
 
-- **asset_allocation_pydantic/** — pure-Python goal-based allocation over pydantic models; its one LLM touch (step-7 rationale) is opt-OUT. See `asset_allocation_pydantic/CLAUDE.md`.
+- **asset_allocation_pydantic/** — pure-Python goal-based allocation over pydantic models; no LLM. See `asset_allocation_pydantic/CLAUDE.md`.
 - **cashflow_statement/** — goal-planning pipeline (pure-Python) + LangChain agent for NL goal extraction and lever proposal. See `cashflow_statement/CLAUDE.md`.
 - **financial_primitives/** — shared numerical kernel; pure functions, no LLM/I/O — a library, not an agent. See `financial_primitives/CLAUDE.md`.
 - **Rebalancing/** — pure-Python engine: ideal allocation + holdings → per-fund buy/sell with tax-aware sell prioritisation. See `Rebalancing/CLAUDE.md`.

@@ -26,11 +26,10 @@ if str(_TESTS_DIR) not in sys.path:
 
 from test_human_override_golden import make_practical_input  # noqa: E402
 
-# On the reference profile the IDEAL engine funds these two equity subgroups and
-# the PRACTICAL engine funds neither — so the input builder seeds a rank-1 target
-# the practical plan never asked for. Values pinned from a real run 2026-09-15.
-_IDEAL_ONLY_MEDIUM_BETA = Decimal("951500")
-_IDEAL_ONLY_HIGH_BETA = Decimal("543700")
+# On the reference profile the IDEAL engine funds high_beta_equities and the
+# PRACTICAL engine does not — so the input builder seeds a rank-1 target the
+# practical plan never asked for. Value pinned from a real run 2026-09-30.
+_IDEAL_ONLY_HIGH_BETA = Decimal("652500")
 
 
 def _practical():
@@ -67,20 +66,20 @@ def _assign(rows, practical=None, n_funds=1):
 
 
 def test_a_subgroup_absent_from_the_practical_plan_gets_a_zero_target():
-    """The defect. The ideal-seeded ₹9.51L must not survive into the plan."""
-    by = _assign([_row("medium_beta_equities", 1, _IDEAL_ONLY_MEDIUM_BETA)])
+    """The defect. The ideal-seeded ₹6.52L must not survive into the plan."""
+    by = _assign([_row("high_beta_equities", 1, _IDEAL_ONLY_HIGH_BETA)])
 
-    assert by["MEDIUM_BETA_EQUITIES_1"].target_amount_pre_cap == Decimal(0)
+    assert by["HIGH_BETA_EQUITIES_1"].target_amount_pre_cap == Decimal(0)
 
 
 def test_an_absent_subgroup_gets_no_protected_floor_either():
     """A held row in an absent subgroup must not reserve what it holds — the
     practical plan wants nothing there, so the whole holding is free to move."""
     by = _assign(
-        [_row("medium_beta_equities", 1, _IDEAL_ONLY_MEDIUM_BETA, present="400000")]
+        [_row("high_beta_equities", 1, _IDEAL_ONLY_HIGH_BETA, present="400000")]
     )
 
-    row = by["MEDIUM_BETA_EQUITIES_1"]
+    row = by["HIGH_BETA_EQUITIES_1"]
     assert row.target_amount_pre_cap == Decimal(0)
     assert row.protected_floor_inr == Decimal(0)
 
@@ -117,12 +116,12 @@ def test_off_list_and_force_exit_rows_in_an_absent_subgroup_pass_through():
     to rewrite."""
     from Rebalancing.config import FORCE_EXIT_RANK
 
-    neutral = _row("medium_beta_equities", 0, "250000", present="600000", is_recommended=False)
-    forced = _row("medium_beta_equities", FORCE_EXIT_RANK, "0", present="80000", is_recommended=False)
+    neutral = _row("high_beta_equities", 0, "250000", present="600000", is_recommended=False)
+    forced = _row("high_beta_equities", FORCE_EXIT_RANK, "0", present="80000", is_recommended=False)
     by = _assign([neutral, forced])
 
-    assert by["MEDIUM_BETA_EQUITIES_0"].target_amount_pre_cap == Decimal("250000")
-    assert by["MEDIUM_BETA_EQUITIES_9999"].target_amount_pre_cap == Decimal(0)
+    assert by["HIGH_BETA_EQUITIES_0"].target_amount_pre_cap == Decimal("250000")
+    assert by["HIGH_BETA_EQUITIES_9999"].target_amount_pre_cap == Decimal(0)
 
 
 def _e2e_response():
@@ -133,10 +132,10 @@ def _e2e_response():
         _row("low_beta_equities", 1, "1", present="1500000"),
         _row("multi_asset", 1, "1", present="4000000"),
         _row("arbitrage_plus_income", 1, "1", present="6000000"),
-        # Seeded from the IDEAL output by the input builder; the practical plan
-        # funds neither.
-        _row("medium_beta_equities", 1, _IDEAL_ONLY_MEDIUM_BETA, present="900000"),
-        _row("high_beta_equities", 1, _IDEAL_ONLY_HIGH_BETA, present="0"),
+        # Seeded targets the practical plan funds neither of: the IDEAL
+        # output's high-beta number, and a value row with nothing held.
+        _row("high_beta_equities", 1, _IDEAL_ONLY_HIGH_BETA, present="900000"),
+        _row("value_equities", 1, "500000", present="0"),
     ]
     req = RebalancingComputeRequest(
         practical_allocation_input=make_practical_input(),
@@ -152,18 +151,18 @@ def test_no_buy_is_raised_into_a_subgroup_the_practical_plan_omits():
     by_sg = {s.asset_subgroup: s for s in resp.subgroups}
 
     # Nothing held and nothing wanted — step6 drops the phantom row entirely.
-    assert "high_beta_equities" not in by_sg
+    assert "value_equities" not in by_sg
     # Held but unwanted — the row survives, at a zero target, and only sells.
-    assert by_sg["medium_beta_equities"].goal_target_inr == Decimal(0)
-    assert by_sg["medium_beta_equities"].total_buy_inr == Decimal(0)
+    assert by_sg["high_beta_equities"].goal_target_inr == Decimal(0)
+    assert by_sg["high_beta_equities"].total_buy_inr == Decimal(0)
 
     bought = {
         t.asset_subgroup
         for t in resp.trade_list
         if getattr(t, "action", None) == "BUY"
     }
-    assert "medium_beta_equities" not in bought
     assert "high_beta_equities" not in bought
+    assert "value_equities" not in bought
 
 
 def test_per_subgroup_targets_sum_to_the_practical_allocation_on_the_payload():

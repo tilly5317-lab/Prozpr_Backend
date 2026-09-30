@@ -8,7 +8,7 @@ import random
 from asset_allocation_pydantic.models import AllocationInput, Goal
 from asset_allocation_pydantic.steps import step1_emergency, step2_short_term
 from asset_allocation_pydantic.tables import HORIZON_BOUNDARY_MONTHS
-from asset_allocation_pydantic.utils import round_to_100
+from asset_allocation_pydantic.utils import round_to_rupee
 
 
 def _inp(goals, **kw):
@@ -24,7 +24,7 @@ def _inp(goals, **kw):
 def _old_step2(inp, remaining):
     goals = [g for g in inp.goals
              if g.time_to_goal_months < HORIZON_BOUNDARY_MONTHS + inp.months_to_fy_end]
-    total = round_to_100(sum(g.amount_needed for g in goals))
+    total = round_to_rupee(sum(g.amount_needed for g in goals))
     allocated = min(total, remaining)
     gap = total - remaining if total > remaining else None
     return total, allocated, remaining - allocated, gap
@@ -72,14 +72,13 @@ def _car_input():
 
 def test_both_engines_surface_the_same_goal_funding():
     from asset_allocation_pydantic.pipeline import run_allocation
-    from asset_allocation_pydantic.steps import _rationale_llm
     from practical_asset_allocation.pipeline import (
         PracticalAllocationInput,
         run_practical_allocation,
     )
 
     inp = _car_input()
-    ideal = run_allocation(inp, rationale_fn=_rationale_llm.no_llm_rationale_fn)
+    ideal = run_allocation(inp)
     assert ideal.goal_funding.allocated_amount == 240_000
     assert ideal.goal_funding.monthly_sip_to_goals == 30_000
     practical = run_practical_allocation(

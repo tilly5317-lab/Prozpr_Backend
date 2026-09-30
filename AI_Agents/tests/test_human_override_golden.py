@@ -73,14 +73,10 @@ def test_practical_no_pref_is_byte_identical():
 def test_ideal_no_pref_is_byte_identical():
     from asset_allocation_pydantic.models import AllocationInput
     from asset_allocation_pydantic.pipeline import run_allocation
-    from asset_allocation_pydantic.steps import _rationale_llm
 
     inp = make_practical_input()
     ideal_inp = AllocationInput(
         **{k: getattr(inp, k) for k in AllocationInput.model_fields}
     )
-    # rationale_fn=None falls back to the live LLM rationale generator, which
-    # is nondeterministic wording (breaks the byte-identical merge gate).
-    # no_llm_rationale_fn is the engine's own deterministic drop-in.
-    out = run_allocation(ideal_inp, rationale_fn=_rationale_llm.no_llm_rationale_fn)
+    out = run_allocation(ideal_inp)
     _pin("golden_ideal_no_pref.json", _canon(out))

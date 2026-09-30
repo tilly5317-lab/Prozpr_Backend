@@ -13,10 +13,9 @@ def _is_plain(s: str) -> bool:
 
 def test_plain_narrators_use_shared_voice():
     from risk_profiling.prompts import _SYSTEM as RISK
-    from asset_allocation_pydantic.steps._rationale_llm import _SYSTEM_PROMPT as RAT
     from cashflow_statement.summarizer import SYSTEM_PROMPT as CF
 
-    for s in (RISK, RAT, CF):
+    for s in (RISK, CF):
         assert "You are PI" in s
         assert _is_plain(s)  # plain profile (embedded prose)
         assert "restating" not in s.lower()  # generated summaries, not question answers

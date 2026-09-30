@@ -48,7 +48,7 @@ def test_small_sip_leaves_a_gap_the_corpus_covers_now():
 
 def test_last_window_splits_the_sip():
     assert _run([_g("Car", 20, 5 * L)], 0.0, 50_000).monthly_sip_to_goals == 50_000
-    assert _run([_g("Car", 14, 5 * L)], 3 * L, 50_000).monthly_sip_to_goals == 33_400
+    assert _run([_g("Car", 14, 5 * L)], 3 * L, 50_000).monthly_sip_to_goals == 33_334
 
 
 def test_goal_inside_the_window_is_met_on_time():
@@ -95,7 +95,7 @@ def test_no_goals():
 
 def test_goal_share_never_exceeds_an_odd_sip():
     assert _run([_g("Car", 20, 10 * L)], 0.0, 12_345).monthly_sip_to_goals == 12_345
-    assert _run([_g("Gift", 20, 20_000)], 0.0, 12_345).monthly_sip_to_goals == 3_400
+    assert _run([_g("Gift", 20, 20_000)], 0.0, 12_345).monthly_sip_to_goals == 3_334
 
 
 def test_future_value_is_used_when_given():
