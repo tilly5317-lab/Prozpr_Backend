@@ -55,6 +55,55 @@ def test_domestic_fof_ambiguous_keeps_conservative_others():
     )
 
 
+# ---------------------------------------------------------------------------
+# US equity is read off the fund name under EVERY SEBI label — not only
+# "FoF Overseas". Animesh's preferences screen showed US = 0% while he held an
+# S&P 500 index fund and ICICI US Bluechip.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sub_category", "scheme_name"),
+    [
+        ("Index Funds", "Motilal Oswal S&P 500 Index Fund - Direct Plan Growth"),
+        ("Index Funds", "ICICI Prudential NASDAQ 100 Index Fund - Direct Plan - Growth"),
+        ("Other  ETFs", "Mirae Asset NYSE FANG + ETF"),
+        ("Other  ETFs", "Motilal Oswal Nasdaq Q50 ETF"),
+        ("FoF Domestic", "Motilal Oswal Nasdaq 100 Fund of Fund- Direct Plan Growth"),
+        ("Sectoral/ Thematic", "ICICI Prudential US Bluechip Equity Fund - Direct Plan -  Growth"),
+        ("Sectoral/ Thematic", "NIPPON INDIA - US EQUITY OPPORTUNITIES FUND - IDCW Option"),
+        ("FoF Overseas", "Franklin U.S. Opportunities Equity Active Fund of Funds - Growth"),
+        ("FoF Overseas", "Navi NASDAQ100 US Specific Equity Passive FOF- Direct- Growth"),
+    ],
+)
+def test_us_equity_fund_is_us_equities_under_any_label(sub_category, scheme_name):
+    assert classify_holding(sub_category, scheme_name) == ("Equity", "us_equities")
+
+
+@pytest.mark.parametrize(
+    "scheme_name",
+    [
+        "Motilal Oswal Developed Market Ex US ETFs Fund of Funds Direct Plan Growth",
+        "Bandhan US Treasury Bond 0-1 year specific Debt Passive FOF - DIRECT PLAN - GROWTH",
+        "DSP US Specific Debt Passive FoF - Direct - Growth",
+    ],
+)
+def test_us_named_fund_that_is_not_us_equity_is_not_us_equities(scheme_name):
+    assert classify_holding("FoF Overseas", scheme_name) == ("Others", "others_fofs")
+
+
+@pytest.mark.parametrize(
+    ("sub_category", "scheme_name", "expected"),
+    [
+        ("Other  ETFs", "Nippon India ETF Hang Seng BeES", ("Others", "others")),
+        ("Index Funds", "Tata S&P BSE Sensex Index Fund", ("Equity", "low_beta_equities")),
+        ("Sectoral/ Thematic", "Nippon India Japan Equity Fund", ("Equity", "sector_equities")),
+    ],
+)
+def test_non_us_international_and_domestic_funds_unchanged(sub_category, scheme_name, expected):
+    assert classify_holding(sub_category, scheme_name) == expected
+
+
 def test_fills_from_sub_category_when_nothing_supplied():
     assert fill_classification("Liquid Fund", "Whatever Liquid Fund") == ("Debt", "near_debt")
     assert fill_classification("Large Cap Fund", "X Large Cap") == ("Equity", "low_beta_equities")

@@ -138,6 +138,8 @@ SUBCAT_TO_MAPPING: dict[str, tuple[str, str]] = {
     "Debt Index Linked (Index/ETF)": ("Debt", "debt_subgroup"),
     # FoF
     "US Linked (FoF)": ("Equity", "us_equities"),
+    # A US equity fund filed under Index Funds / ETFs / FoF Domestic / Sectoral.
+    "US Equity Linked": ("Equity", "us_equities"),
     "China Linked (FoF)": ("Equity", "china_equities"),
     "Others (FoF)": ("Others", "others_fofs"),
 }
@@ -373,12 +375,24 @@ _INTERNATIONAL_PATTERNS: tuple[str, ...] = (
     r"\bs&p\s*500\b",
 )
 
-_US_FOF_PATTERNS: tuple[str, ...] = (
+_US_EQUITY_PATTERNS: tuple[str, ...] = (
     r"\bus\b",
-    r"\bnasdaq\b",
+    r"\bu\.s\.",
+    r"\bnasdaq",
     r"\bs&p\s*500\b",
+    r"\bnyse\b",
     r"\bamerica\b",
 )
+
+# "Ex US" funds and US Treasury / debt FoFs say "US" but hold no US equity.
+_NOT_US_EQUITY_PATTERNS: tuple[str, ...] = (
+    r"\bex[\s-]*us\b",
+    r"\btreasury\b",
+    r"\bdebt\b",
+    r"\bbond\b",
+)
+
+_SECTORAL_CANONICALS: frozenset[str] = frozenset({"Sectoral Fund", "Thematic Fund"})
 
 _CHINA_FOF_PATTERNS: tuple[str, ...] = (
     r"\bchina\b",
@@ -388,6 +402,12 @@ _CHINA_FOF_PATTERNS: tuple[str, ...] = (
 
 def _match_any(patterns: tuple[str, ...], text: str) -> bool:
     return any(re.search(p, text) for p in patterns)
+
+
+def _is_us_equity(name: str) -> bool:
+    return _match_any(_US_EQUITY_PATTERNS, name) and not _match_any(
+        _NOT_US_EQUITY_PATTERNS, name
+    )
 
 
 def _classify_index_or_etf(scheme_name: Optional[str]) -> str:
@@ -407,6 +427,8 @@ def _classify_index_or_etf(scheme_name: Optional[str]) -> str:
         return "Gold Linked (Index/ETF)"
     if re.search(r"\bsilver\b", name):
         return "Silver Linked (Index/ETF)"
+    if _is_us_equity(name):
+        return "US Equity Linked"
     if _match_any(_LARGE_CAP_PATTERNS, name):
         return "Large Cap Index Linked (Index/ETF)"
     if _match_any(_SECTORAL_PATTERNS, name):
@@ -418,7 +440,7 @@ def _classify_index_or_etf(scheme_name: Optional[str]) -> str:
 
 def _classify_fof_overseas(scheme_name: Optional[str]) -> str:
     name = (scheme_name or "").lower()
-    if _match_any(_US_FOF_PATTERNS, name):
+    if _is_us_equity(name):
         return "US Linked (FoF)"
     if _match_any(_CHINA_FOF_PATTERNS, name):
         return "China Linked (FoF)"
@@ -445,6 +467,8 @@ def _classify_fof_domestic(scheme_name: Optional[str]) -> str:
         return "Gold Linked (Index/ETF)"
     if re.search(r"\bsilver\b", name):
         return "Silver Linked (Index/ETF)"
+    if _is_us_equity(name):
+        return "US Equity Linked"
     if _match_any(_LARGE_CAP_PATTERNS, name):
         return "Large Cap Index Linked (Index/ETF)"
     if _match_any(_SECTORAL_PATTERNS, name):
@@ -494,6 +518,9 @@ def classify_sub_category(
             # Unknown raw label — try it verbatim against SUBCAT_TO_MAPPING
             # in case the caller already passed a canonical label.
             canonical = raw
+    # SEBI files active US funds (ICICI US Bluechip) as sectoral.
+    if canonical in _SECTORAL_CANONICALS and _is_us_equity((scheme_name or "").lower()):
+        canonical = "US Equity Linked"
     if not canonical:  # dispatcher returned "" → debt-index left unclassified
         return (None, None)
     pair = SUBCAT_TO_MAPPING.get(canonical)
