@@ -19,6 +19,11 @@ from typing import Optional, TypedDict
 
 _TTL_S = 300.0
 
+# Task key of the Invest page's rebalancing compute. Named here, not in its router,
+# because the background refresh reads it too: an entry under this key is the only
+# sign that a compute the customer started is still in flight.
+REBALANCE_COMPUTE_TASK = "rebalance_compute"
+
 _lock = Lock()
 # (user, task) -> (ts, pct, [stage messages so far, oldest first])
 _store: dict[tuple[str, str], tuple[float, float, list[str]]] = {}

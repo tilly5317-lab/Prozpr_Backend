@@ -666,6 +666,30 @@ class Settings:
             return False
         return True
 
+    @staticmethod
+    def cas_reprocess_identical_upload() -> bool:
+        """Whether re-uploading the byte-identical statement is ingested AGAIN.
+
+        Off (the default, and the only answer in production): the ingest
+        recognises the file, reuses the active snapshot and stops — no second
+        billed casparser call, no new ``cas_uploads`` row, nothing recomputed.
+
+        On (``CAS_REPROCESS_IDENTICAL_UPLOAD=true``, laptops only): the same PDF
+        is parsed and ingested as a brand-new snapshot with its own id, so
+        everything that hangs off "a new statement landed" — the net-worth
+        rebuild, the silent rebalancing refresh — can be exercised over and over
+        with one test file. Each such upload DOES spend a casparser call.
+
+        ``DEPLOY_ENV=production`` wins over the flag: a value copied into the
+        server's environment by mistake must not start billing every customer
+        who taps upload twice, or wipe their plans for a statement that did not
+        change.
+        """
+        if Settings.DEPLOY_ENV.lower() == "production":
+            return False
+        raw = (_getenv("CAS_REPROCESS_IDENTICAL_UPLOAD") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
     # ── DPDP retention + erasure purge ─────────────────────────────────────
     @staticmethod
     def privacy_scheduler_enabled() -> bool:

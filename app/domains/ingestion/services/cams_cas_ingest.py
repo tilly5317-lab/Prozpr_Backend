@@ -973,7 +973,9 @@ async def ingest_cams_pdf(
     versioning = versioning_enabled()
     content_sha256 = cas_upload_service.sha256_of(file_bytes)
 
-    if versioning:
+    # Laptops can opt out of the identical-file shortcut so one test PDF mints a
+    # new snapshot id on every upload; production never can (see the setting).
+    if versioning and not Settings.cas_reprocess_identical_upload():
         identical = await cas_upload_service.find_identical_active(
             db, user_id, content_sha256
         )

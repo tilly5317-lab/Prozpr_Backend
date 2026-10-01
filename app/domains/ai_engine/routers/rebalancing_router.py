@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser, get_ai_user_context, get_effective_user
-from app.core.progress import clear_progress, get_progress, set_progress
+from app.core.progress import (
+    REBALANCE_COMPUTE_TASK,
+    clear_progress,
+    get_progress,
+    set_progress,
+)
 from app.domains.identity.models.user import User
 from app.domains.ai_engine.schemas import (
     RebalancingComputeApiRequest,
@@ -25,7 +30,7 @@ from app.domains.rebalancing.services.rebal_engine.service import (
 
 router = APIRouter(prefix="/rebalancing", tags=["AI — Rebalancing"])
 
-_PROGRESS_TASK = "rebalance_compute"
+_PROGRESS_TASK = REBALANCE_COMPUTE_TASK
 
 
 class ComputeProgressResponse(BaseModel):
