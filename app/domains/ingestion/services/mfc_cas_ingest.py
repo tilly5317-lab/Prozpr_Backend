@@ -154,12 +154,35 @@ def _new_client_ref_no() -> str:
 # none of these) is still surfaced as such.
 _CAS_PENDING_MARKERS = (
     "in process of generating",
+    "process of generating",
     "generating the cas",
     "please visit after",
     "please try after",
+    "visit after sometime",
     "still being generated",
     "under process",
+    "being processed",
 )
+
+# How long the client should wait before presenting the same QR again. Seen on
+# UAT 2026-09-30: MFC needed well over a minute for a large test PAN, and
+# hammering validateQRCode every few seconds only queues more work behind the
+# generation. Fifteen seconds keeps the wait visible without being a nag.
+CAS_PENDING_RETRY_AFTER_SECONDS = 15
+
+# What the investor reads while MFC assembles the statement. MFC's own text
+# ("We are in process of generating the CAS. Please visit after sometime.")
+# is written for a human on THEIR site and reads as an instruction to leave;
+# ours says what the app is doing about it.
+CAS_PENDING_USER_MESSAGE = (
+    "MF Central is still preparing your statement. Your QR stays valid — "
+    "we'll keep checking and import it the moment it's ready."
+)
+
+
+def _is_cas_pending_text(message: str) -> bool:
+    haystack = (message or "").lower()
+    return any(marker in haystack for marker in _CAS_PENDING_MARKERS)
 
 
 def _cas_pending_message(payload: dict[str, Any]) -> Optional[str]:
@@ -170,19 +193,43 @@ def _cas_pending_message(payload: dict[str, Any]) -> Optional[str]:
     without the prose.
     """
     if not payload:
-        return (
-            "MF Central is still generating your statement. Give it a moment, "
-            "then submit the same QR again."
-        )
+        return CAS_PENDING_USER_MESSAGE
     message = ""
     for key in ("errorMessage", "message", "status", "statusMessage"):
         value = payload.get(key)
         if value:
             message = str(value)
             break
-    haystack = message.lower()
-    if any(marker in haystack for marker in _CAS_PENDING_MARKERS):
-        return message
+    if not message:
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            message = str(errors[0].get("message") or "")
+    if _is_cas_pending_text(message):
+        return CAS_PENDING_USER_MESSAGE
+    return None
+
+
+def _pending_from_api_error(exc: MfcApiError) -> Optional[str]:
+    """The "still generating" state when MFC reports it as an HTTP ERROR.
+
+    Live UAT (2026-09-30) answered an unconsumed QR with a 4xx whose decrypted
+    ``errors[0].message`` was "We are in process of generating the CAS. Please
+    visit after sometime." — the same wait-state as the 200/202 shape, just on
+    the error channel. Treating it as a rejection marked the request FAILED and
+    told the investor to start over, which would have burnt a perfectly good
+    consent. A timeout is never pending: the request may have been processed.
+    """
+    if getattr(exc, "timed_out", False):
+        return None
+    candidates = [exc.short_reason or "", str(exc)]
+    body = exc.body
+    if isinstance(body, dict):
+        for key in ("errorMessage", "message", "status", "statusMessage"):
+            value = body.get(key)
+            if value:
+                candidates.append(str(value))
+    if any(_is_cas_pending_text(text) for text in candidates):
+        return CAS_PENDING_USER_MESSAGE
     return None
 
 
@@ -504,6 +551,25 @@ async def import_from_qr(
             qr_code_base64=qr,
         )
     except MfcApiError as exc:
+        # "Still generating" can arrive on the ERROR channel too (a 4xx whose
+        # message is the wait-state prose). Same handling as the 200 shape
+        # below: the QR is unconsumed, so the row must NOT be failed.
+        pending = _pending_from_api_error(exc)
+        if pending:
+            logger.info(
+                "MFC validateQRCode still generating (HTTP %s) for %s",
+                exc.status_code,
+                row.client_ref_no,
+            )
+            await _keep_initiated(db, row)
+            return MfcImportResult(
+                request_id=row.id,
+                req_id=row.req_id or "",
+                variant="pending",
+                ingest=None,
+                display={},
+                pending=pending,
+            )
         await _fail(db, row, f"validateQRCode: {exc.short_reason}")
         logger.warning("MFC validateQRCode failed: %s", exc.short_reason)
         raise _api_error_to_flow(exc) from exc
@@ -520,6 +586,7 @@ async def import_from_qr(
     pending = _cas_pending_message(payload)
     if pending:
         logger.info("MFC validateQRCode still generating for %s", row.client_ref_no)
+        await _keep_initiated(db, row)
         return MfcImportResult(
             request_id=row.id,
             req_id=row.req_id or "",
@@ -718,6 +785,26 @@ async def _fail(db: AsyncSession, row: MfcCasRequest, reason: str) -> None:
     row.status = MfcCasRequestStatus.FAILED.value
     row.error = reason[:2000]
     row.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+async def _keep_initiated(db: AsyncSession, row: MfcCasRequest) -> None:
+    """Put a request back to INITIATED after a "still generating" answer.
+
+    Before the error-channel case was recognised, that answer went through
+    ``_fail`` and left the row FAILED with the wait-state prose as its error;
+    a later retry of the same (still valid) QR then reads as a resurrection.
+    Clearing the failure keeps the history honest: nothing has failed yet.
+    """
+    if (
+        row.status == MfcCasRequestStatus.INITIATED.value
+        and row.error is None
+        and row.completed_at is None
+    ):
+        return
+    row.status = MfcCasRequestStatus.INITIATED.value
+    row.error = None
+    row.completed_at = None
     await db.commit()
 
 

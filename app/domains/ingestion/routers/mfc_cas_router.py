@@ -50,6 +50,7 @@ from app.domains.ingestion.schemas import (
     MfcVerifyOtpResponse,
 )
 from app.domains.ingestion.services.mfc_cas_ingest import (
+    CAS_PENDING_RETRY_AFTER_SECONDS,
     MfcFlowError,
     import_from_qr,
     list_requests,
@@ -282,6 +283,7 @@ async def validate_mfc_qr(
             variant="pending",
             ingest=None,
             pending=result.pending,
+            retry_after_seconds=CAS_PENDING_RETRY_AFTER_SECONDS,
             data=result.display,
             message=result.pending,
         )

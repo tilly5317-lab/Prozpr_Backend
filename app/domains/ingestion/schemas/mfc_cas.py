@@ -260,6 +260,13 @@ class MfcImportResponse(BaseModel):
             "QR is unconsumed and the same one can be submitted again shortly."
         ),
     )
+    retry_after_seconds: Optional[int] = Field(
+        default=None,
+        description=(
+            "With `pending`: how long the client should wait before presenting "
+            "the same QR again."
+        ),
+    )
     data: dict[str, Any] = Field(
         default_factory=dict, description="Everything MFC returned, flattened."
     )

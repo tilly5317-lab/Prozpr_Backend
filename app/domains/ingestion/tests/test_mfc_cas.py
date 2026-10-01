@@ -1034,3 +1034,45 @@ def test_timeout_maps_to_retryable_their_side_copy():
     )
     assert flow.retryable is True
     assert "their side" in str(flow)
+
+
+def test_still_generating_on_the_error_channel_is_pending_not_failure():
+    """Live UAT 2026-09-30: an unconsumed QR answered with a 4xx whose decrypted
+    message was the wait-state prose. That is the same "come back shortly" as
+    the 200/202 shape, and must never fail the request or burn the consent."""
+    from app.domains.ingestion.services.mfc_cas_ingest import (
+        CAS_PENDING_USER_MESSAGE,
+        _cas_pending_message,
+        _pending_from_api_error,
+    )
+    from app.domains.ingestion.services.mfc_client import MfcApiError
+
+    prose = "We are in process of generating the CAS. Please visit after sometime."
+    exc = MfcApiError(
+        prose,
+        status_code=422,
+        body={"errors": [{"code": "422", "message": prose}]},
+        stage="validateQRCode",
+    )
+    assert _pending_from_api_error(exc) == CAS_PENDING_USER_MESSAGE
+
+    # The 200 shape still detects it, including when the prose sits in `errors`.
+    assert _cas_pending_message({"errorMessage": prose}) == CAS_PENDING_USER_MESSAGE
+    assert _cas_pending_message({"errors": [{"message": prose}]}) == CAS_PENDING_USER_MESSAGE
+    assert _cas_pending_message({}) == CAS_PENDING_USER_MESSAGE
+
+    # A real rejection is still a rejection.
+    dead = MfcApiError(
+        "Invalid QR code",
+        status_code=422,
+        body={"errors": [{"message": "Invalid QR code"}]},
+        stage="validateQRCode",
+    )
+    assert _pending_from_api_error(dead) is None
+    assert _cas_pending_message({"errorMessage": "No folios found"}) is None
+
+    # A timeout is never pending — the QR may already have been spent.
+    assert (
+        _pending_from_api_error(MfcApiError(prose, stage="validateQRCode", timed_out=True))
+        is None
+    )
