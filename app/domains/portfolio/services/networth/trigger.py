@@ -55,6 +55,11 @@ async def schedule_rebuild_after_cas(
     When a build is already in flight it is *flagged to re-run* rather than joined —
     that build is reading the statement this upload just superseded, so letting it
     finish unchallenged would leave the user looking at data they already replaced.
+
+    Either way the build that finishes is marked as carrying new transactions, which
+    makes it queue the silent rebalancing refresh one second after the history is
+    written (``rebalancing.services.auto_refresh``). That holds for every import
+    source that comes through here, not only the CAMS PDF.
     """
     if ingest_failed:
         return None
@@ -70,7 +75,16 @@ async def schedule_rebuild_after_cas(
         return None
 
     if created:
-        background.add_task(rebuild_user_networth, user_id, job.id, trigger=trigger)
+        # ``new_transactions``: this build is what the plans computed from the
+        # ledger wait on, so it refreshes them when it finishes. A build we merely
+        # JOINED learns the same thing from the supersede flag set above.
+        background.add_task(
+            rebuild_user_networth,
+            user_id,
+            job.id,
+            trigger=trigger,
+            new_transactions=True,
+        )
     else:
         logger.info(
             "net-worth build already running for user %s; job %s will re-run",

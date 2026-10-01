@@ -79,19 +79,28 @@ class RebuildResult:
 
 @traced_job("networth.rebuild")
 async def rebuild_user_networth(
-    user_id: uuid.UUID, job_id: uuid.UUID, *, trigger: str = "manual"
+    user_id: uuid.UUID,
+    job_id: uuid.UUID,
+    *,
+    trigger: str = "manual",
+    new_transactions: bool = False,
 ) -> None:
     """Background entrypoint. Pins the CAS snapshot, then runs the build.
 
     A ``BackgroundTasks`` callback carries no request scope. Without pinning here, every
     read below would span every statement the user has ever uploaded at once and the
     series would be built from double-counted units.
+
+    ``new_transactions`` says this build exists because the user's ledger changed (a
+    statement import), as opposed to a re-price of the same ledger (daily, manual,
+    onboarding). Only those builds go on to refresh the plans computed from the ledger
+    — see ``_refresh_plans_after_new_transactions``.
     """
     factory = _get_session_factory()
     async with factory() as scope_db:
         snapshot_id = await effective_scope(scope_db, user_id)
     with scoped_to(snapshot_id):
-        await _run(user_id, job_id, snapshot_id, trigger)
+        await _run(user_id, job_id, snapshot_id, trigger, new_transactions)
 
 
 async def _run(
@@ -99,6 +108,7 @@ async def _run(
     job_id: uuid.UUID,
     snapshot_id: Optional[uuid.UUID],
     trigger: str,
+    new_transactions: bool = False,
 ) -> None:
     """Run the build, then run it again if fresher data landed while we worked.
 
@@ -130,6 +140,9 @@ async def _run(
                     logger.info(
                         "networth job %s: fresher data landed, rebuilding", job_id
                     )
+                    # Only a statement import ever asks for a supersede, so whatever
+                    # this job started as, it now carries new transactions.
+                    new_transactions = True
                     continue
                 break
 
@@ -151,6 +164,8 @@ async def _run(
                 schemes=result.schemes,
                 degraded_schemes=result.degraded_schemes,
             )
+            if new_transactions:
+                _refresh_plans_after_new_transactions(user_id, trigger)
         except BaseException as exc:  # noqa: BLE001 — surface EVERY exit to the poller
             # BaseException, not Exception, on purpose. A worker restart cancels this
             # task with ``asyncio.CancelledError``, which derives from BaseException and
@@ -188,6 +203,31 @@ async def _run(
             except Exception:  # noqa: BLE001
                 logger.exception("could not mark networth job %s failed", job_id)
             raise
+
+
+def _refresh_plans_after_new_transactions(user_id: uuid.UUID, trigger: str) -> None:
+    """Queue the silent rebalancing refresh that follows a new-transactions build.
+
+    The ingest wiped the user's computed plans, and the history they are read next to
+    is now written, so this is the moment to recompute — in the background, a second
+    after this build, with nothing published to the frontend
+    (``rebalancing.services.auto_refresh``).
+
+    Imported lazily and never allowed to raise: the series is already saved, and a
+    plan refresh that cannot even be queued must not turn a finished build into a
+    failed one. Without it the Invest page still computes a plan on first visit.
+    """
+    try:
+        from app.domains.rebalancing.services.auto_refresh import (
+            schedule_rebalancing_refresh,
+        )
+
+        schedule_rebalancing_refresh(user_id, reason=f"networth:{trigger}")
+    except Exception:  # noqa: BLE001 — best-effort follow-up work
+        logger.exception(
+            "could not queue rebalancing refresh after net-worth build for user %s",
+            user_id,
+        )
 
 
 async def build_series(
