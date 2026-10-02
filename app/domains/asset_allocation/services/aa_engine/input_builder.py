@@ -16,6 +16,7 @@ from app.domains.asset_allocation.services.aa_engine.overrides import effective_
 from app.domains.cashflow.services.goal_planning_engine.input_builder import (
     map_custom_goal,
 )
+from app.domains.portfolio.services.holdings_snapshot import snapshot_from_holdings
 from app.domains.profile.services import profile_finance as pf
 
 if TYPE_CHECKING:
@@ -76,7 +77,14 @@ def pick_total_corpus(pfp: Any, inv: Any, portfolios: List[Any]) -> float:
             (p for p in portfolios if getattr(p, "is_primary", False)),
             portfolios[0],
         )
-        primary_value = _f(primary, "total_value")
+        holdings = list(getattr(primary, "holdings", None) or [])
+        # total_value can include bank-sync demat stocks, which no engine corpus
+        # holds; a CAMS upload rewrites it but leaves those stock rows behind.
+        primary_value = (
+            snapshot_from_holdings(holdings).total_inr
+            if holdings
+            else _f(primary, "total_value")
+        )
     return max(investable, portfolio_value, primary_value)
 
 
@@ -263,7 +271,6 @@ def build_goal_allocation_input_for_user(
         short_term_holdings=0.0,
         risk_willingness=risk_willingness,
         risk_capacity_score=risk_capacity_score,
-        financial_assets=pf.financial_assets_pfp(pfp),
         occupation_type=occupation_type,
     )
 

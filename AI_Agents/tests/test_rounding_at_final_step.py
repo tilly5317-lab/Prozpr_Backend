@@ -39,15 +39,13 @@ def _random_inputs(n):
     rng = random.Random(11)
     for _ in range(n):
         # Above the ₹3L emergency fund, where over-allocating is by design.
-        corpus = rng.uniform(300_000, 50_000_000)
+        # Floor at 350k so even the worst-case ELSS draw (10% of corpus)
+        # still leaves the rebalancing corpus above that floor.
+        corpus = rng.uniform(350_000, 50_000_000)
         elss = rng.choice([0.0, rng.uniform(0, corpus * 0.1)])
-        non_mf = rng.choice([0.0, rng.uniform(0, corpus * 0.2)])
         yield make_practical_input(
             total_corpus=corpus,
-            financial_assets=corpus,
-            mf_corpus=corpus - elss - non_mf,
             elss_corpus=elss,
-            non_mf_equity_corpus=non_mf,
             effective_risk_score=rng.choice([1, 2.5, 4, 5.5, 7, 8.5, 9.5, 10]),
         )
 
@@ -63,8 +61,8 @@ def test_the_ideal_engine_allocates_the_corpus_to_the_rupee():
 
 
 def test_the_practical_engine_allocates_the_corpus_to_the_rupee():
-    """Within ₹1: the fractional ELSS and direct-stock inputs are each taken to
-    whole rupees on their own, which can leave a paise-driven rupee."""
+    """Within ₹1: the fractional ELSS input is taken to whole rupees on its
+    own, which can leave a paise-driven rupee."""
     from practical_asset_allocation.pipeline import run_practical_allocation
 
     for inp in _random_inputs(150):

@@ -36,7 +36,6 @@ SUBGROUP_LABELS: dict[str, str] = {
     "china_equities": "China equity",
     "multi_asset": "multi-asset funds",
     "tax_efficient_equities": "ELSS (tax-saver) equity",
-    "non_mf_equities": "direct stocks",
     # Debt
     "near_debt": "liquid & overnight debt",
     "short_debt": "short-duration debt",

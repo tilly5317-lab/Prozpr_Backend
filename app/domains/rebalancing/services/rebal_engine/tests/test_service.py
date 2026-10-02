@@ -59,7 +59,7 @@ def _build_min_response():
             knob_snapshot=KnobSnapshot(
                 multi_fund_cap_pct=20.0,
                 others_fund_cap_pct=10.0,
-                rebalance_min_change_pct=0.10,
+                rebalance_min_change_portfolio_pct=0.01, rebalance_min_change_fund_pct=0.50,
                 exit_floor_rating=5,
                 ltcg_annual_exemption_inr=Decimal("125000"),
                 stcg_rate_equity_pct=20.0,
@@ -128,7 +128,7 @@ def _build_response_with_subgroup(holding_inr: float):
             knob_snapshot=KnobSnapshot(
                 multi_fund_cap_pct=20.0,
                 others_fund_cap_pct=10.0,
-                rebalance_min_change_pct=0.10,
+                rebalance_min_change_portfolio_pct=0.01, rebalance_min_change_fund_pct=0.50,
                 exit_floor_rating=5,
                 ltcg_annual_exemption_inr=Decimal("125000"),
                 stcg_rate_equity_pct=20.0,
@@ -290,7 +290,7 @@ def _build_response_with_funds(funds: list):
             knob_snapshot=KnobSnapshot(
                 multi_fund_cap_pct=20.0,
                 others_fund_cap_pct=10.0,
-                rebalance_min_change_pct=0.10,
+                rebalance_min_change_portfolio_pct=0.01, rebalance_min_change_fund_pct=0.50,
                 exit_floor_rating=5,
                 ltcg_annual_exemption_inr=Decimal("125000"),
                 stcg_rate_equity_pct=20.0,

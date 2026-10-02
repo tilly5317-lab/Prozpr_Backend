@@ -49,8 +49,6 @@ class TestPreferencesModel:
 
         with pytest.raises(ValueError):
             HumanOverridePreferences(subgroup_emphasis={"tax_efficient_equities": 0.0})
-        with pytest.raises(ValueError):
-            HumanOverridePreferences(subgroup_emphasis={"non_mf_equities": 20.0})
 
     def test_subgroup_exclusions_field_is_rejected(self):
         # Exclusion folded into emphasis (0 = excluded): the old list field
@@ -191,7 +189,6 @@ class TestClassTargetReshape:
         before = {r.subgroup: r.total for r in out.aggregated_subgroups}
         after = {r.subgroup: r.total for r in reshaped.aggregated_subgroups}
         assert after["tax_efficient_equities"] == before["tax_efficient_equities"]
-        assert after["non_mf_equities"] == before["non_mf_equities"]
 
     def test_equity_down_floored_by_frozen_discloses_shortfall(self):
         from practical_asset_allocation.human_override import (
@@ -199,11 +196,9 @@ class TestClassTargetReshape:
             apply_human_override,
         )
 
-        # elss 40L + stocks 10L on a 60L corpus → frozen equity ≈ 83% floor.
+        # elss 40L on a 50L corpus → frozen equity ≈ 80% floor.
         out = _run_practical(
-            total_corpus=6_000_000.0, mf_corpus=5_000_000.0,
-            elss_corpus=4_000_000.0, non_mf_equity_corpus=1_000_000.0,
-            financial_assets=6_000_000.0,
+            total_corpus=5_000_000.0, elss_corpus=4_000_000.0,
         )
         prefs = HumanOverridePreferences(
             asset_class_requested={"equity": 10.0, "debt": 80.0, "others": 10.0}

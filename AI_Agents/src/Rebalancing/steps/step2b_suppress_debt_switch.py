@@ -28,7 +28,7 @@ from typing import Callable
 from ..config import (
     DEBT_NETTING_MODE,
     DEBT_SWITCH_NETTING_ENABLED,
-    REBALANCE_MIN_CHANGE_PCT,
+    min_change_threshold,
 )
 from ..models import (
     FundRowAfterStep2,
@@ -108,7 +108,6 @@ def apply(
         return rows, []
 
     corpus = request.total_corpus
-    threshold_factor = Decimal(str(REBALANCE_MIN_CHANGE_PCT))
 
     debt = [r for r in rows if r.asset_subgroup in DEBT_POOL]
 
@@ -179,7 +178,7 @@ def apply(
         # looking tradeable and undercount `funds_held_count` (step6:288).
         scale = max(final_target, r.present_allocation_inr)
         worth_to_change = r.exit_flag or (
-            diff != 0 and abs(diff) >= scale * threshold_factor
+            diff != 0 and abs(diff) >= min_change_threshold(scale, corpus)
         )
 
         # Absorb a residual too small to clear the materiality bar. Step4's

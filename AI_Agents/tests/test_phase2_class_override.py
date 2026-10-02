@@ -250,7 +250,7 @@ class TestPracticalEngineHonoursTheClassPreference:
 
         out = run_practical_allocation(
             _with_prefs(
-                make_practical_input(elss_corpus=12_000_000.0, mf_corpus=7_000_000.0),
+                make_practical_input(elss_corpus=12_000_000.0),
                 equity=40.0, debt=50.0, others=10.0,
             )
         )

@@ -61,8 +61,8 @@ class AdditionalInvestmentInput(BaseModel):
     deploy_amount_inr: float = Field(gt=0)
     cadence: Cadence
     subgroups: list[SubgroupBucketAmounts]
-    # Investable corpus at deploy time (= total_corpus − non_mf_equity), pre-computed
-    # by the caller; decides 1 vs 2 funds per subgroup (spec 2026-09-24). 0 → N=1.
+    # Investable corpus at deploy time (= total_corpus), pre-computed by the
+    # caller; decides 1 vs 2 funds per subgroup. 0 → 1.
     investable_corpus_inr: float = Field(default=0.0, ge=0)
     # Money for short-term goals, deployed first into goal_subgroup by name; the
     # rest follows the long-term plan (SIP) or the long-term deficits (lumpsum).
@@ -80,7 +80,7 @@ class AdditionalInvestmentInput(BaseModel):
     rounding_multiple_inr: int = 100
     # Subgroups ineligible for fresh deployment (caller policy). Excluded from the
     # split entirely, so their share renormalises onto the remaining subgroups —
-    # e.g. non_mf_equities (direct stocks, no funds) and tax_efficient_equities (ELSS lock-in).
+    # e.g. tax_efficient_equities (ELSS lock-in).
     exclude_subgroups: set[str] = Field(default_factory=set)
     # VESTIGIAL (spec 2026-09-24): the SIP-mirrors-rebalancing selector is retired,
     # so nothing sets this any more. Retained only because it round-trips through the

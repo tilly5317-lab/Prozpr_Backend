@@ -310,8 +310,8 @@ def practical_output_stub():
             osi=0.0, savings_rate_adjustment="none", gap_exceeds_3=False,
             shortfall_amount=0.0, total_corpus=1_000_000.0,
             monthly_household_expense=100_000, effective_tax_rate=15.0,
-            financial_assets=1_000_000.0, goals=[],
-            mf_corpus=1_000_000.0, non_mf_equity_corpus=0, elss_corpus=0,
+            goals=[],
+            elss_corpus=0,
         ))
     return _PRACTICAL_STUB_CACHE
 
@@ -598,7 +598,7 @@ def fixture_rebalancing_response():
             knob_snapshot=KnobSnapshot(
                 multi_fund_cap_pct=20.0,
                 others_fund_cap_pct=10.0,
-                rebalance_min_change_pct=0.10,
+                rebalance_min_change_portfolio_pct=0.01, rebalance_min_change_fund_pct=0.50,
                 exit_floor_rating=5,
                 ltcg_annual_exemption_inr=Decimal("125000"),
                 stcg_rate_equity_pct=20.0,

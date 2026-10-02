@@ -428,15 +428,14 @@ async def build_rebalancing_input_for_user(
     #     (holdings-aware) allocation internally and lifts its per-subgroup MF
     #     targets onto the rank-1 rows. Build it via the practical_asset_allocation
     #     domain, then point the corpus at the held MF value so the targets sum to
-    #     what's actually held (a rebalance, not a fresh cash deployment). Non-MF
-    #     equity ("stocks") and ELSS default to 0 — no holdings breakdown wired yet.
+    #     what's actually held (a rebalance, not a fresh cash deployment).
+    #     ELSS defaults to 0 — no holdings breakdown wired yet.
     practical_input, _paa_debug = build_practical_allocation_input_for_user(
         ctx, short_term_holdings=_short_term_holdings_from_rows(rows)
     )
     practical_input = practical_input.model_copy(
         update={
             "total_corpus": float(total_corpus),
-            "mf_corpus": float(total_corpus),
         }
     )
 

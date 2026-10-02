@@ -74,7 +74,7 @@ def _buy(sub_category, asset_subgroup, amount=10000.0):
     )
 
 
-_EXCLUDE = {"tax_efficient_equities", "non_mf_equities"}
+_EXCLUDE = {"tax_efficient_equities"}
 
 
 def test_status_precedence_not_ranked_first():

@@ -17,8 +17,7 @@ from app.domains.mutual_funds.services.scheme_classification import (
     add_to_asset_class_mix,
     classify_holding,
 )
-
-_DIRECT_EQUITY_ITYPES: frozenset[str] = frozenset({"equity", "stock", "share"})
+from app.domains.portfolio.services.holdings_snapshot import DIRECT_EQUITY_INSTRUMENT_TYPES
 
 
 def holding_single_asset_class(holding: Any) -> str:
@@ -37,7 +36,7 @@ def holding_single_asset_class(holding: Any) -> str:
     asset_class, _ = classify_holding(sebi_sub, getattr(holding, "instrument_name", None))
     if asset_class is None:
         itype = (getattr(holding, "instrument_type", None) or "").strip().lower()
-        asset_class = "Equity" if itype in _DIRECT_EQUITY_ITYPES else "Others"
+        asset_class = "Equity" if itype in DIRECT_EQUITY_INSTRUMENT_TYPES else "Others"
     return asset_class
 
 

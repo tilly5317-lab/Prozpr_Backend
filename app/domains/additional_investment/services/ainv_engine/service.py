@@ -129,7 +129,10 @@ def _long_term_holdings(
 # 3.5.0: SIP-first goal waterfall — goal money first from the practical
 # allocation's goal_funding (no cashflow projection); the rest follows the
 # long-term plan; lumpsum deficits exclude the held short-term money the goals use.
-AINV_ENGINE_VERSION = "ainv-3.5.0"
+# 3.6.0: a lumpsum funds the short-term goals' full remaining need first — its
+# practical run assumes no future SIP.
+# Direct stocks are not part of any corpus.
+AINV_ENGINE_VERSION = "ainv-3.6.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -229,16 +232,11 @@ async def compute_additional_investment_result(
         snapshot = await load_holdings_snapshot(db, acting_user_id)
         corpus_pin = CorpusPin(
             total_corpus=snapshot.total_inr + deploy_amount_inr,
-            mf_corpus=snapshot.total_inr
-            - snapshot.non_mf_equity_inr
-            + deploy_amount_inr,
-            non_mf_equity_corpus=snapshot.non_mf_equity_inr,
             elss_corpus=snapshot.elss_inr,
         )
         trace_line(
             f"additional_investment holdings snapshot: total={snapshot.total_inr}, "
-            f"elss={snapshot.elss_inr}, stocks={snapshot.non_mf_equity_inr}, "
-            f"unknown={snapshot.unknown_inr}"
+            f"elss={snapshot.elss_inr}, unknown={snapshot.unknown_inr}"
         )
 
     if progress:
@@ -249,7 +247,7 @@ async def compute_additional_investment_result(
         user_question,
         chat_ctx=chat_ctx,
         corpus_pin=corpus_pin,
-        monthly_sip=deploy_amount_inr if cadence is Cadence.SIP_MONTHLY else None,
+        monthly_sip=deploy_amount_inr if cadence is Cadence.SIP_MONTHLY else 0.0,
         short_term_holdings=(
             short_term_holdings_total(snapshot.by_subgroup) if snapshot is not None else None
         ),
@@ -263,17 +261,11 @@ async def compute_additional_investment_result(
             blocking_message=paa_outcome.blocking_message or _MSG_ENGINE_ERROR,
         )
 
-    # Investable corpus that decides 1 vs 2 funds per subgroup (spec 2026-09-24):
-    # total_corpus − non_mf_equity, off the practical result already computed for
-    # this cadence. Lumpsum's PAA ran on the corpus_pin (corpus + deploy), so the
-    # deploy is already folded in; SIP's ran on the real portfolio. The sized SIP
-    # re-derivation below rebuilds on a NOTIONAL corpus, so this real figure must
-    # be captured here and reused — never re-read off the notional-sized result.
-    # max(0.0, …): the two fields are rounded independently, so an all-direct-equity
-    # customer (total ≈ non-MF) can round to a small negative, which the input model
-    # rejects (ge=0) and would spuriously gate the SIP.
-    cb = paa_outcome.result.corpus_breakdown
-    investable_corpus_inr = max(0.0, float(cb.total_corpus_inr - cb.non_mf_equity_input_inr))
+    # Investable corpus that decides 1 vs 2 funds per subgroup, off the practical
+    # result already computed for this cadence (lumpsum's ran on corpus + deploy).
+    # The sized SIP below rebuilds on a NOTIONAL corpus, so capture the real figure
+    # here — never re-read it off the notional-sized result.
+    investable_corpus_inr = float(paa_outcome.result.corpus_breakdown.total_corpus_inr)
     funding = getattr(paa_outcome.result, "goal_funding", None)
     goal_share_inr, goal_subgroup = goal_share_for(funding, cadence, deploy_amount_inr)
     held_for_goals = sum(g.from_holdings for g in funding.goals) if funding is not None else 0.0
@@ -332,8 +324,6 @@ async def compute_additional_investment_result(
                 chat_ctx=chat_ctx,
                 corpus_pin=CorpusPin(
                     total_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
-                    mf_corpus=_SIP_RATIO_SIZING_CORPUS_INR,
-                    non_mf_equity_corpus=0.0,
                     elss_corpus=0.0,
                 ),
                 monthly_sip=deploy_amount_inr,

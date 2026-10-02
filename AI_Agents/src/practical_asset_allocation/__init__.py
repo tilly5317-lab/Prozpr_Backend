@@ -1,7 +1,7 @@
 """practical_asset_allocation — holdings-aware goal-based allocation.
 
 Wraps asset_allocation_pydantic (steps 1-3 imported verbatim) and reimplements
-the long-term step with ELSS freeze, non-MF equity cap banded on financial assets, and the v2
+the long-term step with ELSS freeze and the v2
 average-based equity-subgroup sliding threshold.
 
 Per spec §B.1 this is the first explicit cross-agent import under

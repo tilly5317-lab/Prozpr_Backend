@@ -423,7 +423,6 @@ def test_the_screens_input_path_carries_no_elss():
     inp = _screen_input()
 
     assert inp.elss_corpus == 0.0
-    assert inp.non_mf_equity_corpus == 0.0
 
 
 # ---------------------------------------------------------------------------

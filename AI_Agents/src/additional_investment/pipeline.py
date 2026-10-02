@@ -11,21 +11,10 @@ from .models import (
     FundBuy,
     SubgroupTarget,
 )
-from Rebalancing.config import SUBGROUP_FUND_COUNT_THRESHOLD_INR  # type: ignore[import-not-found]
+from Rebalancing.config import funds_per_subgroup  # type: ignore[import-not-found]
 
 from .ratio import compute_goal_first_targets
 from .selection import select_funds
-
-
-def _funds_per_subgroup(investable_corpus: float) -> int:
-    """1 or 2 funds per subgroup by corpus — same threshold as rebalancing.
-
-    Same NAME as Rebalancing.pipeline._funds_per_subgroup deliberately (same
-    rule), but this takes the pre-subtracted investable corpus (1 arg) where the
-    rebalancing one takes (total_corpus, non_mf_equity). Different modules,
-    different arity — kept parallel in name to signal the shared rule.
-    """
-    return 2 if investable_corpus >= float(SUBGROUP_FUND_COUNT_THRESHOLD_INR) else 1
 
 
 def _reconcile_rounding_dust(
@@ -77,7 +66,7 @@ def run_additional_investment(inp: AdditionalInvestmentInput) -> AdditionalInves
     )
     # Each subgroup's target goes to its top-N ranked funds, N by corpus
     # (spec 2026-09-24); SIP and lumpsum now select identically.
-    n_funds = _funds_per_subgroup(inp.investable_corpus_inr)
+    n_funds = funds_per_subgroup(inp.investable_corpus_inr)
     buys = select_funds(targets, inp.ranked_funds, n_funds, inp.rounding_multiple_inr)
     if inp.cadence is Cadence.SIP_MONTHLY:
         # deploy_amount_inr is the MONTHLY amount; per-fund amounts are monthly.

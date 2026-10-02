@@ -12,9 +12,9 @@ is added, in full, to the single un-snapped subgroup with the largest
 most, not proportionally). This conserves the tradable total exactly, so
 `grand_total` is unchanged.
 
-Frozen sleeves (ELSS, non-MF equity) are never snapped — they are not
-MF-tradable. Strict no-op when the caller supplies no current allocation, which
-keeps the golden/contract suite byte-identical.
+The frozen ELSS sleeve is never snapped — it is not MF-tradable. Strict no-op
+when the caller supplies no current allocation, which keeps the
+golden/contract suite byte-identical.
 
 SCOPE: this updates `aggregated_subgroups` — the view rebalancing and the
 lifecycle sim read. It intentionally does NOT recompute the display-only
@@ -29,14 +29,11 @@ import os
 from typing import Optional
 
 from asset_allocation_pydantic.models import AggregatedSubgroupRow
+from practical_asset_allocation.human_override import FROZEN_SUBGROUPS
 
 SNAP_THRESHOLD_PCT: float = float(
     os.getenv("PAA_ALLOCATION_SNAP_THRESHOLD_PCT", "0.5")
 )
-
-# Same frozen set the rebalancing pipeline excludes: these rows carry ELSS and
-# direct-stock exposure, which the engine cannot trade per fund.
-_FROZEN: frozenset[str] = frozenset({"tax_efficient_equities", "non_mf_equities"})
 
 
 def _rescale(row: AggregatedSubgroupRow, new_total: float) -> AggregatedSubgroupRow:
@@ -76,7 +73,7 @@ def snap_rows(
         return rows
 
     threshold_inr = threshold_pct / 100.0 * total_corpus
-    tradable = [r for r in rows if r.subgroup not in _FROZEN]
+    tradable = [r for r in rows if r.subgroup not in FROZEN_SUBGROUPS]
 
     snapped: list[tuple[AggregatedSubgroupRow, float, float]] = []
     unsnapped: list[tuple[AggregatedSubgroupRow, float, float]] = []

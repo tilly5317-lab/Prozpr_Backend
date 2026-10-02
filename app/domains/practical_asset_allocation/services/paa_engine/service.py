@@ -81,7 +81,6 @@ async def compute_practical_allocation_result(
 
     trace_line(
         f"practical input: corpus={practical_input.total_corpus}, "
-        f"mf={practical_input.mf_corpus}, stocks={practical_input.non_mf_equity_corpus}, "
         f"elss={practical_input.elss_corpus}, goals={len(practical_input.goals)}"
     )
 
@@ -121,8 +120,7 @@ def build_practical_fallback_brief(output: PracticalAllocationOutput) -> str:
     """Render a ``PracticalAllocationOutput`` as user-facing markdown.
 
     Shares the headline-mix + per-bucket shape with the asset_allocation brief
-    (the seven fields are identical), plus a practical-only corpus-split line
-    (MF / non-MF equity / ELSS) drawn from ``corpus_breakdown``.
+    (the seven fields are identical).
     """
     cs = output.client_summary
     lines: list[str] = []
@@ -151,13 +149,6 @@ def build_practical_fallback_brief(output: PracticalAllocationOutput) -> str:
         f"(INR {rec.equity_total:,.0f}), debt {rec.debt_total_pct:.1f}% "
         f"(INR {rec.debt_total:,.0f}), others {rec.others_total_pct:.1f}% "
         f"(INR {rec.others_total:,.0f})."
-    )
-
-    cb = output.corpus_breakdown
-    lines.append("")
-    lines.append(
-        f"**Corpus split** — MF INR {cb.mf_corpus_inr:,.0f}, non-MF equity "
-        f"INR {cb.non_mf_equity_input_inr:,.0f}, ELSS INR {cb.elss_corpus_inr:,.0f}."
     )
 
     return "\n".join(lines).rstrip() + "\n"

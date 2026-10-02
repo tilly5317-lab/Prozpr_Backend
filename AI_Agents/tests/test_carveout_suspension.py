@@ -64,8 +64,6 @@ def _subgroups(out):
 _CARVEOUT_PROFILE = dict(
     emergency_fund_needed=True,
     elss_corpus=0.0,
-    non_mf_equity_corpus=0.0,
-    mf_corpus=CORPUS,
     goals=[_goal(18, 2_000_000.0), _goal(120, 10_000_000.0, "Retirement")],
 )
 
@@ -161,8 +159,6 @@ def _distribution(class_mix=None, **emphasis):
     whole portfolio; the screen always sends a mix summing to 100."""
     return _run(
         elss_corpus=0.0,
-        non_mf_equity_corpus=0.0,
-        mf_corpus=CORPUS,
         human_override=_prefs(
             subgroup_emphasis=emphasis,
             asset_class_requested=class_mix or _class_mix_for(emphasis),
@@ -197,7 +193,7 @@ class TestArbitrageIsALongTermSubgroup:
     def test_with_no_preference_nothing_routes_to_arbitrage(self):
         """Prozpr's own recommendation is unchanged — plain arbitrage is a
         short/medium instrument and the engine still will not pick it."""
-        out = _run(elss_corpus=0.0, non_mf_equity_corpus=0.0, mf_corpus=CORPUS)
+        out = _run(elss_corpus=0.0)
 
         assert _subgroups(out).get("arbitrage", 0) == 0
 
@@ -211,8 +207,6 @@ def _lt_of(class_mix=None, **emphasis):
     run_practical_allocation(
         make_practical_input(
             elss_corpus=0.0,
-            non_mf_equity_corpus=0.0,
-            mf_corpus=CORPUS,
             human_override=_prefs(
                 subgroup_emphasis=emphasis,
                 asset_class_requested=class_mix or _class_mix_for(emphasis),
@@ -370,7 +364,7 @@ def _reason(**overrides):
     # True while the app-side input builder hardcodes False, so an implicit
     # value would test neither the engine's default nor production's.
     overrides.setdefault("emergency_fund_needed", False)
-    out = _run(elss_corpus=0.0, non_mf_equity_corpus=0.0, mf_corpus=CORPUS, **overrides)
+    out = _run(elss_corpus=0.0, **overrides)
     applied = out.human_override_applied
     return "" if applied is None else (applied.shortfall_reason or "")
 
@@ -453,7 +447,7 @@ class TestCarveOutsAtRisk:
         overrides.setdefault("emergency_fund_needed", False)
         return carve_outs_at_risk(
             make_practical_input(
-                elss_corpus=0.0, non_mf_equity_corpus=0.0, mf_corpus=CORPUS, **overrides
+                elss_corpus=0.0, **overrides
             )
         )
 
@@ -530,8 +524,6 @@ class TestDriftIsSpreadAcrossPinnedRows:
         run_practical_allocation(
             make_practical_input(
                 elss_corpus=0.0,
-                non_mf_equity_corpus=0.0,
-                mf_corpus=CORPUS,
                 emergency_fund_needed=False,
                 human_override=_prefs(
                     subgroup_emphasis=pins, asset_class_requested=self._MIX

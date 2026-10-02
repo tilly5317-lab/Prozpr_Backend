@@ -271,16 +271,7 @@ def _counterfactual_sold_per_row(
 def apply(
     rows: list[FundRowAfterStep3],
     request: RebalancingComputeRequest,
-    extra_cash_inr: Decimal = Decimal(0),
 ) -> tuple[list[FundRowAfterStep4], list[RebalancingWarning]]:
-    """`extra_cash_inr` is non-row cash the plan can spend — today, the
-    direct-stock proceeds the NFA band frees up (`excess_direct_stocks_inr`,
-    surfaced by step6 as a single SELL_DIRECT_STOCKS action). The practical
-    allocation already sizes its targets assuming this money is redeployed, so
-    without it the plan tells the customer to liquidate stock and then allocates
-    nothing against the proceeds. It both funds buys AND reduces how much MF has
-    to be sold — selling to raise cash the customer already has would realise
-    gains for nothing."""
     forced = [r for r in rows if r.exit_flag]
     optional = [r for r in rows if r.worth_to_change and r.diff < 0 and not r.exit_flag]
     buyers = [r for r in rows if r.worth_to_change and r.diff > 0 and r.is_recommended]
@@ -307,9 +298,7 @@ def apply(
     forced_sold_total = sum(
         (state[r.isin]["pass1_sell_amount"] for r in rows), Decimal(0)
     )
-    remaining_buy_demand = max(
-        target_buy - forced_sold_total - extra_cash_inr, Decimal(0)
-    )
+    remaining_buy_demand = max(target_buy - forced_sold_total, Decimal(0))
 
     _, stcg_remaining = _execute_sells(
         optional_sorted, state, False, remaining_buy_demand, stcg_remaining
@@ -320,7 +309,7 @@ def apply(
     total_sold_final = sum(
         (state[r.isin]["pass1_sell_amount"] for r in rows), Decimal(0)
     )
-    available_cash = total_sold_final + extra_cash_inr
+    available_cash = total_sold_final
     if target_buy > 0:
         scale = (
             Decimal(1)
@@ -332,6 +321,23 @@ def apply(
             buy_amt = floor_to_step(raw, request.rounding_step)
             state[r.isin]["pass1_buy_amount"] = buy_amt
             state[r.isin]["pass1_underbuy_amount"] = r.diff - buy_amt
+
+    # Forced exits sell in full; cash the passing buys don't need tops up the
+    # buys that fell under the trade bar, so exit money is never left idle.
+    leftover = available_cash - sum(
+        (state[r.isin]["pass1_buy_amount"] for r in buyers), Decimal(0)
+    )
+    below_bar = sorted(
+        (r for r in rows if not r.worth_to_change and r.diff > 0 and r.is_recommended),
+        key=lambda r: (-r.diff, r.isin),
+    )
+    for r in below_bar:
+        buy_amt = floor_to_step(min(r.diff, leftover), request.rounding_step)
+        if buy_amt <= 0:
+            break
+        state[r.isin]["pass1_buy_amount"] = buy_amt
+        state[r.isin]["pass1_underbuy_amount"] = r.diff - buy_amt
+        leftover -= buy_amt
 
     # Counterfactual: same logic with no STCG budget.
     cf_sold = _counterfactual_sold_per_row(forced_sorted, optional_sorted, target_buy)

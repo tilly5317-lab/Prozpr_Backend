@@ -309,11 +309,6 @@ def build_rebal_facts_pack(
         "total_portfolio_inr": <float>, "total_portfolio_indian": <str>,
         "buys_total_inr":      <float>, "buys_total_indian":      <str>,
         "sells_total_inr":     <float>, "sells_total_indian":     <str>,
-        # Present only when the NFA band trims direct equity. These rupees
-        # fund MF buys but are NOT inside sells_total, so buys_total can
-        # legitimately exceed sells_total by this amount.
-        "direct_stock_sale_inr":   <float>,
-        "direct_stock_sale_indian": <str>,
         "tax_impact_inr":      <float>, "tax_impact_indian":      <str>,
 
         # How the tax bill above splits by holding period. A low/zero
@@ -665,23 +660,6 @@ def build_rebal_facts_pack(
         "warnings": warnings,
         "fund_actions": [_slim_row(f, _ROW_DROP) for f in fund_actions],
     }
-    # Direct-stock proceeds. Step4 funds MF buys with these
-    # (`excess_direct_stocks_inr`), but they are NOT part of `total_sell_inr`,
-    # which sums over fund rows only. Without this the pack shows buys far
-    # exceeding sells with no way to account for the difference — Neha's plan
-    # buys ₹16.5L against ₹4.6L of fund sales — and "where is the money coming
-    # from?" is the most likely question a customer asks about a rebalance.
-    # Omitted entirely when nothing is sold, to keep the pack lean.
-    _breakdown = getattr(
-        getattr(response, "practical_allocation", None), "corpus_breakdown", None
-    )
-    _excess_stocks = float(
-        getattr(_breakdown, "excess_direct_stocks_inr", 0) or 0
-    )
-    if _excess_stocks > 0:
-        pack["direct_stock_sale_inr"] = _excess_stocks
-        pack["direct_stock_sale_indian"] = format_inr_indian(_excess_stocks)
-
     # The ideal (goals + risk) split, shipped ONLY on the first/compute answer
     # (include_ideal) so it can reconcile chat with the allocation tab. It is
     # withheld from follow-up/tilt turns: comparing a tilt against the ideal shifts

@@ -90,7 +90,6 @@ class AllocationInput(BaseModel):
 
     risk_willingness: Optional[float] = None
     risk_capacity_score: Optional[float] = None
-    financial_assets: Optional[float] = None
     occupation_type: Optional[str] = None
 
 

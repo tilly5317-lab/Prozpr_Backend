@@ -1,15 +1,12 @@
 """Build a ``practical_asset_allocation.PracticalAllocationInput`` from a User.
 
 ``PracticalAllocationInput`` extends asset_allocation's ``AllocationInput`` with
-four holdings-aware corpus scalars. We reuse the asset_allocation input builder
+holdings-aware corpus scalars. We reuse the asset_allocation input builder
 for every shared profile / goal / risk field (so there's one source of truth for
 that mapping), then add the practical-only scalars.
 
 New scalars — no app-side data source wired yet, so they take safe defaults:
-  mf_corpus            = total_corpus  (all corpus treated as MF holdings)
-  non_mf_equity_corpus = 0.0           (direct stocks / PMS — "stocks")
   elss_corpus          = 0.0           (ELSS MF subset, SEBI-locked)
-  max_non_mf_equity_pct_client_input = None  (no advisor override)
 
 ``short_term_holdings`` (an AllocationInput field: held debt and arbitrage funds,
 not income-plus-arbitrage) is read from the preloaded user's holdings — None when
@@ -59,8 +56,6 @@ class CorpusPin:
     chat-override — so the what-if key never leaks into the normal flow."""
 
     total_corpus: float
-    mf_corpus: float
-    non_mf_equity_corpus: float
     elss_corpus: float
 
 
@@ -150,13 +145,9 @@ def build_practical_allocation_input_for_user(
         # Every shared AllocationInput field, verbatim (total_corpus included —
         # overridden above when a CorpusPin is supplied).
         **shared,
-        # Practical-only scalars. Default source is the profile (stocks/ELSS 0 →
-        # whole corpus treated as MF); a CorpusPin supplies holdings-derived
-        # values for all four (deficit-fill lumpsum path).
-        mf_corpus=(corpus_pin.mf_corpus if corpus_pin else base_input.total_corpus),
-        non_mf_equity_corpus=(corpus_pin.non_mf_equity_corpus if corpus_pin else 0.0),
+        # Default source is the profile (ELSS 0); a CorpusPin supplies
+        # holdings-derived values (deficit-fill lumpsum path).
         elss_corpus=(corpus_pin.elss_corpus if corpus_pin else 0.0),
-        max_non_mf_equity_pct_client_input=None,
         human_override=human_override,
     )
 
@@ -164,8 +155,6 @@ def build_practical_allocation_input_for_user(
         **debug,
         "corpus_pinned": corpus_pin is not None,
         "total_corpus": practical_input.total_corpus,
-        "mf_corpus": practical_input.mf_corpus,
-        "non_mf_equity_corpus": practical_input.non_mf_equity_corpus,
         "elss_corpus": practical_input.elss_corpus,
         "short_term_holdings": practical_input.short_term_holdings,
         "monthly_sip": practical_input.monthly_sip,

@@ -11,6 +11,9 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
+from practical_asset_allocation.human_override import (  # type: ignore[import-not-found]
+    FROZEN_SUBGROUPS,
+)
 from practical_asset_allocation.pipeline import (  # type: ignore[import-not-found]
     PracticalAllocationOutput,
     run_practical_allocation,
@@ -21,7 +24,7 @@ from .config import (
     FORCE_EXIT_RANK,
     HOLDINGS_AWARE_TARGETS_ENABLED,
     RANK_PROTECT_BAND,
-    SUBGROUP_FUND_COUNT_THRESHOLD_INR,
+    funds_per_subgroup,
 )
 from .models import (
     FundRowInput,
@@ -38,30 +41,6 @@ from .steps import (
     step5_loss_offset_top_up,
     step6_presentation,
 )
-
-
-# Subgroups that exist in `practical.aggregated_subgroups` but have no MF
-# rows in the engine — their amounts are surfaced as frozen
-# `SubgroupSummary` entries in step6, not lifted onto rank-1 rows here.
-_FROZEN_SUBGROUPS: frozenset[str] = frozenset(
-    {
-        "tax_efficient_equities",
-        "non_mf_equities",
-    }
-)
-
-
-def _funds_per_subgroup(
-    total_corpus: Decimal, non_mf_equity_corpus: Decimal
-) -> int:
-    """How many funds share one subgroup's deployable money.
-
-    Two at or above `SUBGROUP_FUND_COUNT_THRESHOLD_INR`, one below it. The test
-    runs on total corpus less non-MF equity, so idle cash counts toward it.
-    """
-    if total_corpus - non_mf_equity_corpus >= SUBGROUP_FUND_COUNT_THRESHOLD_INR:
-        return 2
-    return 1
 
 
 def _protected_floors(
@@ -185,8 +164,8 @@ def _assign_subgroup_targets(
     residual collapses back to the full subgroup total, and the behaviour is
     byte-identical to that older rule.
 
-    Rows for frozen subgroups (ELSS, non-MF equity), off-list rows (`rank == 0`)
-    and force-exit rows are passed through unchanged.
+    Rows for the frozen ELSS subgroup, off-list rows (`rank == 0`) and
+    force-exit rows are passed through unchanged.
 
     NEUTRAL ST offset: held funds with `rank == 0` are NEUTRAL — their
     LT portion is migratable to the recommended fund, but the ST portion
@@ -197,7 +176,7 @@ def _assign_subgroup_targets(
     target_by_subgroup: dict[str, Decimal] = {
         r.subgroup: Decimal(str(r.total))
         for r in practical.aggregated_subgroups
-        if r.subgroup not in _FROZEN_SUBGROUPS
+        if r.subgroup not in FROZEN_SUBGROUPS
     }
     # ABSENT MEANS ZERO. `step5_aggregation` drops rows whose total is zero, so a
     # subgroup the practical plan gives nothing to is missing rather than 0. Left
@@ -209,7 +188,7 @@ def _assign_subgroup_targets(
     for r in rows:
         if (
             1 <= r.rank < FORCE_EXIT_RANK
-            and r.asset_subgroup not in _FROZEN_SUBGROUPS
+            and r.asset_subgroup not in FROZEN_SUBGROUPS
             and r.asset_subgroup not in target_by_subgroup
         ):
             target_by_subgroup[r.asset_subgroup] = Decimal(0)
@@ -268,17 +247,14 @@ def _assign_subgroup_targets(
 
 
 def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeResponse:
-    # 1. Practical allocation (holdings-aware; consumes ELSS + non-MF scalars).
+    # 1. Practical allocation (holdings-aware; consumes the ELSS scalar).
     #    A saved / one-off customer preference has already reshaped it inside
     #    run_practical_allocation (the human_override step).
     practical = run_practical_allocation(request.practical_allocation_input)
 
     # 2. Split per-subgroup MF targets across ranked rows: held funds inside the
     #    rank band reserve what they hold, the residual goes to the best rank.
-    n_funds = _funds_per_subgroup(
-        Decimal(str(request.practical_allocation_input.total_corpus)),
-        Decimal(str(request.practical_allocation_input.non_mf_equity_corpus)),
-    )
+    n_funds = funds_per_subgroup(request.total_corpus)
     rows_with_targets = _assign_subgroup_targets(
         request.rows, practical, request.rounding_step, n_funds
     )
@@ -293,16 +269,7 @@ def run_rebalancing(request: RebalancingComputeRequest) -> RebalancingComputeRes
     # picture rather than having to be unwound.
     s2b_rows, s2b_warnings = step2b_suppress_debt_switch.apply(s2_rows, request)
     s3_rows = step3_tax_classification.apply(s2b_rows, request)
-    # Direct-stock proceeds the NFA band frees up are real spendable cash —
-    # step6 surfaces them as SELL_DIRECT_STOCKS, and the practical allocation
-    # already assumes they are redeployed. Feed them into step4's pool.
-    s4_rows, s4_warnings = step4_initial_trades_under_stcg_cap.apply(
-        s3_rows,
-        request,
-        extra_cash_inr=Decimal(
-            str(practical.corpus_breakdown.excess_direct_stocks_inr)
-        ),
-    )
+    s4_rows, s4_warnings = step4_initial_trades_under_stcg_cap.apply(s3_rows, request)
     s5_rows = step5_loss_offset_top_up.apply(s4_rows, request)
 
     all_warnings = (

@@ -127,10 +127,9 @@ def run(inp: AllocationInput, remaining_corpus: int) -> Step2Output:
     future_investment: FutureInvestment | None = None
     if funding.shortfall > 0:
         msg = (
-            "Your current savings plus your monthly investment won't fully reach "
-            "your short-term goals by their dates — the gap is "
-            f"{format_inr_indian(funding.shortfall)}. You can close it by stepping up "
-            "your SIP or by reducing some of your goals."
+            "Your short-term goals won't be fully funded by their dates — the gap is "
+            f"{format_inr_indian(funding.shortfall)}. You can close it by investing more "
+            "each month or by reducing some of your goals."
         )
         future_investment = FutureInvestment(
             bucket="short_term",

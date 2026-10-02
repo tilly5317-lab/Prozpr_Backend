@@ -20,18 +20,15 @@ from pydantic import BaseModel, Field, model_validator
 from asset_allocation_pydantic.steps.step5_aggregation import CANONICAL_SUBGROUP_ORDER
 from asset_allocation_pydantic.tables import SUBGROUP_TO_ASSET_CLASS
 
-FROZEN_SUBGROUPS: frozenset[str] = frozenset(
-    {"tax_efficient_equities", "non_mf_equities"}
-)
+FROZEN_SUBGROUPS: frozenset[str] = frozenset({"tax_efficient_equities"})
 SETTABLE_SUBGROUPS: frozenset[str] = frozenset(CANONICAL_SUBGROUP_ORDER)
 ASSET_CLASSES = ("equity", "debt", "others")
 
-# SUBGROUP_TO_ASSET_CLASS omits the two frozen practical-only rows; they ARE
-# equity for class-total purposes (they never scale — see apply_human_override).
+# SUBGROUP_TO_ASSET_CLASS omits the frozen practical-only ELSS row; it IS equity
+# for class-total purposes (it never scales).
 CLASS_OF: dict[str, str] = {
     **SUBGROUP_TO_ASSET_CLASS,
     "tax_efficient_equities": "equity",
-    "non_mf_equities": "equity",
 }
 
 _SUM_TOLERANCE = 0.5  # percentage points
@@ -116,10 +113,10 @@ def excludes(prefs, subgroup: str) -> bool:
     """Did the customer refuse this sub-group outright?
 
     THE single definition of an exclusion: a share of zero or less is a hard
-    refusal, not a pin of zero. Frozen rows (ELSS, direct stock) can never be
-    refused — they are holdings the engine cannot trade. Both the engine's pin
-    extraction and the customer-facing report read the rule from here, so the
-    two can never drift apart.
+    refusal, not a pin of zero. The frozen ELSS row can never be refused — it
+    is a holding the engine cannot trade. Both the engine's pin extraction and
+    the customer-facing report read the rule from here, so the two can never
+    drift apart.
     """
     if prefs is None or subgroup in FROZEN_SUBGROUPS:
         return False
@@ -217,7 +214,7 @@ def apply_human_override(
             # cannot tell. Only when nothing known explains it do we infer:
             # at phase 2 the remaining things that can lift a class ABOVE its
             # ask are amounts committed before the preference applied — locked
-            # ELSS / direct stock, or the emergency / goal buffers.
+            # ELSS, or the emergency / goal buffers.
             if excludes(prefs, "gold_commodities"):
                 lead = (
                     "excluding gold also removes the multi-asset fund that holds "
@@ -225,7 +222,7 @@ def apply_human_override(
                 )
             elif any(achieved[c] > req[c] + 0.5 for c in ASSET_CLASSES):
                 lead = (
-                    "what's already committed (locked ELSS / direct stock, or your "
+                    "what's already committed (locked ELSS, or your "
                     "emergency & goal buffers) limits the move"
                 )
             else:

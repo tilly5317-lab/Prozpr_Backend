@@ -28,21 +28,44 @@ ARBITRAGE_FUND_CAP_PCT: float = float(os.getenv("REBAL_ARBITRAGE_FUND_CAP_PCT", 
 # over-cap holding is not trimmed just to satisfy a tiny percentage cap.
 # For corpora ≥ ₹10L at the 10% default the floor never binds.
 FUND_CAP_FLOOR_INR: Decimal = Decimal(os.getenv("REBAL_FUND_CAP_FLOOR_INR", "100000"))
-REBALANCE_MIN_CHANGE_PCT: float = float(os.getenv("REBAL_MIN_CHANGE_PCT", "0.10"))
+# A fund row trades only when |target − present| reaches the LOWER of: a share of
+# the whole portfolio, or a share of the fund itself (max(target, present)).
+def _fraction_env(name: str, default: str) -> float:
+    """A fraction knob strictly between 0 and 1 (0.01 = 1%); anything else fails at startup."""
+    value = float(os.getenv(name, default))
+    if not 0 < value < 1:
+        raise ValueError(f"{name} must be a fraction between 0 and 1 (0.01 = 1%), got {value}")
+    return value
+
+
+REBALANCE_MIN_CHANGE_PORTFOLIO_PCT: float = _fraction_env("REBAL_MIN_CHANGE_PORTFOLIO_PCT", "0.01")
+REBALANCE_MIN_CHANGE_FUND_PCT: float = _fraction_env("REBAL_MIN_CHANGE_FUND_PCT", "0.50")
+
+
+def min_change_threshold(scale: Decimal, corpus: Decimal) -> Decimal:
+    """Smallest |diff| worth trading for a fund of size `scale` in a `corpus` portfolio."""
+    return min(
+        corpus * Decimal(str(REBALANCE_MIN_CHANGE_PORTFOLIO_PCT)),
+        scale * Decimal(str(REBALANCE_MIN_CHANGE_FUND_PCT)),
+    )
+
+
 # Subgroup fund-count selection (spec 2026-09-20). Below this line one fund takes
 # an asset_subgroup's deployable money; at or above it, two share it. Replaces
 # the old rule where the fund count was an emergent property of the per-fund cap.
 #
-# Measured on `total_corpus - non_mf_equity_corpus` — NOT `mf_corpus`, which is
-# an independent input and excludes cash (practical pipeline: `cash =
-# total_corpus - mf_corpus - non_mf_equity_corpus`). The two agree only when the
-# customer holds no cash, which is true of every sim profile.
-#
 # One knob, not three: where the line sits is ops tuning, but the counts 1 and 2
-# are the rule itself and are hardcoded in `pipeline._funds_per_subgroup`.
+# are the rule itself and are hardcoded in `funds_per_subgroup` below.
 SUBGROUP_FUND_COUNT_THRESHOLD_INR: Decimal = Decimal(
     os.getenv("REBAL_SUBGROUP_FUND_COUNT_THRESHOLD_INR", "5000000")
 )
+
+
+def funds_per_subgroup(corpus: Decimal | float) -> int:
+    """Funds sharing one subgroup's deployable money: two at or above the line, else one."""
+    return 2 if Decimal(str(corpus)) >= SUBGROUP_FUND_COUNT_THRESHOLD_INR else 1
+
+
 # Step 2b: cancel matched debt sell/buy intents so one debt fund is never sold
 # to buy another (design note 2026-07-18). Kill-switch for ops, and the seam
 # for A/B-ing the change against the simulation harnesses.
@@ -143,4 +166,8 @@ ST_THRESHOLD_MONTHS_DEBT: int = int(os.getenv("REBAL_ST_THRESHOLD_DEBT", "24"))
 #         from step 2's goal waterfall, and debt-switch netting covers every debt
 #         subgroup including off-list holdings — a held debt fund is never sold
 #         to buy another.
-ENGINE_VERSION: str = "1.14.0"
+# 1.15.0: a fund row trades only when its change reaches min(1% of the portfolio,
+#         50% of max(target, present)).
+#         Direct stocks are not an engine input.
+#         Forced-exit cash the passing buys don't need tops up buys under the bar.
+ENGINE_VERSION: str = "1.15.0"

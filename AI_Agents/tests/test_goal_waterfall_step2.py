@@ -82,7 +82,7 @@ def test_both_engines_surface_the_same_goal_funding():
     assert ideal.goal_funding.allocated_amount == 240_000
     assert ideal.goal_funding.monthly_sip_to_goals == 30_000
     practical = run_practical_allocation(
-        PracticalAllocationInput(**inp.model_dump(), mf_corpus=inp.total_corpus)
+        PracticalAllocationInput(**inp.model_dump())
     )
     assert practical.goal_funding == ideal.goal_funding
 
@@ -97,10 +97,18 @@ def test_preference_run_has_no_goal_funding():
     inp = _car_input()
     practical = run_practical_allocation(
         PracticalAllocationInput(
-            **inp.model_dump(), mf_corpus=inp.total_corpus,
+            **inp.model_dump(),
             human_override=HumanOverridePreferences(
                 asset_class_requested={"equity": 60.0, "debt": 35.0, "others": 5.0}
             ),
         )
     )
     assert practical.goal_funding is None
+
+
+def test_shortfall_message_does_not_assume_a_monthly_investment():
+    car = Goal(goal_name="Car", time_to_goal_months=12, amount_needed=600_000,
+               goal_priority="non_negotiable", amount_needed_fv=600_000)
+    out = step2_short_term.run(_inp([car], total_corpus=100_000.0), remaining_corpus=100_000)
+    assert "monthly investment" not in out.future_investment.message
+    assert "investing more each month" in out.future_investment.message

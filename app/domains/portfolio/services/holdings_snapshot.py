@@ -14,18 +14,19 @@ from typing import Any, Iterable
 
 from app.domains.mutual_funds.services.scheme_classification import classify_holding
 
-# allocation_rollup convention: these instrument types are direct equity.
-_EQUITY_INSTRUMENT_TYPES = frozenset({"equity", "stock", "share"})
+# Direct-equity instrument types. No engine corpus, target or trade includes
+# these holdings; allocation_rollup still shows them as Equity.
+DIRECT_EQUITY_INSTRUMENT_TYPES = frozenset({"equity", "stock", "share"})
 
-_SUBGROUP_NON_MF_EQUITIES = "non_mf_equities"
 _SUBGROUP_ELSS = "tax_efficient_equities"
 
 
 @dataclass(frozen=True)
 class HoldingsSnapshot:
     """Classified current-value totals. ``by_subgroup`` uses the canonical
-    scheme_classification vocabulary (frozen subgroups included); unclassifiable
-    value is carried only in ``unknown_inr`` (in the total, no gap row)."""
+    scheme_classification vocabulary (ELSS included; direct stocks never);
+    unclassifiable value is carried only in ``unknown_inr`` (in the total, no
+    gap row)."""
 
     by_subgroup: dict[str, float] = field(default_factory=dict)
     unknown_inr: float = 0.0
@@ -38,28 +39,23 @@ class HoldingsSnapshot:
     def elss_inr(self) -> float:
         return self.by_subgroup.get(_SUBGROUP_ELSS, 0.0)
 
-    @property
-    def non_mf_equity_inr(self) -> float:
-        return self.by_subgroup.get(_SUBGROUP_NON_MF_EQUITIES, 0.0)
-
 
 def aggregate_holdings(
     rows: list[tuple[str | None, float, str | None, str | None]],
 ) -> HoldingsSnapshot:
     """Pure aggregation over ``(instrument_type, current_value, sub_category,
-    scheme_name)`` tuples. Direct-stock rows (instrument_type in the equity set)
-    bucket to non_mf_equities WITHOUT classification; everything else classifies
-    via ``classify_holding``; ``(None, None)`` results accrue to unknown_inr."""
+    scheme_name)`` tuples. Direct-stock rows are skipped; everything else
+    classifies via ``classify_holding``; ``(None, None)`` results accrue to
+    unknown_inr."""
     by_subgroup: dict[str, float] = {}
     unknown = 0.0
     for instrument_type, current_value, sub_category, scheme_name in rows:
         value = float(current_value or 0.0)
         if value <= 0:
             continue
-        if (instrument_type or "").strip().lower() in _EQUITY_INSTRUMENT_TYPES:
-            key: str | None = _SUBGROUP_NON_MF_EQUITIES
-        else:
-            _asset_class, key = classify_holding(sub_category, scheme_name)
+        if (instrument_type or "").strip().lower() in DIRECT_EQUITY_INSTRUMENT_TYPES:
+            continue
+        _asset_class, key = classify_holding(sub_category, scheme_name)
         if key is None:
             unknown += value
             continue

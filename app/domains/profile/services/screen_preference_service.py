@@ -43,9 +43,9 @@ from practical_asset_allocation.human_override import (  # noqa: E402
 
 _CLASSES = ("equity", "debt", "others")
 _SUM_TOLERANCE = 0.5
-# Every sub-group is settable except the frozen HOLDINGS rows (ELSS, direct
-# stock) — the sleeve included (D-A2, 2026-09-14): a multi_asset pin sizes the
-# multi-asset fund, and a zero empties it.
+# Every sub-group is settable except the frozen ELSS holding row — the sleeve
+# included (D-A2, 2026-09-14): a multi_asset pin sizes the multi-asset fund,
+# and a zero empties it.
 _SETTABLE_IDS = frozenset(sg for sg in SETTABLE_SUBGROUPS if sg not in FROZEN_SUBGROUPS)
 # Spec 2026-09-15 §5. Read off the engine's own composition rather than written
 # out, so the class-fit check and the engine's carve cannot drift apart.

@@ -64,14 +64,13 @@ def _patch(monkeypatch, *, ranking=None):
 # ── tests ──────────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_subgroups_map_all_rows_and_set_exclude(monkeypatch):
-    """ALL practical-allocation rows (incl. the two synthetic ones) pass through
+    """ALL practical-allocation rows (incl. the synthetic one) pass through
     verbatim — the 6 bucket fields map 1:1 — and the builder hands the engine
-    ``exclude_subgroups`` so IT drops the synthetic rows from the split."""
+    ``exclude_subgroups`` so IT drops the synthetic row from the split."""
     rows = [
         _Row("large_cap", long_term=300000.0, total=300000.0),
         _Row("short_debt", short_term=100000.0, total=100000.0),
         _Row("tax_efficient_equities", long_term=50000.0, total=50000.0),
-        _Row("non_mf_equities", long_term=40000.0, total=40000.0),
     ]
     _patch(monkeypatch)
 
@@ -79,19 +78,18 @@ async def test_subgroups_map_all_rows_and_set_exclude(monkeypatch):
         _alloc(rows), deploy_amount_inr=100000.0, cadence=ib.Cadence.LUMPSUM
     )
 
-    # No hand-drop: all four rows are present in subgroups.
+    # No hand-drop: all three rows are present in subgroups.
     assert [s.subgroup for s in inp.subgroups] == [
         "large_cap",
         "short_debt",
         "tax_efficient_equities",
-        "non_mf_equities",
     ]
     lc = next(s for s in inp.subgroups if s.subgroup == "large_cap")
     assert lc.long_term == 300000.0
     assert lc.total == 300000.0
 
-    # The engine drops the synthetic rows via exclude_subgroups (zero weight).
-    assert inp.exclude_subgroups == {"tax_efficient_equities", "non_mf_equities"}
+    # The engine drops the synthetic row via exclude_subgroups (zero weight).
+    assert inp.exclude_subgroups == {"tax_efficient_equities"}
 
 
 @pytest.mark.asyncio
@@ -216,3 +214,46 @@ def test_goal_share_for_lumpsum_is_from_corpus_capped_at_deploy():
 
 def test_goal_share_for_a_preference_run_is_zero():
     assert ib.goal_share_for(None, ib.Cadence.SIP_MONTHLY, 25000.0) == (0.0, None)
+
+
+def _practical_goal_funding(monthly_sip: float):
+    """Run the real practical-allocation engine: one short-term goal (12
+    months, ₹6L FV), no short-term holdings, varying monthly_sip."""
+    from asset_allocation_pydantic.models import Goal
+    from practical_asset_allocation.pipeline import (
+        PracticalAllocationInput,
+        run_practical_allocation,
+    )
+
+    inp = PracticalAllocationInput(
+        effective_risk_score=5.5, age=40, annual_income=2_000_000,
+        osi=0.0, savings_rate_adjustment="none", gap_exceeds_3=False,
+        total_corpus=20_000_000.0, monthly_household_expense=100_000,
+        effective_tax_rate=15.0, elss_corpus=0.0,
+        short_term_holdings=0.0, monthly_sip=monthly_sip,
+        goals=[
+            Goal(
+                goal_name="short-term goal",
+                time_to_goal_months=12,
+                amount_needed=600_000,
+                amount_needed_fv=600_000,
+                goal_priority="non_negotiable",
+            )
+        ],
+    )
+    return run_practical_allocation(inp).goal_funding
+
+
+def test_goal_share_for_e2e_lumpsum_funds_the_full_gap_with_no_assumed_sip():
+    """End-to-end: a real practical-allocation run's own goal_funding, fed
+    straight into goal_share_for, proves the lumpsum path (monthly_sip=0.0)
+    gives the short-term goal its full remaining need — a monthly_sip of
+    50_000 (today's replaced behaviour) would instead cover the ₹6L/12mo goal
+    by itself, leaving goal_share_for nothing from the corpus."""
+    funding_no_sip = _practical_goal_funding(monthly_sip=0.0)
+    share, subgroup = ib.goal_share_for(funding_no_sip, ib.Cadence.LUMPSUM, 500_000.0)
+    assert (share, subgroup) == (500_000.0, funding_no_sip.asset_subgroup)
+
+    funding_with_sip = _practical_goal_funding(monthly_sip=50_000.0)
+    share, subgroup = ib.goal_share_for(funding_with_sip, ib.Cadence.LUMPSUM, 500_000.0)
+    assert (share, subgroup) == (0.0, funding_with_sip.asset_subgroup)

@@ -4,8 +4,8 @@ Money is plain ``float`` (allocation family, not Decimal). The builder reads no
 DB, ledger or NAV: subgroup rows come from the practical allocation, the goal
 share is computed by the caller with ``goal_share_for``, and the BUY list comes
 from the ranked-fund CSV. A lumpsum's ``current_value_by_subgroup`` is
-pre-aggregated by the service. The two synthetic rows (ELSS + non-MF equity) are
-passed through and excluded via ``exclude_subgroups``, not hand-dropped.
+pre-aggregated by the service. The synthetic ELSS row is passed through and
+excluded via ``exclude_subgroups``, not hand-dropped.
 """
 
 from __future__ import annotations
@@ -23,6 +23,9 @@ from additional_investment.models import (  # type: ignore[import-not-found]  # 
     RankedFund,
     SubgroupBucketAmounts,
 )
+from practical_asset_allocation.human_override import (  # type: ignore[import-not-found]  # noqa: E402
+    FROZEN_SUBGROUPS,
+)
 from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
     AINV_LUMPSUM_FUND_CAP_FLOOR_INR,
     AINV_SIP_FUND_CAP_FLOOR_INR,
@@ -31,13 +34,9 @@ from Rebalancing.config import (  # type: ignore[import-not-found]  # noqa: E402
 from Rebalancing.tables import cap_pct_for  # type: ignore[import-not-found]  # noqa: E402
 
 
-# Synthetic practical-allocation rows the additional-investment engine never
-# buys into: ELSS (SEBI 3-yr lock-in) and non-MF equity (direct stocks / PMS).
-# This engine is MF-BUY-only, so they are handed to the engine as
-# ``exclude_subgroups`` — NOT hand-dropped from the subgroup list. The engine
-# zero-weights them and renormalises the split onto the remaining (eligible)
-# subgroups.
-_EXCLUDE_SUBGROUPS = frozenset({"tax_efficient_equities", "non_mf_equities"})
+# The engine never buys into a frozen holding row (ELSS lock-in): it is handed
+# over as ``exclude_subgroups``, which zero-weights it and renormalises the split.
+_EXCLUDE_SUBGROUPS = FROZEN_SUBGROUPS
 
 
 def goal_share_for(
@@ -114,8 +113,7 @@ async def build_additional_investment_input_for_user(
         current_value_by_subgroup=(
             current_value_by_subgroup if deficit_mode else None
         ),
-        # 1 vs 2 funds per subgroup by corpus (spec 2026-09-24); pre-computed by
-        # the caller as total_corpus − non_mf_equity, cadence-aware.
+        # 1 vs 2 funds per subgroup by corpus; pre-computed by the caller.
         investable_corpus_inr=investable_corpus_inr,
         # Vestigial cap knobs — retained on the model, ignored by selection since
         # spec 2026-09-24 (kept like medium_term/max_pct to avoid builder churn).

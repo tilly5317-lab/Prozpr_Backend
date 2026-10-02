@@ -442,7 +442,7 @@ def _drop_small_equity_subgroups(
     """Apply the v2 average-based equity-subgroup slider (spec §B.5 step 9,
     R196-R215) via the shared ``apply_equity_subgroup_slider`` helper.
 
-    In the ideal engine ``locked_amount = 0`` (no ELSS / non-MF exposure), so
+    In the ideal engine ``locked_amount = 0`` (no ELSS exposure), so
     the slider collapses to a flat 8% threshold (``SLIDER_BASE_PCT``) — same
     behaviour as the prior ``MIN_EQUITY_SUBGROUP_SHARE_PCT`` constant but now
     applied against the equity-for-subgroups pool (post-multi-asset carve)
@@ -456,7 +456,7 @@ def _drop_small_equity_subgroups(
     result, _min_pct, _avg = apply_equity_subgroup_slider(
         equity_subgroup_amounts,
         equity_pool=equity_for_subgroups,
-        equities_amount=0,  # ideal engine: no ELSS/non-MF → locked_share = 0
+        equities_amount=0,  # ideal engine: no ELSS → locked_share = 0
         locked_amount=0,
     )
     return result

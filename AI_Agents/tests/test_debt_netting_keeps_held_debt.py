@@ -34,8 +34,8 @@ def _step2b(rows):
         effective_risk_score=5.5, age=40, annual_income=2_000_000, osi=0.0,
         savings_rate_adjustment="none", gap_exceeds_3=False, shortfall_amount=0.0,
         total_corpus=float(CORPUS), monthly_household_expense=100_000,
-        effective_tax_rate=15.0, financial_assets=float(CORPUS), goals=[],
-        mf_corpus=float(CORPUS), non_mf_equity_corpus=0, elss_corpus=0,
+        effective_tax_rate=15.0, goals=[],
+        elss_corpus=0,
     )
     req = RebalancingComputeRequest(
         practical_allocation_input=inp, tax_regime="new", effective_tax_rate_pct=30.0, rows=rows,
@@ -72,3 +72,21 @@ def test_force_exit_debt_still_exits():
     ])
     assert by_isin["BAD"].exit_flag is True
     assert by_isin["BAD"].diff == Decimal("-500000")
+
+
+def test_a_netted_residual_above_one_pct_of_the_portfolio_still_trades():
+    by_isin = _step2b([
+        _row("LIQ", "near_debt", 0, "0", "3000000", is_recommended=False),
+        _row("ARB", "arbitrage", 1, "2850000", "0", sub_category="Arbitrage Fund"),
+    ])
+    assert by_isin["LIQ"].diff == Decimal("-150000")
+    assert by_isin["LIQ"].worth_to_change is True
+
+
+def test_a_netted_residual_below_the_bar_is_absorbed():
+    by_isin = _step2b([
+        _row("LIQ", "near_debt", 0, "0", "3000000", is_recommended=False),
+        _row("ARB", "arbitrage", 1, "2950000", "0", sub_category="Arbitrage Fund"),
+    ])
+    assert by_isin["LIQ"].diff == Decimal(0)
+    assert by_isin["LIQ"].worth_to_change is False

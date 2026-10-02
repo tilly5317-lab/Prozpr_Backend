@@ -94,6 +94,10 @@ class PracticalAssetAllocationRun(CasScoped, Base):
     )
 
     # ---- practical-only corpus breakdown ------------------------------------
+    # mf_corpus, non_mf_equity_input, non_mf_equity_actual, excess_direct_stocks
+    # and max_non_mf_equity_pct_computed below are no longer written (always 0
+    # on new rows); kept only until a later drop migration — analytics must not
+    # read 0 here as "no stocks" or "zero corpus".
     mf_corpus: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     non_mf_equity_input: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0

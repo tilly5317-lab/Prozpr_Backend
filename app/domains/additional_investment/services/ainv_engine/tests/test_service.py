@@ -160,13 +160,9 @@ async def test_blocking_when_allocation_pre_check_fails():
     )
 
 
-def _fake_corpus_breakdown(total_corpus_inr=1_000_000, non_mf_equity_input_inr=0):
-    """Minimal corpus_breakdown stand-in — the service reads total_corpus_inr and
-    non_mf_equity_input_inr off it to size investable_corpus_inr (spec 2026-09-24)."""
-    return SimpleNamespace(
-        total_corpus_inr=total_corpus_inr,
-        non_mf_equity_input_inr=non_mf_equity_input_inr,
-    )
+def _fake_corpus_breakdown(total_corpus_inr=1_000_000):
+    """Minimal corpus_breakdown stand-in — the service reads total_corpus_inr."""
+    return SimpleNamespace(total_corpus_inr=total_corpus_inr)
 
 
 def _fake_alloc():
@@ -241,10 +237,9 @@ async def test_lumpsum_pins_corpus_and_passes_map():
         by_subgroup={
             "low_beta_equities": 400000.0,
             "tax_efficient_equities": 50000.0,
-            "non_mf_equities": 30000.0,
         },
         unknown_inr=20000.0,
-    )  # total 500k
+    )  # total 470k
     user = SimpleNamespace(id=uuid.uuid4())
     paa_mock = AsyncMock(return_value=_fake_alloc())
     builder_mock = AsyncMock(return_value=(_fake_ainv_input(500000.0), {}))
@@ -269,10 +264,8 @@ async def test_lumpsum_pins_corpus_and_passes_map():
         )
 
     pin = paa_mock.call_args.kwargs["corpus_pin"]
-    assert pin.total_corpus == pytest.approx(1000000.0)       # 500k + 5L
+    assert pin.total_corpus == pytest.approx(970000.0)        # 470k + 5L
     assert pin.elss_corpus == pytest.approx(50000.0)
-    assert pin.non_mf_equity_corpus == pytest.approx(30000.0)
-    assert pin.mf_corpus == pytest.approx(970000.0)           # total - stocks + X
     assert (
         builder_mock.call_args.kwargs["current_value_by_subgroup"]
         == snapshot.by_subgroup
@@ -473,12 +466,8 @@ def test_sizing_corpus_populates_the_target_bucket():
             total_corpus=total_corpus,
             monthly_household_expense=100_000,
             effective_tax_rate=15.0,
-            financial_assets=total_corpus,
             goals=[],
-            mf_corpus=total_corpus,
-            non_mf_equity_corpus=0.0,
             elss_corpus=0.0,
-            max_non_mf_equity_pct_client_input=None,
         )
 
     zero = run_practical_allocation(_mk(0.0))
@@ -750,7 +739,7 @@ async def test_lumpsum_uses_long_term_holdings_and_facts_count_goal_money():
         )
 
     assert paa.call_args.kwargs["short_term_holdings"] == 150_000.0
-    assert paa.call_args.kwargs["monthly_sip"] is None
+    assert paa.call_args.kwargs["monthly_sip"] == 0.0
     assert builder.call_args.kwargs["current_value_by_subgroup"] == {
         "near_debt": 0.0, "arbitrage": 0.0, "low_beta_equities": 400_000.0,
     }

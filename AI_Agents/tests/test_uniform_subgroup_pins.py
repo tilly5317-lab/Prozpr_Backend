@@ -311,9 +311,9 @@ class TestSubgroupPins:
         assert gold_excluded is True
 
     def test_frozen_holdings_rows_are_ignored(self):
-        """ELSS and direct stock are holdings, not preferences. The pydantic
-        model already rejects them, so this is defence in depth against a
-        hand-built prefs object."""
+        """ELSS is a holding, not a preference. The pydantic model already
+        rejects it, so this is defence in depth against a hand-built prefs
+        object."""
         from types import SimpleNamespace
 
         from practical_asset_allocation.pipeline import _subgroup_pins
@@ -321,7 +321,6 @@ class TestSubgroupPins:
         stub = SimpleNamespace(
             subgroup_emphasis={
                 "tax_efficient_equities": 50.0,
-                "non_mf_equities": 0.0,
                 "low_beta_equities": 10.0,
             }
         )
@@ -539,9 +538,9 @@ class TestSleeveSizeNoDrift:
         """Without this the guard above could pass vacuously — all three
         variants binding on the same term would test one branch three times."""
         expected = {
-            "default": (4_345_846, 7_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
-            "heavy_elss": (1_884_308, 3_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
-            "risk_10": (8_668_000, 15_533_000, 2_167_000, 0),  # debt room binds
+            "default": (4_961_231, 8_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
+            "heavy_elss": (2_499_692, 4_062_000, 8_668_000, 1_970_000),  # 0.40 cap binds
+            "risk_10": (8_668_000, 16_533_000, 2_167_000, 0),  # debt room binds
         }
         for name, overrides in self.VARIANTS.items():
             _inp, s4 = self._live(**overrides)
@@ -574,14 +573,13 @@ class TestSleeveSizeNoDrift:
 # Percentages of grand_total, 2dp, rows with a positive total.
 NEUTRAL_SUBGROUP_MIX = {
     "short_debt": 1.5,
-    "arbitrage_plus_income": 37.91,
-    "multi_asset": 21.73,
-    "low_beta_equities": 9.39,
-    "medium_beta_equities": 5.06,
-    "us_equities": 6.74,
-    "gold_commodities": 7.68,
+    "arbitrage_plus_income": 37.14,
+    "multi_asset": 24.81,
+    "low_beta_equities": 10.72,
+    "medium_beta_equities": 5.77,
+    "us_equities": 7.7,
+    "gold_commodities": 7.37,
     "tax_efficient_equities": 5.0,
-    "non_mf_equities": 5.0,
 }
 
 C_85_7_8 = {"equity": 85.0, "debt": 7.0, "others": 8.0}
@@ -709,7 +707,6 @@ class TestEquityStillAddsUp:
             dedicated = (
                 sum(s4["equity_subgroup_amounts"].values())
                 + s4["elss_amount_frozen"]
-                + s4["non_mf_equity_actual"]
             )
             sleeve_equity = eq_frac * s4["multi_asset_block"]["multi_asset_amount"]
             assert abs(dedicated + sleeve_equity - s4["equities_amount"]) <= 5_000, (
@@ -817,10 +814,10 @@ class TestTheDefaultPathNeverMoves:
 
     def test_the_risk_9_5_sleeve_survives_its_zero_commodity_class(self):
         """The profile that proves the trap is real: others == 0 with a live
-        ₹92L sleeve. Clamping by the commodity room here would zero it."""
+        ₹98L sleeve. Clamping by the commodity room here would zero it."""
         _inp, _out, s4 = _run(effective_risk_score=9.5)
         assert s4["others_amount"] == 0
-        assert s4["multi_asset_block"]["multi_asset_amount"] == 9_195_077
+        assert s4["multi_asset_block"]["multi_asset_amount"] == 9_810_462
 
 
 class TestExcludedResidualRowsAreActuallyEmptied:
@@ -930,17 +927,15 @@ class TestTheDisclosureNamesTheRealCause:
         return run_practical_allocation(inp.model_copy(update={"human_override": prefs}))
 
     def test_excluding_gold_names_the_exclusion_not_locked_holdings(self):
-        clean = make_practical_input(
-            elss_corpus=0.0, non_mf_equity_corpus=0.0, mf_corpus=20_000_000.0
-        )
-        assert clean.elss_corpus == 0.0 and clean.non_mf_equity_corpus == 0.0
+        clean = make_practical_input(elss_corpus=0.0)
+        assert clean.elss_corpus == 0.0
         reason = self._run(clean, gold_commodities=0.0).human_override_applied.shortfall_reason
         assert reason is not None
         assert "excluding gold" in reason
         assert "locked ELSS" not in reason, "must not blame holdings the customer does not have"
 
     def test_locked_holdings_still_get_the_committed_lead(self):
-        locked = make_practical_input(elss_corpus=12_000_000.0, mf_corpus=7_000_000.0)
+        locked = make_practical_input(elss_corpus=12_000_000.0)
         from practical_asset_allocation.human_override import HumanOverridePreferences
         from practical_asset_allocation.pipeline import run_practical_allocation
 
@@ -954,9 +949,7 @@ class TestTheDisclosureNamesTheRealCause:
         assert "excluding gold" not in reason
 
     def test_the_gap_figures_are_still_reported(self):
-        clean = make_practical_input(
-            elss_corpus=0.0, non_mf_equity_corpus=0.0, mf_corpus=20_000_000.0
-        )
+        clean = make_practical_input(elss_corpus=0.0)
         reason = self._run(clean, gold_commodities=0.0).human_override_applied.shortfall_reason
         assert "asked 8%" in reason and "landed 0.0%" in reason
 
@@ -986,8 +979,6 @@ class TestAPinNeverAbsorbsTheSliderFreedRoom:
             self.CLASS,
             {"low_beta_equities": 45.0},
             total_corpus=self.CORPUS,
-            financial_assets=self.CORPUS,
-            mf_corpus=self.CORPUS - 2_000_000.0,
             effective_risk_score=9.4,
         )
 
@@ -1006,7 +997,7 @@ class TestAPinNeverAbsorbsTheSliderFreedRoom:
             pre,
             equity_pool=s4["residual_equity_corpus_final"],
             equities_amount=s4["equities_amount"],
-            locked_amount=s4["elss_amount_frozen"] + s4["non_mf_equity_actual"],
+            locked_amount=s4["elss_amount_frozen"],
             share_denominator=s4["equity_share_denominator"],
             exempt=frozenset({"low_beta_equities"}),
         )
@@ -1052,8 +1043,6 @@ class TestADebtPinRoutesTheResidualToItsOwnRow:
             self.CLASS,
             emphasis,
             total_corpus=self.CORPUS,
-            financial_assets=self.CORPUS,
-            mf_corpus=self.CORPUS - 2_000_000.0,
         )
 
     def test_a_short_debt_pin_is_where_the_residual_lands(self):

@@ -219,5 +219,38 @@ class GoalFundingInputTests(unittest.TestCase):
         self.assertEqual(alloc_input.monthly_sip, 0.0)
 
 
+def _holding(itype, value, sub_category=None, name="X"):
+    md = SimpleNamespace(sub_category=sub_category, scheme_name=name) if sub_category else None
+    return SimpleNamespace(
+        instrument_type=itype, current_value=value, instrument_name=name, fund_metadata=md
+    )
+
+
+def _pick(total_value, holdings):
+    from app.domains.asset_allocation.services.aa_engine.input_builder import pick_total_corpus
+
+    primary = SimpleNamespace(is_primary=True, total_value=total_value, holdings=holdings)
+    return pick_total_corpus(
+        SimpleNamespace(financial_assets=0.0), SimpleNamespace(portfolio_value=0.0), [primary]
+    )
+
+
+_MF = _holding("mutual_fund", 1_000_000.0, "Large Cap Fund", "Alpha Large Cap")
+_STOCK = _holding("equity", 500_000.0, name="RELIANCE")
+
+
+def test_direct_stocks_in_the_portfolio_total_are_left_out():
+    assert _pick(1_500_000.0, [_MF, _STOCK]) == 1_000_000.0
+
+
+def test_a_stock_row_left_behind_by_a_cams_upload_does_not_lower_the_corpus():
+    # CAMS rewrites total_value as MF-only but keeps the bank-sync stock row.
+    assert _pick(1_000_000.0, [_MF, _STOCK]) == 1_000_000.0
+
+
+def test_a_portfolio_with_no_holdings_falls_back_to_its_total():
+    assert _pick(800_000.0, []) == 800_000.0
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,8 @@ from ..config import (
     MULTI_FUND_CAP_PCT,
     OTHERS_FUND_CAP_PCT,
     RANK_PROTECT_BAND,
-    REBALANCE_MIN_CHANGE_PCT,
+    REBALANCE_MIN_CHANGE_FUND_PCT,
+    REBALANCE_MIN_CHANGE_PORTFOLIO_PCT,
     ST_THRESHOLD_MONTHS_DEBT,
     ST_THRESHOLD_MONTHS_EQUITY,
     STCG_RATE_EQUITY_PCT,
@@ -57,7 +58,8 @@ def _build_knob_snapshot() -> KnobSnapshot:
         multi_fund_cap_pct=MULTI_FUND_CAP_PCT,
         others_fund_cap_pct=OTHERS_FUND_CAP_PCT,
         fund_cap_floor_inr=FUND_CAP_FLOOR_INR,
-        rebalance_min_change_pct=REBALANCE_MIN_CHANGE_PCT,
+        rebalance_min_change_portfolio_pct=REBALANCE_MIN_CHANGE_PORTFOLIO_PCT,
+        rebalance_min_change_fund_pct=REBALANCE_MIN_CHANGE_FUND_PCT,
         exit_floor_rating=EXIT_FLOOR_RATING,
         ltcg_annual_exemption_inr=LTCG_ANNUAL_EXEMPTION_INR,
         stcg_rate_equity_pct=STCG_RATE_EQUITY_PCT,
@@ -80,75 +82,25 @@ def _build_knob_snapshot() -> KnobSnapshot:
 
 
 def _frozen_subgroups(practical: PracticalAllocationOutput) -> list[SubgroupSummary]:
-    """Two frozen entries for non-MF exposures the engine doesn't trade
-    per-fund. Sourced from practical.corpus_breakdown."""
-    cb = practical.corpus_breakdown
-    elss = Decimal(str(cb.elss_corpus_inr))
-    nme_input = Decimal(str(cb.non_mf_equity_input_inr))
-    nme_actual = Decimal(str(cb.non_mf_equity_actual_inr))
-
-    out: list[SubgroupSummary] = []
-    if elss > 0:
-        out.append(
-            SubgroupSummary(
-                asset_subgroup="tax_efficient_equities",
-                goal_target_inr=elss,
-                current_holding_inr=elss,
-                suggested_final_holding_inr=elss,
-                rebalance_inr=Decimal(0),
-                total_buy_inr=Decimal(0),
-                total_sell_inr=Decimal(0),
-                ranks_total=0,
-                ranks_with_holding=0,
-                ranks_with_action=0,
-                actions=[],
-            )
+    """ELSS is held but never traded per fund; surface it as a frozen entry."""
+    elss = Decimal(str(practical.corpus_breakdown.elss_corpus_inr))
+    if elss <= 0:
+        return []
+    return [
+        SubgroupSummary(
+            asset_subgroup="tax_efficient_equities",
+            goal_target_inr=elss,
+            current_holding_inr=elss,
+            suggested_final_holding_inr=elss,
+            rebalance_inr=Decimal(0),
+            total_buy_inr=Decimal(0),
+            total_sell_inr=Decimal(0),
+            ranks_total=0,
+            ranks_with_holding=0,
+            ranks_with_action=0,
+            actions=[],
         )
-    if nme_input > 0 or nme_actual > 0:
-        out.append(
-            SubgroupSummary(
-                asset_subgroup="non_mf_equities",
-                goal_target_inr=nme_actual,
-                current_holding_inr=nme_input,
-                suggested_final_holding_inr=nme_actual,
-                rebalance_inr=nme_actual - nme_input,
-                total_buy_inr=Decimal(0),
-                total_sell_inr=Decimal(0),
-                ranks_total=0,
-                ranks_with_holding=0,
-                ranks_with_action=0,
-                actions=[],
-            )
-        )
-    return out
-
-
-def _sell_direct_stocks_action(
-    practical: PracticalAllocationOutput,
-) -> TradeAction | None:
-    """C.6(b): single SELL_DIRECT_STOCKS trade when the NFA-banded cap has
-    trimmed the customer's direct-stock allocation."""
-    excess = Decimal(str(practical.corpus_breakdown.excess_direct_stocks_inr))
-    if excess <= 0:
-        return None
-    title, text = get_rationale("sell_excess_direct_stocks")
-    # `common.format_inr_indian` is the project standard (see
-    # `AI_Agents/src/common.py`); import locally to avoid a top-level dep
-    # on the cross-agent helper at module load time.
-    from common import format_inr_indian  # type: ignore[import-not-found]
-
-    return TradeAction(
-        isin=None,
-        asset_subgroup="non_mf_equities",
-        sub_category=None,
-        recommended_fund=None,
-        action="SELL_DIRECT_STOCKS",
-        amount_inr=excess,
-        reason_code="sell_excess_direct_stocks",
-        reason_title=title,
-        reason_text=text.replace("{amount}", format_inr_indian(int(excess))),
-        fund_reason=None,
-    )
+    ]
 
 
 def _row_has_action(r: FundRowAfterStep5) -> bool:
@@ -313,7 +265,11 @@ def apply(
     )
     funds_to_exit = sum(1 for r in rows if r.exit_flag and r.present_allocation_inr > 0)
     funds_held = sum(
-        1 for r in rows if not r.worth_to_change and r.present_allocation_inr > 0
+        1
+        for r in rows
+        if not r.worth_to_change
+        and not _row_has_action(r)
+        and r.present_allocation_inr > 0
     )
 
     totals = RebalancingTotals(
@@ -347,7 +303,7 @@ def apply(
     # `add_to_target` (spec 2026-09-20).
     best_buyer_rank: dict[str, int] = {}
     for r in rows:
-        if r.pass1_buy_amount > 0 and 1 <= r.rank < FORCE_EXIT_RANK:
+        if r.pass1_buy_amount > 0 and r.worth_to_change and 1 <= r.rank < FORCE_EXIT_RANK:
             cur = best_buyer_rank.get(r.asset_subgroup)
             if cur is None or r.rank < cur:
                 best_buyer_rank[r.asset_subgroup] = r.rank
@@ -355,6 +311,7 @@ def apply(
         r.isin
         for r in rows
         if r.pass1_buy_amount > 0
+        and r.worth_to_change
         and 1 <= r.rank < FORCE_EXIT_RANK
         and r.rank != best_buyer_rank.get(r.asset_subgroup)
     }
@@ -364,9 +321,6 @@ def apply(
         ta = _trade_action_for(r, split_isins)
         if ta:
             trade_list.append(ta)
-    sds = _sell_direct_stocks_action(practical)
-    if sds is not None:
-        trade_list.append(sds)
 
     subgroups = _build_subgroups(rows) + _frozen_subgroups(practical)
     # Preserve the biggest-first sort across MF + frozen entries.

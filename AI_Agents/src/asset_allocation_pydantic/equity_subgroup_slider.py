@@ -15,12 +15,12 @@ The slider formula (R198-R199):
     second_term  = min(SLIDER_AVG_CAP_PCT, average_subgroup_pct)
     min_pct_required = max(first_term, second_term)
 
-In the ideal engine ``locked_amount = 0`` (no ELSS / non-MF holdings exposure),
+In the ideal engine ``locked_amount = 0`` (no ELSS holdings exposure),
 so ``locked_share = 0``, ``first_term = SLIDER_BASE_PCT = 8`` and the slider
 collapses to flat 8% — matching the prior ``MIN_EQUITY_SUBGROUP_SHARE_PCT``
 constant. The denominator used for share % is the equity pool that ACTUALLY
 funds the subgroups (i.e. post-multi-asset for both engines, and additionally
-post-ELSS/non-MF for practical).
+post-ELSS for practical).
 """
 
 from __future__ import annotations
@@ -77,15 +77,14 @@ def apply_equity_subgroup_slider(
         equities_amount: full long-term equity budget (denominator for the
             locked_share calc). Pass 0 in the ideal engine — locked_share will
             collapse to 0 and the slider locks at SLIDER_BASE_PCT.
-        locked_amount: ELSS + non-MF actual (0 in the ideal engine).
+        locked_amount: ELSS (practical engine; 0 in the ideal engine).
         share_denominator: denominator used to compute the per-subgroup share
             % (and therefore the ``avg_subgroup_pct`` that feeds
             ``second_term``). Defaults to ``equity_pool`` — preserves
             ideal-engine behaviour. The practical engine passes
-            ``residual_equity_corpus_final + multi_asset_amount +
-            non_mf_equity_actual`` so the comparison is against the share of
-            the TOTAL equity pool (Excel R194+R187+R181), not just the
-            MF-only residual.
+            ``residual_equity_corpus_final + multi_asset_amount`` so the
+            comparison is against the share of the TOTAL equity pool (Excel
+            R194+R187), not just the MF-only residual.
         exempt: subgroups the customer pinned explicitly (D-A1). The slider
             exists to stop the ENGINE producing dust positions, and it cannot
             tell an engine-made sliver from a number the customer typed — so a

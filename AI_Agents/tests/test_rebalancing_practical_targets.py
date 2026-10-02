@@ -95,19 +95,16 @@ def test_a_subgroup_the_practical_plan_funds_is_unchanged():
     assert by["LOW_BETA_EQUITIES_1"].target_amount_pre_cap == Decimal(str(low_beta))
 
 
-def test_frozen_subgroups_still_pass_through_untouched():
-    """ELSS / non-MF equity are absent from the target map BY DESIGN — step6
-    surfaces them from `corpus_breakdown`. Zeroing them here would erase the
-    frozen rows the ideal-vs-practical UI renders."""
+def test_the_frozen_elss_subgroup_still_passes_through_untouched():
+    """ELSS is absent from the target map BY DESIGN — step6 surfaces it from
+    `corpus_breakdown`."""
     by = _assign(
         [
             _row("tax_efficient_equities", 1, "1000000"),
-            _row("non_mf_equities", 1, "1000000"),
         ]
     )
 
     assert by["TAX_EFFICIENT_EQUITIES_1"].target_amount_pre_cap == Decimal("1000000")
-    assert by["NON_MF_EQUITIES_1"].target_amount_pre_cap == Decimal("1000000")
 
 
 def test_off_list_and_force_exit_rows_in_an_absent_subgroup_pass_through():
@@ -171,7 +168,7 @@ def test_per_subgroup_targets_sum_to_the_practical_allocation_on_the_payload():
     not add up."""
     resp, practical = _e2e_response()
 
-    frozen = {"tax_efficient_equities", "non_mf_equities"}
+    frozen = {"tax_efficient_equities"}
     engine_total = sum(
         (s.goal_target_inr for s in resp.subgroups if s.asset_subgroup not in frozen),
         Decimal(0),

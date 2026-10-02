@@ -60,9 +60,9 @@ def test_multi_asset_is_a_settable_pin():
 
 
 def test_locked_holding_rows_are_still_rejected():
-    # ELSS and direct stock are HOLDINGS the engine cannot trade, not
-    # preferences — unblocking the sleeve must not unblock them.
-    for sg in ("tax_efficient_equities", "non_mf_equities"):
+    # ELSS is a HOLDING the engine cannot trade, not a preference —
+    # unblocking the sleeve must not unblock it.
+    for sg in ("tax_efficient_equities",):
         with pytest.raises(ScreenPreferenceError):
             resolve_screen_preferences(
                 {"equity": 72, "debt": 18, "others": 10},
@@ -155,7 +155,7 @@ def test_catalog_offers_multi_asset_and_excludes_frozen_holdings():
     out = _fake_run(1_000_000, [("multi_asset", 500_000), ("low_beta_equities", 150_000)])
     cat = {c.id: c for c in subcategory_catalog(out)}
     assert cat["multi_asset"].recommended_pct_of_total == 50.0
-    assert "tax_efficient_equities" not in cat and "non_mf_equities" not in cat
+    assert "tax_efficient_equities" not in cat
 
 
 async def test_save_translates_persists_and_refreshes(monkeypatch):

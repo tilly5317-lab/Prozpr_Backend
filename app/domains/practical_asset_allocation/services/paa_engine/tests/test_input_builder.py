@@ -37,19 +37,16 @@ def captured(monkeypatch):
     return seen
 
 
-def test_corpus_pin_overrides_all_four_scalars(monkeypatch, captured):
+def test_corpus_pin_overrides_both_scalars(monkeypatch, captured):
     monkeypatch.setattr(
         input_builder, "build_goal_allocation_input_for_user",
         lambda ctx: (_fake_base(999999.0), {}),   # profile figure — must lose
     )
     pin = input_builder.CorpusPin(
-        total_corpus=550000.0, mf_corpus=500000.0,
-        non_mf_equity_corpus=30000.0, elss_corpus=20000.0,
+        total_corpus=550000.0, elss_corpus=20000.0,
     )
     input_builder.build_practical_allocation_input_for_user(None, corpus_pin=pin)
     assert captured["total_corpus"] == 550000.0
-    assert captured["mf_corpus"] == 500000.0
-    assert captured["non_mf_equity_corpus"] == 30000.0
     assert captured["elss_corpus"] == 20000.0
 
 
@@ -60,8 +57,6 @@ def test_no_pin_keeps_profile_defaults(monkeypatch, captured):
     )
     input_builder.build_practical_allocation_input_for_user(None)
     assert captured["total_corpus"] == 999999.0
-    assert captured["mf_corpus"] == 999999.0
-    assert captured["non_mf_equity_corpus"] == 0.0
     assert captured["elss_corpus"] == 0.0
 
 

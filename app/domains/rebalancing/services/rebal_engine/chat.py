@@ -510,8 +510,8 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
       | ... one row per group_flows entry ... |
       | **Total** | ₹6.29 crore | — | ₹6.29 crore |
     In the totals row COPY total_portfolio_indian for Current AND Final (a rebalance
-    preserves the corpus, so Net change is "—" / ₹0 unless direct_stock_sale is
-    present) — do NOT re-add the columns yourself. Then the fund-level trade list,
+    preserves the corpus, so Net change is "—" / ₹0) — do NOT re-add the columns
+    yourself. Then the fund-level trade list,
     which gives the specific funds behind the groups. Any commentary about where
     money moves is ONE short lead-in sentence, not a per-group paragraph — the table
     carries the numbers. When a category preference moved a shared subgroup, add ONE

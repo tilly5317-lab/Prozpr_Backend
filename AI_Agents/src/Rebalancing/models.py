@@ -153,9 +153,8 @@ class FundRowAfterStep5(FundRowAfterStep4):
 
 
 class RebalancingComputeRequest(BaseModel):
-    # The four corpus scalars (total / mf / non-MF equity / ELSS) and all
-    # profile/goal/market-view fields ride on this nested input. The previous
-    # top-level `total_corpus` is now `practical_allocation_input.total_corpus`.
+    # The corpus scalars (total / ELSS) and all profile/goal/market-view fields
+    # ride on this nested input.
     practical_allocation_input: PracticalAllocationInput
     tax_regime: Literal["old", "new"]
     effective_tax_rate_pct: float = Field(ge=0.0, le=100.0)
@@ -235,7 +234,9 @@ class KnobSnapshot(BaseModel):
     # Rupee floor on the per-fund cap (amendment 2026-07-06); default so
     # KnobSnapshot payloads persisted before the field existed still parse.
     fund_cap_floor_inr: Decimal = Decimal("0")
-    rebalance_min_change_pct: float
+    # None = the snapshot predates these knobs (it ran at 10% of the fund).
+    rebalance_min_change_portfolio_pct: Optional[float] = None
+    rebalance_min_change_fund_pct: Optional[float] = None
     exit_floor_rating: int
     ltcg_annual_exemption_inr: Decimal
     stcg_rate_equity_pct: float
@@ -266,19 +267,18 @@ class RebalancingRunMetadata(BaseModel):
 
 
 class TradeAction(BaseModel):
-    isin: Optional[str] = None
+    isin: str
     asset_subgroup: str
-    sub_category: Optional[str] = None
-    recommended_fund: Optional[str] = None
-    action: Literal["BUY", "SELL", "EXIT", "SELL_DIRECT_STOCKS"]
+    sub_category: str
+    recommended_fund: str
+    action: Literal["BUY", "SELL", "EXIT"]
     amount_inr: Decimal
     reason_code: str  # machine — stable, analytics
     reason_title: str  # customer card header
     reason_text: str  # customer card body, one sentence
     # Per-fund rationale from the ranking CSV. BUY or SELL-trim of a
     # recommended fund → selection_reason; EXIT of a BAD/off-list fund →
-    # joined rejection reasons. None only when no fund-specific reason exists
-    # (e.g. SELL_DIRECT_STOCKS, which isn't a ranked MF).
+    # joined rejection reasons. None when no fund-specific reason exists.
     fund_reason: Optional[str] = None
 
 
@@ -294,12 +294,9 @@ class SubgroupSummary(BaseModel):
     only traded rows, use the `ranks_with_action` count or check each
     row's pass1_buy_amount / pass1_sell_amount / pass2_sell_amount.
 
-    **Frozen subgroups** (`tax_efficient_equities`, `non_mf_equities`):
-    step6 emits these with `actions = []` because they have no MF rows
-    in the engine — their amounts come straight from
-    `practical_allocation.corpus_breakdown` and no trades are generated
-    against them inside the engine (`SELL_DIRECT_STOCKS` rides on
-    `trade_list`, not on `SubgroupSummary.actions`)."""
+    **Frozen subgroup** (`tax_efficient_equities`): step6 emits it with
+    `actions = []` because ELSS has no MF rows in the engine — its amount comes
+    straight from `practical_allocation.corpus_breakdown`."""
 
     asset_subgroup: str
     goal_target_inr: Decimal  # what goal allocation said we want
@@ -323,5 +320,5 @@ class RebalancingComputeResponse(BaseModel):
     warnings: list[RebalancingWarning] = Field(default_factory=list)
     # Verbatim passthrough of the practical allocation output for the
     # ideal-vs-practical UI. Same shape as GoalAllocationOutput + an extras
-    # `corpus_breakdown` block surfacing ELSS / non-MF equity numbers.
+    # ``corpus_breakdown`` block surfacing the ELSS numbers.
     practical_allocation: PracticalAllocationOutput
