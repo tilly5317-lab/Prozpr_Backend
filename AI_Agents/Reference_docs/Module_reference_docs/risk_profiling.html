@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Hybrid · deterministic scoring + Haiku summary</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-15
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -273,7 +273,7 @@
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">Hybrid<br/>(scores by hand, narrates with LLM)</div></div>
   <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
-  <div class="cell"><div class="k">Trigger / caller</div><div class="v">not a chat intent —<br/>profile-update → <code>_effective_risk</code> service</div></div>
+  <div class="cell"><div class="k">Trigger / caller</div><div class="v">not a chat intent —<br/>profile / onboarding / sync writes → <code>_effective_risk</code> service</div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_risk_profiling</code><br/>(<code>main.py</code>)</div></div>
   <div class="cell"><div class="k">Steps / LLM passes</div><div class="v">5 deterministic steps<br/>+ 1 Haiku prose pass</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">scores exact &amp; reproducible;<br/>only the summary wording varies</div></div>
@@ -287,7 +287,7 @@
 
 The module lives at [`AI_Agents/src/risk_profiling/`](../../src/risk_profiling/). It answers one question the whole downstream allocation stack depends on: **how much risk should this client's portfolio carry?** The answer is a number in `[1, 10]` — the `effective_risk_score` — plus the supporting flags and a customer-facing paragraph.
 
-It is **not a chat intent**. Nothing in the intent classifier routes here. It runs when a client's profile changes (risk answers, finances, a birthday), is called by the app-layer `_effective_risk` service, and its `effective_risk_score` is later read — *caller-wired, not imported* — by the asset-allocation input builder (see §2).
+It is **not a chat intent**. Nothing in the intent classifier routes here. It runs when a client's profile is written (risk answers, finances, onboarding), after a portfolio or statement sync, or on a manual recalculate call — always through the app-layer `_effective_risk` service — and its persisted `effective_risk_score` is later read — *caller-wired, not imported* — by the asset-allocation input builder (see §2). Age is re-derived from date of birth on every recompute, so a birthday reaches the score at the next trigger; no scheduled job runs it.
 
 The defining design decision mirrors `mutual_fund_query`'s in spirit but inverts the ratio: **the numbers are done before the LLM is ever called.** Every score, flag and category is produced by deterministic Python in [`scoring.py`](../../src/risk_profiling/scoring.py). Haiku's only job is [`main.py`](../../src/risk_profiling/main.py)'s trailing step — turn those computed values into 4–5 warm sentences without ever restating a raw score or exposing an internal field name.
 
@@ -299,7 +299,7 @@ flowchart LR
     LLM --> OUT([same dict, now with<br/>effective_risk_score + risk_summary])
 ```
 
-Two things make this shape robust: the scores never depend on the LLM (so a summary failure can't corrupt a number), and the arithmetic is deterministic (so the same profile always yields the same score, category and flags — only the prose is probabilistic).
+Two things make this shape robust: the scores never depend on the LLM (so a summary failure can't corrupt a number), and the arithmetic is deterministic (so the same profile always yields the same score, category and flags — only the prose can vary). The two steps still run as one unit in production: if the Haiku call fails, nothing is persisted and the previous assessment stays in place (§8).
 
 ---
 
@@ -309,43 +309,59 @@ The engine is a peer agent: it imports **no other agent**, only the shared [`com
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream (trigger)** | profile PATCH → [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) → [`_effective_risk/merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | a profile change (risk answers, finances) rebuilds the input and re-runs scoring; `merge.py` recomputes calculations/output every time, reusing untouched inputs |
-| **Gateway (the only caller)** | [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) → `compute_effective_risk_document` | builds the plain-`dict` payload and calls `run_risk_profiling(payload, api_key=…)`; `service.py` runs it via `asyncio.to_thread` so the sync LLM call never blocks the event loop |
-| **Willingness source** | app-layer [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) → `derive_risk_willingness` → **this module's** [`willingness.py`](../../src/risk_profiling/willingness.py) `compute_risk_willingness` | `risk_willingness ∈ [1,10]` is handed in **already resolved**: the 4-question model (`risk_level` → Q1 plus the three behavioural sentences) is the primary source, with an explicit stored `RiskProfile.risk_willingness` override and a legacy `risk_willingness_from_risk_level` fallback (§8) |
-| **Downstream consumer** | [`asset_allocation/…/aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` — **caller-wired data, not a package import** |
+| **Upstream (trigger)** | `maybe_recalculate_effective_risk` → `upsert_effective_risk_assessment` in [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) → [`_effective_risk/merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | profile, onboarding and portfolio/ingest routes call it after their write (best-effort — it never raises to the route); `build_computation_input` derives fresh inputs from the DB, `merge_computation_inputs` refreshes only the trigger's own inputs (plus `age`) and carries the rest forward from the stored `inputs`, and scoring then reruns in full (table below) |
+| **Gateway (the only caller)** | [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) → `compute_effective_risk_document` | builds the plain-`dict` payload (age truncated to `int`, an `occupation_type` outside `OSI_MAP` mapped to `private_sector`, `risk_willingness` clamped to `[1,10]`) and calls `run_risk_profiling(payload, api_key=get_settings().get_anthropic_risk_profiling_key())` — `RISK_PROFILING_API_KEY`, falling back to `ANTHROPIC_API_KEY`; `service.py` runs it via `asyncio.to_thread` so the sync LLM call never blocks the event loop |
+| **Willingness source** | app-layer [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) → `derive_risk_willingness` → **this module's** [`willingness.py`](../../src/risk_profiling/willingness.py) `compute_risk_willingness` | `risk_willingness ∈ [1,10]` is handed in **already resolved**: an explicit stored `RiskProfile.risk_willingness` wins; otherwise the 4-question model (`risk_level` → Q1 plus the three behavioural sentences); otherwise the neutral `5.0` (also used when the customer has no `RiskProfile` row) — §5, §8 |
+| **Downstream consumer** | [`asset_allocation/…/aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) `build_goal_allocation_input_for_user` | reads the persisted row onto `AllocationInput` — **caller-wired data, not a package import**: `effective_risk_score` (clamped to `[1,10]`; `7.0` when the customer has no row), the `risk_capacity_score` / `risk_willingness` columns, and `calculations.osi`, `savings_rate_adjustment`, `gap_exceeds_3`. The practical input builder wraps this function, so ideal, practical, rebalancing, additional-investment and preferences-screen runs all take the score from here. A chat allocation what-if (`counterfactual_explore`) can substitute a score for one turn via `chat_overrides`; it never re-runs this module or touches the stored row |
+| **Other readers** | `GET /profile/effective-risk` (profile router); [`portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | the stored assessment as-is; `effective_risk_score` for the portfolio-query client context |
 
-> **The engine touches no DB.** If you are looking for "where does the stored score get read", it is the AA input builder in the app layer — the engine only ever returns the dict. And note the entry point the app calls is **`run_risk_profiling`**, which threads an explicit `api_key` for per-module spend attribution; the LCEL `risk_profiling_chain` is dev-tooling only.
+> **The engine touches no DB.** If you are looking for "where does the stored score get read", it is the AA input builder in the app layer — the engine only ever returns the dict. And note the entry point the app calls is **`run_risk_profiling`**, which threads an explicit `api_key` for per-module spend attribution; the LCEL `risk_profiling_chain` is dev-tooling only. A recompute does not itself re-run any allocation; engines pick the new score up the next time they build their input.
+
+### What triggers a recompute
+
+Each caller passes a `trigger_reason`; `merge.py`'s `_MERGE_KEYS_BY_TRIGGER` decides which inputs are re-read from the DB. `age` is always refreshed; with no stored assessment yet, every input is fresh.
+
+| `trigger_reason` | Fired by | Inputs refreshed from the DB |
+|---|---|---|
+| `risk_profile_update` | `PUT /profile/risk` | `occupation_type`, `risk_willingness` (+ `age`) |
+| `investment_profile_update` | `PUT /profile/investment` | income, expense, financial assets, liabilities, mortgage, properties (+ `age`) |
+| `onboarding_profile_update` | `POST /onboarding/profile` | `age`, `annual_income`, `annual_expense` |
+| `portfolio_allocation_update` · `finvu_portfolio_sync` · `simbanks_sync` | `PUT /portfolio/allocations` · `POST /portfolio/finvu/sync` (deprecated route) · `POST /simbanks/sync` | `age` only |
+| `personal_finance_update` · `cams_pdf_ingest` · `onboarding_generation` · `manual` | `PUT /profile/personal-finance` · `POST /mf-ingest/cams-pdf` · the onboarding-generation job · `POST /profile/effective-risk/recalculate` (optional `as_of` date for age) | all inputs — a trigger absent from the merge table, or `manual`, is a full refresh |
+
+The merge table also defines `birthday` and `scheduled` (age-only), but nothing fires them. A customer with no date of birth is skipped (no row is written; the AA input builder then uses its `7.0` default), and a merge error falls back to the full fresh inputs. Every recompute logs `Effective risk recomputed user=… trigger=… effective_risk_score a -> b | risk_willingness a -> b`, and `PUT /profile/risk` also logs which questionnaire answers changed.
 
 ---
 
 ## 3. Input contract
 
-The documented shape is `RiskProfileInput` in [`models.py`](../../src/risk_profiling/models.py). In production, though, the gateway passes a **plain `dict`** with these exact keys — the pydantic model is the contract-on-paper and dev-tooling validator, not what crosses the boundary at runtime.
+The documented shape is `RiskProfileInput` in [`models.py`](../../src/risk_profiling/models.py). In production, though, the gateway passes a **plain `dict`** with these exact keys — the pydantic model is the contract-on-paper and dev-tooling validator, not what crosses the boundary at runtime. The production source of each field is `build_computation_input` in [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py); the household-finance scalars come through `profile_finance` (the same resolver cashflow and allocation use), each floored at `0`.
 
 | Field | Type | Notes |
 |---|---|---|
-| `age` | `int` | clamped to `[20, 90]` inside Step A |
-| `occupation_type` | `OccupationType` literal | one of six; keys `OSI_MAP` — but OSI does **not** move the score (§8) |
-| `annual_income` | `float` | `0` ⇒ savings-rate step skips (sentinel path) |
-| `annual_expense` | `float` | |
-| `financial_assets` | `float` | `≤ 0` → `current_debt_percent` sentinel `999.0` ("no financial assets"); expense-coverage collapses to ratio `0.0`, score `1.0` |
-| `liabilities_excluding_mortgage` | `float` | mortgage is handled separately |
-| `annual_mortgage_payment` | `float` | counts against expense-coverage + debt, but not as a `liability` |
-| `properties_owned` | `int` | `0`, `1`, or `>1` — three-way score |
-| `risk_willingness` | `float`, `ge=1, le=10` | **supplied by the caller** — resolved by `derive_risk_willingness` via this module's 4-question `willingness.py` model (§8) |
+| `age` | `int` | years from `users.date_of_birth` (days ÷ 365.25), truncated to `int` at the gateway; clamped to `[20, 90]` inside Step A. No DOB ⇒ no recompute |
+| `occupation_type` | `OccupationType` literal | one of six; keys `OSI_MAP` — but OSI does **not** move the score (§8). Read from `risk_profiles.occupation_type`, `private_sector` when unset or unrecognised |
+| `annual_income` | `float` | `personal_finance_profiles.annual_income`; `0` ⇒ savings-rate step skips (sentinel path) |
+| `annual_expense` | `float` | `monthly_household_expense × 12` |
+| `financial_assets` | `float` | `personal_finance_profiles.financial_assets`; `≤ 0` → `current_debt_percent` sentinel `999.0` ("no financial assets"); expense-coverage collapses to ratio `0.0`, score `1.0` |
+| `liabilities_excluding_mortgage` | `float` | `financial_liabilities_excl_mortgage`; feeds `current_debt_percent` and the reported `net_financial_assets` |
+| `annual_mortgage_payment` | `float` | counts against expense-coverage + debt, but not as a `liability`. **The live derivation always yields `0`** (§8) |
+| `properties_owned` | `int` | `0`, `1`, or `>1` — three-way score. **The live derivation always yields `0`** (§8) |
+| `risk_willingness` | `float`, `ge=1, le=10` | **supplied by the caller** — resolved by `derive_risk_willingness` via this module's 4-question `willingness.py` model (§5), clamped to `[1,10]` at the gateway |
 
 ---
 
 ## 4. Output contract
 
-The engine returns an **open `dict`**, not a fixed pydantic model — the app layer indexes it by key and persists `calculations` + `output` as JSON. The shape:
+The engine returns an **open `dict`**, not a fixed pydantic model — the app layer indexes it by key and persists it. The shape:
 
 ```
 {
   "step_name": "risk_profile",
   "inputs":   { …the payload echoed back verbatim… },
   "calculations": {
-     "age_based_score", "age_calculation", "clamped_age",
+     "clamped_age", "age_anchor_low", "age_anchor_high",
+     "age_based_score", "age_calculation",
      "savings_rate", "savings_rate_adjustment", "savings_rate_boost_pct",
      "net_financial_assets", "expense_coverage_ratio", "expense_coverage_score",
      "current_debt_percent", "current_debt_score", "own_property_score",
@@ -364,6 +380,8 @@ The engine returns an **open `dict`**, not a fixed pydantic model — the app la
 ```
 
 The two load-bearing outputs are **`output.effective_risk_score`** (consumed downstream) and **`output.risk_summary`** (shown to the customer). `calculations.risk_profile_category` is the human-readable band (Conservative → Aggressive) from `category_for_effective_risk_score`; `gap_exceeds_3` is the "let's talk before allocating" flag.
+
+`service.py` persists one row per user in `effective_risk_assessments` ([`EffectiveRiskAssessment`](../../../app/domains/profile/models/effective_risk_assessment.py), unique `user_id`, upserted in place): the whole dict as `payload`, `calculations` and `output` as their own JSONB columns, and three scalar columns — `effective_risk_score`, `risk_capacity_score` (= `calculations.risk_capacity_score_clamped`) and `risk_willingness` (= `inputs.risk_willingness`) — plus `trigger_reason` and `computed_at`. The stored `payload.inputs` is what the next incremental recompute carries forward.
 
 ---
 
@@ -384,11 +402,24 @@ flowchart TD
 
 | Step | File / fn | What it computes |
 |---|---|---|
-| **A — Age → base capacity** | [`scoring.py`](../../src/risk_profiling/scoring.py) `_age_score` | piecewise-linear interpolation over `AGE_ANCHORS` (age 20→score 10 … age 90→score 1), age clamped to `[20,90]` |
-| **B — Savings-rate signal** | `_savings_adjustment` | `savings_rate = (income−expense)/income`; `<0.01` → `equity_reduce`, `>0.20` → `equity_boost` (+ a boost %), else `none`. **Informational — it does not move the score** (§8) |
-| **C — Assets & liabilities** | `_asset_scores` | `net_asset_score = 0.40·expense_coverage_score + 0.30·current_debt_score + 0.30·own_property_score` |
+| **A — Age → base capacity** | [`scoring.py`](../../src/risk_profiling/scoring.py) `_age_score` | piecewise-linear interpolation over `AGE_ANCHORS` (20→10, 30→9, 40→8, 50→7, 55→6, 60→5, 65→4, 70→3, 80→2, 90→1), age clamped to `[20,90]` |
+| **B — Savings-rate signal** | `_savings_adjustment` | `savings_rate = (income−expense)/income`; `<0.01` → `equity_reduce`, `>0.20` → `equity_boost` (boost % = `min(30, (rate−0.20)/0.40·30)`), else `none`; income `0` → `skipped` with `savings_rate = None`. **Informational — it does not move the score** (§8) |
+| **C — Assets & liabilities** | `_asset_scores` | coverage ratio `= assets / (expense + mortgage)` → score `1` below `0.5×`, `10` above `12×`, linear between; debt % `= 100·(liabilities + mortgage) / assets` → score `10` below `6%`, `1` above `100%`, linear between; property score `10` (>1 owned) / `8` (1) / `2` (0). `net_asset_score = 0.40·expense_coverage_score + 0.30·current_debt_score + 0.30·own_property_score` |
 | **C-cont — Risk capacity** | `_risk_capacity` | `raw = age_based_score + 0.50·(net_asset_score − 5)`, then **clamped to `[1,10]`** (`was_clamped` / `clamp_direction` record if it hit a rail) |
-| **D/E — Blend, OSI, flag, band** | `compute_all_scores` tail | `effective_risk_score = round(0.7·willingness + 0.3·capacity, 1)`; `osi = OSI_MAP[occupation]` (recorded, **not** blended); `gap = |willingness − capacity|`, `gap_exceeds_3 = gap > 3`; category via `common.category_for_effective_risk_score` |
+| **D/E — Blend, OSI, flag, band** | `compute_all_scores` tail | `effective_risk_score = round(0.7·willingness + 0.3·capacity, 1)`; `osi = OSI_MAP[occupation]` (recorded, **not** blended); `gap = \|willingness − capacity\|`, `gap_exceeds_3 = gap > 3`; category via `common.category_for_effective_risk_score`: below `2.125` Conservative · below `4.375` Moderately Conservative · below `6.625` Moderate · below `8.875` Moderately Aggressive · else Aggressive |
+
+### The willingness input
+
+`risk_willingness` is scored before this pipeline runs, by [`willingness.py`](../../src/risk_profiling/willingness.py) `compute_risk_willingness`, which the app's `derive_risk_willingness` calls with the customer's stored answers:
+
+| Question | Stored as | Contributes |
+|---|---|---|
+| Q1 investment preference | `risk_level` 0–4 (onboarding letter A–E) | score `2 / 4 / 6 / 8 / 10` |
+| Q2 investment experience | full option sentence | **cap** `7 / 8 / 9 / 10` (novice → experienced) |
+| Q3 investment focus | full option sentence | score `2 / 4 / 6 / 8 / 10` |
+| Q4 reaction to a drop | full option sentence | score `2 / 4 / 6 / 8 / 10` |
+
+`avg` = mean of the answered Q1/Q3/Q4 (2 dp); `lift = min + 2` when the lowest of them is below `5`, else `10`; `risk_willingness = min(avg, lift, Q2 cap)`, rounded to 2 dp. An unanswered or unrecognised answer is left out (a missing Q2 drops the cap); with none of Q1/Q3/Q4 answered the Q2 cap alone is the result, and with nothing answered it is `None`, which the app turns into the neutral `5.0`. Example: `risk_level` 3 (8), novice (cap 7), "Balanced" focus (6), "Accept volatility" (8) → `min(7.33, 10, 7) = 7.0`.
 
 ### Prompt plumbing
 
@@ -398,13 +429,15 @@ There is no `.md` prompt file — the summary prompt is assembled in [`prompts.p
 
 ### A profile, end to end (worked example)
 
-Watch the numbers move through the five steps, then get *narrated* — never recomputed. *(All values below are illustrative, not real client rows.)*
+Watch the numbers move through the five steps, then get *narrated* — never recomputed. *(The client is illustrative, not a real row; the arithmetic is what the current `compute_all_scores` returns for this payload. Mortgage and property are `0` because the live derivation always sends `0` for them — §8.)*
 
 <div class="step-panel">
-  <div class="label">Input (illustrative dict payload)</div>
+  <div class="label">Input (production-shaped dict payload)</div>
 <pre><code>age=35 · occupation_type="private_sector" · annual_income=₹20L
 annual_expense=₹12L · financial_assets=₹50L · liabilities_excl_mortgage=₹2L
-annual_mortgage_payment=₹3L · properties_owned=1 · risk_willingness=7.0</code></pre>
+annual_mortgage_payment=0 · properties_owned=0
+risk_willingness=7.0   (risk_level 3 → 8, novice cap 7, Balanced → 6, Accept volatility → 8:
+                        min(7.33, 10, 7) = 7.0)</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
@@ -412,31 +445,31 @@ annual_mortgage_payment=₹3L · properties_owned=1 · risk_willingness=7.0</cod
 <div class="step-panel">
   <div class="label">Steps A–C · deterministic scoring</div>
 <pre><code>A  age 35 between anchors (30→9),(40→8): 9 + (35-30)/10*(8-9) = 8.5   age_based_score
-B  savings_rate = (20-12)/20 = 0.40  > 0.20  → equity_boost, boost ≈ 15.0%   (narrative only)
-C  expense_coverage = 50 / (12+3) = 3.33x → score ≈ 3.22
-   current_debt%   = 100*(2+3)/50 = 10%   → score ≈ 9.62
-   own_property    = 1 property           → score  8.00
-   net_asset_score = 0.40*3.22 + 0.30*9.62 + 0.30*8.00 ≈ 6.57</code></pre>
+B  savings_rate = (20-12)/20 = 0.40  > 0.20  → equity_boost, boost = 15.0%   (narrative only)
+C  expense_coverage = 50 / (12+0) = 4.17x → score ≈ 3.87
+   current_debt%   = 100*(2+0)/50 = 4%    → below 6%  → score 10.00
+   own_property    = 0 properties         → score  2.00
+   net_asset_score = 0.40*3.87 + 0.30*10.00 + 0.30*2.00 ≈ 5.15</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
   <div class="label">Steps C-cont / D-E → output</div>
-<pre><code>capacity_raw   = 8.5 + 0.50*(6.57-5) ≈ 9.29   (in [1,10], not clamped)
-effective_risk = round(0.7*7.0 + 0.3*9.29, 1) = 7.7
-gap            = |7.0 - 9.29| ≈ 2.29  → gap_exceeds_3 = false
+<pre><code>capacity_raw   = 8.5 + 0.50*(5.15-5) ≈ 8.57   (in [1,10], not clamped)
+effective_risk = round(0.7*7.0 + 0.3*8.57, 1) = 7.5
+gap            = |7.0 - 8.57| ≈ 1.57  → gap_exceeds_3 = false
 osi            = 0.8 (private_sector, recorded — not blended)
-category       = "Moderately Aggressive"   (6.625 ≤ 7.7 < 8.875)</code></pre>
+category       = "Moderately Aggressive"   (6.625 ≤ 7.5 < 8.875)</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="chat">
-  <div class="bubble pi"><div class="who">Pi (Haiku · risk_summary)</div>At 35, with decades ahead of you and a healthy habit of saving around 40% of what you earn, you've got real room to let your money grow — your profile lands as <strong>Moderately Aggressive</strong>. Your finances comfortably back that up: your assets could cover several years of living costs, your debt is modest, and you own a property. You've told us you're fairly adventurous, and your financial footing supports leaning into that. It's a well-matched picture — nothing here is pulling in two directions.</div>
+  <div class="bubble pi"><div class="who">Pi (Haiku · risk_summary)</div>At 35, with decades ahead of you and a healthy habit of saving around 40% of what you earn, you've got real room to let your money grow — your profile lands as <strong>Moderately Aggressive</strong>. Your finances back that up: your savings could cover about four years of living costs, and your debt is light. You've told us you're fairly adventurous, and your financial footing supports leaning into that. It's a well-matched picture — nothing here is pulling in two directions.</div>
 </div>
 
-Every fact in the paragraph traces to a computed value — `risk_profile_category` verbatim, the ~40% from `savings_rate_pct`, the reassurance because `gap_exceeds_3` is false. **No number was invented and none was recomputed by the model.**
+Every fact in the paragraph traces to a computed value — `risk_profile_category` verbatim, the ~40% from `savings_rate_pct`, "about four years" from the pre-rendered `4.2x` coverage, the reassurance because `gap_exceeds_3` is false. **No number was invented and none was recomputed by the model.** (The paragraph is illustrative of the prompt's contract, not a captured reply.)
 
 ---
 
@@ -447,9 +480,9 @@ Every fact in the paragraph traces to a computed value — `risk_profile_categor
 | Part | Where | Determinism |
 |---|---|---|
 | all scores, flags, category | [`scoring.py`](../../src/risk_profiling/scoring.py) + `common.category_for_effective_risk_score` | **fully deterministic** — same input → identical `effective_risk_score`, `risk_profile_category`, `gap_exceeds_3` |
-| `risk_summary` prose | [`main.py`](../../src/risk_profiling/main.py) `_generate_summary` → Haiku | probabilistic *wording only*; `max_tokens=400`, structured output |
+| `risk_summary` prose | [`main.py`](../../src/risk_profiling/main.py) `_generate_summary` → Haiku | *wording only* can vary; `temperature=0`, `max_tokens=400`, structured output |
 
-The chain is built with LangChain `ChatAnthropic` (repo convention — no raw `anthropic.messages.create`). `_get_summary_chain` is `@cache`d **per api_key**, so spend is attributed to the risk-profiling key passed by the gateway rather than mutated into process-global env state (which raced under async and was silently ignored after the first build — audit F8).
+The chain is built with LangChain `ChatAnthropic` (repo convention — no raw `anthropic.messages.create`), with `temperature=0` pinned as a literal (the repo-wide `test_temperature_is_pinned.py` scan checks it). `_get_summary_chain` is `@cache`d **per api_key**, so spend is attributed to the risk-profiling key the gateway passes. Never attribute spend by mutating `ANTHROPIC_API_KEY` around the call: that races under async concurrency, and the cached chain keeps whichever key it was first built with.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
@@ -468,47 +501,55 @@ The chain is built with LangChain `ChatAnthropic` (repo convention — no raw `a
 | [`prompts.py`](../../src/risk_profiling/prompts.py) | `summary_prompt` (`ChatPromptTemplate`) + `RiskProfileSummary` structured-output schema + the plain-language guardrail body |
 | [`models.py`](../../src/risk_profiling/models.py) | `RiskProfileInput` — the documented input contract (runtime payload is a plain dict) |
 | [`__init__.py`](../../src/risk_profiling/__init__.py) | re-exports `run_risk_profiling`, `risk_profiling_chain`, `RiskProfileInput`, `compute_all_scores`, `compute_risk_willingness` |
-| [`Testing/`](../../src/risk_profiling/Testing/) | `test_willingness.py` — the willingness questionnaire's edge cases |
-| `dev_run.py` / `customer_test_data.py` | 100-profile smoke runner + canned profiles (dev-only; the `.json`/`.csv` are captured artifacts, not schemas) |
+| [`Testing/`](../../src/risk_profiling/Testing/) | `test_willingness.py` — the willingness questionnaire's edge cases (gitignored folder: local checkout only) |
+| `dev_run.py` | 100-profile smoke runner: deterministic scoring for all 100, the full LLM chain for 5 (dev-only; writes `dev_output.json`) |
+| `customer_test_data.py` | 5 dummy customer profiles run through the full chain, or scoring only with `--no-llm` (dev-only; writes `customer_test_output.json` — that file and the `.csv` beside it are captured artifacts, not schemas) |
+| `README.md` | short human guide; its diagram names a `chain.py` that does not exist (§8) |
 
 App-layer companions (not part of the engine, but where it is wired):
 
 | File | Role |
 |---|---|
-| [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) | the gateway `compute_effective_risk_document` — the only production caller of the scoring chain (`run_risk_profiling`) |
-| [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) | `derive_risk_willingness` — resolves the `risk_willingness` float; the only production caller of `willingness.py` |
-| [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) · [`merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | trigger + incremental re-merge + persistence |
-| [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted `effective_risk_score` onto `AllocationInput` |
+| [`_effective_risk/calculation.py`](../../../app/domains/profile/services/_effective_risk/calculation.py) | the gateway `compute_effective_risk_document` — the only production caller of the scoring chain (`run_risk_profiling`); also holds `risk_willingness_from_risk_level` |
+| [`_effective_risk/inputs.py`](../../../app/domains/profile/services/_effective_risk/inputs.py) | `build_computation_input` (DB rows → input) and `derive_risk_willingness` — resolves the `risk_willingness` float; the only production caller of `willingness.py` |
+| [`_effective_risk/service.py`](../../../app/domains/profile/services/_effective_risk/service.py) · [`merge.py`](../../../app/domains/profile/services/_effective_risk/merge.py) | `maybe_recalculate_effective_risk` / `upsert_effective_risk_assessment` (trigger + persistence) and `merge_computation_inputs` (per-trigger incremental re-merge) |
+| [`models/effective_risk_assessment.py`](../../../app/domains/profile/models/effective_risk_assessment.py) | `EffectiveRiskAssessment` — the `effective_risk_assessments` table, one row per user |
+| [`routers/profile_router.py`](../../../app/domains/profile/routers/profile_router.py) | `GET /profile/effective-risk`, `POST /profile/effective-risk/recalculate` (`manual`), and the `PUT /profile/risk` · `/investment` · `/personal-finance` triggers |
+| [`aa_engine/input_builder.py`](../../../app/domains/asset_allocation/services/aa_engine/input_builder.py) | reads the persisted assessment onto `AllocationInput` (§2) |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **`willingness.py` is wired into production — editing it moves live scores.** `compute_risk_willingness` (the Q1–Q4 instrument) is the primary source of `risk_willingness`: the app-layer [`derive_risk_willingness`](../../../app/domains/profile/services/_effective_risk/inputs.py) calls it with the customer's `risk_level` (Q1) and the three behavioural answer sentences (Q2–Q4), preferring an explicit stored `RiskProfile.risk_willingness` when set and falling back to the legacy `risk_willingness_from_risk_level` (0–4 → 1–10) only when the model yields nothing. So **changing the scores, the lift rule, the experience cap, or the frontend→key reference tables changes live `effective_risk_score` and therefore allocations.** The three text tables must stay byte-exact with the frontend `BEHAV_Q*_OPTIONS` (a `test_willingness.py` guard enforces this); a reworded or legacy option is treated as unanswered, never an error.
-- **OSI is recorded, not blended.** `osi = OSI_MAP[occupation_type]` lands in `calculations`, but `effective_risk_score` is `0.7·willingness + 0.3·capacity` only. Occupation stability does **not** move the headline (matches Logics thesis principle 5 / the "steady job didn't reward me" Q&A). Wiring it in is a deliberate future change, not a bug to "fix".
-- **The savings-rate step is narrative-only.** `_savings_adjustment` produces `equity_boost` / `equity_reduce` / `none` for the *summary* to acknowledge, but `_risk_capacity` never reads it — capacity depends solely on `age_based_score` and `net_asset_score`. Don't let a refactor quietly feed it into the score.
+- **`willingness.py` is wired into production — editing it moves live scores.** `compute_risk_willingness` (the Q1–Q4 instrument) is the primary source of `risk_willingness`: the app-layer [`derive_risk_willingness`](../../../app/domains/profile/services/_effective_risk/inputs.py) calls it with the customer's `risk_level` (Q1) and the three behavioural answer sentences (Q2–Q4), preferring an explicit stored `RiskProfile.risk_willingness` when set. So **changing the scores, the lift rule, the experience cap, or the frontend→key reference tables changes live `effective_risk_score` and therefore allocations.** The three text tables must stay byte-exact with the frontend `BEHAV_Q*_OPTIONS` (a `test_willingness.py` guard enforces this); a reworded or retired option is treated as unanswered, never an error.
+- **An unanswered questionnaire resolves to `5.0`.** `derive_risk_willingness` still calls `risk_willingness_from_risk_level` (0–4 → 1–10) when the model returns `None`, but that mapping cannot produce a value there: any `risk_level` in 0–4 already gives the model a Q1 score, so the model only returns `None` when `risk_level` is missing or out of range — where the mapping is `None` too. The effective rule is stored override → model → neutral `5.0`.
+- **Mortgage and property never reach the live score.** `build_computation_input` reads `annual_mortgage_payment` and `properties_owned` off `InvestmentProfile` with `getattr(…, None) or 0`, and that model has no such columns (property detail lives in `user_current_properties`). The fresh derivation is therefore `0` / `0` for every customer: `own_property_score` is `2.0` (the "owns nothing" score) and the mortgage adds nothing to expense-coverage or debt. Outside dev tooling, a non-zero value can only appear when an incremental trigger carries it forward from an older stored `inputs` block.
+- **Occupation usually defaults.** `derive_occupation_type` falls back to `private_sector` (OSI `0.8`) when `risk_profiles.occupation_type` is unset, and the frontend's risk-profile payload does not carry that field. It cannot move the score (next bullet), but it is what the summary's income-stability sentence is built from.
+- **OSI is recorded, not blended.** `osi = OSI_MAP[occupation_type]` lands in `calculations`, but `effective_risk_score` is `0.7·willingness + 0.3·capacity` only. Occupation stability does **not** move the headline (matches the Logics thesis's Stage 4 note and its "My job is steady but the score didn't reward it" Q&A). The AA input builder copies `osi` onto `AllocationInput`, but no allocation step reads it. Wiring it in is a deliberate future change, not a bug to "fix".
+- **The savings-rate step is narrative-only.** `_savings_adjustment` produces `equity_boost` / `equity_reduce` / `none` / `skipped` for the *summary* to acknowledge, but `_risk_capacity` never reads it — capacity depends solely on `age_based_score` and `net_asset_score`. The AA input builder copies it (and `gap_exceeds_3`) onto `AllocationInput`, where no allocation step reads it either. Don't let a refactor quietly feed it into the score.
 - **Scores are deterministic; keep them that way.** Same input ⇒ identical `effective_risk_score`, `risk_profile_category`, `gap_exceeds_3`. Never route a number through the LLM — the LLM writes prose only. A summary failure must never corrupt a score.
-- **Sentinels are contract signals, not junk.** `999.0` (coverage/debt) means "no financial assets" or "no expenses to cover"; `savings_rate None` means "no income data". `_generate_summary` pre-translates them to English before the prompt — don't strip that and hand raw `999.0` to Haiku.
+- **A Haiku failure blocks the whole recompute.** `run_risk_profiling` scores and then summarises in one call, so an LLM error raises out of the gateway; `upsert_effective_risk_assessment` logs it and returns `None` without writing. The stored row keeps its previous score, and a customer with no row yet stays on the AA input builder's `7.0` default until a later trigger succeeds.
+- **Sentinels are contract signals, not junk.** `current_debt_percent = 999.0` means no financial assets; `expense_coverage_ratio = 999.0` means assets are positive but expense + mortgage is `0` (nothing to cover — coverage score `10`); with no assets the coverage ratio is `0.0` (score `1`), not a sentinel; `savings_rate None` means no income. `_generate_summary` pre-translates both `999.0` values to the same English string, `"N/A (no financial assets)"` — right for debt, a mislabel for the zero-expense coverage case (a profile with assets but no household expense entered). Don't strip the translation and hand raw `999.0` to Haiku.
 - **Clamp is real and recorded.** `risk_capacity` is clamped to `[1,10]`; `was_clamped` / `clamp_direction` capture it, and the guardrail forbids the word "clamped" reaching the customer. `risk_willingness` is likewise coerced to `[1,10]` at the gateway.
-- **Output is an open dict, keyed by string.** The app indexes `calculations`/`output` by key and persists them as JSON. Renaming a key (e.g. `effective_risk_score`, `risk_profile_category`) is a breaking change to persistence and to the AA input builder — grep before you rename.
-- **Stale internal references — trust the files that exist.** `scoring.py`'s docstring cites *"risk_profile.md"* and a comment cites *"chain.py"*; `main.py`'s module docstring cites both (`risk_profile.md` and a `from risk_profiling.chain import …` usage line). **Neither file exists** — the real entry is `main.py` and there is no prompt `.md`. Don't go hunting for them.
-- **Failure isolation via LangChain.** All Claude calls go through `ChatAnthropic` (repo rule); the summary chain is `@cache`d per `api_key` so spend attribution can't race — never revert to env-var mutation for the key.
+- **Output is an open dict, keyed by string.** The app indexes `calculations`/`output` by key and persists them as JSON. Renaming a key (e.g. `effective_risk_score`, `risk_profile_category`, `osi`, `savings_rate_adjustment`, `gap_exceeds_3`) is a breaking change to persistence and to the AA input builder — grep before you rename.
+- **Stale internal references — trust the files that exist.** `scoring.py`'s docstring cites *"risk_profile.md"* and a comment cites *"chain.py"*; `main.py`'s module docstring cites both (`risk_profile.md` and a `from risk_profiling.chain import …` usage line); the module `README.md` diagram names `chain.py`. **Neither file exists** — the real entry is `main.py` and there is no prompt `.md`. Don't go hunting for them. Likewise the `_effective_risk` module docstrings say `risk_profiling.scoring` is used when building `AllocationInput`; it is not — the AA input builder reads only the persisted row.
+- **LangChain only, key per call.** All Claude calls go through `ChatAnthropic` (repo rule); the summary chain is `@cache`d per `api_key` so spend attribution can't race — never attribute spend by mutating the env var.
 
 ---
 
 ## 9. Extend & test
 
-- **Change scoring math** → edit [`scoring.py`](../../src/risk_profiling/scoring.py) (anchors, weights, clamp). Because the score grounds every downstream allocation, a math change isn't complete until [Logics_reference_docs/Risk_Profiling.md](../Logics_reference_docs/Risk_Profiling.md) is re-checked and version-bumped (repo's "Logics docs track the engines" rule) — describe production behaviour, not dormant capability (OSI / savings-rate).
+- **Change scoring math** → edit [`scoring.py`](../../src/risk_profiling/scoring.py) (anchors, weights, clamp). The score grounds every downstream allocation, and [Logics_reference_docs/Risk_Profiling.md](../Logics_reference_docs/Risk_Profiling.md) grounds customer-facing chat answers about it (attached to asset-allocation `narrate` / `educate` replies via `logic_docs.py`), so a math change leaves that thesis out of step with the code. Reference docs are refreshed when a human asks, not as part of the code change (root `CLAUDE.md`) — flag the drift to whoever owns the refresh, and describe production behaviour, not dormant capability (OSI / savings-rate).
 - **Change summary wording / guardrails** → edit `_RISK_BODY` and the field list in [`prompts.py`](../../src/risk_profiling/prompts.py). Adding a fact the paragraph may state means adding it to the human-message template *and* pre-formatting any sentinel/rupee value in `_generate_summary` first.
-- **Tests** — the committed unit suite is the willingness scorer:
+- **Tests** — none of the three suites is tracked in git: each sits under a gitignored path (`AI_Agents/src/*/Testing/`, `app/domains/profile/services/_effective_risk/tests`, `app/core/tests`), so they exist and run only in a local checkout.
 
   | Level | Where | Covers |
   |---|---|---|
-  | willingness engine | [`Testing/test_willingness.py`](../../src/risk_profiling/Testing/test_willingness.py) | Q1–Q4 scoring from **frontend-native inputs** (`risk_level` + full option sentences), the `min(avg, lift, Q2_cap)` combine, every `None`/unrecognised-answer path, and a drift guard that the reference tables match the live frontend `BEHAV_Q*_OPTIONS` |
-  | willingness wiring | [`_effective_risk/tests/test_effective_risk_inputs.py`](../../../app/domains/profile/services/_effective_risk/tests/test_effective_risk_inputs.py) | `derive_risk_willingness` — model-primary, stored override, legacy fallback, graceful handling of unrecognised answers |
-  | per-module key | [`app/core/tests/test_per_module_api_keys.py`](../../../app/core/tests/test_per_module_api_keys.py) | that `run_risk_profiling` receives the explicitly-threaded `api_key`, not ambient env |
+  | willingness engine | [`Testing/test_willingness.py`](../../src/risk_profiling/Testing/test_willingness.py) | Q1–Q4 scoring from **frontend-native inputs** (`risk_level` + full option sentences), the `min(avg, lift, Q2_cap)` combine, every `None`/unrecognised-answer path, and a drift guard that the reference tables match the frontend `BEHAV_Q*_OPTIONS` (skipped when the sibling `Prozpr_Frontend` checkout is absent) |
+  | willingness wiring | [`_effective_risk/tests/test_effective_risk_inputs.py`](../../../app/domains/profile/services/_effective_risk/tests/test_effective_risk_inputs.py) | `derive_risk_willingness` — Q1-only and full four-answer model results, stored override wins, an unrecognised answer is ignored, neutral `5.0` when nothing is answered or there is no `RiskProfile` row |
+  | per-module key | [`app/core/tests/test_per_module_api_keys.py`](../../../app/core/tests/test_per_module_api_keys.py) | that `compute_effective_risk_document` hands `run_risk_profiling` the `RISK_PROFILING_API_KEY` explicitly and leaves `ANTHROPIC_API_KEY` in the env untouched |
 
-  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/risk_profiling/Testing/`.
+  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/risk_profiling/Testing/ app/domains/profile/services/_effective_risk/tests/ app/core/tests/test_per_module_api_keys.py`.
 - **Run scoring without an API key** — `compute_all_scores` is pure Python and needs no Anthropic call. This is the fastest way to check any arithmetic change:
 
   ```python
@@ -517,10 +558,11 @@ App-layer companions (not part of the engine, but where it is wired):
       "age": 35, "occupation_type": "private_sector",
       "annual_income": 2_000_000, "annual_expense": 1_200_000,
       "financial_assets": 5_000_000, "liabilities_excluding_mortgage": 200_000,
-      "annual_mortgage_payment": 300_000, "properties_owned": 1,
+      "annual_mortgage_payment": 0, "properties_owned": 0,
       "risk_willingness": 7.0,
   })
   print(doc["output"]["effective_risk_score"], doc["calculations"]["risk_profile_category"])
+  # 7.5 Moderately Aggressive — the §5 worked example
   # risk_summary is "" — the LLM step (run_risk_profiling) fills it
   ```
 
@@ -528,7 +570,7 @@ App-layer companions (not part of the engine, but where it is wired):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-15. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

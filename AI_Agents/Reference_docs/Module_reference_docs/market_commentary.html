@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">LLM-driven · Haiku + Sonnet Q&A</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -266,16 +266,16 @@
 <script type="text/markdown" id="source-md">
 # `market_commentary` — the macro letter the rest of chat reads
 
-> **One line:** when a `general_market_query` turn finds the cache stale (24h TTL), Claude web-searches 14 Indian macro indicators (repo rate, CPI, index PEs, gold, FII flows, USD/INR…), pins them into a `MacroSnapshot`, and writes a 2-page **monthly** markdown commentary to `Reference_docs/`. That **`.md` file is the contract** — `portfolio_query` and `general_chat` read it off disk; neither imports this module.
+> **One line:** `flow_market` runs this module on a `general_market_query` turn unless the classifier asked only for the fund-house view. When the cached snapshot is stale (24h TTL), Claude web-searches 14 Indian macro indicators (repo rate, CPI, index PEs, gold, FII flows, USD/INR…), pins them into a `MacroSnapshot`, and writes a 2-page **monthly** markdown commentary to `Reference_docs/`. The doc string goes back to `flow_market`, which hands it to `general_chat` to write the reply. The `.md` on disk is the cache that later turns serve verbatim. No other agent reads it, `portfolio_query` included.
 >
 > This is the engineer's guide to the module. There is **no Logics thesis doc** for market commentary (the customer-facing letter *is* the artefact). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
 
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven<br/>(2 Haiku passes + Sonnet Q&amp;A)</div></div>
   <div class="cell"><div class="k">Models</div><div class="v">Haiku 4.5 · extract + doc<br/>Sonnet 4.6 · Q&amp;A</div></div>
-  <div class="cell"><div class="k">Trigger</div><div class="v">intent <code>general_market_query</code><br/>→ <code>flow_market</code></div></div>
+  <div class="cell"><div class="k">Trigger</div><div class="v">intent <code>general_market_query</code><br/>→ <code>flow_market</code> (skipped on view-only asks)</div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>MarketCommentaryAgent</code><br/>(<code>main.py</code>)</div></div>
-  <div class="cell"><div class="k">LLM passes</div><div class="v">2 live (web-search extract + doc-gen)<br/>+ 1 optional Q&amp;A</div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">2 live (web-search extract + doc-gen)<br/>+ 1 Q&amp;A (not on the chat path)</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">LLM-driven; grounded by web_search<br/>doc cached &amp; reused verbatim</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — reads/writes<br/>.json + .md cache files</div></div>
@@ -285,14 +285,15 @@
 
 ## 1. What it's about
 
-The module lives at [`AI_Agents/src/market_commentary/`](../../src/market_commentary/). It is **not** a chat turn's reply-writer — it is a **data-gathering + document-rendering pipeline**. Its job is to answer one question well: *"what does the Indian macro picture look like right now?"* — and to freeze that answer into a file everyone else can quote. The rendered letter is styled as a **monthly** commentary (its letterhead reads *"Market Commentary | {Month YYYY}"*), but the pipeline is triggered **on demand per turn** and refreshed at most once every 24h via a TTL cache — there is no scheduler in this codebase.
+The module lives at [`AI_Agents/src/market_commentary/`](../../src/market_commentary/). It is **not** a chat turn's reply-writer — it is a **data-gathering + document-rendering pipeline**. Its job is to answer one question well: *"what does the Indian macro picture look like right now?"* — and to freeze that answer into a cached file that later turns reuse. The rendered letter is styled as a **monthly** commentary (its letterhead reads *"Market Commentary | {Month YYYY}"*), but the pipeline is triggered **on demand per turn** and refreshed only when the cached snapshot is older than the 24h TTL — there is no scheduler in this codebase.
 
-Two things consume the output, and neither imports the module — the **file is the contract**:
+One thing consumes the output at runtime, and it does not import the module:
 
-- **`general_chat`** reads the rendered doc from `prior[MARKET_COMMENTARY].payload` and tailors the customer's reply to it (this is the live chat path).
-- **`portfolio_query`** reads `Reference_docs/market_commentary_latest.md` directly off disk as its macro-context block.
+- **`general_chat`**, via `flow_market`. The flow puts the doc under a `[LIVE MARKET DATA — current, factual]` header, capped at 15,000 chars. When the house view was asked for, the flow appends that block too. The combined string reaches `general_chat` as `prior[MARKET_COMMENTARY].payload`, and `general_chat` writes the customer's reply from it.
 
-> **Sibling — the fund-house view.** This agent writes only the *factual* commentary. Prozpr's qualitative **view** lives in a separate, hand-maintained file, `Reference_docs/fund_house_commentry.md` (not produced here). The same two flows load it when the classifier's `tools_needed` asks for `fund_house_view`, and the reply surfaces the named fund houses as research sources. See `app/domains/market_commentary/services/fund_house_view_module_service.py`.
+`portfolio_query` does not load this commentary. Its only market source is the Prozpr-only slice of the fund-house view (below). The other caller is a debug endpoint, `POST /api/v1/ai-modules/market-commentary/generate`, which returns the doc as `document_markdown`.
+
+> **Sibling — the fund-house view.** This agent writes only the *factual* commentary. Prozpr's qualitative **view** lives in a separate, hand-maintained file, `Reference_docs/fund_house_commentry.md` (not produced here), sliced by `AI_Agents/src/house_view.py`. When the classifier's `tools_needed` asks for `fund_house_view`, `flow_market` loads the whole multi-house file through `app/domains/market_commentary/services/fund_house_view_module_service.py`, and the reply surfaces the named fund houses as research sources. `portfolio_query` and `rebalancing` load only the Prozpr-only slice, which names no house. A market turn that asks for the view alone (`fund_house_view` without `market_commentary`) skips this module.
 
 The defining design decision: **the numbers are grounded, not invented.** Every indicator comes from Claude's own `web_search` calls against named authoritative sources (RBI, MOSPI, NSE, NSDL…). Anything that can't be verified becomes `null` and lands in `data_gaps` — the doc-gen prompt then says "cannot be assessed from available inputs" rather than guessing.
 
@@ -300,8 +301,10 @@ The defining design decision: **the numbers are grounded, not invented.** Every 
 
 ```mermaid
 flowchart TB
-    START([general_market_query turn]) --> FP{snapshot cache<br/>fresh?}
-    FP -->|".md newer than .json"| RET["return .md verbatim<br/>(no LLM)"]
+    START([general_market_query turn → flow_market]) --> GATE{"tools_needed has market_commentary,<br/>or no fund_house_view?"}
+    GATE -->|no| SKIP["module skipped<br/>(view-only answer)"]
+    GATE -->|yes| FP{snapshot cache<br/>fresh?}
+    FP -->|".md not older than .json"| RET["return .md verbatim<br/>(no LLM)"]
     FP -->|"snapshot fresh, .md stale"| DG1["doc-gen only · Haiku"]
     FP -->|"stale / absent"| WS["<b>Pass 1 · web-search extract</b><br/>Haiku + Anthropic web_search<br/>→ extract_macro_data tool"]
     WS --> SNAP[("MacroSnapshot<br/>14 indicators + data_gaps")]
@@ -309,38 +312,39 @@ flowchart TB
     DG1 --> MD
     DG2 --> MD[("market_commentary_latest.md<br/>+ .json cache")]
     RET --> OUT
-    MD --> OUT([macro doc → general_chat / portfolio_query])
+    MD --> OUT([doc string → flow_market → general_chat])
 ```
 
-The engine ([`main.py`](../../src/market_commentary/main.py)) owns the orchestration; [`document_generator.py`](../../src/market_commentary/document_generator.py) owns the render. **Why a fast path?** A full run is 15–25 web searches plus two LLM calls — expensive and slow. The rendered `.md` is a **deterministic-enough function of the snapshot** that once it's written, it is reused verbatim within the TTL window (`MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`, default 24h) with no LLM call at all.
+The engine ([`main.py`](../../src/market_commentary/main.py)) owns the orchestration; [`document_generator.py`](../../src/market_commentary/document_generator.py) owns the render. **Why a fast path?** A full run is typically 15–25 web searches (capped at `max_uses=25`) plus two Haiku calls — expensive and slow. The rendered `.md` is a **deterministic-enough function of the snapshot** that once it's written, it is reused verbatim within the TTL window (`MARKET_COMMENTARY_CACHE_MAX_AGE_SEC`, default 24h) with no LLM call at all.
 
 ---
 
 ## 2. Where it sits
 
-The engine is a peer agent: it imports no other agent — only shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`), [`persona.py`](../../src/persona.py) (`build_system_prompt`), and [`reasoned_reply.py`](../../src/reasoned_reply.py) (the discard-the-thinking-field tool contract). Everything scheduling- and key-shaped is the app layer's job.
+The engine is a peer agent: it imports no other agent — only shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`), [`persona.py`](../../src/persona.py) (`build_system_prompt`), and [`reasoned_reply.py`](../../src/reasoned_reply.py) (the discard-the-thinking-field tool contract). The API key, the cache path and the freshness TTL come from the app layer.
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream** | `intent_classifier` → `general_market_query` → [`flow_market`](../../../app/domains/ai_engine/services/flow.py) | the intent runs `market_commentary` **then** `general_chat` in sequence |
-| **Gateway (brain-facing)** | [`market_commentary_module_service.run(turn, ctx, prior)`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | the ONLY brain entry point; 120s timeout → empty payload so the turn still continues |
-| **AI bridge** | [`market_commentary_engine.generate_market_commentary`](../../../app/domains/market_commentary/services/market_commentary_engine.py) | resolves cache path (`Reference_docs/`), freshness + API key, drives `MarketCommentaryAgent` (fast path → full run) |
-| **Downstream (chat)** | [`general_chat_module_service`](../../../app/domains/general_chat/services/general_chat_module_service.py) | reads `prior[MARKET_COMMENTARY].payload` (the doc string) and writes the actual customer reply |
-| **Downstream (file)** | [`portfolio_query`](../../src/portfolio_query/) | reads `market_commentary_latest.md` off disk — the file, not an import |
+| **Upstream** | `intent_classifier` → `general_market_query` → [`flow_market`](../../../app/domains/ai_engine/services/flow.py) | runs this module when `ctx.tools_needed` contains `market_commentary` or lacks `fund_house_view`. Then it runs the fund-house view if asked, then `general_chat` |
+| **Gateway (brain-facing)** | [`market_commentary_module_service.run(turn, ctx, prior)`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | the ONLY brain entry point. A 120s timeout or any exception returns an empty payload, so the turn still continues |
+| **AI bridge** | [`market_commentary_engine.generate_market_commentary`](../../../app/domains/market_commentary/services/market_commentary_engine.py) | resolves the cache path (`Reference_docs/`), freshness and API key, then drives `MarketCommentaryAgent` (fast path → full run) |
+| **Downstream (chat)** | [`general_chat_module_service`](../../../app/domains/general_chat/services/general_chat_module_service.py) → [`general_chat_engine`](../../../app/domains/general_chat/services/general_chat_engine.py) | reads `prior[MARKET_COMMENTARY].payload` (flow_market's labelled block, capped again at 110,000 chars). Its Haiku research pass reads the block, cites its figures "per our daily snapshot" and calls `web_search` only for gaps (`max_uses=1`). The compose pass sees only the research digest and writes the customer reply |
+| **Debug endpoint** | [`market_commentary_router`](../../../app/domains/ai_engine/routers/market_commentary_router.py) | `POST /api/v1/ai-modules/market-commentary/generate` (authenticated) calls `generate_market_commentary` directly, with no timeout and no degrade path, and returns `{document_markdown}` |
 
 > **This module never writes the customer's reply.** `market_commentary_module_service` returns a `ModuleOutput` whose `payload` is the doc string and whose `text` is left unset (`None`). The turn's visible answer is `general_chat`'s. If you're chasing "why did the market answer read oddly", that's a `general_chat` question, not this module.
 
 ### What `ctx` / `turn` must carry
 
-`flow_market` calls `run_market_commentary(turn, ctx, {})`. In today's code the run is **question-agnostic** — worth knowing before you debug a "why didn't it use my question" report:
+`flow_market` calls `run_market_commentary(turn, ctx, {})`. The run is **question-agnostic** — worth knowing before you debug a "why didn't it use my question" report:
 
 | Attribute | Type | Used for |
 |---|---|---|
-| `turn.user_question` | `str` | **passed but currently `del`'d** in `generate_market_commentary` — reserved for future question-conditioned runs |
-| `turn.conversation_history` | `list[{role, content}]` | same — accepted then discarded today |
+| `turn.user_question` | `str` | **passed but `del`'d** in `generate_market_commentary`, which reserves it for question-conditioned runs |
+| `turn.conversation_history` | `list[{role, content}]` | same — accepted then discarded |
 | `turn.session_id` | `str` | timeout/failure logging only |
+| `ctx.tools_needed` | `tuple[str, ...]` | read by `flow_market`, not by this module — decides whether the module runs at all |
 
-The knobs that actually change behaviour live in config, not `ctx`: `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC` (freshness, default `86400`) and `MARKET_COMMENTARY_API_KEY` (→ falls back to `ANTHROPIC_API_KEY`).
+The knobs that actually change behaviour live in config, not `ctx`. `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC` sets freshness (default `86400`). It is read once with `os.getenv` when `market_commentary_engine` is imported, so a change needs a restart. `MARKET_COMMENTARY_API_KEY` falls back to `ANTHROPIC_API_KEY` through `Settings.get_anthropic_market_commentary_key()`.
 
 ---
 
@@ -362,6 +366,8 @@ Unlike `mutual_fund_query`, this engine has **no single pydantic input model** �
 |---|---|---|
 | `run()` | `() → MacroSnapshot` | full pipeline: web-search extract → cache → write `.json` + `.md` |
 | `run_from_cache(max_age_sec, date=None)` | `→ str \| None` | fast path: return fresh `.md` verbatim, else regen doc from cached snapshot, else `None` |
+
+`date` stamps a regenerated letter's letterhead, and the app passes the current IST time. `run()` always stamps its letter with `datetime.utcnow()`.
 
 The private extraction schema `_MacroExtraction` ([`main.py`](../../src/market_commentary/main.py)) is the **14 indicator fields only** — no `data_gaps`, no `document_md` — so the `extract_macro_data` tool's `input_schema` stays clean. `_to_snapshot` then derives `data_gaps` as "every field that came back `null`".
 
@@ -388,8 +394,8 @@ Every indicator field is `Optional[float]` (or `Optional[str]` for `rbi_stance`)
 
 | File | What | Written by |
 |---|---|---|
-| `market_commentary_latest.json` | the `MacroSnapshot` cache (**no** `document_md` — it's saved before doc-gen sets that field) | `CacheManager.save` |
-| `market_commentary_latest.md` | the rendered 2-page letter — **the file everyone reads** | `MarketCommentaryAgent._write_document` (full run) / inline write (fast path) |
+| `market_commentary_latest.json` | the `MacroSnapshot` cache. `document_md` is `null` because the file is saved before doc-gen sets it. It is written only when at least one indicator is non-null | `CacheManager.save` |
+| `market_commentary_latest.md` | the rendered 2-page letter — **the cache the fast path serves verbatim** | `MarketCommentaryAgent._write_document` (full run) / inline write (fast path) |
 
 The brain gateway collapses all of this into a single `ModuleOutput(payload=<doc string>)` for the sequence.
 
@@ -397,35 +403,39 @@ The brain gateway collapses all of this into a single `ModuleOutput(payload=<doc
 
 ## 5. How it thinks
 
-The pipeline is two LLM passes wrapped in a cache-freshness gate. No numbers are ever computed by the engine — the LLM's job is to **gather** (pass 1) then **narrate** (pass 2).
+The pipeline is two LLM passes wrapped in a cache-freshness gate. The engine computes no indicator values; the only Python-side figures are two spreads and the gold string in `_build_prompt_vars`. The LLM's job is to **gather** (pass 1) then **narrate** (pass 2).
 
 ### The freshness gate — `run_from_cache`
 
 Before any LLM call, `run_from_cache(max_age_sec, date)` decides how much work is needed:
 
-1. No `.json`, or `.json` older than `max_age_sec` (or the loaded snapshot is empty) → return `None` (caller runs the full `run()`).
-2. `.json` fresh **and** `.md` mtime ≥ `.json` mtime → return the `.md` **verbatim** (BOM-aware read, no LLM).
-3. `.json` fresh but `.md` missing/stale → regenerate the doc from the cached snapshot (**doc-gen LLM only**) and persist it.
+1. No `.json`, or `.json` older than `max_age_sec` (or the loaded snapshot is unreadable or all-null) → return `None` (caller runs the full `run()`).
+2. `.json` fresh **and** `.md` mtime ≥ `.json` mtime **and** the `.md` is non-empty → return the `.md` **verbatim** (BOM-aware read, no LLM).
+3. `.json` fresh but `.md` missing, older, empty or unreadable → regenerate the doc from the cached snapshot (**doc-gen LLM only**) and persist it. A failed write is swallowed and the doc is still returned.
+
+`generate_market_commentary` catches any exception from the fast path (for example a failed doc-gen call), logs it at debug level and runs the full `run()`.
 
 ### Pass 1 — web-search extraction (`run_websearch_extraction`)
 
-1. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=4096`) bound to **two** tools: Anthropic's server-side `web_search_20250305` (`max_uses=25`) **and** `extract_macro_data`.
+1. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=4096`, `temperature=0`) bound to **two** tools: Anthropic's server-side `web_search_20250305` (`max_uses=25`) **and** `extract_macro_data`.
 2. Claude plans its own searches, disambiguates the known failure modes baked into `EXTRACTION_SYSTEM_PROMPT_WEBSEARCH` (repo vs SDF vs MSF; gold USD/oz vs INR/10g; spot vs forward USD/INR; trailing vs forward index PE), and finalises with one `extract_macro_data` call.
 3. `_MacroExtraction(**tool_call["args"])` → `_to_snapshot` → `MacroSnapshot`. If Claude never finalises, an **all-null** snapshot is returned so the caller's fallback fires.
-4. In `run()`: an all-null snapshot ⇒ fall back to the **last cached snapshot** and append `"ALL_LIVE_DATA_FAILED — using cached snapshot"` to `data_gaps`. A non-empty snapshot is saved to `.json`.
+4. In `run()`: an all-null snapshot ⇒ fall back to the **last cached snapshot** and append `"ALL_LIVE_DATA_FAILED — using cached snapshot"` to `data_gaps`. Any non-empty snapshot is then saved to `.json`, and that includes the fallback. Re-saving it resets the `.json` mtime and keeps the tag. With no cache on disk, nothing is saved and the letter is generated from the all-null snapshot, with every figure `N/A`.
 
 ### Pass 2 — document generation (`generate_document`)
 
 1. `_build_prompt_vars` turns the snapshot into template strings — including **pre-computed spreads** (`gsec_repo_spread`, `gsec_fd_spread`) and **pre-formatted Indian-notation gold** (`format_inr_indian`, so Haiku never converts raw rupees to lakh/crore and trips its order-of-magnitude bug). `None` → `"N/A"`.
-2. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=3800`), forced to the `return_commentary_document` tool built via `reasoned_reply_tool` — the model writes a private `outline` (discarded) **before** the `document` body, so the letter starts cleanly at the letterhead.
+2. One Haiku call (`claude-haiku-4-5-20251001`, `max_tokens=3800`, `temperature=0`), forced to the `return_commentary_document` tool built via `reasoned_reply_tool` — the model writes a private `outline` (discarded) **before** the `document` body, so the letter starts cleanly at the letterhead.
 3. `extract_reasoned_reply(..., answer_field="document")` pulls the body; empty ⇒ `RuntimeError`.
+
+The system prompt is `build_system_prompt(_DOC_BODY, format_profile="document", question_aware=False)`. It combines the shared PI identity and mechanics, the document format profile, the persona's one-line disclaimer and the letter body, which holds the writing standards, `EQUITY_PE_BANDS` and the compliance rules. The human message carries the macro block, the required 10-part, two-page structure, the letterhead format and a fixed closing disclaimer. Both `_DOC_BODY` and that disclaimer state that Prozpr is a SEBI-registered investment adviser. The shared persona makes no registration claim.
 
 ### A run, end to end (worked example)
 
-A customer asks a macro question; the sequence runs `market_commentary` (this module) then hands the doc to `general_chat`.
+A customer asks a factual market question. The classifier routes it to `general_market_query` with `tools_needed = {market_commentary}`, which is the eval-gate golden case `mkt/nifty-pe`. `flow_market` runs this module, skips the fund-house view and hands the doc to `general_chat`. The cache is stale in this example, so the full run fires.
 
 <div class="chat">
-  <div class="bubble user"><div class="who">Customer</div>Is this a good time to add to my equity funds, or should I wait?</div>
+  <div class="bubble user"><div class="who">Customer</div>What's the Nifty 50 PE right now?</div>
 </div>
 
 <div class="step-panel">
@@ -449,7 +459,7 @@ A customer asks a macro question; the sequence runs `market_commentary` (this mo
 <pre><code>> **Prozpr**
 > Market Commentary | July 2026
 > *Dated: 12 July 2026*
-
+&nbsp;
 **Executive Summary**
 - RBI on hold at 5.50% (neutral); CPI at 3.1% sits in the lower half of the 2–6% band.
 - Nifty 50 at ~22.4x is fair; Midcap 150 (~34.8x) looks stretched.
@@ -459,11 +469,21 @@ A customer asks a macro question; the sequence runs `market_commentary` (this mo
 
 <div class="flow-arrow">↓</div>
 
-<div class="chat">
-  <div class="bubble pi"><div class="who">Pi (general_chat, tailored to the doc)</div>Large-caps are around fair value right now (Nifty 50 near 22x), so staged additions there look reasonable — but mid/small-caps are on the expensive side, so I'd go gradually rather than all at once. This is general market context, not advice on your specific funds. <em>(Reply is written by general_chat, not this module.)</em></div>
+<div class="step-panel">
+  <div class="label">flow_market → prior[market_commentary].payload</div>
+<pre><code>[LIVE MARKET DATA — current, factual]
+> **Prozpr**
+> Market Commentary | July 2026
+...                       (doc stripped, capped at 15,000 chars)</code></pre>
 </div>
 
-Every figure the letter states traces to a `web_search`-grounded field in the snapshot; the spreads and gold string were pre-computed in `_build_prompt_vars`. *(All values above are illustrative — not real search results or cache rows; don't grep for them.)*
+<div class="flow-arrow">↓</div>
+
+<div class="chat">
+  <div class="bubble pi"><div class="who">Pi (general_chat: research pass, then compose)</div>Per our daily snapshot, the Nifty 50 trades at about 22.4x trailing earnings, which is around fair value. Mid-caps are pricier, with the Nifty Midcap 150 near 34.8x. <em>(Reply is written by general_chat, not this module.)</em></div>
+</div>
+
+Every figure the letter states traces to a `web_search`-grounded field in the snapshot. The spreads and the gold string are pre-computed in `_build_prompt_vars`. For this snapshot it yields `gsec_repo_spread = "0.98"`, `gsec_fd_spread = "-0.12"` and `gold_price_inr_per_10g = "₹1.19 lakh"`. *(The snapshot values, the letter excerpt and the reply are illustrative, not real search results or cache rows, so don't grep for them. The three pre-computed strings are what `_build_prompt_vars` returns for this snapshot.)*
 
 ---
 
@@ -479,10 +499,10 @@ Every figure the letter states traces to a `web_search`-grounded field in the sn
 
 <div class="callout danger">
   <div class="title">⚠ Stale "Sonnet" comments — the two live passes are Haiku</div>
-  <p>Both <code>main.py</code>'s cost note ("plus Sonnet tokens") and <code>prompts.py</code>'s "Document generation prompts — Claude Sonnet" header are <strong>stale</strong>: the live code pins <code>_EXTRACTION_MODEL</code> and <code>_DOCUMENT_MODEL</code> to <code>claude-haiku-4-5-20251001</code>. Sonnet (<code>claude-sonnet-4-6</code>) appears <strong>only</strong> in <code>chat_qa.py</code>, which the production chat flow does not call. Trust the constants, not the prose — and if you're reasoning about cost, a full run is ~15–25 web searches (<code>web_search_20250305</code>, <code>max_uses=25</code>) plus two Haiku calls.</p>
+  <p><code>main.py</code>'s cost note ("plus Sonnet tokens"), <code>prompts.py</code>'s "Document generation prompts — Claude Sonnet" header and <code>market_commentary_engine.py</code>'s "Skip 14x web search + Sonnet extraction" comment are <strong>stale</strong>: the live code pins <code>_EXTRACTION_MODEL</code> and <code>_DOCUMENT_MODEL</code> to <code>claude-haiku-4-5-20251001</code>. Sonnet (<code>claude-sonnet-4-6</code>) appears <strong>only</strong> in <code>chat_qa.py</code>, which the production chat flow does not call. Trust the constants, not the prose — and if you're reasoning about cost, a full run is ~15–25 web searches (<code>web_search_20250305</code>, <code>max_uses=25</code>) plus two Haiku calls.</p>
 </div>
 
-All three LLMs go through LangChain `ChatAnthropic` (per the repo convention), each built lazily and `@cache`d so the key is read at call time, never at import (the extraction and doc-gen builders `@cache` per API key; the QA builder reads the ambient key).
+All three LLMs go through LangChain `ChatAnthropic` (per the repo convention), each pins `temperature=0`, and each is built lazily and `@cache`d so the key is read at call time, never at import (the extraction and doc-gen builders `@cache` per API key; the QA builder reads the ambient key).
 
 ---
 
@@ -497,43 +517,58 @@ All three LLMs go through LangChain `ChatAnthropic` (per the repo convention), e
 | [`chat_qa.py`](../../src/market_commentary/chat_qa.py) | `answer_question` / `load_latest_commentary` — Sonnet Q&A over the stored `.md`; **not wired into live chat** |
 | [`__init__.py`](../../src/market_commentary/__init__.py) | re-exports the contract surface (`MarketCommentaryAgent`, `CacheManager`, `answer_question`, `load_latest_commentary`, `DocumentGenerator`, `generate_document`, `MacroSnapshot`) |
 | [`test_document_generator_reasoning.py`](../../src/market_commentary/test_document_generator_reasoning.py), [`test_chat_qa_reasoning.py`](../../src/market_commentary/test_chat_qa_reasoning.py) | reasoning-discard tests (LLM stubbed at the tool boundary) |
+| `_archive/` | an unused `scraper.py` and archived snapshot files; not imported |
 
 App-layer companions (drive the engine, not part of it):
 
 | File | Role |
 |---|---|
-| [`market_commentary_module_service.py`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | brain gateway `run(turn, ctx, prior)` + 120s timeout degrade |
+| [`market_commentary_module_service.py`](../../../app/domains/market_commentary/services/market_commentary_module_service.py) | brain gateway `run(turn, ctx, prior)`; a 120s timeout or any error degrades to `payload=None` |
 | [`market_commentary_engine.py`](../../../app/domains/market_commentary/services/market_commentary_engine.py) | AI bridge: cache path (`Reference_docs/`), freshness, key; fast-path → full-run |
-| [`flow.py`](../../../app/domains/ai_engine/services/flow.py) | `flow_market` — sequences `market_commentary` then `general_chat` |
+| [`flow.py`](../../../app/domains/ai_engine/services/flow.py) | `flow_market` — gates this module on `tools_needed`, labels and caps its doc, adds the fund-house view when asked, then runs `general_chat` |
+| [`fund_house_view_module_service.py`](../../../app/domains/market_commentary/services/fund_house_view_module_service.py) | sibling gateway: the whole multi-house view for `flow_market` (`house_view.load_house_view(prozpr_only=False)`), `None` when absent or invalid |
+| [`market_commentary_router.py`](../../../app/domains/ai_engine/routers/market_commentary_router.py) | debug endpoint `POST /api/v1/ai-modules/market-commentary/generate` |
+| [`config.py`](../../../app/core/config.py) | `Settings.get_anthropic_market_commentary_key()` — `MARKET_COMMENTARY_API_KEY`, then `ANTHROPIC_API_KEY` |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **The `.md` file is the contract, not an import.** `portfolio_query` reads `market_commentary_latest.md` off disk and `general_chat` reads the doc from `prior[MARKET_COMMENTARY].payload`. Neither imports this module. Change the file's shape/location and you break two consumers with no compile-time signal — grep for `market_commentary_latest.md`.
+- **The doc string is the contract, not an import.** `general_chat` reads it from `prior[MARKET_COMMENTARY].payload`, wrapped by `flow_market` under the `[LIVE MARKET DATA — current, factual]` header. `general_chat`'s research prompt names that header and the house-view header, so renaming either label in `flow.py` breaks the citation rules with no compile-time signal. The `.md` on disk is the fast path's cache. Besides this module, only the unwired `chat_qa.py` and the dev-only `chat_eval/run_eval.py` presence check touch it. `portfolio_query` does not read it.
 - **`chat_qa.py` is orphaned-on-purpose.** `answer_question` (the only Sonnet caller) has **no production caller** — outside its own reasoning test it is referenced only by the dev-only [`chat_eval` reasoning snapshot](../../src/chat_eval/reasoning_surface_snapshot.py) — the production `general_market_query` flow tailors its reply in `general_chat`, not here. Don't "wire it up" without a product decision; don't delete it assuming it's dead code either.
 - **`null` indicator = "unavailable", never a guess.** An unverified field stays `null` and lands in `data_gaps`; the doc-gen prompt says "cannot be assessed from available inputs". Widening the extraction to backfill nulls would silently invent macro data.
-- **All-null snapshot ⇒ reuse the cache, tag `ALL_LIVE_DATA_FAILED`.** `run()` never writes an empty snapshot over a good one; it falls back to the last cache and flags it. Don't "simplify" that guard away.
+- **All-null snapshot ⇒ reuse the cache, tag `ALL_LIVE_DATA_FAILED`.** `run()` never writes an empty snapshot over a good one; it falls back to the last cache and flags it. Don't "simplify" that guard away. It re-saves the fallback, though, so the old figures count as fresh for another TTL window. Each further failed run appends the tag again, because the reloaded cache already carries it.
 - **Gold is pre-formatted; spreads are pre-computed.** `_build_prompt_vars` sends Indian-notation gold (`format_inr_indian`) and the two rate spreads as strings so Haiku copies rather than computes — this dodges its known order-of-magnitude bug. Keep new derived figures on the Python side of the boundary.
 - **Files are written UTF-8, read BOM-aware.** `CacheManager.save` and `_write_document` pin `encoding="utf-8"` (never the OS locale / cp1252); reads go through `read_text_bom_aware` because a `.md` may arrive UTF-16 from PowerShell. Don't swap in a naive `open().read()`.
 - **API key is passed explicitly, never via env mutation.** The extraction and doc-gen LLM builders take `api_key` and are `@cache`d per key; process-global `os.environ` mutation races under async concurrency. Preserve the explicit-key plumbing.
 - **The fast-path "deterministic" claim is about caching, not generation.** Doc-gen is an LLM (probabilistic). The invariant is that once written, the `.md` is reused verbatim while fresher than the TTL — so regeneration only happens on a stale/missing file. Don't read it as "same snapshot ⇒ byte-identical letter".
-- **Failure is soft at the gateway.** `market_commentary_module_service` wraps the run in a 120s `wait_for` and returns `ModuleOutput(payload=None)` on timeout/error, so the sequence still reaches `general_chat` with no macro doc rather than failing the whole turn.
+- **Failure is soft at the gateway.** `market_commentary_module_service` wraps the run in a 120s `wait_for` and returns `ModuleOutput(payload=None)` on timeout/error, so the sequence still reaches `general_chat` with no macro doc rather than failing the whole turn. The timeout does not stop the work: the run sits in `asyncio.to_thread`, so the thread finishes and still writes the cache files. If `general_chat` itself raises, it retries once without the doc.
+- **No lock around a stale cache.** Neither the engine nor the gateway serialises runs. Concurrent turns that find the cache stale each run the full pipeline and each write the same two files.
+- **The cache pair is tracked in git.** Both `market_commentary_latest.*` files are committed, and the Dockerfile's `COPY . .` ships them. Git does not keep mtimes, so a checkout that brings in a committed pair makes that snapshot look fresh. The fast path then serves it for up to one TTL window.
+- **`MarketCommentaryScores` is not this module.** The allocation engines' `market_commentary` input (`asset_allocation_pydantic/models.py`) defaults to the static `DEFAULT_MARKET_COMMENTARY_SCORES` table in `tables.py`. Nothing in this module or its app layer feeds allocation.
 
 ---
 
 ## 9. Extend & test
 
-- **Add / retune an indicator** → add the field to `MacroSnapshot` ([`models.py`](../../src/market_commentary/models.py)) **and** `_MacroExtraction` + the `extract_macro_data` `input_schema` ([`prompts.py`](../../src/market_commentary/prompts.py)), then surface it in `_build_prompt_vars` and the doc-gen structure so the letter can use it. Missing any one of those three and the field is silently dropped.
-- **Change wording / PE bands / structure** → edit [`prompts.py`](../../src/market_commentary/prompts.py) only (`EQUITY_PE_BANDS` was last reviewed 2026-05-02 — bump the date when you touch it). Because the letter is a customer-facing surface, run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging.
-- **Tests** live beside the module (there is no `Testing/` subfolder here):
+- **Add / retune an indicator** → add the field to:
+  - `MacroSnapshot` ([`models.py`](../../src/market_commentary/models.py));
+  - `_MacroExtraction` and the `_is_snapshot_empty` list ([`main.py`](../../src/market_commentary/main.py));
+  - the `extract_macro_data` `input_schema` and its `required` list ([`prompts.py`](../../src/market_commentary/prompts.py)).
+
+  Then surface it in `_build_prompt_vars` and `DOCUMENT_GENERATION_USER_PROMPT_TEMPLATE` so the letter can use it. Also update the "14 indicators" counts in `EXTRACTION_SYSTEM_PROMPT_WEBSEARCH` and in the extraction human message in `main.py`. Miss one of these and the field is silently dropped: never requested, never parsed, never shown, or ignored by the all-null check.
+- **Change wording / PE bands / structure** → edit [`prompts.py`](../../src/market_commentary/prompts.py) only (`EQUITY_PE_BANDS` carries a "Last reviewed: 2026-05-02" stamp — bump it when you touch the bands). No eval gate scores the letter. `scripts/run_prompt_eval_gate.sh` covers three things. The first is the intent classifier, including the `tools_needed` routing that decides whether this module runs (`mkt/nifty-pe` expects `{market_commentary}`). The others are the chat action detectors and Logics-doc grounding. Run it when you change the classifier's `tools_needed` guidance.
+- **Tests** — module tests live beside the module (there is no `Testing/` subfolder here); app-layer tests cover the gate and the key plumbing:
 
   | Level | Where | Covers |
   |---|---|---|
   | doc-gen reasoning-discard | [`test_document_generator_reasoning.py`](../../src/market_commentary/test_document_generator_reasoning.py) | `outline` field discarded, `document` body returned; LLM stubbed |
   | QA reasoning-discard | [`test_chat_qa_reasoning.py`](../../src/market_commentary/test_chat_qa_reasoning.py) | `reasoning` field discarded, safe fallback on malformed tool call |
+  | flow_market gate | [`test_flow_market_routing.py`](../../../app/domains/ai_engine/tests/test_flow_market_routing.py) | factual only, view only, both, and the neither-named default to factual |
+  | explicit API key | [`test_per_module_api_keys.py`](../../../app/core/tests/test_per_module_api_keys.py) | `MarketCommentaryAgent` passes its key into `ChatAnthropic`; `os.environ` never mutated |
+  | persona composition | [`test_persona_surfaces.py`](../../src/test_persona_surfaces.py) | doc-gen prompt uses the document profile, not question-aware; QA prompt keeps `{document_content}` |
 
-  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/market_commentary/`.
+  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/market_commentary/ app/domains/ai_engine/tests/test_flow_market_routing.py app/core/tests/test_per_module_api_keys.py AI_Agents/src/test_persona_surfaces.py`.
 - **Run doc-gen without hitting the web** — the pattern the tests use: hand-build a `MacroSnapshot`, patch the LLM at the tool boundary (`_get_doc_llm` / `_get_qa_llm`), and assert on the assembled prompt + the discarded-field behaviour. No web_search, no Anthropic call, no database:
 
   ```python
@@ -541,7 +576,8 @@ App-layer companions (drive the engine, not part of it):
   from market_commentary.models import MacroSnapshot
 
   snap = MacroSnapshot(repo_rate_pct=5.5, rbi_stance="neutral", nifty50_pe=22.4)
-  # patch dg._get_doc_llm to a stub returning {"outline": "...", "document": "# Prozpr\n..."}
+  # patch dg._get_doc_llm so .invoke() returns an object whose tool_calls is
+  # [{"name": "return_commentary_document", "args": {"outline": "...", "document": "> **Prozpr**\n..."}}]
   md = dg.generate_document(snap)   # exercises _build_prompt_vars + extract path
   ```
 
@@ -549,7 +585,7 @@ App-layer companions (drive the engine, not part of it):
 
 ---
 
-*Module guide · reconciled with the live code on 2026-07-12. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

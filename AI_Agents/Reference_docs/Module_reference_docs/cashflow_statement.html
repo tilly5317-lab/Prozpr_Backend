@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Hybrid · engine + LangGraph agent (Sonnet)</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -272,12 +272,12 @@
 
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">Hybrid — pure-Python engine<br/>+ the ONE LangGraph agent</div></div>
-  <div class="cell"><div class="k">Models</div><div class="v">Agent node: <strong>Sonnet</strong> <code>claude-sonnet-4-6</code><br/>Extractor + Summarizer: <strong>Haiku</strong> <code>claude-haiku-4-5</code></div></div>
+  <div class="cell"><div class="k">Models</div><div class="v">Live: goal-action detector <strong>Haiku</strong> <code>claude-haiku-4-5</code><br/>Dormant agent node: <strong>Sonnet</strong> <code>claude-sonnet-4-6</code>; extractor + summarizer: <strong>Haiku</strong></div></div>
   <div class="cell"><div class="k">Trigger intent</div><div class="v"><code>goal_planning</code></div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>compute_full_projection</code><br/>(agent entry: <code>run_cashflow_statement</code>)</div></div>
   <div class="cell"><div class="k">Steps / passes</div><div class="v">8 engine stages<br/>· 4-node StateGraph (15-iter cap)</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">engine fully deterministic<br/>LLM narrates, never computes</div></div>
-  <div class="cell"><div class="k">Peer imports</div><div class="v"><code>financial_primitives</code><br/>(library, not a peer agent)</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v"><code>financial_primitives</code><br/>(library, not a peer agent) + shared <code>common</code> / <code>persona</code> helpers</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer does</div></div>
 </div>
 
@@ -287,22 +287,24 @@
 
 The module lives at [`AI_Agents/src/cashflow_statement/`](../../src/cashflow_statement/) and owns the **`goal_planning`** chat intent — anything about goal feasibility, retirement adequacy, shortfalls, or "what if" counterfactuals:
 
-- *"Am I on track to retire at 60?"* → **feasibility**
-- *"Can I afford a ₹2 crore house in 2032 and still fund my kid's college?"* → **new goal + projection**
-- *"What if I bump my SIP?"* / *"How do I fix the shortfall?"* → **what-if + levers**
+- *"Will I meet my goals?"* / *"When do I reach ₹1 crore?"* → **narrate** — the plan as it stands (a milestone crossing is resolved in code)
+- *"What if I retire at 50?"* / *"What if I invest ₹50k more a month?"* / *"Can I afford a ₹10 lakh trip next June?"* → **counterfactual_explore** — the engine re-run with one allow-listed input changed, never saved
+- *"What if I retire earlier?"* (no number) → **clarify** — one question back, no engine run
 
-It has **two faces**. The **engine** ([`engine/pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)) is an 8-stage pure-Python projection validated against an Excel baseline — no LLM, no I/O, fully reproducible. The **agent** ([`agent/graph.py`](../../src/cashflow_statement/agent/graph.py)) is a LangGraph `StateGraph` — the *only* LangGraph agent in the whole `AI_Agents` package — that turns natural language into engine inputs, runs the engine as a tool, and proposes deterministic levers.
+It has **two faces**. The **engine** ([`engine/pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)) is an 8-stage pure-Python projection validated against an Excel baseline — no LLM, no I/O, fully reproducible. The **agent** ([`agent/graph.py`](../../src/cashflow_statement/agent/graph.py)) is a LangGraph `StateGraph` — the *only* LangGraph agent in the whole `AI_Agents` package — that turns natural language into engine inputs, runs the engine as a tool, and proposes deterministic levers. Production uses the engine through the app-layer chat bridge (one Haiku detector + an override allow-list); the agent is not wired in.
 
 The defining design decision mirrors every other Prozpr module: **the LLM never produces a number.** The engine does all the math; rupee values are pre-formatted to Indian notation before they reach any model, which is told to copy them verbatim. A confidently-wrong corpus figure is treated as a worse failure than a plain one.
 
 ```mermaid
 flowchart TB
-    Q([goal_planning question]) --> GW["<b>App gateway</b><br/>build GoalPlanningInput from<br/>profile + goals + properties"]
+    Q([goal_planning question]) --> DET["<b>Goal-action detector (Haiku)</b><br/>narrate · counterfactual_explore · clarify<br/>+ overrides · milestone_target_inr"]
+    DET -->|clarify| CQ(["one question back<br/>(no engine run)"])
+    DET --> GW["<b>App bridge</b><br/>build GoalPlanningInput from<br/>profile + goals + properties<br/>+ allow-listed overrides"]
     GW --> ENG["<b>Engine · 8 stages</b><br/>compute_full_projection<br/>(pure Python, deterministic)"]
     ENG --> OUT[("GoalPlanningOutput<br/>headline · goals · cashflow")]
-    OUT --> SUM["<b>Summarizer (Haiku LCEL)</b><br/>narrate pre-formatted ₹ facts"]
-    SUM --> R([facts_pack → chat formatter])
-    ENG -. "wrapped by (agent path,<br/>test-only today)" .-> AG["<b>LangGraph agent</b><br/>NL → tools → engine → levers"]
+    OUT --> FP["<b>facts_pack</b><br/>raw + pre-formatted ₹ facts<br/>(plan run persisted on base turns)"]
+    FP --> R(["shared answer formatter (Haiku)<br/>+ annual cashflow chart"])
+    ENG -. "wrapped by (agent path,<br/>test-only)" .-> AG["<b>LangGraph agent</b><br/>NL → tools → engine → levers"]
 ```
 
 > **The production chat path runs the engine directly, not the agent.** See §2 — this is the single most important thing to know before you touch this module.
@@ -311,31 +313,35 @@ flowchart TB
 
 ## 2. Where it sits
 
-The engine is a near-peer: within `src/` it imports **no other agent**, only the shared [`financial_primitives`](../../src/financial_primitives/) numeric-kernel library (TVM, Indian-FY dates, `eomonth`) — a library, not a blessed cross-agent edge. Everything database-shaped is the app layer's job.
+The engine is a near-peer: within `src/` it imports **no other agent**, only the shared [`financial_primitives`](../../src/financial_primitives/) numeric-kernel library (TVM, Indian-FY dates, `eomonth`) — a library, not a blessed cross-agent edge. The summarizer and the agent nodes also use the shared `src/` helpers `common.format_inr_indian` and `persona.build_system_prompt`. Everything database-shaped is the app layer's job.
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `goal_planning` intent routes here |
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` (`flow_goal_planning` in `ai_engine/services/flow.py`) | the `goal_planning` intent routes here |
 | **Gateway** | [`cashflow_module_service.run(turn, ctx, prior)`](../../../app/domains/cashflow/services/cashflow_module_service.py) | the ONLY module-level entry the brain calls; delegates to the chat dispatcher (`dispatch_chat("goal_planning", ctx)`) |
-| **Bridge + engine run** | [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) `compute_goal_planning_snapshot` | builds `GoalPlanningInput` from the ORM `User`, runs `compute_full_projection`, persists the run, emits `facts_pack` (no `summarize_plan` — deliberately dropped, see §5) |
-| **Input build** | `goal_planning_engine/input_builder.py` | profile + properties + active goals → `GoalPlanningInput`; **hard-refuses** incomplete profiles (`missing_required_inputs:<keys>`) rather than zero-filling |
-| **Non-chat entry** | [`cashflow_compute_service.run_cashflow_projection_for_user`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | REST/detail path (the `/cashflow` router calls it; the `additional_investment` flow no longer does — its goal share comes from the practical allocation's `goal_funding`) — same engine, wraps output as a `GoalPlanningSnapshot` |
+| **Chat handler** | [`goal_planning_engine/chat.py`](../../../app/domains/cashflow/services/goal_planning_engine/chat.py) `goal_planning_chat` | runs the Haiku detector (`_detect_goal_action`), short-circuits `clarify`, calls the bridge, maps refusals to fixed relay messages, hands `facts_pack` to the shared answer formatter, attaches the `cashflow_annual_bar` chart payload |
+| **Bridge + engine run** | [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) `compute_goal_planning_snapshot` | builds `GoalPlanningInput` from the ORM `User`, applies any counterfactual overrides ([`overrides.py`](../../../app/domains/cashflow/services/goal_planning_engine/overrides.py)), runs `compute_full_projection` in a thread, persists the run **on base turns only**, emits `facts_pack` + a deterministic `fallback_text` (no `summarize_plan` — see the callout) |
+| **Input build** | `goal_planning_engine/input_builder.py` `build_goal_planning_input_for_user` | profile + properties + active goals → `GoalPlanningInput`; **hard-refuses** incomplete profiles (`missing_date_of_birth`, `missing_required_inputs:<keys>`) rather than zero-filling |
+| **Non-chat entry** | [`cashflow_compute_service.run_cashflow_projection_for_user`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | the `/cashflow` router's path — same builder + engine, output wrapped as a `GoalPlanningSnapshot`. `GET /cashflow/latest` recomputes and persists when no run exists, the latest run is stale, its `engine_version` differs from `ENGINE_VERSION`, or it was computed before today; `POST /cashflow/compute` forces a run; `GET /cashflow/readiness` serves the input gate |
+| **Staleness** | `cashflow_persist_service.mark_stale` | the goals router, onboarding, CAMS CAS ingest and a persisted monthly SIP from `additional_investment` (which also writes the SIP into `starting_monthly_investment`) mark the latest plan run stale |
+| **Goal FV for allocation** | `aa_engine/input_builder.py` (feeds the ideal and practical allocation input builders) | imports `custom_goal_fv` + the bridge's `map_custom_goal` and sets each active future goal's `amount_needed_fv` with default `Assumptions()` — the goal waterfall funds the same FV this projection pays out |
 
 <div class="callout danger">
   <div class="title">⚠ The LangGraph agent is orphaned on the production path</div>
-  <p>Despite being the codebase's only LangGraph agent, <code>run_cashflow_statement</code> / <code>cashflow_statement_graph</code> is <strong>not invoked by any production caller</strong> — grep the app and every reference outside the module's own definition and its lazy re-export is test-only (a monkeypatch in <code>goal_planning_engine/tests/</code>). The live chat path (<code>service.py</code>) calls <code>compute_full_projection</code> (the pure engine) directly — it deliberately does <em>not</em> call <code>summarize_plan</code> (that second Haiku call double-narrated against the answer formatter and was dropped; an app-side test asserts chat never re-imports it). The agent — tools, levers, overrides, what-ifs — is fully built and unit-tested but currently dark. If you're debugging a live goal-planning turn, the agent graph is <em>not</em> in the call stack. Don't assume ARCHITECTURE.html's "responder consumes the snapshot" flow is wired; today the snapshot comes straight from the engine.</p>
+  <p>Despite being the codebase's only LangGraph agent, <code>run_cashflow_statement</code> / <code>cashflow_statement_graph</code> is <strong>not invoked by any production caller</strong> — every reference outside the module's own definition and its lazy re-export is a test or a dev script (the module's <code>Testing/agent/</code> suite, <code>scripts/probe_cashflow_statement.py</code>, and a monkeypatch in <code>goal_planning_engine/tests/test_service.py</code> that targets an attribute <code>service.py</code> does not have). The live chat path (<code>service.py</code>) calls <code>compute_full_projection</code> (the pure engine) directly and does <em>not</em> call <code>summarize_plan</code>: a second narration would compete with the shared answer formatter, and <code>test_no_summarizer_in_chat.py</code> asserts the chat module never imports it. Production what-ifs run through the app's own override allow-list (§5), not the agent's tools. The agent — tools, levers, overrides, what-ifs — is fully built and unit-tested but dark. If you're debugging a live goal-planning turn, the agent graph is <em>not</em> in the call stack; the snapshot comes straight from the engine.</p>
 </div>
 
 ### What `ctx` must carry
 
-The bridge signature is `compute_goal_planning_snapshot(*, user, user_question, chat_session_id, anchor_date, db)`. The chat handler pulls these off the turn context:
+The bridge signature is `compute_goal_planning_snapshot(*, user, user_question, chat_session_id, anchor_date, db=None, overrides=None, milestone_target_inr=None)`. The chat handler pulls these off the turn context:
 
 | Attribute | Type | Used for |
 |---|---|---|
-| `ctx` user graph | pre-loaded `User` (profile → goals → properties → holdings) | the sole source of engine inputs; the input builder maps it to `GoalPlanningInput` |
-| `ctx.db` | `AsyncSession` | portfolio-value lookup (folded into starting corpus) + persisting the plan run; `None` ⇒ `ValueError` |
-| `anchor_date` | `date` | the engine's notion of "today" (past-goal validation, FY math) — chat passes `date.today()` |
-| `user_question` | `str` | classified upstream; the engine itself is question-agnostic (it always projects the full plan) |
+| `ctx.user_ctx` | pre-loaded `User` (personal-finance profile, investment profile + current properties, tax profile, financial goals) | the sole source of engine inputs; the input builder maps it to `GoalPlanningInput`; the detector reads current expense / SIP / retirement age off it |
+| `ctx.db` | `AsyncSession` | primary-portfolio value lookup (folded into the starting corpus) + persisting the plan run on base turns; `None` ⇒ `ValueError` |
+| `anchor_date` | `date` | chat passes `date.today()`; the input builder uses it to drop goals dated on/before it and to resolve the Retirement goal's age. The engine's own "today" is `profile._current_date()` (`date.today()`), not this argument |
+| `ctx.user_question` + `ctx.conversation_history` | `str` / list | the detector's input (the last `DETECT_HISTORY_TURNS` = 6 turns, marked as background that is never a source of overrides); the engine itself is question-agnostic (it always projects the full plan) |
+| `ctx.session_id` | UUID | `chat_session_id` on the persisted plan run |
 
 ---
 
@@ -345,27 +351,28 @@ The load-bearing input is `GoalPlanningInput` in [`models.py`](../../src/cashflo
 
 | Field | Type | Notes |
 |---|---|---|
-| `profile` | `ClientProfile` | income, `effective_tax_rate` (blended, **not** marginal), assets, liabilities, monthly expense, optional starting SIP |
-| `retirement` | `RetirementInput` | DOB, `retirement_age`, `assumed_lifespan_years` (no defaults — the engine never guesses when a household retires), optional corpus override in today's ₹ |
-| `assumptions` | `Assumptions` | all inflation / ROI / growth rates + horizon knobs; every rate has a documented default |
-| `current_properties` | `list[CurrentProperty]` | existing homes; `has_mortgage=True` requires `mortgage_emi` + `mortgage_end_date` (validated) |
-| `goal_properties` | `list[GoalProperty]` | future purchases; cash or `is_downpayment_only` mortgage path (XOR `upfront_amount` / `downpayment_pct`) |
-| `custom_goals` | `list[CustomGoal]` | life goals; PV **or** FV value, `goal_type` picks the inflation rate |
-| `one_off_inflows` / `one_off_outflows` | `list[OneOffEvent]` | dated lump sums; an outflow past the projection end is **dropped with a warning** |
-| `detail_level` | `"default" \| "full"` | `"full"` returns the month-by-month `monthly_cashflow` |
-| `model_retirement` | `bool` | **True** (agent/dev, the default): inject retirement as a goal + stop salary income at retirement. **False** (product path): retirement modelled only if the user adds it as an explicit goal. Either way the **horizon** still runs to `max(last_goal, retirement_date)` |
+| `profile` | `ClientProfile` | income, `effective_tax_rate` (contract: blended, **not** marginal), `financial_assets`, `financial_liabilities_excl_mortgage`, monthly expense, optional starting SIP (`None` ⇒ invest 75% of each month's surplus; `0` ⇒ invest nothing). **Product path:** `financial_assets` = cash & debt + `equity_shares` + the primary portfolio's `total_value` (the manual `current_portfolio_corpus` when no portfolio is linked); the tax rate is the tax profile's `income_tax_rate` — the marginal slab the profile screen collects — then the legacy PFP rate, then 25% |
+| `retirement` | `RetirementInput` | DOB, `retirement_age`, `assumed_lifespan_years` (no model defaults — the engine never guesses when a household retires), optional corpus override in today's ₹. **Product path:** age = the Retirement goal's target year − birth year, else `investment_profile.retirement_age`, else 60; lifespan = the user's stored value, else 100; `investment_profile.target_corpus` → the corpus override |
+| `assumptions` | `Assumptions` | all inflation / ROI / growth rates + horizon knobs. Defaults (the product path always sends `Assumptions()`): inflation 6% (8% child abroad education); income growth 8%; SIP step-up 8%/yr; post-tax ROI 5% / 7% / 9% for goals and corpus months ≤2 yrs / 2–5 yrs / beyond; retired-portfolio ROI 9%; default SIP share 75% |
+| `current_properties` | `list[CurrentProperty]` | existing homes (product path: `investment_profile.current_properties`); `has_mortgage=True` requires `mortgage_emi` + `mortgage_end_date` (validated) |
+| `goal_properties` | `list[GoalProperty]` | future purchases; cash or `is_downpayment_only` mortgage path (XOR `upfront_amount` / `downpayment_pct`). **Product path: always empty** — a `HOME_PURCHASE` goal arrives as a cash custom goal (with a validation note) |
+| `custom_goals` | `list[CustomGoal]` | life goals; PV **or** FV value, `goal_type` picks the inflation rate. **Product path:** ACTIVE goals dated after `anchor_date` only, duplicate names skipped; `CHILD_EDUCATION` → `child_local_education`, `HOME_PURCHASE` → `property`, everything else (Retirement included) → `custom`; a per-goal `inflation_rate` becomes `inflation_rate_override` (values > 1 read as percent) |
+| `one_off_inflows` / `one_off_outflows` | `list[OneOffEvent]` | dated lump sums; an outflow past the projection end is **dropped with a warning**. **Product path: empty**, except that a `one_off_outflow` counterfactual appends one outflow |
+| `detail_level` | `"default" \| "full"` | `"full"` returns the month-by-month `monthly_cashflow`. The product builder sets `"default"` on both paths (see §8) |
+| `model_retirement` | `bool` | **True** (agent/dev, the model default): inject retirement as a goal + stop salary income at retirement. **False** (product path): no injected payout and salary income never stops; retirement is funded only if the user adds it as an explicit goal. Either way the **horizon** still runs to `max(last_goal, retirement_date)` |
 
-Cross-cutting validators live on the models: goal names must be unique case-insensitively; past-dated goals raise before any compute (`validate_input_only` in [`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)).
+Cross-cutting validators live on the models: names (goals, properties, one-off descriptions, plus a reserved `"retirement"` when `model_retirement=True`) must be unique case-insensitively; past-dated goals raise before any compute (`validate_input_only` in [`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)). The product builder gates first: only `date_of_birth`, `annual_income` and `monthly_household_expense` are required ([`readiness.py`](../../../app/domains/cashflow/services/goal_planning_engine/readiness.py) `REQUIRED_CASHFLOW_FIELDS`); retirement age, tax rate, portfolio corpus, cash & debt, equities and liabilities are optional.
 
 ---
 
 ## 4. Output contract
 
-The engine returns `GoalPlanningOutput`; the agent path returns `GoalPlanningSnapshot` (a subclass adding per-turn metadata). Both in [`models.py`](../../src/cashflow_statement/models.py).
+The engine returns `GoalPlanningOutput`; the agent path returns `GoalPlanningSnapshot` (a subclass adding per-turn metadata), and the REST path wraps the engine output in one too (its agent-only fields stay empty). Both in [`models.py`](../../src/cashflow_statement/models.py).
 
 | Field | Type | Notes |
 |---|---|---|
-| `engine_version` | `str` | `"0.3.0"`; **bump on any math change** so cached plan runs auto-recompute |
+| `engine_version` | `str` | `"0.3.1"` (`ENGINE_VERSION` in `pipeline.py`); **bump on any math change** so cached plan runs auto-recompute |
+| `input_echo` / `computed_at` | `GoalPlanningInput` / `datetime` | the exact input the run used; UTC compute time (persisted on the plan run) |
 | `headline` | `HeadlineStatus` | the top line: `is_feasible` (canonical: all goals funded **and** `corpus_closing >= 0`), `total_shortfall_fv`, `corpus_today`, `surplus_or_shortfall_today` (PV view) |
 | `retirement` | `RetirementSnapshot` | corpus required (FV at retirement + PV today), years-to-retirement, real ROI |
 | `goals` | `list[GoalFundingStatus]` | per-goal `is_funded` / `funded_amount` / `shortfall_fv` / `corpus_required_fv` |
@@ -376,7 +383,9 @@ The engine returns `GoalPlanningOutput`; the agent path returns `GoalPlanningSna
 | `goal_property_details` | `list[GoalPropertyDetail]` | resolved EMI / interest / payoff per property goal |
 | `warnings` | `list[str]` | soft issues (e.g. dropped late one-off) |
 
-**Snapshot-only extras** (`GoalPlanningSnapshot`): `extracted_events_this_turn`, `actions_taken_this_turn` (tool audit log), `levers`, `validation_issues`, `error_log`, and `summary: PlanSummary | None` (the LLM narrative written by the agent's `finalize` node).
+**Snapshot-only extras** (`GoalPlanningSnapshot`): `extracted_events_this_turn`, `actions_taken_this_turn` (tool audit log), `levers`, `validation_issues`, `error_log`, and `summary: PlanSummary | None` (the LLM narrative written by the agent's `finalize` node). No production path fills `summary`, so the REST response's `plan_summary` is always null.
+
+**The chat `facts_pack`** (`service._build_facts_pack`) is what the formatter sees: `headline`, `retirement` (profile retirement date/age, years to it, expense today, post-retirement years, `is_funded_as_a_goal`; the corpus-required figures only when `model_retirement` is true), `cashflow_horizon` (the fund-flow bridge), `goals[]` (with a `verdict` of `funded` / `partially_funded` / `unfunded`), `corpus_composition`, `annual_cashflow[]` (eight `*_indian` amounts per FY plus `corpus_closing` raw + formatted), `validation_issues` (shipped as an empty list), and `corpus_milestone` when the detector extracted a target. Every rupee amount has an `_indian` sibling.
 
 ---
 
@@ -388,65 +397,90 @@ The engine returns `GoalPlanningOutput`; the agent path returns `GoalPlanningSna
 
 | # | Stage | Entry (file) | What it does |
 |---|---|---|---|
-| 1 | profile | `build_initial_context` — [`profile.py`](../../src/cashflow_statement/engine/profile.py) | builds the internal `RunContext` (starting corpus, tax, "today", horizon cap) |
+| 1 | profile | `build_initial_context` — [`profile.py`](../../src/cashflow_statement/engine/profile.py) | builds the internal `RunContext` (starting corpus = `financial_assets − financial_liabilities_excl_mortgage`, tax, "today" = `date.today()`, ROI-band cutoffs, 100-yr horizon cap) |
 | 2 | retirement | `compute_retirement_snapshot` — [`retirement.py`](../../src/cashflow_statement/engine/retirement.py) | corpus required at retirement (FV) + PV-today; sets income-stop when `model_retirement` |
 | 3 | mortgages | `build_existing_mortgages` — [`mortgages.py`](../../src/cashflow_statement/engine/mortgages.py) | projects existing-home EMI outflows through each end date |
 | 4 | properties | `build_goal_properties` / `build_goal_property_details` — [`properties.py`](../../src/cashflow_statement/engine/properties.py) | future purchases: cash vs mortgage, downpayment FV, amortization |
 | 5 | goals_table | `build_goals_table` — [`goals_table.py`](../../src/cashflow_statement/engine/goals_table.py) | unifies retirement + property + custom goals into one internal goal list (inflates PV→FV) |
 | 6 | cashflow | `project_cashflow` + `derive_annual_cashflow` — [`cashflow.py`](../../src/cashflow_statement/engine/cashflow.py) | month-by-month P&L (income, tax, expense, EMI, savings) across the horizon |
-| 7 | funding | `compute_funding` — [`funding.py`](../../src/cashflow_statement/engine/funding.py) | walks the monthly cashflow, evolves **one shared corpus pool**, pays goals, splits shortfalls proportionally |
+| 7 | funding | `compute_funding` — [`funding.py`](../../src/cashflow_statement/engine/funding.py) | walks the monthly cashflow, evolves **one shared corpus pool**, pays goals, splits shortfalls proportionally. Each month: a deficit is drawn from the corpus; a surplus funds the stated SIP (grown 8%/FY, capped at the surplus) or 75% of it when no SIP is set; returns follow the 5/7/9% bands, earn nothing on a negative corpus, and are **zero for the partial current FY** (the stub only establishes the starting corpus) |
 | 8 | summary | `build_headline_status` + `build_fund_flow_summary` — [`summary.py`](../../src/cashflow_statement/engine/summary.py) | rolls the funded monthly view into the headline + horizon bridge |
 
 Internal types (`RunContext`, `MortgageSchedule`, `GoalInternal`, `FundingResult`, …) live in [`engine/_types.py`](../../src/cashflow_statement/engine/_types.py) and are **not** re-exported — only [`models.py`](../../src/cashflow_statement/models.py) types cross the boundary.
 
 ### A projection, stage by stage (worked example)
 
-An illustrative household — *watch the numbers move; nothing here is an LLM guess.* *(All values below are illustrative, not real DB rows.)*
+A sample household run through the current engine with "today" pinned to 2026-10-03 — *watch the numbers move; nothing here is an LLM guess.* *(A constructed profile, not a real DB row.)*
 
 <div class="step-panel">
   <div class="label">Input · GoalPlanningInput (abridged)</div>
-<pre><code>profile:   income ₹40L/yr, tax 0.20, assets ₹80L, expense ₹1.2L/mo, SIP ₹50k/mo
-retirement: DOB 1986-06-01, retire_age 60, lifespan 85
+<pre><code>profile:   income ₹40L/yr, tax 0.20, assets ₹80L, liabilities ₹0, expense ₹1.2L/mo, SIP ₹50k/mo
+retirement: DOB 1986-06-01, retire_age 60, lifespan 100
 custom_goals: [ "college" — child_local_education, PV ₹50L, 2040-04-01 ]
+assumptions: defaults
 model_retirement: false          # product path
-anchor_date: 2026-07-12</code></pre>
+today: 2026-10-03</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
   <div class="label">Stage 2 · retirement → RetirementSnapshot</div>
-<pre><code>retirement_date: 2046-06-01   years_to_retirement: 19.9
-annual_household_expense_at_retirement: ₹43.8L  (₹14.4L today, inflated 6%/yr, EOMONTH/365)
-corpus_required_used (FV):  ₹6,84,00,000   ← rounded to nearest ₹1,000
-corpus_required_pv_today:   ₹2,13,50,000</code></pre>
+<pre><code>retirement_date: 2046-06-01   years_to_retirement: 19.67   post_retirement_years: 40
+annual_household_expense_at_retirement: ₹45,52,000  (₹14.4L today, inflated 6%/yr, EOMONTH/365)
+corpus_required_used (FV):  ₹10,81,68,000   ← rounded to nearest ₹1,000
+corpus_required_pv_today:   ₹3,42,15,374
+# computed, but unused: with model_retirement=false no retirement payout is injected
+# and the facts pack omits these corpus figures</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
   <div class="label">Stage 5 · goals_table → inflate PV to the goal date</div>
-<pre><code>college: goal_value_pv ₹50,00,000  →  goal_value_fv ₹1,13,20,000
-         (14 yrs @ 6% child_local_education inflation; FV anchor rounded to ₹1,000)</code></pre>
+<pre><code>college: goal_value_pv ₹50,00,000  →  goal_value_fv ₹1,10,34,000
+         (13.58 yrs to EOMONTH 2040-04-30 @ 6% child_local_education inflation;
+          FV anchor rounded to ₹1,000 — the same custom_goal_fv the allocation uses)</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
-  <div class="label">Stages 6–8 · cashflow → funding → summary → HeadlineStatus</div>
-<pre><code>is_feasible: false
-corpus_today: ₹80,00,000   corpus_closing: -₹41,00,000
-total_shortfall_fv: ₹96,00,000
-goals[college]: is_funded=false, shortfall_fv ₹34,00,000</code></pre>
+  <div class="label">Stages 6–7 · cashflow → funding (annual rows)</div>
+<pre><code>FY2027 (Oct–Mar stub): savings ₹8,80,000; SIP 6 × ₹50,000 = ₹3,00,000; returns ₹0  → closes ₹83,00,000
+FY2028:                income ₹43,20,000; SIP ₹6,48,000 (₹54,000/mo); returns ₹4,29,719 → closes ₹93,77,719
+FY2041:                opens ₹4,57,28,919; pays college ₹1,10,34,000 (funded) → closes ₹3,97,37,405
+... 21 annual rows, FY2027 → FY2047 (horizon ends at the retirement month, June 2046)</code></pre>
 </div>
 
-Every figure is arithmetic over the inputs. `is_feasible` is the canonical verdict (all goals funded **and** closing corpus ≥ 0) — here it's `false`, so the summarizer (or, on the agent path, `propose_levers`) has something concrete to explain.
+<div class="flow-arrow">↓</div>
+
+<div class="step-panel">
+  <div class="label">Stage 8 · summary → HeadlineStatus</div>
+<pre><code>is_feasible: true
+corpus_today: ₹80,00,000   corpus_closing: ₹7,72,00,234
+total_corpus_required_today: ₹34,22,535   surplus_or_shortfall_today: ₹45,77,465
+total_shortfall_fv: ₹0
+goals[college]: is_funded=true, funded_amount ₹1,10,34,000</code></pre>
+</div>
+
+Every figure is arithmetic over the inputs. `is_feasible` is the canonical verdict (all goals funded **and** closing corpus ≥ 0) — here it's `true`. Note what the product path leaves out: salary keeps flowing to the horizon and no retirement corpus is drawn, so the retirement figures in stage 2 never touch the verdict; only a Retirement goal the customer adds would.
+
+### The production chat turn — detect, (re-)run, format
+
+[`chat.py`](../../../app/domains/cashflow/services/goal_planning_engine/chat.py) `goal_planning_chat` is what a live `goal_planning` turn executes:
+
+1. **Detect.** `_detect_goal_action` makes one Haiku call (`classify_action`, temperature 0, `max_tokens=300`, the goal-planning API key) with structured output `GoalChatAction`: `mode` (`narrate` default · `counterfactual_explore` · `clarify`), `overrides`, `clarification_question`, `milestone_target_inr`. The user block carries TODAY, the recent history as background, and the current expense and SIP (read through `personal_finance_scalars`) plus `investment_profile.retirement_age`, so a relative change ("₹50k more a month") resolves to an absolute value. A feasibility question that names a value different from the plan's ("can I retire at 55?" on a plan retiring at 60) routes to `counterfactual_explore`. A detector failure falls back to `narrate`.
+2. **Clarify short-circuits.** `clarify` returns the question (or `_DEFAULT_CLARIFY_FALLBACK` when empty) with no engine run and no formatter.
+3. **Re-run with overrides.** On `counterfactual_explore`, `apply_overrides` copies the built input with an allow-listed change — exactly four keys (`ALLOWED_OVERRIDE_KEYS`): `retirement_age` → `RetirementInput`; `starting_monthly_investment`, `monthly_household_expense` → `ClientProfile`; `one_off_outflow` → **appended** to `one_off_outflows`. An unknown key raises `ValueError`; return / inflation assumptions are deliberately not overridable. The base input is never mutated, and a counterfactual run is **not persisted**. With `model_retirement=False`, a `retirement_age` override moves only the profile retirement date in the `retirement` facts and, when no goal is dated later, the horizon end — salary does not stop and the customer's own Retirement goal keeps its date, so the funding verdict typically matches the base plan.
+4. **Facts.** The bridge builds `facts_pack`; when `milestone_target_inr` is set, `_corpus_milestone` writes `corpus_milestone` (`already_reached` against `corpus_today`, else the first FY whose `corpus_closing` reaches the target, else null) so "when do I reach ₹X?" is answered in code.
+5. **Format.** `format_with_telemetry` (module `goal_planning`, the detector's mode as `action_mode`, `_BODY_PROMPT`) writes the reply; `fallback_text` covers a formatter failure. The Logics thesis `Cashflow_Statement.md` is attached on `narrate` only. Refusals — `missing_date_of_birth`, `missing_required_inputs:<keys>` (labels from `REQUIRED_CASHFLOW_FIELDS`) — go through `format_relay_or_canned` with a fixed message; a `missing_financial_profile` branch exists but nothing raises it.
 
 ### The narration passes — LCEL, not LangGraph
 
-Two of the three LLM touchpoints are plain **LCEL** chains (`prompt | llm.with_structured_output(...)`), a single linear pass with no state or looping:
+The module's own LLM code (none of it on the production path) has two plain **LCEL** chains (`prompt | llm.with_structured_output(...)`), each a single linear pass with no state or looping:
 
-- **`summarize_plan`** ([`summarizer.py`](../../src/cashflow_statement/summarizer.py)) — Haiku turns a `GoalPlanningOutput` into a `PlanSummary`. `_build_facts` pre-formats **every rupee value** into Indian notation (`₹X.XX crore`); Haiku is told to quote those strings verbatim and do no arithmetic. `next_steps` is **not** LLM-generated — it's `[l.description for l in levers]`, so on the production path (no levers) it's empty.
+- **`summarize_plan`** ([`summarizer.py`](../../src/cashflow_statement/summarizer.py)) — Haiku turns a `GoalPlanningOutput` into a `PlanSummary`. `_build_facts` pre-formats **every rupee value** into Indian notation (`₹X.XX crore`); Haiku is told to quote those strings verbatim and do no arithmetic. `next_steps` is **not** LLM-generated — it's `[l.description for l in levers]`. Callers: `dev_run.py` and the agent's `finalize` node only.
 - **`extract_event`** ([`agent/extractor.py`](../../src/cashflow_statement/agent/extractor.py)) — Haiku parses one NL message into an `ExtractedFinancialEvent`, with a rapidfuzz collision check (`token_set_ratio ≥ 85`) that promotes a near-duplicate goal name to a mutation. Agent-only.
 
 ### The agent — a 4-node StateGraph (LangGraph)
@@ -471,12 +505,15 @@ The six tools ([`agent/tools.py`](../../src/cashflow_statement/agent/tools.py)):
 | Part | Deterministic or LLM | Model |
 |---|---|---|
 | 8-stage projection engine | **deterministic** — pure Python, Excel-parity | none |
-| A–F lever search (`levers.py`) | **deterministic** — bisection over engine re-runs | none |
-| `summarize_plan` (LCEL) | LLM — *narrates* pre-formatted ₹ facts | Haiku `claude-haiku-4-5-20251001` |
-| `extract_event` (LCEL, agent-only) | LLM — NL → structured event | Haiku `claude-haiku-4-5-20251001` |
-| agent node (LangGraph, agent-only) | LLM — *routes* to tools, writes no prose | Sonnet `claude-sonnet-4-6` |
+| override application, milestone crossing, facts pack, fallback text (app bridge) | **deterministic** | none |
+| A–F lever search (`levers.py`, agent-only) | **deterministic** — bisection over engine re-runs | none |
+| goal-action detector (`chat.py`, **production**) | LLM — picks the mode, extracts override values / a milestone target, writes no prose | Haiku `claude-haiku-4-5-20251001`, temperature 0 |
+| shared answer formatter (`ai_engine/answer_formatter`, **production**) | LLM — *narrates* the `facts_pack` | Haiku `claude-haiku-4-5-20251001`, temperature `AILAX_FORMATTER_TEMPERATURE` (default 0) |
+| `summarize_plan` (LCEL, `dev_run.py` + agent `finalize` only) | LLM — *narrates* pre-formatted ₹ facts | Haiku `claude-haiku-4-5-20251001`, temperature 0 |
+| `extract_event` (LCEL, agent-only) | LLM — NL → structured event | Haiku `claude-haiku-4-5-20251001`, temperature 0 |
+| agent node (LangGraph, agent-only) | LLM — *routes* to tools, writes no prose | Sonnet `claude-sonnet-4-6`, temperature 0 |
 
-The engine **never calls an LLM**, and that is the whole point: a goal plan must be reproducible and auditable. Run it twice on the same input and you get byte-identical numbers — no temperature, no drift, testable against a fixed Excel baseline. The LLMs sit strictly *around* the numbers: one names goals from words, one narrates finished figures. Neither is allowed to compute, because a hallucinated corpus figure quoted with confidence is the failure this whole design exists to prevent — the rupee values are pre-formatted precisely so the model's only job is to copy.
+The engine **never calls an LLM**, and that is the whole point: a goal plan must be reproducible and auditable. Run it twice on the same input and you get byte-identical numbers — no temperature, no drift, testable against a fixed Excel baseline. The LLMs sit strictly *around* the numbers: on the live path one routes the question and pulls override values out of words, one narrates finished figures. Neither is allowed to compute, because a hallucinated corpus figure quoted with confidence is the failure this whole design exists to prevent — the rupee values are pre-formatted precisely so the model's only job is to copy.
 
 > On the agent-node default: [`graph.py`](../../src/cashflow_statement/agent/graph.py) `build_graph(model="claude-sonnet-4-6")` wins — `nodes.AGENT_MODEL_DEFAULT` (Haiku) is only the fallback default of `make_agent_node`, which the compiled graph overrides. So the compiled agent runs on **Sonnet** (the stale "Haiku-driven" phrasing in `run_cashflow_statement`'s docstring notwithstanding).
 
@@ -492,6 +529,7 @@ The engine **never calls an LLM**, and that is the whole point: a goal plan must
 | [`engine/profile.py`](../../src/cashflow_statement/engine/profile.py) · [`retirement.py`](../../src/cashflow_statement/engine/retirement.py) · [`mortgages.py`](../../src/cashflow_statement/engine/mortgages.py) · [`properties.py`](../../src/cashflow_statement/engine/properties.py) | stages 1–4 |
 | [`engine/goals_table.py`](../../src/cashflow_statement/engine/goals_table.py) · [`cashflow.py`](../../src/cashflow_statement/engine/cashflow.py) · [`funding.py`](../../src/cashflow_statement/engine/funding.py) · [`summary.py`](../../src/cashflow_statement/engine/summary.py) | stages 5–8 |
 | [`engine/dates.py`](../../src/cashflow_statement/engine/dates.py) | `_round_thousand`, near/medium-term cutoffs; re-exports `eomonth` / `fy_for_date` / `fy_end_after` from `financial_primitives` |
+| [`engine/__init__.py`](../../src/cashflow_statement/engine/__init__.py) | engine public surface: `compute_full_projection`, `validate_input_only`, `ENGINE_VERSION`, `custom_goal_fv` (defined in `goals_table.py`) |
 | [`engine/_types.py`](../../src/cashflow_statement/engine/_types.py) | internal types (`RunContext`, `GoalInternal`, …) — **not** exported |
 | [`engine/exceptions.py`](../../src/cashflow_statement/engine/exceptions.py) | engine error types |
 
@@ -513,39 +551,53 @@ The engine **never calls an LLM**, and that is the whole point: a goal plan must
 | [`models.py`](../../src/cashflow_statement/models.py) | all public pydantic contracts (inputs, outputs, agent types, enums) |
 | [`summarizer.py`](../../src/cashflow_statement/summarizer.py) | Haiku LCEL `summarize_plan` → `PlanSummary` |
 | [`__init__.py`](../../src/cashflow_statement/__init__.py) | public re-exports; lazy `__getattr__` for the agent (imports `langgraph` only on access) |
+| [`dev_run.py`](../../src/cashflow_statement/dev_run.py) | developer smoke run on a sample profile; writes `dev_artifacts/data.json` + `data.js` |
 
 App-layer companions (where the engine actually gets called from):
 
 | File | Role |
 |---|---|
 | [`cashflow_module_service.py`](../../../app/domains/cashflow/services/cashflow_module_service.py) | the brain's `goal_planning` gateway |
-| [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) | builds input, runs the engine, summarizes, persists, emits `facts_pack` |
+| [`goal_planning_engine/chat.py`](../../../app/domains/cashflow/services/goal_planning_engine/chat.py) | `@register("goal_planning")` handler: Haiku detector, refusal mapping, formatter call, chart payload |
+| [`goal_planning_engine/service.py`](../../../app/domains/cashflow/services/goal_planning_engine/service.py) | builds input, applies overrides, runs the engine, persists base turns, emits `facts_pack` + `fallback_text` |
+| [`goal_planning_engine/overrides.py`](../../../app/domains/cashflow/services/goal_planning_engine/overrides.py) | `ALLOWED_OVERRIDE_KEYS` + `apply_overrides` (the counterfactual allow-list) |
+| [`goal_planning_engine/input_builder.py`](../../../app/domains/cashflow/services/goal_planning_engine/input_builder.py) | `build_goal_planning_input_for_user` (ORM `User` → `GoalPlanningInput`) + `map_custom_goal` (shared with the allocation input builder) |
+| [`goal_planning_engine/readiness.py`](../../../app/domains/cashflow/services/goal_planning_engine/readiness.py) | `REQUIRED_CASHFLOW_FIELDS` + `evaluate_cashflow_readiness`; backs the builder's gate and `GET /cashflow/readiness` |
+| [`goal_planning_engine/cashflow_trace.py`](../../../app/domains/cashflow/services/goal_planning_engine/cashflow_trace.py) | `[AILAX_TRACE]` logging of each run's inputs and outputs |
 | [`cashflow_compute_service.py`](../../../app/domains/cashflow/services/cashflow_compute_service.py) | non-chat REST entry over the same engine |
+| [`cashflow_persist_service.py`](../../../app/domains/cashflow/services/cashflow_persist_service.py) · [`routers/cashflow_router.py`](../../../app/domains/cashflow/routers/cashflow_router.py) | REST persistence (`persist_plan_run`, `get_latest_plan_run`, `mark_stale`) · the `/cashflow` endpoints |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **The agent graph is dark on the production path** (§2). Wiring it in is a real change, not a refactor — do it deliberately, and update the Logics thesis + this doc when you do.
-- **Bump `ENGINE_VERSION` on any projection-math change** ([`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)). Stored plan runs auto-recompute when their version differs; skip the bump and customers see stale corpus figures.
-- **The LLM must never state a number that isn't pre-formatted in the facts.** `summarizer._build_facts` hands Haiku `_indian` strings; the prompt forbids arithmetic. Widen the facts only with values you can source from the engine.
-- **One deliberate exception: `corpus_closing` also ships RAW.** Formatting *everything* turned out to be lossy for reasoning — asked "when do I cross ₹1 crore?", the model was comparing the strings `"₹98.5 lakh"` and `"₹1.02 crore"` and getting it wrong. `corpus_closing` is the one figure that has to be **compared across years**, so the chat facts pack carries both the raw number and a `corpus_closing_indian` sibling for display. The other nine annual-cashflow amounts are only ever *quoted*, so they ship formatted-only (`*_indian`); shipping raw values for all of them cost ~1,400 tokens per goal-planning turn and bought nothing. The generalisable lesson: **format at the last moment for display, keep raw whatever the model must reason over.**
-- **`corpus_today` is NOT "their portfolio".** It merges three sources — the linked mutual-fund portfolio, directly-held equity, and cash/debt — so it is usually **larger** than the portfolio value the customer sees on screen. The chat facts pack now carries a `corpus_composition` split (`linked_portfolio_value`, `direct_equity_shares`, `cash_and_debt`) precisely so the answer can say "everything you hold" versus "your portfolio" correctly. Quoting the merged corpus as their portfolio overstates it. Note also that the projection models only the **combined** corpus — there is no year-by-year forecast for any single component, so never project one forward.
-- **`next_steps` is deterministic, from levers — not the LLM.** On the production path no levers are computed, so `next_steps` is empty; don't "fix" this by having the model invent action items.
+- **The agent graph is dark on the production path** (§2). Wiring it in is a real change, not a refactor — do it deliberately, and flag the Logics thesis and this guide for a refresh when you do.
+- **Bump `ENGINE_VERSION` on any projection-math change** ([`pipeline.py`](../../src/cashflow_statement/engine/pipeline.py)). `GET /cashflow/latest` recomputes any stored plan run whose version differs; skip the bump and customers see stale corpus figures.
+- **The LLM must never state a number that isn't pre-formatted in the facts.** `service._build_facts_pack` gives every rupee amount an `_indian` sibling and `_BODY_PROMPT` tells the formatter to quote those verbatim and never re-derive lakh/crore (`summarizer._build_facts` does the same for the dormant `summarize_plan`). Widen the facts only with values you can source from the engine.
+- **One deliberate exception: `corpus_closing` also ships RAW in `annual_cashflow`.** Formatted strings are lossy for reasoning — compared as strings, `"₹98.5 lakh"` and `"₹1.02 crore"` mis-order. `corpus_closing` is the one per-year figure that is **compared across years**, so each row carries the raw number plus `corpus_closing_indian` for display. The other eight annual amounts are only ever *quoted*, so they ship formatted-only (`*_indian`); raw values for them would add ~1,400 tokens per goal-planning turn for no benefit. The generalisable rule: **format at the last moment for display, keep raw whatever the model must reason over.**
+- **"When do I reach ₹X?" is resolved in code, not by the formatter.** The detector extracts `milestone_target_inr` (guidance lives in the Pydantic field description, not the prompt body) and `_corpus_milestone` writes the first crossing into `facts_pack["corpus_milestone"]`; the body prompt forbids scanning `annual_cashflow` for a crossing. Keep the scan out of `_BODY_PROMPT` — a model scanning 20–40 rows picks different years run to run.
+- **`corpus_today` is NOT "their portfolio".** It is cash & debt + directly-held equity + the primary portfolio's value (or the manual portfolio corpus when none is linked), **minus non-mortgage liabilities** — usually **larger** than the portfolio value the customer sees on screen. The chat facts pack carries a `corpus_composition` split (`linked_portfolio_value`, `direct_equity_shares`, `cash_and_debt`) so the answer can say "everything you hold" versus "your portfolio" correctly; that split shows neither the liabilities nor a manual portfolio corpus, so its parts need not sum to `corpus_today`. Quoting the merged corpus as their portfolio overstates it. The projection models only the **combined** corpus — there is no year-by-year forecast for any single component, so never project one forward.
+- **A counterfactual run is never persisted.** `plan_run_id = None if is_counterfactual else await _persist_plan_run(...)`, gated on `bool(overrides)`: a base chat turn writes the plan run the Goal Planning screen reads back, so persisting a hypothetical would overwrite the real plan (`service.py`).
+- **The override allow-list is the safety boundary.** Exactly four keys (`overrides.ALLOWED_OVERRIDE_KEYS`); an unknown key raises rather than silently modelling something the customer did not ask. Return / inflation assumptions are excluded on purpose — a customer must not be able to shop for an ROI that makes the plan "work".
+- **`custom_goal_fv` is shared with the allocation engines.** `aa_engine/input_builder.py` (ideal + practical) prices every goal's `amount_needed_fv` with it and the bridge's `map_custom_goal`, so a change to goal FV math or the ORM goal-type mapping moves the allocation's short-term goal amounts as well as this projection.
+- **`summarize_plan` has no production caller, so no `PlanSummary` exists in production.** `next_steps` is deterministic, from levers — not the LLM; don't "fix" an empty narrative by having the model invent action items.
+- **No production path produces monthly rows.** The builder sets `detail_level="default"`; `run_cashflow_projection_for_user` overrides it only when the caller asks for something other than `"full"`, so the router's `detail_level="full"` leaves it at `"default"` — `monthly_cashflow` is `None`, no `cashflow_monthly_rows` are written, and the chat chart payload's `monthly_cashflow` list is empty.
+- **The engine's "today" is `date.today()`** (`profile._current_date()`, monkeypatchable in tests) — not the caller's `anchor_date`, which only filters goals and resolves the Retirement goal's age in the input builder.
+- **The partial current FY earns no return.** When today is past 1 April, the stub months add SIP/withdrawals but `investment_returns` is 0 until the first full FY (`funding.py`).
 - **Time convention is day-precise `EOMONTH(date)/365`.** Inflation FV and PV-discount both use it, symmetrically, across every stage (`retirement.py`, `properties.py`, `goals_table.py`). Don't swap in whole-year or 360-day math — it breaks Excel parity.
-- **`_round_thousand` applies only to FV cashflow anchors** (`corpus_required_fv`, `target_fv`); PV/display fields stay unrounded (`engine/dates.py`). Rounding a PV field silently shifts totals.
-- **Indian FY is April–March; `fy_for_date` returns the closing year** (April 2026 → FY27). Off-by-one here mis-buckets every annual row.
+- **`_round_thousand` applies only to FV anchors** (`corpus_required_fv`, `target_fv`, the retirement expense and corpus FVs); PV/display fields stay unrounded (`engine/dates.py`). Rounding a PV field silently shifts totals.
+- **Indian FY is April–March; `fy_for_date` returns the closing year** (April 2026 → 2027, labelled `FY2027`). Off-by-one here mis-buckets every annual row.
 - **One shared corpus pool, not per-goal.** Funding walks the monthly cashflow and splits shortfalls proportionally across a month's outflows (`funding.py`). Sign conventions: shortfalls positive, EMI/expense/payout positive magnitudes, `surplus_or_shortfall_today` signed.
 - **`model_retirement` governs income-stop + the injected retirement payout, NOT the horizon.** The projection always runs to `max(last_goal, retirement_date)` regardless (`pipeline.py`). Conflating the two is the classic bug this flag's long comment warns against.
-- **Incomplete profiles are hard-refused, never zero-filled** (`input_builder.py`): the builder raises `missing_required_inputs:<keys>` so the engine only ever sees real numbers.
+- **Incomplete profiles are hard-refused, never zero-filled** (`input_builder.py`): no DOB raises `missing_date_of_birth`; a missing annual income or monthly household expense raises `missing_required_inputs:<keys>`. The optional inputs take stated planning assumptions instead (retirement age 60, lifespan 100, tax 25%, ₹0 for absent assets / liabilities).
 - **The agent submodule loads lazily** ([`__init__.py`](../../src/cashflow_statement/__init__.py) `__getattr__`) so the pure-engine path imports cleanly without `langgraph` installed. Don't move the agent import to module top level.
-- **Failure is soft.** `run_cashflow_statement` catches any graph error (incl. the 15-iter recursion cap) and returns an error-snapshot built from a plain baseline compute — a customer never sees a stack trace.
+- **Failure is soft.** On the live path a detector failure falls back to `narrate`, a formatter failure to the deterministic `fallback_text`, and a plan-run persist failure is logged with `plan_run_id=None`. On the agent path `run_cashflow_statement` catches any graph error (incl. the 15-iter recursion cap) and returns an error-snapshot built from a plain baseline compute — a customer never sees a stack trace.
 
 ---
 
 ## 9. Extend & test
 
-Tests live at four levels under [`Testing/`](../../src/cashflow_statement/Testing/) — the paths below all exist:
+Tests live at four levels under [`Testing/`](../../src/cashflow_statement/Testing/) (gitignored — `AI_Agents/src/*/Testing/` lives in local checkouts only):
 
 | Level | Where | Covers |
 |---|---|---|
@@ -553,6 +605,8 @@ Tests live at four levels under [`Testing/`](../../src/cashflow_statement/Testin
 | engine integration | [`Testing/integration/`](../../src/cashflow_statement/Testing/integration/) | end-to-end pipeline (`test_engine_pipeline.py`), smoke (`test_smoke.py`), performance (`test_engine_performance.py`), property-goal details (`test_goal_property_details.py`) |
 | agent | [`Testing/agent/`](../../src/cashflow_statement/Testing/agent/) | `test_e2e.py`, `test_extractor.py`, `test_levers.py`, `test_state.py`, `test_tools.py` — LLM stubbed |
 | boundary | [`Testing/boundary/`](../../src/cashflow_statement/Testing/boundary/) | `test_engine_no_llm.py` (the engine imports with no LLM libs) + `test_public_api_only.py` |
+
+Outside the module: the chat bridge's tests sit in `app/domains/cashflow/services/goal_planning_engine/tests/` (`test_chat.py`, `test_input_builder.py`, `test_service.py` tracked; the overrides, counterfactual-run, detector-wiring, annual-facts, retirement-facts and no-summarizer suites local only), and `AI_Agents/tests/test_custom_goal_fv.py` pins the shared goal-FV helper.
 
 > **Excel parity is not a pytest.** The Excel-baseline comparison lives in the dev eval harness under `AI_Agents/tests/cashflow_statement/` (CSV artifacts in `runs/_current_excel_compare/`), not the `Testing/` suite. The pytest integration layer proves the pipeline runs and reconciles; the eval harness is what you re-run to confirm the numbers still match the spreadsheet.
 
@@ -564,12 +618,13 @@ Run with the mac venv:
 
 - **Run one engine stage in isolation** — the engine is pure functions, so build a `GoalPlanningInput` and call `compute_full_projection` (or a single stage entry from [`engine/`](../../src/cashflow_statement/engine/)) directly; assert on the returned pydantic. No API key, no DB. See `Testing/unit/` for the per-stage patterns and `dev_run.py` for a full sample profile.
 - **Run the agent without an API key** — the tests stub the LLM at the chain/tool boundary (`extract_event(..., _chain=<stub>)` is an explicit test hook; tools have pure `*_impl` fns). Assert on state mutations and tool routing, never on model wording.
-- **Change engine math** → update the stage file, **bump `ENGINE_VERSION`**, then re-run the end-to-end pipeline tests (`test_engine_pipeline.py`) and re-check the Excel-parity comparison in the dev eval harness (`AI_Agents/tests/cashflow_statement/`) before anything else — parity is the contract. Then bump the Logics thesis [Cashflow_Statement.md](../Logics_reference_docs/Cashflow_Statement.md) if the *approach* changed (per the repo's "Logics docs track the engines" rule).
-- **Change narration** → edit the prompt body in [`summarizer.py`](../../src/cashflow_statement/summarizer.py) (or `agent/prompts.py`); the model's wording under guardrails is checked by the chat eval gate (`scripts/run_prompt_eval_gate.sh`), not these unit tests.
+- **Change engine math** → update the stage file, **bump `ENGINE_VERSION`**, then re-run the end-to-end pipeline tests (`test_engine_pipeline.py`) and re-check the Excel-parity comparison in the dev eval harness (`AI_Agents/tests/cashflow_statement/`) before anything else — parity is the contract. If the *approach* changed, flag the Logics thesis [Cashflow_Statement.md](../Logics_reference_docs/Cashflow_Statement.md) for a refresh — it grounds `narrate` answers in chat, and reference docs are refreshed on request, not as part of the code change. A goal-FV change also moves the allocation input (`custom_goal_fv`, §8).
+- **Change what chat can model** → extend `ALLOWED_OVERRIDE_KEYS` + `apply_overrides` and the detector's `GoalChatAction.overrides` field description together; a key the detector can emit but `apply_overrides` rejects fails the turn with `ValueError`.
+- **Change narration** → the live reply is written by the shared formatter from `_BODY_PROMPT` in [`chat.py`](../../../app/domains/cashflow/services/goal_planning_engine/chat.py); the dormant narrators are the prompt bodies in [`summarizer.py`](../../src/cashflow_statement/summarizer.py) and `agent/prompts.py`. The model's wording under guardrails is checked by the chat eval gate (`scripts/run_prompt_eval_gate.sh`), not these unit tests.
 
 ---
 
-*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

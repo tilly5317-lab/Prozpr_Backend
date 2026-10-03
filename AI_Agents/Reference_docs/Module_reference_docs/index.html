@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Index · 10 modules</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -268,23 +268,23 @@
 
 > **What this folder is:** one engineer-facing guide per agent under [`AI_Agents/src/`](../../src/). Each guide answers the same four questions for its module — what it takes in, what it gives back, how it thinks, and where (if anywhere) the LLM is — pinned to the live code. Start here, then open the module you're actually digging into.
 >
-> **How it relates to the rest of the docs:** for the *whole-package* walkthrough — how the agents relate, the two blessed cross-module imports, the shared foundation, the landmines — read [../Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html). For the *client-facing thesis* behind each engine (philosophy and approach, no proprietary weights) see [../Logics_reference_docs/](../Logics_reference_docs/). This folder sits between the two: more code-level than the Logics docs, more per-module than ARCHITECTURE.
+> **How it relates to the rest of the docs:** for the *whole-package* walkthrough — how the agents relate, the blessed cross-module imports, the shared foundation, the landmines — read [../Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html). For the *client-facing thesis* behind each engine (philosophy and approach, no proprietary weights) see [../Logics_reference_docs/](../Logics_reference_docs/). This folder sits between the two: more code-level than the Logics docs, more per-module than ARCHITECTURE.
 
 ---
 
 ## The map
 
-Ten modules, plus the shared foundation they lean on. Solid arrows are real Python imports; dotted arrows are **caller-wired** contracts (the app layer fills the fields — the agents don't reach across the package); the dashed `Reference_docs/` edge is a **file** contract, not an import.
+Ten modules, plus the shared foundation they lean on. Solid arrows are real Python imports; dotted arrows are **caller-wired** contracts (the app layer fills the fields — the agents don't reach across the package); edges into and out of `Reference_docs/` are **file** contracts, not imports.
 
 ```mermaid
 flowchart TB
     subgraph Shared["📦 Shared foundation — src/"]
         FP["financial_primitives/<br/>TVM, annuity, inflation, FY dates"]
-        Common["common.py · persona.py<br/>reasoned_reply.py · token_stream.py"]
+        Common["common.py · persona.py<br/>reasoned_reply.py · token_stream.py<br/>house_view.py"]
     end
 
     subgraph Intent["🎯 Intent layer"]
-        IC["intent_classifier<br/>Haiku · 9 intents"]
+        IC["intent_classifier<br/>Haiku · 9 intents + tools_needed"]
     end
 
     subgraph Profile["🧍 Client profile"]
@@ -292,11 +292,11 @@ flowchart TB
     end
 
     subgraph Macro["🌐 Market context"]
-        MC["market_commentary<br/>web-search → snapshot → letter<br/>+ Sonnet Q&A"]
+        MC["market_commentary<br/>web-search → snapshot → document<br/>Haiku"]
     end
 
     subgraph Allocate["📊 Allocation"]
-        AA["asset_allocation_pydantic<br/>7-step goal-based engine"]
+        AA["asset_allocation_pydantic<br/>6-step goal-based engine"]
         PA["practical_asset_allocation<br/>holdings-aware wrapper"]
     end
 
@@ -305,17 +305,17 @@ flowchart TB
     end
 
     subgraph Fresh["💸 Fresh money"]
-        AINV["additional_investment<br/>goal-first / deficit-fill split → BUY list"]
+        AINV["additional_investment<br/>goal-first split → BUY list"]
     end
 
     subgraph Plan["📅 Goal planning"]
         CFE["cashflow_statement/engine<br/>8-stage projection"]
-        CFA["cashflow_statement/agent<br/>LangGraph + 6 tools · Sonnet"]
+        CFA["cashflow_statement/agent<br/>LangGraph + 6 tools · Sonnet<br/>no production caller"]
     end
 
     subgraph Query["💬 Grounded Q&A"]
-        PQ["portfolio_query<br/>Haiku · the customer's own holdings"]
-        MFQ["mutual_fund_query<br/>Haiku · one named fund"]
+        PQ["portfolio_query<br/>facts + prompt · the customer's own holdings"]
+        MFQ["mutual_fund_query<br/>Haiku extract · named funds or a screen"]
     end
 
     FP --> CFE
@@ -326,16 +326,19 @@ flowchart TB
     RP -.->|"effective_risk_score<br/>(wired by caller)"| AA
     MC -.->|"score block — NOT wired;<br/>engine defaults used"| AA
     MC -->|"writes market_commentary_latest.md"| RefDocs[(Reference_docs/)]
-    RefDocs -.->|"read only when the classifier's<br/>tools_needed asks for it"| PQ
+    RefDocs -.->|"fund_house_commentry.md, Prozpr-only slice —<br/>only when tools_needed has fund_house_view"| PQ
     IC -.->|"tools_needed<br/>(wired by caller)"| PQ
 
-    AA -->|"steps 1-3, 5, helpers"| PA
+    AA -->|"steps 1, 2, 5, step-4 phases, helpers"| PA
     PA -->|"run_practical_allocation"| RB
-    PA -.->|"post-investment ideal + holdings<br/>(wired by caller)"| AINV
+    RB -->|"funds_per_subgroup<br/>(1-vs-2 fund rule)"| AINV
+    PA -.->|"goal share from goal_funding, subgroup targets,<br/>lumpsum holdings (wired by caller)"| AINV
     CFE --> CFA
 ```
 
-The two solid cross-module edges (`practical_asset_allocation → asset_allocation_pydantic`, `Rebalancing → practical_asset_allocation`) are the *only* sanctioned ones. Everything else is peers wired by the app layer. Adding an arrow is a design decision, not a refactor.
+The three solid cross-module edges are the *only* sanctioned ones: `practical_asset_allocation → asset_allocation_pydantic`, `Rebalancing → practical_asset_allocation`, and `additional_investment → Rebalancing.config`, which imports one function (`funds_per_subgroup`, the shared 1-vs-2 fund-count rule) and no rebalancing logic. Everything else is peers wired by the app layer. Adding an arrow is a design decision, not a refactor.
+
+On the production path no other agent reads the market-commentary document: the app's `flow_market` hands it to general chat for market questions. `portfolio_query` reads only Prozpr's hand-maintained fund-house view, sliced to Prozpr's own stance by `house_view.py`.
 
 ---
 
@@ -345,20 +348,20 @@ The single most useful mental model is: is this a **deterministic engine** (pure
 
 | Module | Classification | The deterministic part | Where the LLM is |
 |---|---|---|---|
-| [intent_classifier](intent_classifier.html) | **LLM-driven** | — | one Haiku call labels the turn (structured output) |
+| [intent_classifier](intent_classifier.html) | **LLM-driven** | — | one Haiku call labels the turn and emits `tools_needed` (structured output) |
 | [risk_profiling](risk_profiling.html) | **Hybrid** | the 1–10 `effective_risk_score` (`scoring.py`) | Haiku writes only the summary paragraph |
-| [market_commentary](market_commentary.html) | **LLM-driven** | the TTL cache — a written letter is reused verbatim within the window | Haiku extract + generate; Sonnet `chat_qa` |
-| [asset_allocation_pydantic](asset_allocation_pydantic.html) | **Deterministic engine** | all six steps produce the numbers | none — step 7's rationale is fixed templates |
+| [market_commentary](market_commentary.html) | **LLM-driven** | the TTL cache — a snapshot younger than `MARKET_COMMENTARY_CACHE_MAX_AGE_SEC` (default 24h) skips the web search, and the written document is reused verbatim unless the snapshot is newer | Haiku web-search extraction + Haiku document generation; the Sonnet `chat_qa` helper has no production caller |
+| [asset_allocation_pydantic](asset_allocation_pydantic.html) | **Deterministic engine** | steps 1, 2, 4 and 5 produce the numbers, step 6 checks guardrails (there is no step 3) | none — step 7's rationale is fixed templates |
 | [practical_asset_allocation](practical_asset_allocation.html) | **Deterministic engine** | the whole holdings-aware allocation | none |
-| [Rebalancing](rebalancing.html) | **Deterministic engine** | every trade traces to steps 1–6 | none |
-| [additional_investment](additional_investment.html) | **Deterministic engine** | the split + fund selection | none (extraction lives in the app layer) |
-| [cashflow_statement](cashflow_statement.html) | **Hybrid** | the 8-stage Excel-parity engine | the LangGraph agent (Sonnet) decides tool calls; Haiku extract + summary |
-| [portfolio_query](portfolio_query.html) | **LLM-driven** | rupee figures pre-computed by the app layer | one Haiku call narrates under guardrails |
-| [mutual_fund_query](mutual_fund_query.html) | **LLM-driven** | every number pre-built into the facts | two Haiku passes (extract + narrate) |
+| [Rebalancing](rebalancing.html) | **Deterministic engine** | every trade traces to steps 1–6 (plus 2b, the debt-switch netting) | none |
+| [additional_investment](additional_investment.html) | **Deterministic engine** | the split + fund selection | none (amount and cadence extraction lives in the app layer) |
+| [cashflow_statement](cashflow_statement.html) | **Hybrid package, deterministic in production** | the 8-stage Excel-parity engine — the only part `app/` runs | none on the production path; the LangGraph agent (Sonnet, 6 tools), its Haiku extractor and the Haiku `summarize_plan` have no `app/` caller |
+| [portfolio_query](portfolio_query.html) | **LLM-driven** | rupee figures pre-computed by the app layer, with `_indian` strings added by `build_facts` | no call of its own — it hands a facts pack and its guardrail prompt to the shared answer formatter (Haiku), which writes the reply |
+| [mutual_fund_query](mutual_fund_query.html) | **LLM-driven** | every number pre-built into the facts | a Haiku extract pass here; the shared answer formatter (Haiku) narrates |
 
 Why it matters: a deterministic engine that gives a "wrong" answer is a bug in the math — reproducible, fix with a regression test. An LLM-driven agent that gives a "wrong" answer is usually the prompt or the input context — fix by adding to the eval set. The LLM-driven agents are mostly **thin**; the deterministic engines are where the surface area is.
 
-**Two things now true of every LLM call in the package.** First, `temperature=0` is pinned at every `ChatAnthropic(...)` site — unset applies the API default of 1.0, which was producing different rupee figures for the same customer on consecutive calls; a repo-wide test fails the build on any call site that omits it. Second, the customer-facing answer surfaces can **stream**: `portfolio_query` and `mutual_fund_query` publish their `answer` field incrementally through the shared `token_stream.py` when a turn has an open stream, and fall back to the identical blocking path when it doesn't.
+**Two rules hold for every LLM call on the chat path.** First, every `ChatAnthropic(...)` call pins `temperature`: a literal `0` throughout `AI_Agents/src/`, and the shared answer formatter reads `AILAX_FORMATTER_TEMPERATURE` (default `"0"`). Unset applies the API default of 1.0, under which the same customer's question returns different rupee figures on consecutive calls; `app/domains/ai_engine/tests/test_temperature_is_pinned.py` scans `app/` and `AI_Agents/src/` and fails on any call site that omits it. Second, agents produce facts and prompts, and the shared answer formatter (`app/domains/ai_engine/answer_formatter/`, Haiku) writes the customer-facing reply for every flow — so `portfolio_query` and `mutual_fund_query` cannot answer standalone. The formatter **streams** its `answer` field through the shared `token_stream.py` when the turn has an open stream, and makes the identical blocking call when it doesn't.
 
 ---
 
@@ -375,16 +378,16 @@ Why it matters: a deterministic engine that gives a "wrong" answer is a bug in t
 </style>
 
 <div class="doc-cards">
-  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="intent_classifier.html">intent_classifier</a><p>The first module every chat turn — a single Claude Haiku call that labels a customer question with one of nine intents so the brain can route the rest of the turn.</p></div>
+  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="intent_classifier.html">intent_classifier</a><p>The first module every chat turn — a single Claude Haiku call that labels a customer question with one of nine intents, plus the tools_needed fetch list, so the brain can route the rest of the turn.</p></div>
   <div class="doc-card"><span class="tag">Hybrid · scoring + Haiku</span><a class="name" href="risk_profiling.html">risk_profiling</a><p>Deterministic 1–10 risk scoring from a client's age, finances and stated appetite, with a Claude Haiku pass that writes only the plain-English summary paragraph.</p></div>
-  <div class="doc-card"><span class="tag">LLM-driven · Haiku + Sonnet</span><a class="name" href="market_commentary.html">market_commentary</a><p>The on-demand web-search pipeline (24h-TTL cache) that extracts 14 Indian macro indicators into a MacroSnapshot and renders the monthly market-commentary letter that portfolio_query and general chat read as a file.</p></div>
-  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="asset_allocation_pydantic.html">asset_allocation_pydantic</a><p>The deterministic goal-based asset-allocation engine — seven pure-Python steps turn a risk score plus goals into an asset-class-and-subgroup plan, worked out to the rupee, with fixed-template plain-English rationale.</p></div>
-  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="practical_asset_allocation.html">practical_asset_allocation</a><p>Holdings-aware wrapper over asset_allocation_pydantic that freezes ELSS, bands direct stocks by financial assets, and re-shapes the long-term equity split around what the customer already owns.</p></div>
-  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="rebalancing.html">Rebalancing</a><p>Pure-Python, tax-aware engine that turns an ideal allocation plus current holdings into per-fund target/buy/sell trades (top 1-2 funds per subgroup) under an STCG budget. Customer preferences no longer enter here — they shape the upstream practical allocation; a preference-shaped chat turn points at the preferences page.</p></div>
-  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="additional_investment.html">additional_investment</a><p>The pure-Python engine that deploys fresh money (lumpsum or SIP) into specific funds to BUY — near-term goal money first, then the rest fills allocation deficits (lumpsum) or follows the long-term plan (SIP), never selling.</p></div>
-  <div class="doc-card"><span class="tag">Hybrid · engine + LangGraph</span><a class="name" href="cashflow_statement.html">cashflow_statement</a><p>The goal-planning module: an 8-stage pure-Python Excel-parity projection engine wrapped by the codebase's only LangGraph agent, with LLMs confined to narration.</p></div>
-  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="portfolio_query.html">portfolio_query</a><p>The Q&A engine for a customer's own portfolio: one Haiku call over market commentary (and, for judgement questions, our fund-house view) + their profile + their holdings, with scope guardrails and pre-computed rupee figures so nothing is invented.</p></div>
-  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="mutual_fund_query.html">mutual_fund_query</a><p>Grounded answers about one specific fund — a two-pass Haiku flow that narrates only numbers the app layer pre-computed, and refuses to invent the rest.</p></div>
+  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="market_commentary.html">market_commentary</a><p>The on-demand web-search pipeline (24h-TTL cache) that extracts 14 Indian macro indicators into a MacroSnapshot and renders the market-commentary document (market_commentary_latest.md) that general chat answers market questions from.</p></div>
+  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="asset_allocation_pydantic.html">asset_allocation_pydantic</a><p>The deterministic goal-based asset-allocation engine — six pure-Python steps (emergency carve, short-term goal waterfall, long-term split, aggregation, guardrails, presentation) turn a risk score plus goals into an asset-class-and-subgroup plan in whole rupees, with fixed-template plain-English rationale. By default the production input builder carves no emergency reserve.</p></div>
+  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="practical_asset_allocation.html">practical_asset_allocation</a><p>Holdings-aware wrapper over asset_allocation_pydantic and the one engine that honours a saved investment preference: held short-term money (debt and arbitrage funds) feeds the goal waterfall, a supplied ELSS corpus sits as a frozen long-term row, and its goal_funding carries the short-term target and the goal share the fresh-money path deploys first. A saved preference suspends the emergency and short-term carve-outs. Direct stocks never enter it.</p></div>
+  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="rebalancing.html">Rebalancing</a><p>Pure-Python, tax-aware engine that runs the practical allocation, then turns it plus current MF holdings into per-fund target/buy/sell trades (top 1 or 2 funds per subgroup by corpus) under an STCG budget, never selling a held debt fund to buy another. Saved preferences reach it only through that practical run. A first-turn preference ask gets the freshly computed plain plan plus a pointer to the preferences page; a follow-up preference ask gets the pointer alone, or a tax/cash what-if plus the pointer when the ask also carries a servable override. Separately, a chat 'consolidate' ask (fewer funds, or new buys limited to, kept out of or weighted toward named categories) reshapes only the buy side of a freshly computed plan through `Rebalancing.consolidation`, and nothing is persisted.</p></div>
+  <div class="doc-card"><span class="tag">Deterministic engine</span><a class="name" href="additional_investment.html">additional_investment</a><p>The pure-Python engine that deploys fresh money (lumpsum or SIP) into specific funds to BUY — the goal share from the practical plan's goal_funding first, then the rest follows the long-term plan (SIP) or fills long-term deficits against holdings (lumpsum), into the top 1 or 2 ranked funds per subgroup, never selling.</p></div>
+  <div class="doc-card"><span class="tag">Engine in production · LangGraph off-path</span><a class="name" href="cashflow_statement.html">cashflow_statement</a><p>The goal-planning module: an 8-stage pure-Python Excel-parity projection engine — the only part the app runs — plus the codebase's only LangGraph agent, which has no production caller.</p></div>
+  <div class="doc-card"><span class="tag">LLM-driven · shared formatter</span><a class="name" href="portfolio_query.html">portfolio_query</a><p>The facts-and-prompt builder for questions about a customer's own portfolio: their profile and holdings (and, for judgement questions, Prozpr's own fund-house view), scope guardrails and pre-computed rupee figures, handed to the shared answer formatter so nothing is invented.</p></div>
+  <div class="doc-card"><span class="tag">LLM-driven · Haiku</span><a class="name" href="mutual_fund_query.html">mutual_fund_query</a><p>Grounded answers about funds themselves, held or not — a Haiku extract pass names the fund(s) or spots a "best funds" screen, and the shared answer formatter narrates only numbers the app layer pre-computed, refusing to invent the rest.</p></div>
 </div>
 
 ---
@@ -392,11 +395,12 @@ Why it matters: a deterministic engine that gives a "wrong" answer is a bug in t
 ## Elsewhere
 
 - [../Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html) — the whole-package walkthrough: the shared foundation (`financial_primitives/`, `common.py`, `persona.py`, `reasoned_reply.py`), the caller-wired data-flow web, conventions, and the package-wide landmines.
+- [../Tech_reference_docs/CHAT_FLOW.html](../Tech_reference_docs/CHAT_FLOW.html) — the non-technical guide to how a customer question travels through the chat.
 - [../Logics_reference_docs/](../Logics_reference_docs/) — the client-safe thesis docs: the *approach* behind each engine (Asset Allocation, Practical Asset Allocation, Risk Profiling, Rebalancing, Cashflow Statement, Additional Investment, Mutual Fund Query), with proprietary weights and thresholds deliberately omitted.
 
 ---
 
-*Index · reconciled with the live code on 2026-09-29. If a diagram contradicts the code, trust the code — and flag it so this page gets fixed.*
+*Index · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this page gets fixed.*
 
 </script>
 

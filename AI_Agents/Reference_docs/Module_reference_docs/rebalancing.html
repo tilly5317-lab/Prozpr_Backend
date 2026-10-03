@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">Deterministic engine</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-09-29
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -264,83 +264,90 @@
 </div>
 
 <script type="text/markdown" id="source-md">
-# `Rebalancing` — ideal target + current holdings → tax-aware per-fund trades
+# `Rebalancing` — goal-based target + current holdings → tax-aware per-fund trades
 
-> **One line:** given the goal-based *ideal* allocation and what the customer *actually holds*, this engine decides — deterministically, in `Decimal` rupees — how much of each fund to **buy**, **trim**, or **exit**, honouring per-fund concentration caps and never realising short-term capital gains it wasn't budgeted to.
+> **One line:** given the customer's goal-based target — the *practical* allocation, which this engine runs itself — and what the customer *actually holds*, this engine decides, deterministically and in `Decimal` rupees, how much of each fund to **buy**, **trim**, or **exit**, spreading each subgroup across its top 1–2 ranked funds and realising short-term capital gains only on a force-exit.
 >
-> This is the engineer's guide to the engine. For the client-facing thesis (why we trim the long-held slice first, why ELSS is frozen), see [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+> This is the engineer's guide to the engine. For the client-facing thesis (why we trim the long-held slice first, how held ELSS units are treated), see [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
 
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">Deterministic engine<br/>(pure-Python, no LLM)</div></div>
   <div class="cell"><div class="k">Money type</div><div class="v"><code>Decimal</code> throughout<br/>(contrast the float AA family)</div></div>
-  <div class="cell"><div class="k">Caller / trigger</div><div class="v"><code>rebalancing</code> intent →<br/><code>rebalancing_module_service.run</code></div></div>
+  <div class="cell"><div class="k">Caller / trigger</div><div class="v"><code>rebalancing</code> intent, Invest page,<br/>post-ingest and preference refresh</div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>run_rebalancing(request)</code></div></div>
-  <div class="cell"><div class="k">Steps</div><div class="v">practical pre-pass<br/>+ 6 ordered steps</div></div>
+  <div class="cell"><div class="k">Steps</div><div class="v">practical pre-pass<br/>+ steps 1–6 (with 2b)</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">fully deterministic<br/>same input → same output</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v"><code>practical_asset_allocation</code><br/>(blessed §B.1 edge)</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — app layer builds the request</div></div>
+  <div class="cell"><div class="k">Engine version</div><div class="v"><code>1.15.0</code><br/>(<code>config.ENGINE_VERSION</code>)</div></div>
 </div>
 
 ---
 
 ## 1. What it's about
 
-The engine lives at [`AI_Agents/src/Rebalancing/`](../../src/Rebalancing/). It answers a single question: *"the customer should hold **this** ideal mix but holds **that** today — what trades close the gap without doing anything tax-silly?"*
+The engine lives at [`AI_Agents/src/Rebalancing/`](../../src/Rebalancing/). It answers a single question: *"the customer should hold **this** target mix but holds **that** today — what trades close the gap without doing anything tax-silly?"*
 
-It is **not** the allocation engine. It runs the holdings-aware [`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py) engine as its own **first step** to get the ideal per-subgroup amounts, then threads six deterministic steps that cap, diff, tax-classify, sell, top-up, and present. Every number is computed in `Decimal` — there is no model in the loop.
+It is **not** the allocation engine. It runs the holdings-aware [`practical_asset_allocation`](../../src/practical_asset_allocation/pipeline.py) engine as its own **first step** to get the per-subgroup targets, then threads seven deterministic steps (1, 2, 2b, 3–6) that round, diff, net debt-for-debt switches, tax-classify, sell, top-up, and present. Every number is computed in `Decimal` — there is no model in the loop.
 
 The defining design decisions:
 
-- **Sells are tax-ordered and budget-gated.** A recommended fund that's merely *over* its target is trimmed **long-term only** (never realising STCG); short-term capital gains are realised only on a *force-exit*, and only up to a per-run `stcg_offset_budget_inr` (default **₹0** — a hard brake).
-- **ELSS and non-MF equity are scalars, not rows.** They ride on the practical input and surface as *frozen* summary rows — the engine emits no per-fund BUY/SELL/EXIT for them (ELSS is under SEBI 3-year lock-in; direct stocks get a single `SELL_DIRECT_STOCKS` on a financial-assets-band trim).
-- **Targets are holdings-aware and spread across the top 1-2 funds.** A fund the customer already holds keeps what it holds as its target so long as it is still ranked close to the best fund in its category — so the engine never sells a rank-2 holding just to buy the rank-1 beside it. Only the *residual* is fresh money, split across the subgroup's top 1 or 2 ranked funds by corpus (spec 2026-09-20). The per-fund cap no longer bounds a rebalance — the explicit fund count is what limits single-fund concentration.
+- **Sells are tax-ordered and budget-gated.** A recommended fund that's merely *over* its target is trimmed **long-term only** (never realising STCG); short-term capital gains are realised only on a *force-exit*, capped by a per-run `stcg_offset_budget_inr`. The field defaults to **₹0** (a hard brake), but the production input builder passes `None` — no cap — unless a chat override sets a budget, so in production a force-exit sells its short-term units in full (§3).
+- **ELSS is frozen as a scalar; direct stocks never arrive.** The input builder strips held ELSS rows and passes their value as `practical_allocation_input.elss_corpus`; the engine freezes it (a frozen summary row, no trades) — every held ELSS unit, including units past the 3-year lock-in (§9). Direct stocks are not an engine input at all — holdings come from the MF transaction ledger.
+- **Targets are holdings-aware and spread across the top 1-2 funds.** A fund the customer already holds keeps what it holds as its target so long as it is still ranked close to the best fund in its category — so the engine never sells a rank-2 holding just to buy the rank-1 beside it. Only the *residual* is fresh money, split across the subgroup's top 1 or 2 ranked funds by corpus. No per-fund cap bounds a rebalance — the explicit fund count is what limits single-fund concentration.
+- **Small moves don't trade, and debt is never switched for debt.** A row trades only when its change reaches `min(1% of the portfolio, 50% of max(target, present))`, or it is exit-flagged; step 2b cancels any sell of a held debt fund that would only fund a buy of another debt fund.
 
 ### The shape of a run
 
 ```mermaid
 flowchart TB
-    REQ([RebalancingComputeRequest<br/>corpus · tax state · fund rows]) --> PA["<b>Pre-pass</b><br/>run_practical_allocation<br/>(holdings-aware ideal)"]
+    REQ([RebalancingComputeRequest<br/>corpus · tax state · fund rows]) --> PA["<b>Pre-pass</b><br/>run_practical_allocation<br/>(holdings-aware target)"]
     PA --> LIFT["_assign_subgroup_targets<br/>reserve held funds inside the rank band,<br/>split the residual across the top 1-2 funds"]
-    LIFT --> S1["step1 · cap & spill"]
-    S1 --> S2["step2 · compare & decide"]
-    S2 --> S3["step3 · tax classify"]
-    S3 --> S4["step4 · trades under STCG cap"]
+    LIFT --> S1["step1 · round targets"]
+    S1 --> S2["step2 · compare & decide<br/>(trade bar)"]
+    S2 --> S2B["step2b · debt-switch netting"]
+    S2B --> S3["step3 · tax classify"]
+    S3 --> S4["step4 · trades under STCG cap<br/>+ under-bar top-up"]
     S4 --> S5["step5 · loss-offset top-up"]
     S5 --> S6["step6 · presentation"]
     S6 --> RESP([RebalancingComputeResponse<br/>rows · subgroups · trades · totals])
     PA -. verbatim passthrough .-> RESP
 ```
 
-The whole thing is pure and DB-free ([`pipeline.py`](../../src/Rebalancing/pipeline.py) is ~110 lines). The practical output is threaded through **verbatim** onto `response.practical_allocation` so the UI can show ideal-vs-practical without re-running anything.
+The whole thing is pure and DB-free ([`pipeline.py`](../../src/Rebalancing/pipeline.py) is ~290 lines). The practical output is threaded through **verbatim** onto `response.practical_allocation` so the UI can show ideal-vs-practical without re-running anything.
 
 ---
 
 ## 2. Where it sits
 
-The engine imports exactly one peer — `practical_asset_allocation` — which is the **blessed** cross-agent edge (spec §B.1 / Part C). It reads no database and holds no state; the app layer assembles the request.
+The engine imports exactly one peer agent — `practical_asset_allocation` — which is the **blessed** cross-agent edge (spec §B.1 / Part C). It reads no database and holds no state; the app layer assembles the request.
 
 | Direction | Who | What flows |
 |---|---|---|
 | **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `rebalancing` intent routes here (after the practical AA module) |
-| **Gateway** | [`rebalancing_module_service.run(turn, ctx, prior)`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the **only** gateway to the rebalancing AI module — the brain calls it, and it dispatches to the `rebalancing` chat handler (the engine itself is imported deeper, by `rebal_engine/service.py`) |
-| **Request builder** | [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | materialises `RebalancingComputeRequest` from `ctx` + the cached allocation + DB holdings |
-| **Engine runner** | [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | the domain-side importer of `run_rebalancing`; owns the 90-day allocation cache + `force_fresh_allocation` bypass |
+| **Gateway** | [`rebalancing_module_service.run(turn, ctx, prior)`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the chat path's gateway — the brain calls it, and it dispatches to the `rebalancing` chat handler (the engine itself is imported deeper, by `rebal_engine/service.py`) |
+| **Other entry points** | `POST /api/v1/ai-modules/rebalancing/compute` (Invest page), `GET /rebalancing/current` (stale-plan recompute), the preference-save refresh, [`auto_refresh.py`](../../../app/domains/rebalancing/services/auto_refresh.py) | call `compute_rebalancing_result` directly, bypassing chat. `auto_refresh` runs silently (no progress published) about a second after a net-worth build that carried new transactions, resolves the **active** CAS statement itself, and skips when that statement already has a plan |
+| **Request builder** | [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | materialises `RebalancingComputeRequest`: holdings from the FIFO ledger, ranked rows from the CSV, the practical input from the shared PAA input builder, tax state from `TaxProfile` |
+| **Engine runner** | [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | the domain-side importer of `run_rebalancing`; scopes every read to the active CAS statement, owns the 90-day allocation cache + `force_fresh_allocation` bypass, persists the run, builds the chat facts pack |
 | **Blessed peer** | [`practical_asset_allocation.run_practical_allocation`](../../src/practical_asset_allocation/pipeline.py) | called **inside** `run_rebalancing` as step 0; its output is also surfaced verbatim on the response |
 | **Fund rank / reasons** | [`rebal_engine/fund_rank.py`](../../../app/domains/rebalancing/services/rebal_engine/fund_rank.py) | `rank`, `selection_reason`, `rejection_reason`, and the `FORCE_EXIT_RANK` sentinel per row |
-| **Prices / NAV** | [`rebal_engine/_disk_cache.py`](../../../app/domains/rebalancing/services/rebal_engine/_disk_cache.py) | CSV-backed NAV & metadata — the engine never sees this; the builder folds it into row values |
+| **Prices / NAV** | `input_builder._latest_nav_by_isin` / `_metadata_by_isin` | latest NAV from `mf_nav_history`, fund metadata from `mf_fund_metadata`; [`rebal_engine/_disk_cache.py`](../../../app/domains/rebalancing/services/rebal_engine/_disk_cache.py) supplies only the scheme_code → ISIN map the holdings ledger needs (from `mf_subgroup_mapped.csv`). The engine never sees any of this; the builder folds it into row values |
 
 > **The engine touches no DB and no CSV.** Holdings, NAV, tax-aging, and fund ranks are all resolved by the app-layer `rebal_engine/` builder *before* `run_rebalancing` is called. If you're asking "where does the ST/LT split of a holding come from", it is [`rebal_engine/tax_aging.py`](../../../app/domains/rebalancing/services/rebal_engine/tax_aging.py) + [`holdings_ledger.py`](../../../app/domains/rebalancing/services/rebal_engine/holdings_ledger.py) — not this module.
 
 ### What the app layer must carry (the engine is `ctx`-free)
 
-The engine takes a `RebalancingComputeRequest`, not a chat `ctx`. The gateway `run(turn, ctx, prior)` hands `ctx` to the chat handler, whose `input_builder` needs, from `ctx` and DB:
+The engine takes a `RebalancingComputeRequest`, not a chat `ctx`. The gateway `run(turn, ctx, prior)` hands `ctx` to the chat handler, and `compute_rebalancing_result` needs, from `ctx` and DB:
 
 | Needs | Where it lands in the request |
 |---|---|
-| A persisted **allocation run** (cached ≤ 90 days; overrides force a fresh one) | drives `practical_allocation_input` |
-| Present **holdings** with per-lot ST/LT aging | `FundRowInput.{present_allocation_inr, st_value_inr, lt_value_inr, …}` |
-| **Tax state** — regime, effective rate, carryforward losses, STCG budget | `RebalancingComputeRequest.{tax_regime, effective_tax_rate_pct, carryforward_*, stcg_offset_budget_inr}` |
+| A **practical input** from the shared PAA input builder (profile, goals, saved preference) | `practical_allocation_input` — `total_corpus` pinned to the held MF market value (whole rupees); the held short-term money (debt and arbitrage fund rows, `arbitrage_plus_income` excluded) passed as `short_term_holdings` for the goal waterfall; `elss_corpus` = the held ELSS rows' market value (those rows are then stripped) |
+| A persisted **allocation run** (cached ≤ 90 days; an `additional_cash_inr` override forces a fresh one) | not the practical input — it supplies `source_allocation_run_id` on the persisted run, the advisory rank-1 seed targets the pipeline overwrites (§5), and the facts pack's `goal_buckets` |
+| Present **holdings** with per-lot ST/LT aging, from the active CAS statement's `MfTransaction` rows | `FundRowInput.{present_allocation_inr, st_value_inr, lt_value_inr, …}` |
+| **Tax state** — regime, effective rate, carryforward losses, STCG budget | `RebalancingComputeRequest.{tax_regime, effective_tax_rate_pct, carryforward_*, stcg_offset_budget_inr}`; the budget is `None` unless a chat override supplies one |
 | Fund **rank + reason** rows (recommended, NEUTRAL, force-exit) | one homogeneous `list[FundRowInput]` |
+
+Instead of a plan, the runner returns a customer-facing blocker when the user has no date of birth, has no MF transactions, a recommended fund cannot be priced, or the engine raises.
 
 > Note: `prior` (the upstream practical-AA module's output) is **informational only** — the engine re-runs the practical allocation itself as step 0, so it never consumes `prior`.
 
@@ -354,24 +361,26 @@ Entry is `run_rebalancing(request: RebalancingComputeRequest) → RebalancingCom
 
 | Field | Type | Notes |
 |---|---|---|
-| `practical_allocation_input` | `PracticalAllocationInput` | carries the four corpus scalars (total / MF / non-MF equity / ELSS) + all profile/goal fields; `total_corpus` now lives *here* (a backward-compat `total_corpus` property still reads through) |
-| `tax_regime` | `"old" \| "new"` | reserved for regime-specific tax routing (`estimate_tax` currently rate-driven) |
-| `effective_tax_rate_pct` | `float` 0–100 | customer's marginal rate |
-| `stcg_offset_budget_inr` | `Decimal?` = `0` | **pass-1 cap** on STCG realised this run. Default `0` = strict brake. `None` is INTERNAL-only (disables the cap) — production must never pass it |
+| `practical_allocation_input` | `PracticalAllocationInput` | carries the corpus scalars (total / ELSS) + all profile/goal fields; `total_corpus` lives *here*, and the request's `total_corpus` property reads through to it |
+| `tax_regime` | `"old" \| "new"` | reserved for regime-specific tax routing (`estimate_tax` is rate-driven) |
+| `effective_tax_rate_pct` | `float` 0–100 | customer's marginal rate (`TaxProfile.income_tax_rate`, default 30). Carried on the request; no engine step reads it — `estimate_tax` uses the fixed equity STCG/LTCG rates in `config.py` |
+| `stcg_offset_budget_inr` | `Decimal?` = `0` | **pass-1 cap** on STCG realised this run. Field default `0` = strict brake; `None` disables the cap. The production input builder passes `None` unless a chat override sets a budget |
 | `carryforward_st_loss_inr` | `Decimal` ≥ 0 | brought-forward **short-term** loss; offsets STCG in step5 |
-| `carryforward_lt_loss_inr` | `Decimal` ≥ 0 | brought-forward LT loss — **reserved**, deliberately unused (LT losses offset only LTCG, not yet modelled) |
+| `carryforward_lt_loss_inr` | `Decimal` ≥ 0 | brought-forward LT loss — **reserved**, deliberately unused (LT losses offset only LTCG, which is not modelled) |
 | `rounding_step` | `int` = 100 | rupee rounding granularity |
-| `rows` | `list[FundRowInput]` | one homogeneous list of MF rows (recommended + BAD); ELSS rows are filtered out upstream |
+| `rows` | `list[FundRowInput]` | one homogeneous list of MF rows: every ranked fund in the CSV (held or not) plus each held off-list fund as NEUTRAL or force-exit. ELSS rows, ranked or held, are stripped — their value travels as `elss_corpus` (§9) |
 
 **`FundRowInput`** — one row per rank slot. Three flavours, distinguished by `rank`:
 
 | Flavour | `rank` | `is_recommended` | `target_amount_pre_cap` | Behaviour |
 |---|---|---|---|---|
 | **Recommended** | ≥ 1 | `True` | **advisory on input** — `_assign_subgroup_targets` overwrites it (§5) | buy up to target, trim over target (LT-only) |
-| **NEUTRAL** (held, off-list) | `0` | `False` | `= st_value_inr` (the locked ST minimum) | LT portion migratable into the recommended pick; ST stays put |
+| **NEUTRAL** (held, off-list) | `0` | `False` | `= st_value_inr` (the locked ST minimum) | LT portion migratable into the recommended pick; ST stays put. In a debt subgroup step2b nets the sell, so the fund is kept |
 | **Force-exit** | `FORCE_EXIT_RANK` = 9999 | `False` | `0` | step2 sets `exit_flag`; step4 fully liquidates regardless of tax |
 
-Key row fields the engine consumes: `asset_subgroup`, `isin`, `rank`, `target_amount_pre_cap`, `present_allocation_inr`, and the tax-aging quartet `st_value_inr / st_cost_inr / lt_value_inr / lt_cost_inr`. `current_nav` is **display-only** — the engine does not read it.
+Key row fields the engine consumes: `asset_subgroup`, `isin`, `rank`, `target_amount_pre_cap`, `present_allocation_inr`, `fund_rating`, and the tax-aging quartet `st_value_inr / st_cost_inr / lt_value_inr / lt_cost_inr`. `protected_floor_inr` is set by the pipeline, never by the builder. `current_nav` is **display-only** — the engine does not read it.
+
+In production every row carries `fund_rating = 10` (`_DEFAULT_FUND_RATING` in the input builder), so the `fund_rating < EXIT_FLOOR_RATING` exit never fires, and the live ranking CSV (`prozpr_fund_ranking_june_2026_v2.csv`) carries no `9999` rows — so no production row is exit-flagged today.
 
 ---
 
@@ -381,48 +390,48 @@ Key row fields the engine consumes: `asset_subgroup`, `isin`, `rank`, `target_am
 
 | Field | Type | Notes |
 |---|---|---|
-| `rows` | `list[FundRowAfterStep5]` | the full audit trail — every intermediate column from all six steps |
-| `subgroups` | `list[SubgroupSummary]` | presentation view: target vs current vs final per `asset_subgroup`, biggest-first; **includes frozen ELSS / non-MF entries** with `actions=[]` |
-| `totals` | `RebalancingTotals` | buy/sell sums, realised STCG/LTCG, net-off, tax estimate, `unrebalanced_remainder_inr`, per-action counts |
-| `metadata` | `RebalancingRunMetadata` | `engine_version`, `computed_at`, `request_corpus_inr`, `request_id`, and a `knob_snapshot` (`KnobSnapshot`) of every cap/threshold/tax knob in force |
-| `trade_list` | `list[TradeAction]` | the customer-facing BUY / SELL / EXIT / SELL_DIRECT_STOCKS list, each with `reason_code` + `reason_title` + `reason_text` + `fund_reason` |
-| `warnings` | `list[RebalancingWarning]` | typed warnings surfaced from steps 1/2/4: `UNREBALANCED_REMAINDER` (step1), `BAD_FUND_DETECTED` (step2), `STCG_BUDGET_BINDING` (step4). A fourth code, `NO_HOLDINGS_FOR_RECOMMENDED_FUND`, is declared in the `WarningCode` enum but no step emits it yet (reserved) |
+| `rows` | `list[FundRowAfterStep5]` | the full audit trail — every intermediate column from every step |
+| `subgroups` | `list[SubgroupSummary]` | presentation view: target vs current vs final per `asset_subgroup`, biggest-first; **includes a frozen ELSS entry** with `actions=[]` when `elss_corpus` > 0 (never in production) |
+| `totals` | `RebalancingTotals` | buy/sell sums, realised STCG/LTCG, net-off, tax estimate, `unrebalanced_remainder_inr` (always 0), per-action counts |
+| `metadata` | `RebalancingRunMetadata` | `engine_version`, `computed_at`, `request_corpus_inr`, `request_id`, and a `knob_snapshot` (`KnobSnapshot`) of every cap/threshold/tax knob in force, the two trade-bar fractions included |
+| `trade_list` | `list[TradeAction]` | the customer-facing BUY / SELL / EXIT list, each with `reason_code` + `reason_title` + `reason_text` + `fund_reason` |
+| `warnings` | `list[RebalancingWarning]` | typed warnings: `BAD_FUND_DETECTED` (step2), `DEBT_SWITCH_SUPPRESSED` (step2b), `STCG_BUDGET_BINDING` (step4). `UNREBALANCED_REMAINDER` (step1) is unreachable, and `NO_HOLDINGS_FOR_RECOMMENDED_FUND` is declared in the `WarningCode` enum but no step emits it |
 | `practical_allocation` | `PracticalAllocationOutput` | verbatim passthrough for the ideal-vs-practical UI |
 
-`TradeAction.action` is one of `"BUY" | "SELL" | "EXIT" | "SELL_DIRECT_STOCKS"`. Rationale strings come from [`rationales.py`](../../src/Rebalancing/rationales.py) keyed by `reason_code`; `fund_reason` is the per-fund `selection_reason`/`rejection_reason` carried from the ranking CSV.
+`TradeAction.action` is one of `"BUY" | "SELL" | "EXIT"`. Rationale strings come from [`rationales.py`](../../src/Rebalancing/rationales.py) keyed by `reason_code` — `add_to_target`, `split_across_top_funds`, `trim_over_target`, `migrate_neutral_to_recommended`, `exit_bad_fund`, `exit_low_rated`; `fund_reason` is the per-fund `selection_reason`/`rejection_reason` carried from the ranking CSV.
 
 ---
 
 ## 5. How it thinks
 
-After the practical pre-pass, `_assign_subgroup_targets` turns per-subgroup ideal totals into per-row targets (offsetting NEUTRAL ST so the same rupees aren't double-allocated). Then six steps run in strict order. Each step returns a richer `FundRowAfterStepN` (models inherit, so later steps can't drop a field).
+After the practical pre-pass, `_assign_subgroup_targets` turns the practical per-subgroup totals into per-row targets (offsetting NEUTRAL ST so the same rupees aren't double-allocated). Then steps 1, 2, 2b, 3, 4, 5 and 6 run in strict order. Each step returns a richer `FundRowAfterStepN` (models inherit, so later steps can't drop a field).
+
+Two rules frame the target map. **Absent means zero:** the practical output drops zero-total rows, so a ranked row whose subgroup the practical plan omits gets a target of `0` rather than keeping the input builder's seed. **The frozen subgroup is skipped:** `tax_efficient_equities` rows pass through with the target the builder set.
 
 ### Reserve, then deploy the residual (the rank band)
 
-Before 1.3.0 the whole subgroup total was parked on the rank-1 row and every other ranked row got a target of `0` — which meant a held rank-2 fund was marked for liquidation purely because it wasn't rank-1. Since 69% of real held rows are rank ≥ 2, that was the dominant case, not an edge case.
+69% of real held rows sit at rank ≥ 2, so the dominant case is a held fund that is not its subgroup's best pick. Parking the whole subgroup total on the rank-1 row would mark every one of them for liquidation purely because it isn't rank-1. The engine therefore runs **reserve-then-residual**, per subgroup:
 
-The engine now runs **reserve-then-residual**, per subgroup:
-
-1. Each held recommended row whose gap to the subgroup's best rank is **under** `RANK_PROTECT_BAND` (default 5, **exclusive** — gap 4 protects, gap 5 sells) reserves what it already holds as `protected_floor_inr`.
-2. The residual, `max(subgroup_target − Σfloors, 0)`, is the only genuinely fresh money — it is split across the subgroup's top 1 or 2 ranked rows (`_funds_per_subgroup` picks N by corpus: 2 at/above ₹50L of `total_corpus − non_mf_equity`, else 1; `_residual_shares` divides it).
+1. Each held recommended row whose gap to the subgroup's best rank is **under** `RANK_PROTECT_BAND` (default 5, **exclusive** — gap 4 protects, gap 5 sells) reserves what it already holds, floored to the ₹100 step, as `protected_floor_inr`.
+2. The residual, `max(subgroup_target − Σfloors, 0)`, is the only genuinely fresh money — it is split equally across the subgroup's top 1 or 2 ranked rows (`config.funds_per_subgroup(total_corpus)`: 2 at/above ₹50L, else 1, where `total_corpus` is the held MF market value; `_residual_shares` floors each share to the step and gives the remainder to the best-ranked recipient, skipping rows rated below `EXIT_FLOOR_RATING`).
 3. Every other ranked row gets exactly its floor.
 4. If the sleeve is over-allocated (`Σfloors > target`), floors are trimmed **worst-rank-first** until they fit.
 
 Three carve-outs sit *outside* the band and are structural, not rank arithmetic: `rank == 0` (off-list — must still migrate), `rank == FORCE_EXIT_RANK`, and `fund_rating < EXIT_FLOOR_RATING`. A predicate that naïvely computed `|0 − 1| < 5` would silently freeze every unrecommended holding, which is why rank-0 is excluded by structure rather than by distance.
 
-Since spec 2026-09-20 the per-fund cap no longer bounds a rebalance at all: `_assign_subgroup_targets` decides the amounts (across the top 1-2 funds) and step 1 only rounds them. The cap survives in the code but constrains nothing here — it can neither force a sell nor limit a buy.
+The per-fund cap does not bound a rebalance: `_assign_subgroup_targets` decides the amounts (across the top 1-2 funds) and step 1 only rounds them. The cap constants stay in `config.py` / `tables.py` because the additional-investment input builder reads them, step 2b uses `effective_cap_for` to decide whether its warning adds a concentration note, and the `KnobSnapshot` records them — none of that can force a sell or limit a buy here.
 
-> Measured on the 5-profile harness: paired same-subgroup churn fell from ₹18.7L to ₹2.6L (−86%), with rank-2/3 churn going to zero while rank-7 replacement stayed untouched. Kill-switch `REBAL_HOLDINGS_AWARE_TARGETS=0` restores the old behaviour exactly (all floors zero → the residual collapses back to the full subgroup total).
+> Kill-switch `REBAL_HOLDINGS_AWARE_TARGETS=0` sets every floor to zero, so the residual is the full subgroup total and only the top 1–2 ranked funds get a target.
 
 | # | Step (file) | What it does | Adds |
 |---|---|---|---|
-| 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | rounds the per-row targets `_assign_subgroup_targets` already set across the top 1-2 funds. No longer caps or spills (spec 2026-09-20): `max_pct` reports a flat 100.0 and `UNREBALANCED_REMAINDER` is unreachable; the module keeps its historical name | `max_pct`, `final_target_amount` |
-| 2 | [`step2_compare_and_decide`](../../src/Rebalancing/steps/step2_compare_and_decide.py) | `diff = final_target − present`; set `exit_flag` (low-rated OR force-exit); `worth_to_change` if `\|diff\|` past the min-change threshold OR exit | `diff`, `exit_flag`, `worth_to_change` |
-| 2b | [`step2b_suppress_debt_switch`](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | cancel matched sell/buy *intents* inside `DEBT_NETTING_POOL` (every Debt-class subgroup) so debt is never sold to buy debt — off-list (rank 0) debt sells are nettable too, only `exit_flag` sells are carved out; surviving buy demand re-spills down the rank ladder (`cap_spill` mode — no per-fund cap bounds it since spec 2026-09-20) | `netted_target_adjustment_inr` |
+| 1 | [`step1_cap_and_spill`](../../src/Rebalancing/steps/step1_cap_and_spill.py) | rounds each ranked row's assigned target to `rounding_step`; NEUTRAL rows keep `target = st_value_inr`, force-exit rows get `0`. Despite the file name it neither caps nor spills: `max_pct` reports a flat 100.0 and `UNREBALANCED_REMAINDER` is unreachable | `max_pct`, `final_target_amount` |
+| 2 | [`step2_compare_and_decide`](../../src/Rebalancing/steps/step2_compare_and_decide.py) | `diff = final_target − present`; set `exit_flag` (low-rated OR force-exit); `worth_to_change` if `\|diff\| ≥ min_change_threshold` = `min(1% × total_corpus, 50% × max(final_target, present))` (env `REBAL_MIN_CHANGE_PORTFOLIO_PCT` / `REBAL_MIN_CHANGE_FUND_PCT`) OR exit; warns `BAD_FUND_DETECTED` on a held force-exit | `diff`, `exit_flag`, `worth_to_change` |
+| 2b | [`step2b_suppress_debt_switch`](../../src/Rebalancing/steps/step2b_suppress_debt_switch.py) | cancel matched sell/buy *intents* inside `DEBT_NETTING_POOL` (every Debt-class subgroup) so debt is never sold to buy debt — off-list (rank 0) debt sells are nettable, `exit_flag` sells are not, and force-exit proceeds are reserved out of the buy side; surviving buy demand goes to the best-ranked buyer first (`cap_spill` mode, no per-fund cap); each touched row is re-gated against the trade bar and a sub-bar residual is absorbed; warns `DEBT_SWITCH_SUPPRESSED` | `netted_target_adjustment_inr` |
 | 3 | [`step3_tax_classification`](../../src/Rebalancing/steps/step3_tax_classification.py) | for sell candidates only, compute signed `stcg_amount` / `ltcg_amount` (value − cost) | `stcg_amount`, `ltcg_amount` |
-| 4 | [`step4_initial_trades_under_stcg_cap`](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | classify forced / optional sells + buyers; sell **tax-cheapest first**, walking **LT→ST**, forced sells gated by the STCG budget, optional sells **LT-only**; scale buys to available cash | `pass1_buy/sell_*`, `holding_after_initial_trades` |
+| 4 | [`step4_initial_trades_under_stcg_cap`](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py) | classify forced / optional sells + buyers; sell **tax-cheapest first**, walking **LT→ST**, forced sells gated by the STCG budget, optional sells **LT-only** and only up to the remaining buy demand; scale buys to available cash (each floored to the step); cash the passing buys leave unused tops up recommended buys **under the trade bar**, biggest gap first; warns `STCG_BUDGET_BINDING` | `pass1_buy/sell_*`, `holding_after_initial_trades` |
 | 5 | [`step5_loss_offset_top_up`](../../src/Rebalancing/steps/step5_loss_offset_top_up.py) | offset realised STCG with **short-term** losses (carryforward + realised); unlock ST-blocked *force-exit* sells with the freed headroom | `stcg_offset_amount`, `pass2_sell_amount`, `final_holding_amount` |
-| 6 | [`step6_presentation`](../../src/Rebalancing/steps/step6_presentation.py) | assemble `trade_list` + rationales, per-subgroup summaries, frozen ELSS/non-MF rows, `SELL_DIRECT_STOCKS`, totals + `KnobSnapshot` | the whole response |
+| 6 | [`step6_presentation`](../../src/Rebalancing/steps/step6_presentation.py) | assemble `trade_list` + rationales (the junior buyer of a two-fund split gets `split_across_top_funds`), per-subgroup summaries, the frozen ELSS summary when `elss_corpus` > 0, totals + `KnobSnapshot` | the whole response |
 
 ### The sell-ordering rule (why order matters)
 
@@ -435,16 +444,19 @@ flowchart TB
     O --> BUY
     N --> BUY
     BUY -->|"Σsells &lt; Σbuys"| SCALE["scale buys down<br/>record pass1_underbuy"]
+    BUY -->|"cash left over"| TOP["top up recommended<br/>buys under the bar"]
 ```
 
 ### A run, end to end (worked example)
 
-*All figures below are **illustrative** — hand-built to show the numbers move, not real CSV/NAV/DB rows.* Corpus **₹60,00,000**, `stcg_offset_budget_inr = 0` (the default brake), no carryforward losses. One `large_cap` subgroup with a recommended **Fund A** (ideal ₹6,00,000, held ₹2,00,000) and a **force-exit Fund X** held at ₹1,50,000 (LT ₹1,00,000 @ cost ₹70,000 → LTCG ₹30,000; ST ₹50,000 @ cost ₹48,000 → STCG ₹2,000).
+*Figures are hand-built — the subgroup target is set at ₹6,00,000 in place of the practical pre-pass, and every step after that is the current engine's output for these rows.* Corpus **₹60,00,000**, `stcg_offset_budget_inr = 0` (the field default, set explicitly here — production passes `None`), no carryforward losses. One `large_cap` subgroup with a recommended **Fund A** (target ₹6,00,000, held ₹2,00,000, all long-term) and a **force-exit Fund X** held at ₹1,50,000 (LT ₹1,00,000 @ cost ₹70,000 → LTCG ₹30,000; ST ₹50,000 @ cost ₹48,000 → STCG ₹2,000).
 
 <div class="step-panel">
-  <div class="label">step1–2 · cap, diff, exit</div>
-<pre><code>large_cap cap = max(10% × 60L, ₹1L) = ₹6,00,000  → Fund A target unchanged
-Fund A:  final_target 6,00,000  present 2,00,000  diff +4,00,000  → BUYER
+  <div class="label">target assignment + step1–2 · round, diff, exit</div>
+<pre><code>funds_per_subgroup(60L) = 2, but Fund A is large_cap's only ranked row
+Fund A:  held, rank 1 → floor 2,00,000 + residual 4,00,000 = target 6,00,000
+Fund A:  final_target 6,00,000  present 2,00,000  diff +4,00,000
+         bar = min(1% × 60L, 50% × 6L) = 60,000  → worth_to_change → BUYER
 Fund X:  final_target 0         present 1,50,000  diff -1,50,000  exit_flag=True</code></pre>
 </div>
 
@@ -454,9 +466,11 @@ Fund X:  final_target 0         present 1,50,000  diff -1,50,000  exit_flag=True
   <div class="label">step3–4 · tax classify, sell under STCG budget = 0</div>
 <pre><code>Fund X sell (forced): walk LT first → sell ₹1,00,000 LT, realise LTCG ₹30,000
                       then ST ₹50,000 (would realise ₹2,000 STCG) → blocked (budget 0)
-                      → pass1_sell 1,00,000 · pass1_undersell_due_to_stcg_cap 50,000
+                      → pass1_sell 1,00,000 · pass1_undersell_due_to_stcg_cap 1,00,000
+                        (the blocked ₹50,000 ST slice is counted twice — §9)
 Buys: Σsells 1,00,000 &lt; buy demand 4,00,000 → scale 0.25
-      Fund A BUY ₹1,00,000  (pass1_underbuy ₹3,00,000)      ⚠ STCG_BUDGET_BINDING</code></pre>
+      Fund A BUY ₹1,00,000  (pass1_underbuy ₹3,00,000)      ⚠ STCG_BUDGET_BINDING
+      no cash left over → no under-bar top-up</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
@@ -465,36 +479,37 @@ Buys: Σsells 1,00,000 &lt; buy demand 4,00,000 → scale 0.25
   <div class="label">step5–6 · loss-offset (none) → trades + totals</div>
 <pre><code>available_offset = 0 → no pass-2 unlock; Fund X ST ₹50,000 stays put
 trade_list:
-  EXIT  Fund X  ₹1,00,000  "Exit — flagged for removal"
-        + "…held back ₹50,000 of the short-term portion this round to avoid STCG…"
   BUY   Fund A  ₹1,00,000  "Top up to target"
+  EXIT  Fund X  ₹1,00,000  "Exit — flagged for removal"
+        + "…held back ₹1 lakh of the short-term portion this round to avoid STCG…"
 totals: buy 1,00,000 · sell 1,00,000 · LTCG 30,000 · STCG 0
-        tax_estimate 0  (LTCG 30,000 &lt; ₹1,25,000 annual exemption)</code></pre>
+        tax_estimate 0  (LTCG 30,000 &lt; ₹1,25,000 annual exemption)
+warnings: BAD_FUND_DETECTED (step2) · STCG_BUDGET_BINDING (step4)</code></pre>
 </div>
 
-Watch the invariants fire: the force-exit's **short-term** slice is held back because the budget is ₹0; the LTCG realised sits under the ₹1,25,000 exemption so the tax estimate is ₹0; and because sells only raised ₹1L against ₹4L of demand, the BUY is scaled down and the shortfall is recorded as `pass1_underbuy_amount`, not silently dropped.
+Watch the invariants fire: the force-exit's **short-term** slice is held back because the budget is ₹0; the LTCG realised sits under the ₹1,25,000 exemption so the tax estimate is ₹0; and because sells only raised ₹1L against ₹4L of demand, the BUY is scaled down and the shortfall is recorded as `pass1_underbuy_amount`, not silently dropped. With the production budget of `None` the same rows sell Fund X in full (₹1,50,000, STCG ₹2,000), BUY ₹1,50,000 of Fund A, and estimate ₹400 of tax.
 
 ---
 
-## 6. Investment preferences — where they went
+## 6. Investment preferences — where they apply
 
-The stance is still **comply-and-caution**: an expressible preference is honoured in full, even past the customer's risk band, and the deviation from our recommendation is always surfaced so the customer decides informed. No suitability clamp, no refusal tier. What changed is *where* that happens.
+The stance is **comply-and-caution**: an expressible preference is honoured in full, even past the customer's risk band, and the deviation from our recommendation is always surfaced so the customer decides informed. No suitability clamp, no refusal tier.
 
-The 2026-08 design served preferences inside the rebalancing turn. Two later rulings moved them out:
+Two rules decide *where* that happens:
 
-- **2026-09-14** — preferences became **engine inputs** in the upstream practical allocation, applied at the phase that decides each facet, replacing a post-hoc reshape that could not move debt once the multi-asset sleeve was frozen.
-- **2026-09-17** — chat stopped running preference what-ifs entirely. Every preference-shaped ask across rebalancing, asset allocation and additional investment returns **one shared pointer** at the preferences page, plus a pill to open it.
+- Preferences are **engine inputs** in the upstream practical allocation, applied at the phase that decides each facet — so they can move debt and the multi-asset sleeve, which a reshape of a finished plan could not.
+- Chat runs **no preference what-if**. Every preference-shaped ask across rebalancing, asset allocation and additional investment returns **one shared pointer** at the preferences page, plus a pill to open it.
 
-Net effect for this module: the engine never sees a preference, and neither does the rebalancing chat handler's compute path. The engine remains byte-for-byte deterministic — the same request still yields the same trades.
+Net effect for this module: the engine never sees a preference, and neither does the rebalancing chat handler's compute path. The engine stays deterministic — the same request yields the same trades.
 
 <div class="callout">
-  <div class="title">Why the change path was retired rather than improved</div>
-  <p>Three reasons, in order of weight: a stored record that chat can <em>write</em> is a large hallucination surface; one shared message means the copy cannot drift across three modules; and routing every such ask to one page makes preferences-page demand measurable instead of assumed. Saved preferences still shape every plan and are still disclosed in the reply — only the chat-side <em>change</em> path is gone.</p>
+  <div class="title">Why chat has no preference change path</div>
+  <p>Three reasons, in order of weight: a stored record that chat can <em>write</em> is a large hallucination surface; one shared message means the copy cannot drift across three modules; and routing every such ask to one page makes preferences-page demand measurable instead of assumed. Saved preferences shape every plan and are disclosed in the reply — chat simply has no path that <em>changes</em> them.</p>
 </div>
 
-### How a preference turn routes (since 2026-09-17)
+### How a preference turn routes
 
-The follow-up detector still returns a `RebalanceAction`, but the preference branch no longer computes anything. [`_handle_action`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) turns any filled `preference_asks` into one shared pointer at the preferences page.
+The follow-up detector returns a `RebalanceAction`; the preference branch computes nothing itself. [`_handle_action`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) turns any filled `preference_asks` — or a `redirect` whose reason names a preference — into one shared pointer at the preferences page. On a first turn the plan is computed regardless; a preference ask in the same message adds the pointer and the pill.
 
 ```mermaid
 flowchart TB
@@ -502,44 +517,44 @@ flowchart TB
     DET --> NF{named_fund?}
     NF -->|yes| HNF["_handle_named_fund<br/>answer from ranking CSV · no engine run"]
     NF -->|no| PA{"preference_asks?"}
-    PA -->|yes| RED["PREFERENCE_REDIRECT_MESSAGE<br/>+ show_preferences_pill<br/>servable overrides still run"]
+    PA -->|yes| RED["PREFERENCE_REDIRECT_MESSAGE<br/>+ show_preferences_pill<br/>servable overrides run"]
     PA -->|no| CON{consolidate?}
     CON -->|yes| RS["_consolidate<br/>POST-engine buy reshape · engine ×1"]
-    CON -->|no| LAD["ordinary ladder<br/>narrate · educate · compute · clarify · redirect"]
+    CON -->|no| LAD["ordinary ladder<br/>narrate · educate · compute · counterfactual_explore · clarify · redirect"]
 ```
 
 <div class="callout danger">
   <div class="title">⚠ The extraction schema is a re-enable seam, not dead code</div>
-  <p>The detector still fills a rich preference vocabulary — <code>preference_asks</code>, <code>excluded_categories</code>, <code>category_weights</code>, <code>allowed_categories</code>, <code>named_fund</code> — and the what-if handlers are still present but <strong>unreferenced</strong>. That is deliberate: it keeps the path one wiring change away from returning. Do not "clean up" the schema or the handlers as unused.</p>
+  <p>The detector fills <code>preference_asks</code> on every preference-shaped turn, and the what-if handler <code>_handle_preference_what_if</code> is present but <strong>unreferenced</strong>. That is deliberate: it keeps the path one wiring change away from returning. Do not "clean up" the schema or the handler as unused.</p>
 </div>
 
-### What happened to the old machinery
+### What the request does not carry
 
-The 2026-08 design applied preferences inside the rebalancing turn, through two seams. Both are gone:
+The engine and the chat turn deliberately carry no second preference channel:
 
-| Retired | Why |
+| Absent | Why |
 |---|---|
-| `RebalancingComputeRequest.asset_class_tilt` + `pipeline._apply_asset_class_tilt` | A per-turn tilt was a second, competing preference carrier. The standing preference now shapes the upstream practical allocation instead — one carrier, applied once, at the phase that decides each facet. |
-| `_handle_preference_counterfactual` (engine ×2: recommended + requested) | With no per-turn tilt there is no second plan to compute. The comply-and-caution contrast is now disclosed off the saved preference and the finished run. |
-| `investment_preferences.band_edge_score` / `_BAND_UPPER` | The no-number default is no longer a band-edge re-run. A relative ask resolves against the customer's current share, in the resolver that serves the preferences screen. |
+| A per-turn tilt on `RebalancingComputeRequest` (no `asset_class_tilt`, no tilt step in `pipeline.py`) | A per-turn tilt would be a second, competing preference carrier. The standing preference shapes the upstream practical allocation instead — one carrier, applied once, at the phase that decides each facet. |
+| A twin-run preference counterfactual (recommended + requested) | With no per-turn tilt there is no second plan to compute. The comply-and-caution contrast is disclosed off the saved preference and the finished run. |
+| A band-edge default for an ask with no number | A relative ask resolves against the customer's current share, in the resolver that serves the preferences screen. |
 
-A drift test enforces the removal: [`test_preference_extraction.py::test_legacy_sleeve_tilt_is_gone_everywhere`](../../../app/domains/rebalancing/tests/test_preference_extraction.py) greps `app/` and `AI_Agents/src/` for `asset_class_tilt`, `market_cap_tilt`, `pure_equity_only`, `scope_only_asset_classes` and friends, and fails on any reappearance.
+A drift test enforces this: [`test_preference_extraction.py::test_legacy_sleeve_tilt_is_gone_everywhere`](../../../app/domains/rebalancing/tests/test_preference_extraction.py) greps `app/` and `AI_Agents/src/` for `asset_class_tilt`, `market_cap_tilt`, `pure_equity_only`, `scope_only_asset_classes` and friends, and fails on any appearance.
 
-### Where preferences ARE applied now
+### Where preferences ARE applied
 
-Upstream, in [`practical_asset_allocation`](./practical_asset_allocation.html) — the engine this one rebalances *toward*. The customer's saved record is resolved app-side and enters `PracticalAllocationInput.human_override`; the class split lands at phase 2, the multi-asset sleeve at phase 4, sub-group pins and exclusions at phase 5. By the time `run_rebalancing` calls `run_practical_allocation`, the targets it receives already embody the preference. Nothing in `src/Rebalancing/` needs to know preferences exist.
+Upstream, in [`practical_asset_allocation`](./practical_asset_allocation.html) — the engine this one rebalances *toward*. The shared PAA input builder loads the customer's saved record into `PracticalAllocationInput.human_override`; the class split lands at phase 2, sub-group pins and exclusions at phases 4 (multi-asset sleeve) and 5 (equity subgroups). A saved preference also suspends the emergency and short-term carve-outs, so a preference-shaped practical result carries no `goal_funding`. By the time `run_rebalancing` calls `run_practical_allocation`, the targets it receives already embody the preference. Nothing in `src/Rebalancing/` needs to know preferences exist.
 
 Disclosure rides the facts pack: `preference_view.active_preferences_block` reads `applied` / `shortfall_reason` off the **run** (`human_override_applied`), never the saved row, so the claim always describes the plan actually on screen.
 
-### What still works in the turn
+### What works in the turn
 
-- **Servable overrides.** A cash injection or a corrected tax rate in the same breath as a preference ask is still run and answered — the overrides are filtered to `_REBAL_ALLOWED_OVERRIDE_KEYS`. Returning the pointer alone dropped a real question the customer had asked.
-- **Consolidation.** `target_fund_count` still reaches [`consolidation.py`](../../src/Rebalancing/consolidation.py)'s buy-side reshape: only the BUY budget is redistributed, sells and the total buy preserved exactly. `ConsolidationConstraints` still carries `excluded_categories` and `category_weight_targets`, but nothing live fills them since the preference path retired.
+- **Servable overrides.** An allow-listed override (`_REBAL_ALLOWED_OVERRIDE_KEYS`: tax rate, STCG budget, carry-forward losses, additional cash) asked in the same breath as a preference is run through `_counterfactual_explore` (`persist=False`) and answered, closing with the pointer — returning the pointer alone would drop a real question. Only the STCG budget and the short-term carry-forward loss move engine numbers: no step reads the request's tax rate, the long-term loss is reserved, and `additional_cash_inr` re-runs the allocation (skipping the cache) but the practical input's corpus stays pinned to the held MF value, so the trades do not change.
+- **Consolidation.** `target_fund_count`, `allowed_categories`, `excluded_categories` (the ELSS / lock-in exclusion for new buys) and `category_weights` (categories not tracked as preferences) reach [`consolidation.py`](../../src/Rebalancing/consolidation.py)'s buy-side reshape: only the BUY budget is redistributed, sells and the total buy preserved exactly. A bare "fewer funds" with no count asks once, then defaults to 5 funds and says so.
 - **Named funds.** `named_fund` never runs the engine — [`_handle_named_fund`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) answers from the ranking CSV. **Why-not** quotes the CSV's own words (`rejection_reason` for an evaluated-but-rejected fund, `selection_reason` for one on the list); an ambiguous name asks which; an unknown name refuses to guess rather than comment on a fund we never evaluated. **Include stays deferred** — injecting a customer-named fund belongs at the input-builder seam, where it enters as a ranked row and the engine computes real buy/tax numbers.
 
 ### Never silently ignore
 
-A redirected preference still fires the content-free [`preference_unserved`](../../../app/core/observability.py) PostHog event, now with `failure_class = "redirected_to_preferences"`. It carries **ids only** — `flow`, the fixed token, and `session_id` — **never chat text** (PostHog holds no transcripts; reviewers join to the Postgres transcript by session + timestamp). That is what makes preferences-page demand measurable rather than assumed. Enforcement stays honestly scoped: the runtime guarantees the pointer only on *detected* preference asks — one the detector misses entirely is owned by the detector eval set, not a runtime guard.
+A redirected preference fires the content-free [`preference_unserved`](../../../app/core/observability.py) PostHog event with `failure_class = "redirected_to_preferences"`. It carries **ids only** — `flow`, the fixed token, and `session_id` — **never chat text** (PostHog holds no transcripts; reviewers join to the Postgres transcript by session + timestamp). That is what makes preferences-page demand measurable rather than assumed. Enforcement stays honestly scoped: the runtime guarantees the pointer only on *detected* preference asks — one the detector misses entirely is owned by the detector eval set, not a runtime guard.
 
 ---
 
@@ -547,13 +562,13 @@ A redirected preference still fires the content-free [`preference_unserved`](../
 
 **Nowhere — the engine never calls an LLM.** There is no `llm_client.py`, no prompt file, no model id anywhere under [`src/Rebalancing/`](../../src/Rebalancing/). Every output is a pure `Decimal` computation over the request.
 
-That matters for **reproducibility**: the same request always yields byte-identical trades, and `metadata.engine_version` + `KnobSnapshot` stamp exactly which logic and knobs produced them (for cache/repro tracking). Any narration a customer sees is added *later*, by the app-layer chat handler / shared answer formatter — the numbers it narrates are these deterministic ones, never re-derived by a model.
+That matters for **reproducibility**: the same request always yields identical trades, and `metadata.engine_version` + `KnobSnapshot` stamp exactly which logic and knobs produced them (for cache/repro tracking). Any narration a customer sees is added *later*, by the app-layer chat handler / shared answer formatter — the numbers it narrates are these deterministic ones, never re-derived by a model. `build_rebal_facts_pack` also pre-resolves the formatter's branches: `top_buys` / `top_sells` ship only on plans with ≥ 10 trades, and `bridge_ideal_and_target` says whether the target's equity share sits more than 5 points from the ideal.
 
-The one model in the wider rebalancing *flow* is the follow-up **detector** — a Haiku call in the app-layer chat handler that classifies the turn and, since the 2026-08 spec, extracts the investment-preference vocabulary (§6). It picks a route and a whitelisted vocabulary; it never computes a rupee or a magnitude — the policy table and the pure-Python seams do.
+The one model in the wider rebalancing *flow* is the follow-up **detector** — a Haiku call in the app-layer chat handler that classifies the turn and extracts the investment-preference vocabulary (§6). It picks a route and a whitelisted vocabulary; it never computes a rupee or a magnitude — the policy table and the pure-Python seams do.
 
 <div class="callout danger">
   <div class="title">⚠ The double-count trap the request contract guards against</div>
-  <p>The three capital-gains inputs — <code>stcg_offset_budget_inr</code>, <code>carryforward_st_loss_inr</code>, <code>carryforward_lt_loss_inr</code> — are <strong>independent</strong>. Do <strong>not</strong> populate the STCG budget from the carryforward losses: the budget is a pass-1 realisation cap (step4) and the ST loss is the pass-2 offset (step5), so wiring one from the other counts the same loss capacity <strong>twice</strong>. And <code>carryforward_lt_loss_inr</code> is deliberately unused — an LT loss may offset only LTCG, never STCG (Indian IT rules); LTCG-loss set-off isn't modelled yet.</p>
+  <p>The three capital-gains inputs — <code>stcg_offset_budget_inr</code>, <code>carryforward_st_loss_inr</code>, <code>carryforward_lt_loss_inr</code> — are <strong>independent</strong>. Do <strong>not</strong> populate the STCG budget from the carryforward losses: the budget is a pass-1 realisation cap (step4) and the ST loss is the pass-2 offset (step5), so wiring one from the other counts the same loss capacity <strong>twice</strong>. And <code>carryforward_lt_loss_inr</code> is deliberately unused — an LT loss may offset only LTCG, never STCG (Indian IT rules); LTCG-loss set-off is not modelled.</p>
 </div>
 
 ---
@@ -562,63 +577,71 @@ The one model in the wider rebalancing *flow* is the follow-up **detector** — 
 
 | File | Role |
 |---|---|
-| [`pipeline.py`](../../src/Rebalancing/pipeline.py) | `run_rebalancing` — practical pre-pass, `_protected_floors` + `_assign_subgroup_targets`, threads steps 1–6 |
+| [`pipeline.py`](../../src/Rebalancing/pipeline.py) | `run_rebalancing` — practical pre-pass, `_protected_floors` + `_residual_shares` + `_assign_subgroup_targets`, threads steps 1–6 |
 | [`models.py`](../../src/Rebalancing/models.py) | pydantic I/O: `RebalancingComputeRequest/Response`, `FundRowInput`, the inheriting `FundRowAfterStepN`, `TradeAction`, `SubgroupSummary`, `KnobSnapshot`, warnings |
-| [`config.py`](../../src/Rebalancing/config.py) | env-overrideable knobs (`REBAL_*`), `FORCE_EXIT_RANK`, tax limits, `ENGINE_VERSION` |
-| [`tables.py`](../../src/Rebalancing/tables.py) | `SUBGROUP_FUND_CAP_PCT` + `cap_pct_for` — per-subgroup concentration caps with default fallback |
+| [`config.py`](../../src/Rebalancing/config.py) | env-overrideable knobs (`REBAL_*`), `min_change_threshold`, `funds_per_subgroup` (shared with additional investment), `FORCE_EXIT_RANK`, tax limits, the `AINV_*` cap floors additional investment reads, `ENGINE_VERSION` |
+| [`tables.py`](../../src/Rebalancing/tables.py) | `SUBGROUP_FUND_CAP_PCT` + `cap_pct_for` / `effective_cap_for` — per-subgroup caps with default fallback, read by additional investment and step 2b's warning text — plus `DEBT_NETTING_POOL` |
 | [`utils.py`](../../src/Rebalancing/utils.py) | pure math: `round_to_step`, `floor_to_step`, `compute_stcg/ltcg`, `estimate_tax` |
 | [`rationales.py`](../../src/Rebalancing/rationales.py) | customer-facing `reason_code` → `(title, text)` map + the STCG-cap suffix template |
-| [`steps/`](../../src/Rebalancing/steps/) | the six ordered steps (see §5 table) |
-| [`consolidation.py`](../../src/Rebalancing/consolidation.py) | **post-hoc, opt-in** buy-side reshape (F3-B): redistributes only the BUY budget across allowed/fewer funds; runs *outside* the engine, on a finished response. The 2026-08 preferences spec adds `excluded_categories` + `category_weight_targets` via `_reshape_extended`, with the legacy allowed/count-only path (`_reshape_legacy`) unchanged byte-for-byte |
+| [`steps/`](../../src/Rebalancing/steps/) | the ordered steps 1–6 plus 2b (see §5 table) |
+| [`consolidation.py`](../../src/Rebalancing/consolidation.py) | **post-hoc, opt-in** buy-side reshape (F3-B): redistributes only the BUY budget; runs *outside* the engine, on a finished response. `_reshape_legacy` serves the two constraint-only paths — `allowed_categories` redeploys the whole budget portfolio-wide, a bare `target_fund_count` is subgroup-aware (each `asset_subgroup` keeps its own buy total). `_reshape_extended` handles exclusions + weight targets (filters → weights → count, the count bumped up to the protected-category count) |
 | [`__init__.py`](../../src/Rebalancing/__init__.py) | re-exports `run_rebalancing` + the three public I/O models (`FundRowInput`, `RebalancingComputeRequest`, `RebalancingComputeResponse`) |
 
 App-layer companions (where the request comes from — not part of the engine):
 
 | File | Role |
 |---|---|
-| [`rebalancing_module_service.py`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the sole gateway `run(turn, ctx, prior)` — dispatches to the `rebalancing` chat handler |
-| [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | domain-side runner: imports & calls `run_rebalancing`, owns the 90-day allocation cache |
+| [`rebalancing_module_service.py`](../../../app/domains/rebalancing/services/rebalancing_module_service.py) | the chat-path gateway `run(turn, ctx, prior)` — dispatches to the `rebalancing` chat handler |
+| [`rebal_engine/service.py`](../../../app/domains/rebalancing/services/rebal_engine/service.py) | domain-side runner `compute_rebalancing_result`: active-CAS scoping, the 90-day allocation cache, `run_rebalancing`, persistence, `build_rebal_facts_pack` |
 | [`rebal_engine/input_builder.py`](../../../app/domains/rebalancing/services/rebal_engine/input_builder.py) | builds `RebalancingComputeRequest` from `ctx` + allocation + DB |
 | [`rebal_engine/fund_rank.py`](../../../app/domains/rebalancing/services/rebal_engine/fund_rank.py) | ranking-CSV loader; owns the duplicated `FORCE_EXIT_RANK` |
+| [`rebal_engine/holdings_ledger.py`](../../../app/domains/rebalancing/services/rebal_engine/holdings_ledger.py) / [`tax_aging.py`](../../../app/domains/rebalancing/services/rebal_engine/tax_aging.py) | FIFO remaining lots from `MfTransaction`; per-lot ST/LT split (12 months equity, 24 months debt) |
 | [`rebal_engine/formatter.py`](../../../app/domains/rebalancing/services/rebal_engine/formatter.py) | sectioned chat markdown over the response |
-| [`rebal_engine/chat.py`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) | the `rebalancing` follow-up handler: mode + preference detector and the preference routing (`_handle_preference_counterfactual`, `_consolidate`, `_handle_named_fund`) — §6 |
-| [`rebal_engine/constraint_impact.py`](../../../app/domains/rebalancing/services/rebal_engine/constraint_impact.py) | comply-and-caution deviation numbers (`build_constraint_impact`) — the consolidate path only, since the tilt path retired |
-| [`mutual_funds/services/investment_preferences.py`](../../../app/domains/mutual_funds/services/investment_preferences.py) | the shared preference **resolver** (`resolve_saved_preferences`) — qualitative intent → stored absolutes for the preferences screen and save flow. Pure; magnitude defaults are policy, never model judgement. No longer reached from a rebalancing turn |
+| [`rebal_engine/chat.py`](../../../app/domains/rebalancing/services/rebal_engine/chat.py) | the `rebalancing` follow-up handler: mode + preference detector and the routing (`_handle_action`, `_counterfactual_explore`, `_consolidate`, `_handle_named_fund`) — §6 |
+| [`rebal_engine/constraint_impact.py`](../../../app/domains/rebalancing/services/rebal_engine/constraint_impact.py) | comply-and-caution deviation numbers (`build_constraint_impact`) — the consolidate path only |
+| [`auto_refresh.py`](../../../app/domains/rebalancing/services/auto_refresh.py) | the silent post-ingest recompute queued by the net-worth builder |
+| [`asset_class_breakdown.py`](../../../app/domains/rebalancing/services/asset_class_breakdown.py) | the one Equity/Debt/Others rollup behind the Invest bars and the chat facts pack; each fund row is looked through on its own `sub_category`, and the 65/25/10 multi-asset split applies only where a row has no fund identity |
+| [`plan_gap.py`](../../../app/domains/rebalancing/services/plan_gap.py) | goal vs target vs current bars: the short-term-locked rupees (from `pass2_undersell_amount`) and the one-line note on why the plan stops short of the goal mix |
+| [`mutual_funds/services/investment_preferences.py`](../../../app/domains/mutual_funds/services/investment_preferences.py) | the shared preference **resolver** (`resolve_saved_preferences`) — qualitative intent → stored absolutes for the preferences screen and save flow. Pure; magnitude defaults are policy, never model judgement. Not reached from a rebalancing turn |
 
 ---
 
 ## 9. Invariants & landmines
 
 - **Money is `Decimal` here — the whole engine.** Do **not** let a `float` leak into a rupee amount; the sibling allocation family (`asset_allocation_pydantic`) works in floats, so a copy-paste from there is a real bug. Percentages are `float`, amounts are `Decimal`.
-- **STCG only on force-exit.** Optional (recommended-fund-trim) sells are **LT-only** — `_execute_sells` forces `st_available=0` for non-forced rows ([step4](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py)). Only a force-exit may realise STCG, and only up to `stcg_offset_budget_inr`. Loosening this in the "optional" branch silently changes tax behaviour.
+- **STCG only on force-exit.** Optional (recommended-fund-trim) sells are **LT-only** — `_execute_sells` forces `st_available=0` for non-forced rows ([step4](../../src/Rebalancing/steps/step4_initial_trades_under_stcg_cap.py)). Only a force-exit may realise STCG, and only up to `stcg_offset_budget_inr` when one is set. Loosening this in the "optional" branch silently changes tax behaviour.
+- **Production runs with no STCG budget.** The input builder passes `stcg_offset_budget_inr=None` unless a chat override supplies one (its test asserts `None`), although the model's comment reserves `None` for internal use. A force-exit therefore sells its ST units in full and `STCG_BUDGET_BINDING` cannot fire on a plain run.
+- **A budget-blocked ST slice is counted twice.** When the budget blocks a force-exit's ST slice, `_sell_from_row` adds it to `undersold` and again as unmet `remaining`, so `pass1_undersell_due_to_stcg_cap` (and the "held back ₹X" suffix built from it) reads double the held-back amount (§5 worked example). Reachable only with a budget set.
 - **Loss-offset uses SHORT-term losses only** ([step5](../../src/Rebalancing/steps/step5_loss_offset_top_up.py)): `carryforward_lt_loss_inr` is intentionally excluded. An LT loss offsets only LTCG, never STCG.
-- **ELSS is a scalar, never a row.** ELSS lives on `practical_allocation_input.elss_corpus`; ELSS rows are stripped upstream. step6 emits a *frozen* `tax_efficient_equities` summary (`actions=[]`) — never a trade (SEBI 3-year lock-in).
-- **Non-MF equity is a scalar, never per-stock rows.** A financial-assets-band trim emits **one** `SELL_DIRECT_STOCKS` action for `excess_direct_stocks_inr` — it rides on `trade_list`, not on any `SubgroupSummary.actions`.
+- **ELSS is frozen as a scalar.** The input builder sums the held `tax_efficient_equities` rows into `practical_allocation_input.elss_corpus` (inside `total_corpus`) and strips every ELSS row, ranked or held, so nothing buys or sells ELSS. The engine excludes `tax_efficient_equities` (`FROZEN_SUBGROUPS`) from target assignment and step6 emits a frozen summary (`actions=[]`). The freeze covers every held ELSS unit, including units past the 3-year lock-in. The frozen summary has no fund row, so the Invest-page bars (`plan_rows_from_run`) and the chat facts (`build_rebal_facts_pack`) add it as held equity.
+- **Direct stocks are not an engine input.** Holdings come from the MF transaction ledger, which holds no direct equity; there is no direct-stock scalar, row or trade action, and [`AI_Agents/tests/test_no_direct_stock_machinery.py`](../../tests/test_no_direct_stock_machinery.py) fails if that machinery reappears in runtime code.
 - **`FORCE_EXIT_RANK = 9999` is duplicated** in [`config.py`](../../src/Rebalancing/config.py) and app-side `fund_rank.py`. Keep both in sync — the sentinel is the only signal that marks a row for full liquidation.
-- **The per-fund cap does NOT bound a rebalance** (spec 2026-09-20). `_assign_subgroup_targets` decides the amounts and step 1 only rounds them, so `max_pct` reports a flat 100.0 and nothing limits single-fund concentration except the explicit 1-or-2 fund count. The cap constant survives only because the additional-investment input builder reads it cross-domain — do not assume it constrains a rebalance.
-- **Concentration is set by the fund count, not a cap.** A subgroup's whole residual can land in one fund (below ₹50L of `total_corpus − non_mf_equity`) or split across two (at/above). A held fund inside the rank band keeps its holding regardless — step2b won't sell debt to buy debt, and no cap forces a trim.
-- **Debt netting happens at the *intent* layer, before step3** (`step2b_suppress_debt_switch.py`). It cannot be deferred: `scale`/`floor_to_step` in step4 are not invertible, so the tax arithmetic has to run once on the already-corrected picture. `DEBT_NETTING_POOL` (`tables.py`) is every Debt-class subgroup, not just `{short_debt, arbitrage, arbitrage_plus_income}` — parity with the app's classifier is enforced by `app/domains/rebalancing/tests/test_debt_netting_pool_parity.py`. Only carve-out: `exit_flag` sells (a bad fund is still bad) — off-list (`rank == 0`) debt sells are nettable now too, and force-exit proceeds are reserved out of the buy side. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
-- **`UNREBALANCED_REMAINDER` is now unreachable.** With step 1 no longer capping or spilling (spec 2026-09-20), the warning it once raised on exhausted cap-spill can't fire; the field and code path are kept but dead. Don't rely on it as a live signal.
+- **The per-fund cap does NOT bound a rebalance.** `_assign_subgroup_targets` decides the amounts and step 1 only rounds them, so `max_pct` reports a flat 100.0 and nothing limits single-fund concentration except the explicit 1-or-2 fund count. The cap constants survive for the additional-investment input builder, step 2b's concentration note and the `KnobSnapshot` — do not assume they constrain a rebalance.
+- **Concentration is set by the fund count, not a cap.** A subgroup's whole residual can land in one fund (below ₹50L of `total_corpus`, the held MF market value in production) or split across two (at/above). A held fund inside the rank band keeps its holding regardless — step2b won't sell debt to buy debt, and no cap forces a trim.
+- **The trade bar gates steps 2 and 2b, not exits.** A row trades only when `|diff| ≥ min(1% × total_corpus, 50% × max(target, present))` (`config.min_change_threshold`); an `exit_flag` row trades regardless. Step 2b re-applies the bar to every row it moves. Step 4's top-up is the one path that buys under the bar: cash the passing buys leave unused goes to recommended under-bar buys, biggest gap first.
+- **Debt netting happens at the *intent* layer, before step3** (`step2b_suppress_debt_switch.py`). It cannot be deferred: `scale`/`floor_to_step` in step4 are not invertible, so the tax arithmetic has to run once on the already-corrected picture. `DEBT_NETTING_POOL` (`tables.py`) is every Debt-class subgroup, not just `{short_debt, arbitrage, arbitrage_plus_income}` — parity with the app's classifier is enforced by `app/domains/rebalancing/tests/test_debt_netting_pool_parity.py`. Only carve-out: `exit_flag` sells (a bad fund is still bad); off-list (`rank == 0`) debt sells are nettable, and force-exit proceeds are reserved out of the buy side. Kill-switch `REBAL_DEBT_SWITCH_NETTING=0`.
+- **`UNREBALANCED_REMAINDER` is unreachable.** Step 1 never caps or spills, so the warning list it returns is always empty and `unrebalanced_remainder_inr` always 0; the field and code path are kept but dead. Don't rely on it as a live signal.
 - **Bump `ENGINE_VERSION` on any output-altering change** ([`config.py`](../../src/Rebalancing/config.py)) — it's stamped into response metadata for cache/repro tracking.
 - **`consolidation.py` runs on a finished response, not inside the engine.** It reshapes *only* buys, preserving total buy and every sell; the engine itself is run once, unmodified.
-- **Investment preferences never enter this engine (§6).** A standing preference shapes the *upstream* practical allocation, so `run_rebalancing` simply receives targets that already embody it. The per-turn `asset_class_tilt` seam and the twin-run counterfactual are deleted and drift-tested against reappearance; a preference-shaped chat turn now returns a pointer at the preferences page plus `show_preferences_pill`. What survives in-turn is consolidation: `_reshape_extended` remains layered *around* the legacy F3-B arithmetic (`_reshape_legacy`), which must stay byte-for-byte for the allowed/count-only path.
+- **Investment preferences never enter this engine (§6).** A standing preference shapes the *upstream* practical allocation, so `run_rebalancing` simply receives targets that already embody it. There is no per-turn tilt seam or twin-run counterfactual (drift-tested); a preference-shaped chat turn returns a pointer at the preferences page plus `show_preferences_pill`. What runs in-turn is consolidation: the `allowed_categories` path keeps the F3-B arithmetic byte-for-byte, a bare fund count is subgroup-aware, and `_reshape_extended` layers exclusions and weight targets on the same arithmetic form.
 
 ---
 
 ## 10. Extend & test
 
-Engine tests live at [`AI_Agents/src/Rebalancing/Testing/`](../../src/Rebalancing/Testing/) — per-step + end-to-end:
+Test code is local-only: every test folder below is gitignored, so a fresh clone has none of them. Engine tests live at [`AI_Agents/src/Rebalancing/Testing/`](../../src/Rebalancing/Testing/) — per-step + end-to-end:
 
 | Level | Where | Covers |
 |---|---|---|
-| per-step | `test_step1_caps.py`, `test_step1_cap_floor.py`, `test_step2_diff_exit.py`, `test_step3_tax.py`, `test_step4_initial_trades.py`, `test_step5_loss_offset.py`, `test_step6_presentation.py` | each step's arithmetic in isolation |
+| per-step | `test_step1_caps.py`, `test_step1_cap_floor.py`, `test_step2_diff_exit.py`, `test_step2b_debt_netting.py`, `test_step2b_cap_spill_mode.py`, `test_step3_tax.py`, `test_step4_initial_trades.py`, `test_step5_loss_offset.py`, `test_step6_presentation.py` | each step's arithmetic in isolation |
+| fund count | `test_subgroup_fund_count.py` | the 1-or-2 fund split and its `split_across_top_funds` rationale |
 | cross-agent (Part C) | [`test_part_c.py`](../../src/Rebalancing/Testing/test_part_c.py) | practical pre-pass → subgroup target assignment, frozen subgroups |
 | rank band (unit) | [`test_rank_band_floors.py`](../../src/Rebalancing/Testing/test_rank_band_floors.py) | `_protected_floors` in isolation: band edges, carve-outs, worst-rank-first trim |
 | rank band (e2e) | [`test_rank_band_acceptance.py`](../../src/Rebalancing/Testing/test_rank_band_acceptance.py) | the **contrast** across all 5 profiles — in-band funds kept AND out-of-band funds still replaced, so a "protect everything" bug can't pass; plus floors surviving steps 1→5, and the kill-switch |
 | consolidation | `test_consolidation.py`, `test_consolidation_response.py` | the F3-B buy-side reshape |
 | e2e workbook | `test_e2e_workbook.py` | **skipped** pending fixture extraction from the `Reference_docs/` workbook |
 
-App-layer companions live at [`app/domains/rebalancing/services/rebal_engine/tests/`](../../../app/domains/rebalancing/services/rebal_engine/tests/) (`test_input_builder.py`, `test_service.py`, `test_rebalancing_e2e.py`, `test_formatter.py`, …) and the domain's [`services/tests/`](../../../app/domains/rebalancing/services/tests/).
+Cross-agent rules the per-agent folder cannot hold live in [`AI_Agents/tests/`](../../tests/): `test_rebalancing_practical_targets.py` (absent means zero), `test_min_change_threshold.py`, `test_funds_per_subgroup.py`, `test_debt_netting_keeps_held_debt.py`, `test_no_direct_stock_machinery.py`. App-layer companions live at [`app/domains/rebalancing/services/rebal_engine/tests/`](../../../app/domains/rebalancing/services/rebal_engine/tests/) (`test_input_builder.py`, `test_service.py`, `test_rebalancing_e2e.py`, `test_formatter.py`, …) and the domain's [`services/tests/`](../../../app/domains/rebalancing/services/tests/).
 
 Run with the mac venv:
 
@@ -637,11 +660,11 @@ rows_out, warnings = s4.apply(hand_built_step3_rows, request)
 Because the engine is deterministic, a step test is just "these inputs → exactly these rupees" — assert on the `Decimal` fields directly; there is no wording or model output to golden.
 
 - **Change a cap / threshold / tax knob** → set the matching `REBAL_*` env var (or edit [`config.py`](../../src/Rebalancing/config.py) defaults) and bump `ENGINE_VERSION`.
-- **Change engine logic or its production wiring** → update [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md) and bump its version (the repo's "Logics docs track the engines" rule).
+- **Change engine logic or its production wiring** → bump `ENGINE_VERSION`. Reference docs — this guide and [Logics_reference_docs/Rebalancing.md](../Logics_reference_docs/Rebalancing.md) — are refreshed by hand when someone asks, not as part of the code change.
 
 ---
 
-*Module guide · reconciled with the live code on 2026-09-29 (widens the debt-netting pool to every Debt-class subgroup, off-list included). If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">LLM-driven · Haiku</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -276,7 +276,7 @@
   <div class="cell"><div class="k">Caller</div><div class="v"><code>classify_user_message</code><br/>(app gateway)</div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>IntentClassifier.classify</code> / <code>.aclassify</code></div></div>
   <div class="cell"><div class="k">LLM passes</div><div class="v">1 &middot; structured-output classify</div></div>
-  <div class="cell"><div class="k">Determinism</div><div class="v">fully probabilistic<br/>(one label out)</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">LLM label at <code>temperature=0</code><br/>(one label out)</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no &mdash; label only</div></div>
 </div>
@@ -289,7 +289,7 @@ The module lives at [`AI_Agents/src/intent_classifier/`](../../src/intent_classi
 
 `asset_allocation` · `goal_planning` · `stock_advice` · `portfolio_query` · `general_market_query` · `rebalancing` · `additional_investment` · `mutual_fund_query` · `out_of_scope`
 
-> **It is nine, not eight.** `mutual_fund_query` was added as a first-class sibling. The `IntentClassifier` docstring in [`classifier.py`](../../src/intent_classifier/classifier.py) still says "eight intents" — that comment is stale; the `Intent` enum and `_IntentLiteral` are the truth (a drift test, §8, keeps them equal).
+> **Nine intents.** The `IntentClassifier` docstring in [`classifier.py`](../../src/intent_classifier/classifier.py) says "eight intents" and omits `mutual_fund_query` — that comment is stale; the `Intent` enum and `_IntentLiteral` are the truth (a drift test, §8, keeps them equal).
 
 The defining design decision: the module returns a **label, not a reply**. It carries a canned message *only* for the two "dead-end" intents (`out_of_scope`, `stock_advice`); for the other seven it emits an intent name and the [chat brain](../../../app/domains/ai_engine/services/brain.py) picks the flow. Routing is a plain table lookup in [`flow.py`](../../../app/domains/ai_engine/services/flow.py) — the classifier does not know what happens after it.
 
@@ -310,15 +310,18 @@ One Haiku call, no chain of steps. Everything before the call is prompt assembly
 
 ## 2. Where it sits
 
-The engine is a peer agent: it imports **no other agent** and no app code. It is wired in only through the app-layer gateway, which loads it via `ensure_ai_agents_path()` (the `sys.path` injection helper) and owns everything the pure engine deliberately does not do — history scrubbing, a keyword override, and an OpenAI fallback.
+The engine is a peer agent: it imports **no other agent** and no app code. It is wired in only through the app-layer gateway, which loads it via `ensure_ai_agents_path()` (the `sys.path` injection helper) and owns everything the pure engine deliberately does not do — API-key resolution, history scrubbing, gap notes on resumed threads, and a rebalancing keyword override. The gateway is **Anthropic-only**: there is no second provider, so a classifier failure propagates and the brain answers with its recovery reply (§8).
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream** | [`ChatBrain.run_turn`](../../../app/domains/ai_engine/services/brain.py) | runs the classifier **first**, always, on every turn |
-| **Gateway** | [`intent_classifier_engine.classify_user_message`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | the ONLY caller of the engine; adds scrub + override + fallback |
-| **Module surface** | [`intent_classifier_service.run`](../../../app/domains/intent_classifier/services/intent_classifier_service.py) | wraps the result in a `ModuleOutput` whose `payload` is an `IntentDecision` |
+| **Upstream** | [`ChatBrain.run_turn`](../../../app/domains/ai_engine/services/brain.py) | runs the classifier **first**, always, on every turn. For an active `asset_allocation` / `rebalancing` thread it starts that module's follow-up action detector concurrently with the classifier and attaches it only when the label equals `active_intent` |
+| **Gateway** | [`intent_classifier_engine.classify_user_message`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | the ONLY caller of the engine; adds scrub + gap notes + keyword override |
+| **Module surface** | [`intent_classifier_service.run`](../../../app/domains/intent_classifier/services/intent_classifier_service.py) | wraps the result in a `ModuleOutput` whose `payload` is an `IntentDecision` (`name`, `confidence`, `reasoning`, `raw` = the full `ClassificationResult`) |
+| **Debug endpoint** | [`intent_classifier_router.py`](../../../app/domains/ai_engine/routers/intent_classifier_router.py) | `POST /api/v1/ai-modules/intent-classifier/classify` calls `classify_user_message` with the posted history and **no** `active_intent` |
 | **Downstream** | [`FLOWS` table](../../../app/domains/ai_engine/services/flow.py) | `intent.name` → the flow to run; unknown ⇒ `flow_general_chat` |
-| **Dead-end intents** | brain short-circuit | `out_of_scope` / `stock_advice` return the canned message directly — **no `FLOWS` row** |
+| **Dead-end intents** | brain short-circuit | `out_of_scope` / `stock_advice` have **no `FLOWS` row**; the brain hands the canned message to `format_redirect_or_canned`, which returns it verbatim or has the answer formatter tailor it (§5 routing map) |
+| **Pre-flow gate** | [`portfolio_gate.py`](../../../app/domains/ai_engine/portfolio_gate.py) | `portfolio_query` / `rebalancing` for a customer with no mutual-fund holdings → a CAMS-statement ask instead of the flow |
+| **Telemetry** | `ChatBrain._finalize` | the label and confidence land on the turn's `chat_flow` row (`intent_detected`, which the next turn reads back as `active_intent`); the PostHog trace is named after the label |
 
 > **The engine touches no DB and no other agent.** If you're looking for "how does the routing happen" — it is **not** here; it is the `FLOWS` dict in `flow.py`. The engine only produces the label that keys that dict.
 
@@ -329,8 +332,8 @@ The module surface is `run(turn, ctx, prior)`. To classify, `classify_user_messa
 | Attribute | Type | Used for |
 |---|---|---|
 | `turn.user_question` | `str` | the message being classified |
-| `turn.conversation_history` | `list[{role, content, intent?}]` | recent context for follow-up detection; **scrubbed** of canned-redirect turns before the LLM sees it (§8) |
-| `ctx.active_intent` | `str \| None` | the prior turn's intent; biases follow-ups toward the same intent. Raises `ValueError` if not a valid `Intent` value |
+| `turn.conversation_history` | `list[{role, content, intent, asked_at}]` | up to the session's last 20 messages from `load_conversation_history`, kept as user/assistant pairs (a turn with no reply gets a "this turn failed" marker); `intent` is the turn's label on assistant rows. **Scrubbed** of canned-redirect turns and gap-annotated before the LLM sees it (§5) |
+| `ctx.active_intent` | `str \| None` | the session's most recent `intent_detected` in `chat_ai_module_runs`, skipping `out_of_scope` / `stock_advice` (`turn_context._load_active_intent`); biases follow-ups toward the same intent. Raises `ValueError` if not a valid `Intent` value |
 
 ---
 
@@ -341,8 +344,8 @@ The engine's input is [`ClassificationInput`](../../src/intent_classifier/models
 | Field | Type | Notes |
 |---|---|---|
 | `customer_question` | `str` | the customer's latest message |
-| `conversation_history` | `list[ConversationMessage]` | prior turns (`role` = `"user"`/`"assistant"`, `content`); only the **last 12** reach the prompt (`_MAX_HISTORY_MESSAGES`) |
-| `active_intent` | `Optional[Intent]` | the prior turn's intent, so a terse follow-up ("go ahead", "what about gold?") can inherit it |
+| `conversation_history` | `list[ConversationMessage]` | prior turns (`role` = `"user"`/`"assistant"`, `content` — no timestamp field, so a gap note rides inside `content`); only the **last 12** reach the prompt (`_MAX_HISTORY_MESSAGES`) |
+| `active_intent` | `Optional[Intent]` | the session's active intent (§2), so a terse follow-up ("go ahead", "what about gold?") can inherit it |
 
 `_build_user_turn` assembles these into one Human message: a `--- Recent Conversation History ---` block (customer/Prozpr labelled), an optional `Currently active intent: …` line, the current question, and a trailing instruction to *"Classify the intent using the classify_intent tool."*
 
@@ -356,8 +359,8 @@ The engine returns [`ClassificationResult`](../../src/intent_classifier/models.p
 |---|---|---|
 | `intent` | `Intent` | the classified label (one of the nine) |
 | `confidence` | `float` | `0.0–1.0` |
-| `is_follow_up` | `bool` | true if the message continues the prior topic; drives active-intent inheritance |
-| `reasoning` | `str` | a **≤12-word** routing phrase — not analysis (capped in schema *and* prompt) |
+| `is_follow_up` | `bool` | true if the message continues the prior topic; the prompt makes it the step before keeping the active intent. No app code reads it |
+| `reasoning` | `str` | a **≤12-word** routing phrase — not analysis (asked for in the field description *and* the prompt; not length-validated). The brain shows it to the customer as a live "thinking" line |
 | `out_of_scope_message` | `Optional[str]` | the canned reply — populated **only** for `out_of_scope` and `stock_advice`; `None` otherwise |
 | `out_of_scope_subreason` | `Optional[OutOfScopeSubreason]` | set only when `intent == out_of_scope`; defaults to `other` if the model omitted one |
 | `tools_needed` | `list[Tool]` | extra data the **answer** stage needs; empty by default. Independent of the intent |
@@ -366,20 +369,26 @@ The engine returns [`ClassificationResult`](../../src/intent_classifier/models.p
 
 ### `tools_needed` — a second verdict, not part of the label
 
-`Tool` is a separate enum in the same `models.py`, today with two members: `market_commentary` (current factual market data) and `fund_house_view` (Prozpr's stance plus the major fund houses' outlooks, surfaced to the customer as research sources). It answers a different question from the intent — *what data will the answer stage need?* — and it does **not** influence routing. The brain copies it onto `TurnContext.tools_needed` after classification; a handler fetches only what is listed, and empty means the customer's own record suffices.
+`Tool` is a separate enum in the same `models.py`, with two members: `market_commentary` (current factual market data) and `fund_house_view` (Prozpr's opinion / stance / outlook on the market or a segment). It answers a different question from the intent — *what data will the answer stage need?* — and it does **not** influence routing. The brain copies a non-empty list onto `TurnContext.tools_needed` after classification; a handler fetches only what is listed, and empty means the customer's own record suffices.
 
 Two implementation facts that bite:
 
 - **The guidance for this field lives in the pydantic `Field(description=...)`, not in `prompts.py`.** This is deliberate and was measured: the same text placed in the system prompt primes the market intent and misroutes benchmark questions ("how did I do against the Nifty?" is a question about the customer's *own returns*, not about the market).
 - **A new `Tool` member also needs `_ToolLiteral` in `classifier.py`** — the same hand-maintained-literal trap as `_IntentLiteral`, and the same drift test guards it.
 
-First and only consumer today is `portfolio_query`, which skips loading the market commentary entirely when the flag is absent.
+Three handlers read it; every other flow (e.g. `additional_investment`, `goal_planning`) ignores the list:
+
+| Consumer | Reads | Effect |
+|---|---|---|
+| [`flow_market`](../../../app/domains/ai_engine/services/flow.py) (`general_market_query`) | both | `market_commentary` → the factual daily snapshot; `fund_house_view` → the full multi-house view (Prozpr leads, named houses cited as research sources); neither listed → the factual snapshot only |
+| `portfolio_query` | `fund_house_view` | the **Prozpr-only** slice of the house view; absent → a "not loaded" placeholder. This path never loads the market commentary |
+| rebalancing formatter (`rebal_engine/chat.py`) | `fund_house_view` | the **Prozpr-only** slice frames the trades; absent → no view |
 
 ---
 
 ## 5. How it thinks
 
-The engine is a single Haiku call wrapped in prompt assembly and result shaping. There is no pipeline of steps and no arithmetic; the "thinking" is entirely the system prompt in [`prompts.py`](../../src/intent_classifier/prompts.py) (~325 lines of intent definitions, boundary rules, and edge cases) applied by the model.
+The engine is a single Haiku call wrapped in prompt assembly and result shaping. There is no pipeline of steps and no arithmetic; the "thinking" is entirely the system prompt in [`prompts.py`](../../src/intent_classifier/prompts.py) (~370 lines of intent definitions, follow-up detection, boundary rules, and edge cases) applied by the model.
 
 | Stage | File / symbol | What happens |
 |---|---|---|
@@ -390,14 +399,34 @@ The engine is a single Haiku call wrapped in prompt assembly and result shaping.
 
 ### Structured output & the enum lock
 
-The model is constrained to the `_LLMOutput` schema, whose `intent` field is a **`Literal`** of the nine strings. That makes the Anthropic tool schema enforce the enum at the API level — the model *physically cannot* emit an unknown intent string, so a typo or hallucinated category can never silently slip through (it would fail validation and drop to the OpenAI fallback instead). `_LLMOutput` also carries defensive field-validators that scrub stray closing-tag debris (e.g. `"true</is_follow_up>"`) the Anthropic tool serializer occasionally leaks into a value (§8).
+The model is bound to the `_LLMOutput` schema through LangChain's `with_structured_output` (function calling: one forced tool call, tool named `_LLMOutput`). Its `intent` field is a **`Literal`** of the nine strings, so the tool schema carries the enum and pydantic validates the reply against it — a typo or hallucinated category can never reach the router: it fails validation, the error propagates, and the brain returns its recovery reply. `_LLMOutput` also carries defensive field-validators that scrub stray closing-tag debris (e.g. `"true</is_follow_up>"`) the Anthropic tool serializer occasionally leaks into a value (§8). (The prompt text calls it "the classify_intent tool"; the forced `tool_choice` makes the name mismatch harmless.)
 
-### The app layer wraps two behaviours around the engine
+### Boundary rules the prompt encodes
 
-The pure engine is deliberately dumb about product edge cases. `classify_user_message` adds them:
+The prompt's intent definitions and "Routing edge cases" settle the common collisions. The ones engineers trip over most:
 
-- **History scrub** (`_strip_canned_redirect_turns`) — drops `(user, assistant)` pairs where the assistant returned a canned refusal (`out_of_scope` / `stock_advice`), so the LLM doesn't anchor on a prior refusal and bias the next turn. Tagged rows match on the stored `intent`; pre-column rows fall back to a **frozen** prefix list.
-- **Rebalancing keyword override** (`_apply_rebalancing_keyword_override`) — a regex safety net: if the message literally says "rebalance" (incl. common typos) and the LLM labelled it `asset_allocation` or `portfolio_query`, it is forced to `rebalancing`.
+| Situation | Label |
+|---|---|
+| A stated amount or SIP to deploy, or "which fund should I buy" for new money (a goal mention is context) | `additional_investment` |
+| Feasibility, "am I on track?", required savings, cashflow, goal funding — including a compound feasibility + "where do I invest" ask | `goal_planning` |
+| Target-mix question with a personal hook ("should I add midcap to my portfolio?", "is my portfolio aligned with my goals?") | `asset_allocation` |
+| Actual-vs-target diagnostic, trades, over/under-weight, named fund-to-fund swaps, a verdict on held funds, continue/stop an existing SIP | `rebalancing` |
+| Readback of holdings, linked accounts, stored risk profile, and the saved investment preferences record (reading it, or wiping it wholesale) | `portfolio_query` |
+| Name, rank or explain specific funds with no money to deploy ("best large cap funds"); a possessive ("my best funds") makes it `portfolio_query` | `mutual_fund_query` |
+| A segment or market view with no personal hook ("are small-caps expensive?") | `general_market_query` |
+| Buy/sell/hold view on a named stock, however extreme; a named mutual fund or ETF is never `stock_advice` | `stock_advice` |
+| While `rebalancing` / `additional_investment` is active: exposure directives ("make it safer", "I want 95% equity"), category tilts, a fund to use/avoid/hold, a one-category preference ask ("drop my gold preference") | keep the active intent |
+| Bare action-approval ("go ahead", "do it") with `active_intent = asset_allocation` | `rebalancing` |
+| Pure acknowledgment ("ok", "thanks") | `active_intent` → keep it; history only → the last assistant turn's topic; no context → `out_of_scope` / `gibberish` |
+| Financial question + off-topic noise | classify by the financial part |
+
+### The app layer wraps three behaviours around the engine
+
+The pure engine is deliberately dumb about product edge cases. `classify_user_message` adds them, in this order:
+
+- **History scrub** (`_strip_canned_redirect_turns`) — drops `(user, assistant)` pairs where the assistant returned a canned refusal (`out_of_scope` / `stock_advice`), so the LLM doesn't anchor on a prior refusal and bias the next turn. Tagged rows match on the stored `intent`; untagged rows fall back to a **frozen** prefix list (plus the legacy goal-planning sentinel).
+- **Gap notes** (`with_gap_notes`, [`ai_engine/common.py`](../../../app/domains/ai_engine/common.py)) — on the scrubbed history, a message that resumes the thread 24 h or more after the previous one gets `[N days later] ` (rounded days; `[1 day later] ` for one) prefixed to its `content`, so a fortnight-old question does not read as live context.
+- **Rebalancing keyword override** (`_apply_rebalancing_keyword_override`) — a regex safety net (`\b(?:re-?\s*balan\w*|rebalcance|relablace)\b`, case-insensitive) applied to the result: if the message says "rebalance" (incl. common typos) and the LLM labelled it `asset_allocation` or `portfolio_query`, it is forced to `rebalancing` with confidence raised to at least 0.9 and an "(Adjusted: …)" note appended to the reasoning. The rebuilt result carries only `intent`, `confidence`, `reasoning` and `out_of_scope_message` (§8).
 
 ### A turn, end to end (worked example)
 
@@ -409,7 +438,9 @@ A first turn with a stated amount to deploy. Watch the message become a label �
 
 <div class="step-panel">
   <div class="label">_build_user_turn → Human message (sent to Haiku)</div>
+
 <pre><code>Customer's current question: I have ₹5L — where should I invest it?
+
 
 Classify the intent using the classify_intent tool.</code></pre>
 </div>
@@ -420,10 +451,11 @@ Classify the intent using the classify_intent tool.</code></pre>
   <div class="label">Haiku structured output → _LLMOutput</div>
 <pre><code>{
   "intent": "additional_investment",
-  "confidence": 0.93,
+  "confidence": 0.95,
   "is_follow_up": false,
-  "reasoning": "stated new amount to deploy, fund selection ask",
-  "out_of_scope_subreason": null
+  "reasoning": "Customer has stated new money (₹5L) and asks where to deploy it.",
+  "out_of_scope_subreason": null,
+  "tools_needed": ["fund_house_view"]
 }</code></pre>
 </div>
 
@@ -433,15 +465,16 @@ Classify the intent using the classify_intent tool.</code></pre>
   <div class="label">_shape → ClassificationResult (public contract)</div>
 <pre><code>ClassificationResult(
   intent=Intent.ADDITIONAL_INVESTMENT,
-  confidence=0.93,
+  confidence=0.95,
   is_follow_up=False,
-  reasoning="stated new amount to deploy, fund selection ask",
+  reasoning="Customer has stated new money (₹5L) and asks where to deploy it.",
   out_of_scope_message=None,          # not a dead-end intent
   out_of_scope_subreason=None,
+  tools_needed=[Tool.FUND_HOUSE_VIEW],
 )</code></pre>
 </div>
 
-The brain reads `intent.name == "additional_investment"`, looks it up in `FLOWS`, and runs `flow_additional_investment`. *(Values above are illustrative — a real confidence/reasoning will differ; don't treat them as fixtures.)*
+The brain shows the reasoning as a thinking line, copies `tools_needed` onto the turn context, passes the portfolio gate (`additional_investment` is not gated, so a customer with no holdings still gets through), looks `intent.name == "additional_investment"` up in `FLOWS`, and runs `flow_additional_investment` — which does not read `tools_needed`, so the house-view flag has no effect on this turn. *(Values above come from a live run of the current prompt; a rerun can differ in confidence and wording — don't treat them as fixtures.)*
 
 ### Where the label lands (routing map)
 
@@ -451,32 +484,34 @@ The brain reads `intent.name == "additional_investment"`, looks it up in `FLOWS`
 | `rebalancing` | `flow_rebalancing` | practical AA → rebalancing |
 | `goal_planning` | `flow_goal_planning` | cashflow domain |
 | `portfolio_query` | `flow_portfolio_query` | portfolio (read-only) |
-| `general_market_query` | `flow_market` | market_commentary → general_chat |
+| `general_market_query` | `flow_market` | market data and/or house view (per `tools_needed`) → general_chat |
 | `additional_investment` | `flow_additional_investment` | additional_investment domain |
 | `mutual_fund_query` | `flow_mutual_fund_query` | mutual_funds domain (read-only) |
-| `stock_advice` | *(no row)* | **canned redirect** — brain short-circuits |
-| `out_of_scope` | *(no row)* | **canned / sub-reason-tailored** — brain short-circuits |
+| `stock_advice` | *(no row)* | **redirect** — brain short-circuits; the answer formatter (`action_mode="redirect"`) tailors `STOCK_ADVICE_MESSAGE` to acknowledge the ask, falling back to the canned text on failure |
+| `out_of_scope` | *(no row)* | **by sub-reason** — brain short-circuits. `gibberish` / `identity_or_meta` / `security_or_credentials` / `chat_summary` return a fixed canned reply (`_OOS_REPLIES_BY_SUBREASON`); `off_topic` / `other` get a formatter-tailored redirect grounded on that canned text |
+
+`portfolio_query` and `rebalancing` additionally pass the pre-flow portfolio gate: with no mutual-fund holdings the brain replies with a CAMS-statement ask and flags the turn for the upload CTA instead of running the flow.
 
 ---
 
 ## 6. Where the LLM is
 
-**The whole module is the LLM.** There is exactly one model call and no deterministic computation to speak of — no math, no lookups, no DB. Given the same message the label is *probabilistic*, which is why the boundary rules live in the prompt and the guards (enum lock, drift test, keyword override) live around it.
+**The whole module is the LLM.** There is exactly one model call and no deterministic computation to speak of — no math, no lookups, no DB. The label is a model judgement, not a computed result, which is why the boundary rules live in the prompt and the guards (enum lock, drift test, keyword override) live around it.
 
 | Part | Deterministic? | Notes |
 |---|---|---|
 | Prompt assembly (`_build_user_turn`, `_messages`) | deterministic | pure string building + last-12 truncation |
 | Classification | **LLM (Haiku)** | `with_structured_output(_LLMOutput)`, `temperature=0`, `max_tokens=1024`, system prompt cached |
 | `_shape` + canned-message attach | deterministic | dict lookup; sub-reason defaulting |
-| App-layer override / scrub / fallback | deterministic | regex + history filter + OpenAI backup |
+| App-layer scrub / gap notes / override | deterministic | history filter + timestamp annotation + regex |
 
 The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LLMOutput)`. The static `SYSTEM_PROMPT` is marked `cache_control: ephemeral` for Anthropic prompt caching — after the first call that block costs ~10% of normal rate. `max_tokens=1024` is pure headroom (reasoning is capped to a ≤12-word phrase, so real output is well under 100 tokens).
 
-**`temperature=0` is explicit and load-bearing.** Omitting it applies the Anthropic API default of **1.0** — a classifier that samples. Measured: **4 of 101** labelled turns changed intent between two identical runs. Pinning it took the eval spread to 0.0%, which is what makes prompt changes measurable at all. A repo-wide test (`test_temperature_is_pinned.py`) fails any `ChatAnthropic(...)` call that omits it.
+**`temperature=0` is explicit and load-bearing.** Omitting it applies the Anthropic API default of **1.0** — a classifier that samples. Measured: **4 of 101** labelled turns changed intent between two identical runs. With it pinned, the eval spread is 0.0%, which is what makes prompt changes measurable at all. A repo-wide test (`test_temperature_is_pinned.py`) fails any `ChatAnthropic(...)` call that omits it.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
-  <p>Because it's one Haiku call, the risk is a <strong>silently wrong label</strong> — a hallucinated intent or a serializer glitch that routes the turn to the wrong flow. Two guards blunt this: the <code>_IntentLiteral</code> lock means the model <em>cannot</em> emit an unknown intent (bad output fails validation → OpenAI fallback rather than a garbage label), and the field-validators scrub tool-serializer tag debris (e.g. <code>"true&lt;/is_follow_up&gt;"</code>) before coercion. If you touch either, you re-open the door: an intent added to the enum but not to <code>_IntentLiteral</code> becomes <strong>un-emittable</strong>, and dropping the scrubbers lets tag noise crash a live turn.</p>
+  <p>Because it's one Haiku call, the risk is a <strong>silently wrong label</strong> — a hallucinated intent or a serializer glitch that routes the turn to the wrong flow. Two guards blunt this: the <code>_IntentLiteral</code> lock means an unknown intent can never pass validation (bad output fails validation → the brain's recovery reply rather than a garbage label), and the field-validators scrub tool-serializer tag debris (e.g. <code>"true&lt;/is_follow_up&gt;"</code>) before coercion. If you touch either, you re-open the door: an intent added to the enum but not to <code>_IntentLiteral</code> becomes <strong>un-emittable</strong>, and dropping the scrubbers lets tag noise crash a live turn.</p>
 </div>
 
 ---
@@ -487,51 +522,62 @@ The client is a LangChain `ChatAnthropic` bound with `with_structured_output(_LL
 |---|---|
 | [`classifier.py`](../../src/intent_classifier/classifier.py) | `IntentClassifier` (sync `classify` / async `aclassify`), `_LLMOutput` schema + `_IntentLiteral` lock, tag-noise scrubbers, history formatting |
 | [`models.py`](../../src/intent_classifier/models.py) | `Intent` (9) + `OutOfScopeSubreason` (6) + `Tool` (2) enums, `ConversationMessage`, `ClassificationInput`, `ClassificationResult` — the public contract |
-| [`prompts.py`](../../src/intent_classifier/prompts.py) | `SYSTEM_PROMPT` (intent definitions, boundaries, edge cases, sub-reasons) + the two canned messages (`OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE`) |
-| [`__init__.py`](../../src/intent_classifier/__init__.py) | re-exports `IntentClassifier` + the I/O models (the app-layer import surface) |
-| [`Testing/`](../../src/intent_classifier/Testing/) | live boundary tests (`test_classifier_rebalancing.py`, `test_classifier_additional_investment.py`) — skipped without `ANTHROPIC_API_KEY` |
+| [`prompts.py`](../../src/intent_classifier/prompts.py) | `SYSTEM_PROMPT` (intent definitions, follow-up detection, routing edge cases, sub-reasons) + the two canned messages (`OUT_OF_SCOPE_MESSAGE`, `STOCK_ADVICE_MESSAGE`, both opening with `_PI_PREFIX`) |
+| [`__init__.py`](../../src/intent_classifier/__init__.py) | re-exports `IntentClassifier`, `ClassificationInput`, `ClassificationResult`, `ConversationMessage`, `Intent`, `Tool` (the app-layer import surface) |
+| [`Testing/`](../../src/intent_classifier/Testing/) | live boundary tests (`test_classifier_rebalancing.py`, `test_classifier_additional_investment.py`) — skipped without `ANTHROPIC_API_KEY`; gitignored |
 
-App-layer companions (not part of the engine, but where scrub/override/fallback/routing live):
+App-layer companions (not part of the engine, but where scrub/gap notes/override/routing live):
 
 | File | Role |
 |---|---|
-| [`intent_classifier_engine.py`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | `classify_user_message` — Anthropic primary + OpenAI fallback, history scrub, keyword override, `format_intent_response`, `intent_labels` |
+| [`intent_classifier_engine.py`](../../../app/domains/intent_classifier/services/intent_classifier_engine.py) | `classify_user_message` — Anthropic-only (key from `INTENT_CLASSIFIER_API_KEY`, else `ANTHROPIC_API_KEY`; `RuntimeError` if neither), history scrub, gap notes, keyword override; plus `format_intent_response` / `intent_labels` helpers, which nothing on the chat path calls |
 | [`intent_classifier_service.py`](../../../app/domains/intent_classifier/services/intent_classifier_service.py) | `run(turn, ctx, prior)` — the uniform module surface; wraps result as `ModuleOutput`/`IntentDecision` |
+| [`brain.py`](../../../app/domains/ai_engine/services/brain.py) | runs the classifier first; dead-end short-circuit, `tools_needed` copy, portfolio gate, recovery reply on a classifier error |
 | [`flow.py`](../../../app/domains/ai_engine/services/flow.py) | the `FLOWS` table: intent name → flow |
+| [`turn_context.py`](../../../app/domains/ai_engine/turn_context.py) | `_load_active_intent` (the `active_intent` source); `TurnContext.tools_needed` |
+| [`common.py`](../../../app/domains/ai_engine/common.py) | `with_gap_notes` / `gap_note` (24 h threshold) |
+| [`general_chat_engine.py`](../../../app/domains/general_chat/services/general_chat_engine.py) | `format_redirect_or_canned`, `_OOS_REPLIES_BY_SUBREASON` — the dead-end replies |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **`_IntentLiteral` must equal the `Intent` enum, exactly.** It is hand-maintained in `classifier.py` (Python 3.9 can't do `Literal[*tuple(...)]`). Add an intent to the enum and forget the literal → the new intent becomes **un-emittable** by the model. The drift test [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) fails loudly if they diverge — keep it green. (The stale in-code `NOTE` in `classifier.py` still points the test at an old `app/services/ai_bridge/...` path; the real test lives under `app/domains/ai_engine/tests/`.)
-- **It's nine intents now.** `mutual_fund_query` is live. The one remaining stale "eight intents" is the `IntentClassifier` docstring (`classifier.py:156`) — comment-rot, trust the enum.
-- **`_ToolLiteral` has the same lock as `_IntentLiteral`.** Add a member to the `Tool` enum without adding it to `_ToolLiteral` in `classifier.py` and the model can never emit it. Same drift test guards both.
+- **`_IntentLiteral` must equal the `Intent` enum, exactly.** It is hand-maintained in `classifier.py` (Python 3.9 can't do `Literal[*tuple(...)]`). Add an intent to the enum and forget the literal → the new intent becomes **un-emittable** by the model. The drift test [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) fails loudly if they diverge — keep it green. (The in-code `NOTE` in `classifier.py` names a non-existent `app/services/ai_bridge/...` path for this test; the real test lives under `app/domains/ai_engine/tests/`.)
+- **Nine intents; the class docstring says eight.** The `IntentClassifier` docstring (`classifier.py:166`) lists eight intents, omits `mutual_fund_query`, and points `goal_planning` at a dead `app/services/ai_bridge/goal_planning/` path — comment rot, trust the enum.
+- **`_ToolLiteral` and `_OutOfScopeSubreasonLiteral` have the same lock as `_IntentLiteral`.** Add a member to the `Tool` or `OutOfScopeSubreason` enum without adding it to the matching literal in `classifier.py` and the model can never emit it. The app drift test guards `_ToolLiteral`; [`AI_Agents/tests/test_intent_classifier.py`](../../tests/test_intent_classifier.py) guards `_IntentLiteral` and `_OutOfScopeSubreasonLiteral`.
 - **`tools_needed` guidance must NOT move into `prompts.py`.** It lives in the pydantic field description on purpose: the same wording in the system prompt primes `general_market_query` and misroutes questions that name an index purely as a benchmark for the customer's own returns.
 - **`temperature=0` must stay explicit.** Unset means 1.0. This was measured at 4/101 turns flipping intent between identical runs; a repo-wide test fails the build if any `ChatAnthropic(...)` omits it.
-- **`out_of_scope` is not a fallback.** The prompt now requires a *positive* reason — a domain we don't handle, chatter, or adversarial input. "Short, vague or ambiguous" is explicitly insufficient; those resolve from `active_intent` or history. A bare acknowledgment with no `active_intent` but *with* history resolves against the last assistant turn; only with no context at all does it become `out_of_scope`/`gibberish`.
+- **`out_of_scope` is not a fallback.** The prompt requires a *positive* reason — a domain we don't handle, chatter, or adversarial input. "Short, vague or ambiguous" is explicitly insufficient; those resolve from `active_intent` or history. A bare acknowledgment with no `active_intent` but *with* history resolves against the last assistant turn; only with no context at all does it become `out_of_scope`/`gibberish`.
 - **Tag-noise scrubbers are load-bearing, not cosmetic.** `_scrub_tag_noise` + the reasoning scrubber strip serializer debris the Anthropic tool-call occasionally leaks into a value. Removing them re-exposes a `ValidationError` on live turns.
-- **`max_tokens=1024` is headroom, don't shrink it thinking it saves cost.** Billing is per generated token, so normal ~100-token output costs the same. Hitting `max_tokens` truncates the tool call → `ValidationError` → the turn silently drops to the OpenAI fallback. (Reasoning is capped to ≤12 words to keep output small — see the memory note on classifier max-tokens.)
-- **The rebalancing keyword override deliberately wins over the prompt.** If the word "rebalance" appears, `asset_allocation`/`portfolio_query` are forced to `rebalancing` — this **overrides** the prompt's "rebalance to be more aggressive = target change → asset_allocation" rule. Pinned by the eval-gate case `aa/rebalance-to-be-aggressive`; the prompt rule still governs paraphrases without the word.
-- **History scrub is classifier-only.** `_strip_canned_redirect_turns` drops refusal turns *only* for the classifier's view — other agents still see full history. The legacy prefix list is **frozen**: new copy variants must not be added, because new rows are always intent-tagged.
+- **`max_tokens=1024` is headroom, don't shrink it thinking it saves cost.** Billing is per generated token, so normal ~100-token output costs the same. Hitting `max_tokens` truncates the tool call → `ValidationError` → the turn fails with the brain's recovery reply. (Reasoning is capped to ≤12 words to keep output small.)
+- **The rebalancing keyword override deliberately wins over the prompt.** If the word "rebalance" appears, `asset_allocation`/`portfolio_query` are forced to `rebalancing` — this **overrides** the prompt's "rebalance to be more aggressive = target change → asset_allocation" rule. Pinned by the eval-gate case `aa/rebalance-to-be-aggressive`; the prompt rule governs paraphrases without the word.
+- **An overridden result loses `tools_needed` and `is_follow_up`.** `_apply_rebalancing_keyword_override` rebuilds the `ClassificationResult` from `intent`, `confidence`, `reasoning` and `out_of_scope_message` only, so the overridden turn reaches `flow_rebalancing` with an empty `tools_needed` (no house view in the rebalancing reply, whatever the model asked for) and `is_follow_up=False`. Turns the model labels `rebalancing` itself pass through untouched.
+- **History scrub is classifier-only.** `_strip_canned_redirect_turns` drops refusal turns *only* for the classifier's view — other agents see the full history. The legacy prefix list is **frozen**: new copy variants must not be added, because new rows are always intent-tagged.
 - **`out_of_scope` must carry a sub-reason.** `_shape` defaults it to `other` when the model omits one; downstream `general_chat` tailors the decline by sub-reason. Don't return `out_of_scope` without letting `_shape` set it.
-- **The OpenAI fallback enum derives from `Intent`, but `active_intent` is not forwarded to it.** Adding an intent auto-extends the fallback schema (good); but the follow-up bias is intentionally dropped in the degraded path (`_classify_via_openai` still receives the scrubbed history, just not the active intent), so a fallback turn classifies from the message and history without the active-intent follow-up bias.
+- **Refusals never become the sticky intent.** `_load_active_intent` skips `out_of_scope` / `stock_advice` when it picks the session's latest `intent_detected`; together with the history scrub this keeps one refusal from biasing the next turn toward another.
+- **No second provider — and any future one must reproduce the canned message.** The classifier is Anthropic-only; an error (missing key, API failure, `ValidationError`) propagates to `ChatBrain`, which rolls back and replies "Sorry — I couldn't process your request due to a technical issue. Please try again." (turn outcome `failed`). The brain's dead-end short-circuit fires only when `out_of_scope_message` is set, and `FLOWS` has no `stock_advice` row, so a `stock_advice` label without its canned message falls through to `flow_general_chat`, which answers the stock question.
 
 ---
 
 ## 9. Extend & test
 
-- **Change a boundary / add an intent** → edit the `Intent` enum in [`models.py`](../../src/intent_classifier/models.py), the `_IntentLiteral` in [`classifier.py`](../../src/intent_classifier/classifier.py), add a `FLOWS` row + `flow_*` in [`flow.py`](../../../app/domains/ai_engine/services/flow.py), and update the intent-definition section of [`prompts.py`](../../src/intent_classifier/prompts.py). Then run the schema drift test and the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging.
+- **Change a boundary / add an intent** → edit the `Intent` enum in [`models.py`](../../src/intent_classifier/models.py), the `_IntentLiteral` in [`classifier.py`](../../src/intent_classifier/classifier.py), add a `FLOWS` row + `flow_*` in [`flow.py`](../../../app/domains/ai_engine/services/flow.py), add its label to `_INTENT_LABELS` in `intent_classifier_engine.py`, list it in `PORTFOLIO_REQUIRED_INTENTS` ([`portfolio_gate.py`](../../../app/domains/ai_engine/portfolio_gate.py)) if it cannot answer without holdings, and update the intent-definition section of [`prompts.py`](../../src/intent_classifier/prompts.py). Then run the schema drift test and the prompt eval gate (`scripts/run_prompt_eval_gate.sh`, which runs `ENABLE_LLM_SMOKE=1 pytest -m real_llm app/domains/ai_engine/tests/eval_gate/`) before merging.
 - **Add a `tools_needed` signal** → add the member to the `Tool` enum in `models.py` **and** to `_ToolLiteral` in `classifier.py`, describe it in the `_LLMOutput.tools_needed` field description (**not** in `prompts.py` — see landmines), then consume it off `TurnContext.tools_needed` in the handler that needs the data. Because it doesn't touch routing, the intent eval set should come back unchanged — if it moves, the description is leaking into the routing decision.
-- **Tests** live at two levels:
+- **Tests** live at three levels — offline, live boundary, and live eval. Files marked † are gitignored: they exist in local checkouts but not in a fresh clone.
 
   | Level | Where | Covers |
   |---|---|---|
-  | schema drift (no API key) | [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) | `_IntentLiteral` == `Intent` |
-  | app-layer scrub (no API key) | [`test_strip_canned_redirect_turns.py`](../../../app/domains/intent_classifier/services/tests/test_strip_canned_redirect_turns.py) | history scrub logic (tagged + legacy-prefix rows) |
-  | live boundary (needs key) | [`Testing/test_classifier_rebalancing.py`](../../src/intent_classifier/Testing/), `test_classifier_additional_investment.py` | real Haiku calls; `@skipif` when `ANTHROPIC_API_KEY` unset |
+  | schema drift (no API key) | [`test_intent_classifier_schema.py`](../../../app/domains/ai_engine/tests/test_intent_classifier_schema.py) | `_IntentLiteral` == `Intent`, `_ToolLiteral` == `Tool` |
+  | engine helpers (no API key) | [`AI_Agents/tests/test_intent_classifier.py`](../../tests/test_intent_classifier.py) | intent + OOS-sub-reason literal drift, `_format_history` last-12 cut, `_build_user_turn` |
+  | app layer (no API key) | `app/domains/ai_engine/tests/test_rebalancing_intent_override.py`, `test_classifier_service_active_intent.py` | keyword override; `active_intent` forwarding |
+  | app layer (no API key) † | [`test_strip_canned_redirect_turns.py`](../../../app/domains/intent_classifier/services/tests/test_strip_canned_redirect_turns.py); `app/domains/intent_classifier/tests/` (`test_classifier_gap_notes.py`, `test_no_openai_fallback.py`) | history scrub (tagged + legacy-prefix rows); gap notes; a classifier error propagates unchanged |
+  | temperature scan (no API key) † | `app/domains/ai_engine/tests/test_temperature_is_pinned.py` | every `ChatAnthropic(...)` under `app/` and `AI_Agents/src/` pins `temperature` |
+  | live boundary (needs key) † | [`Testing/test_classifier_rebalancing.py`](../../src/intent_classifier/Testing/), `test_classifier_additional_investment.py` | real Haiku calls; `@skipif` when `ANTHROPIC_API_KEY` is unset (`classifier.py` loads `.env` on import) |
+  | live eval gate † | `app/domains/ai_engine/tests/eval_gate/` (`golden_cases.py`, `test_eval_gate_intent_classifier.py`) | golden routing cases through `classify_user_message`; `ENABLE_LLM_SMOKE=1`, marker `real_llm` |
+  | live preference-routing eval † | `AI_Agents/tests/test_preference_routing_eval.py` | mid-conversation preference asks stay on the active plan; `RUN_INTENT_ROUTING_EVAL=1`, marker `intent_routing_eval` |
 
-  Run with the mac venv:
-  `.venv-mac/bin/python -m pytest AI_Agents/src/intent_classifier/Testing/ app/domains/ai_engine/tests/test_intent_classifier_schema.py app/domains/intent_classifier/services/tests/`
+  Run the offline and live-boundary tests with the mac venv:
+  `.venv-mac/bin/python -m pytest app/domains/ai_engine/tests/test_intent_classifier_schema.py app/domains/ai_engine/tests/test_rebalancing_intent_override.py app/domains/ai_engine/tests/test_classifier_service_active_intent.py AI_Agents/tests/test_intent_classifier.py app/domains/intent_classifier/ AI_Agents/src/intent_classifier/Testing/`
 
 - **Classify one message without wiring the app** — the engine is directly constructable:
 
@@ -543,11 +589,11 @@ App-layer companions (not part of the engine, but where scrub/override/fallback/
   assert out.intent == Intent.REBALANCING
   ```
 
-  (The app gateway also honours `INTENT_CLASSIFIER_API_KEY` as an override — that lookup lives in `config.get_anthropic_intent_classifier_key`, not in the engine constructor.) No StubLLM seam ships here (there is one model call and no facts pack to hand-build); the boundary tests exercise the *real* Haiku call and are `@skipif` when no key is present. To exercise the app-layer scrub/override/fallback without a key, unit-test `_strip_canned_redirect_turns` / `_apply_rebalancing_keyword_override` directly — both are pure functions.
+  (The app gateway also honours `INTENT_CLASSIFIER_API_KEY` as an override — that lookup lives in `Settings.get_anthropic_intent_classifier_key` in `app/core/config.py`, not in the engine constructor.) No StubLLM seam ships here (there is one model call and no facts pack to hand-build); the boundary tests exercise the *real* Haiku call and are `@skipif` when no key is present. To exercise the app-layer scrub/override without a key, unit-test `_strip_canned_redirect_turns` / `_apply_rebalancing_keyword_override` directly — both are pure functions — or patch `_get_classifier` to drive `classify_user_message` end to end.
 
 ---
 
-*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

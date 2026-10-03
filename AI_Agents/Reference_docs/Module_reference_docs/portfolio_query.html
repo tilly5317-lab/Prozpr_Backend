@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">LLM-driven · Haiku</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -266,18 +266,18 @@
 <script type="text/markdown" id="source-md">
 # `portfolio_query` — grounded answers about *my own* portfolio
 
-> **One line:** when a customer asks about *their* account — "what's my biggest holding?", "how much in mid cap?", "what does an RBI rate cut mean for me?" — this module answers from three context sources we control (fund-house commentary, the client profile, the current portfolio), refuses anything out of scope, and never lets Haiku do the rupee arithmetic.
+> **One line:** when a customer asks about *their* account — "what's my biggest holding?", "how much in mid cap?", "what does an RBI rate cut mean for me?" — this module prepares the answer from three context sources we control (Prozpr's own fund-house view when the question needs our stance, the client profile, the current portfolio) plus the scope rules; the shared answer formatter writes the reply, hard out-of-scope topics get a polite redirect, and Haiku never does the rupee arithmetic.
 >
-> This is the engineer's guide to the module. Unlike its sibling [`mutual_fund_query`](mutual_fund_query.html), portfolio_query has **no** Logics thesis doc — that is deliberate (the answer-formatter test asserts `get_logic_reference("portfolio_query") is None`); the customer-facing behaviour is defined entirely by the two runtime prompt files in §5. For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
+> This is the engineer's guide to the module. Unlike its sibling [`mutual_fund_query`](mutual_fund_query.html), portfolio_query has **no** Logics thesis doc — that is deliberate (the logic-doc tests assert `get_logic_reference("portfolio_query") is None` and `logic_reference_for("portfolio_query", "narrate") is None`); the module's customer-facing behaviour is defined by the two runtime prompt files in §5, layered on the shared formatter's house style. For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
 
 <div class="at-glance">
   <div class="cell"><div class="k">Kind</div><div class="v">LLM-driven &middot; Haiku</div></div>
-  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code></div></div>
+  <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5<br/><code>claude-haiku-4-5-20251001</code><br/>(the shared formatter's call)</div></div>
   <div class="cell"><div class="k">Trigger / caller</div><div class="v"><code>portfolio_query</code> intent → <code>flow_portfolio_query</code> → <code>answer_portfolio_query</code></div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>PortfolioQueryOrchestrator</code> &mdash; <code>query_body</code> + <code>build_facts</code></div></div>
-  <div class="cell"><div class="k">LLM passes</div><div class="v">0 in this module<br/>(the shared formatter makes the call)</div></div>
-  <div class="cell"><div class="k">Determinism</div><div class="v">rupee figures pre-computed<br/>path-routing + wording probabilistic</div></div>
-  <div class="cell"><div class="k">Peer imports</div><div class="v">none — only <code>common.py</code> + <code>persona.py</code></div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">0 in this module<br/>(the shared formatter makes 1 forced-tool call)</div></div>
+  <div class="cell"><div class="k">Determinism</div><div class="v">rupee figures pre-computed<br/>path-routing + wording probabilistic (temperature 0)</div></div>
+  <div class="cell"><div class="k">Peer imports</div><div class="v">none — only <code>common.py</code> + <code>house_view.py</code></div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no — the app gateway does</div></div>
 </div>
 
@@ -289,58 +289,64 @@ The module lives at [`AI_Agents/src/portfolio_query/`](../../src/portfolio_query
 
 - *"What's my current allocation?" / "How much do I have in mid cap?"* → **Path P** (portfolio-specific)
 - *"What is the RBI likely to do with rates — and what does that mean for me?"* → **Path M** (general market, always ending with a *Portfolio Impact* paragraph)
-- *"Should I sell my small caps?" / "What SIP do I need to retire at 60?"* → **Path X** (out of scope → polite redirect)
+- *"Should I sell my small caps?" / "Which insurance policy should I buy?"* → **Path X** (a hard limit → polite redirect)
+- *"What SIP do I need to retire at 60?"* → **not** Path X: a *capability limit* — the portfolio part is answered under Path P or M, then one closing sentence names the limit (`suggested_intent = goal_planning` is recorded)
+- *"What preferences do I have set?"* → **Path P pointer** to the customer's preferences page (`preference_question = true` raises the preferences pill)
 
-It is triggered by the intent classifier's `portfolio_query` label and routed by the chat brain's `FLOWS` table into the app-layer gateway `answer_portfolio_query` (see §2).
+It is triggered by the intent classifier's `portfolio_query` label and routed by the chat brain's `FLOWS` table into `flow_portfolio_query`, which calls the app-layer gateway `answer_portfolio_query` (see §2). A customer with no imported mutual-fund transactions never reaches the flow: the brain's portfolio gate answers first (see the edge cases in §5).
 
-The defining design decision, shared with `mutual_fund_query` but stricter here because a whole portfolio's worth of rupee figures is in play: **the LLM never converts a rupee amount.** Every `*_inr` figure is paired with a pre-computed Indian-notation `*_indian` sibling string, and the prompt tells Haiku to copy it verbatim. A confidently-wrong "₹22.6 lakh" for what is really ₹2.26 crore is treated as a worse failure than a plainer answer.
+The defining design decision, shared with `mutual_fund_query` but stricter here because a whole portfolio's worth of rupee figures is in play: **the LLM never converts a rupee amount.** Every `*_inr` figure is paired with a pre-computed Indian-notation `*_indian` sibling string, and the shared persona's money rule tells Haiku to copy it verbatim. A confidently-wrong "₹22.6 lakh" for what is really ₹2.26 crore is treated as a worse failure than a plainer answer.
 
 ### The prepare-only shape
 
 ```mermaid
 flowchart LR
-    Q([Question + client + portfolio<br/>+ history<br/>+ want_market_commentary]) --> S1{"<b>Step 1</b><br/>market view needed?"}
-    S1 -->|"yes"| S1a["load market_commentary_latest.md<br/>(file contract, no import)"]
+    Q([client + portfolio DTOs<br/>+ want_fund_house_view]) --> S1{"<b>Step 1</b><br/>house view needed?"}
+    S1 -->|"yes"| S1a["load_house_view(prozpr_only=True)<br/>(file contract, no import;<br/>placeholder if unavailable)"]
     S1 -->|"no"| S1b["inject the not-requested placeholder"]
-    S1a --> S2
+    S1a --> S2["<b>Step 2</b><br/>enrich *_inr → *_indian"]
     S1b --> S2
-    S1 --> S2["<b>Step 2</b><br/>enrich *_inr → *_indian<br/>+ compact-JSON the context"]
     S2 --> S3["<b>Step 3</b><br/>query_body: skill prompt<br/>+ guardrails filled in"]
     S3 --> R([facts pack + body prompt<br/>→ shared answer_formatter])
 ```
 
-The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a single class that **prepares but does not answer**: it owns `query_body` (the skill prompt with `guardrails.md` filled in — the in/out-of-scope Path X/M/P rules) and `build_facts` (commentary + client + portfolio as one INR-enriched dict). The reply itself is written by the shared answer formatter. Since 2026-08-05 this module makes **no LLM call of its own** — which is also why it cannot answer standalone.
+The engine ([`orchestrator.py`](../../src/portfolio_query/orchestrator.py)) is a single class that **prepares but does not answer**: it owns `query_body` (the skill prompt with `guardrails.md` filled in — the in/out-of-scope Path X/M/P rules) and `build_facts` (the fund-house view or its placeholder + client + portfolio as one INR-enriched dict). The reply itself is written by the shared answer formatter; this module makes **no LLM call of its own**, which is also why it cannot answer standalone.
 
 ---
 
 ## 2. Where it sits
 
-The engine is a peer agent: it imports **no** other agent. Its only cross-file dependencies under `src/` are the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). It **reads** two files under `Reference_docs/` — `market_commentary_latest.md` (factual, written by the `market_commentary` agent) and `fund_house_commentry.md` (Prozpr's hand-maintained monthly view) — but imports neither module: the files are the contract. Which one loads is gated by the classifier's `tools_needed`, and view answers cite the named fund houses as research sources.
+The engine is a peer agent: it imports **no** other agent. Its only cross-file dependencies under `src/` are the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`, `format_inr_indian`) and [`house_view.py`](../../src/house_view.py) (`load_house_view`). It **reads** one file under `Reference_docs/` — `fund_house_commentry.md`, Prozpr's hand-maintained monthly view — through `load_house_view(prozpr_only=True)`, which returns only the `Prozpr view:` paragraphs, so the facts pack names no fund house. Whether the view loads at all is gated by the classifier's `tools_needed`. The module does not read `market_commentary_latest.md`; a `market_commentary` entry in `tools_needed` has no effect here.
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream** | `intent_classifier` → chat brain `FLOWS` → `flow_portfolio_query` | the `portfolio_query` intent routes here |
-| **Gateway** | [`app/domains/portfolio/services/portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | `answer_portfolio_query(question, ctx)` — the ONLY caller of the engine; maps the User ORM graph → `ClientContext` / `PortfolioContext` DTOs |
-| **Commentary (factual)** | `market_commentary` agent (via the file) | `market_commentary_latest.md`, loaded when `tools_needed` asks, capped to 7 000 chars |
-| **Fund-house view** | hand-maintained `fund_house_commentry.md` | loaded when `tools_needed` = `fund_house_view` (judgement questions); reply cites the named houses as research sources |
-| **Downstream** | chat brain | `answer or redirect_message` collapsed to a single customer-facing `str` |
+| **Upstream** | `intent_classifier` → brain portfolio gate → chat brain `FLOWS` → `flow_portfolio_query` | the `portfolio_query` intent routes here; `ctx.tools_needed` carries the classifier's fetch list |
+| **Gateway** | [`app/domains/portfolio/services/portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | `answer_portfolio_query(question, ctx)` — the ONLY caller of the engine; maps the User ORM graph → `ClientContext` / `PortfolioContext` DTOs, calls the formatter, applies the guardrail backstop, records telemetry |
+| **Fund-house view** | hand-maintained `fund_house_commentry.md`, via [`house_view.py`](../../src/house_view.py) | loaded when `tools_needed` contains `fund_house_view` (judgement questions); the Prozpr-only slice — no fund house is named |
+| **Answer writer** | [`answer_formatter/formatter.py`](../../../app/domains/ai_engine/answer_formatter/formatter.py) `format_with_telemetry` | one forced-tool Haiku call with `module_name="portfolio_query"`, `action_mode="narrate"`, the gateway's extra tool fields and `allow_empty_answer=True` |
+| **Downstream** | chat brain | `PortfolioQueryReply(text, show_preferences_pill)` → `ModuleOutput(text, show_preferences_pill)` |
 
-> **The engine touches no DB.** XIRR, cost-basis gains, allocation roll-ups, holdings itemization — all of it is computed in the **gateway** before the DTOs are built. If you're looking for "where does the annualised portfolio XIRR come from", it is `_compute_portfolio_xirr` in `portfolio_query_service.py`, not here.
+> **The engine touches no DB.** XIRR, cost-basis gains, sub-category roll-ups, holdings itemization — all of it is computed in the **gateway** before the DTOs are built. If you're looking for "where does the annualised portfolio XIRR come from", it is `_compute_portfolio_xirr` in `portfolio_query_service.py`, not here.
 
 ### What `ctx` must carry
 
-The gateway signature is `answer_portfolio_query(question: str, ctx) -> str`, where `ctx` is the chat brain's `TurnContext`. If you're wiring a new caller or debugging a dead turn, `ctx` must provide:
+The gateway signature is `answer_portfolio_query(question: str, ctx) -> PortfolioQueryReply`, where `ctx` is the chat brain's `TurnContext`. If you're wiring a new caller or debugging a dead turn, `ctx` must provide:
 
 | Attribute | Type | Used for |
 |---|---|---|
-| `ctx.user_ctx` | pre-loaded `User` graph (portfolios → holdings → `fund_metadata`, risk_profile, investment_profile, mf_transactions, financial_goals) | building both `ClientContext` **and** `PortfolioContext`; no portfolio ⇒ instant "no active portfolio" reply |
-| `ctx.conversation_history` | `list[{role, content}]` | last 6 messages are mapped to `ConversationTurn`s so "how is *it* doing?" resolves |
+| `ctx.user_ctx` | pre-loaded `User` graph (`load_user_for_ai`: portfolios → allocations and holdings → `fund_metadata`; risk_profile, effective_risk_assessment, investment_profile, mf_transactions, financial_goals) | building both `ClientContext` **and** `PortfolioContext`; no portfolio row ⇒ instant "no active portfolio" reply |
+| `ctx.user_question` | `str` | the `CUSTOMER_QUESTION` the formatter answers (the `question` argument itself feeds only the disagreement telemetry) |
+| `ctx.conversation_history` | `list[dict]` (`role`, `content`, optional `asked_at`) | shaped by `_build_history` — gap-annotated, last 6 rows, prior replies excerpted — and passed to the formatter as `history_override` so "how is *it* doing?" resolves |
+| `ctx.tools_needed` | `tuple[str, ...]` | `"fund_house_view" in ctx.tools_needed` ⇒ `want_fund_house_view=True` |
+| `ctx.db`, `ctx.effective_user_id`, `ctx.session_id` | session + ids | the per-fund XIRR lookup (`UserMfLatestSnapshot`) and the telemetry rows (formatter run, path, intent disagreement) |
+
+Holdings, allocation rows, the MF ledger and `UserMfLatestSnapshot` are CAS-scoped models: the auth dependency pins every read in the request to the customer's active CAS statement (with `CAS_SNAPSHOT_VERSIONING` on, the default).
 
 ---
 
 ## 3. Input contract
 
-One entry method: `PortfolioQueryOrchestrator.run(question, client, portfolio, conversation_history=None)`. All models are in [`models.py`](../../src/portfolio_query/models.py).
+The engine has two entry points: `PortfolioQueryOrchestrator.build_facts(*, client, portfolio, want_fund_house_view=False) -> dict` and the `query_body` property (`str`). All models are in [`models.py`](../../src/portfolio_query/models.py). Conversation history is not an engine input — the gateway shapes it and hands it straight to the formatter.
 
 **`client: ClientContext`** — every field optional; a missing field means *unknown*, never *zero*:
 
@@ -349,101 +355,112 @@ One entry method: `PortfolioQueryOrchestrator.run(question, client, portfolio, c
 | `age` | `int?` | derived in the gateway from DOB (floored at 18) |
 | `risk_category`, `effective_risk_score` | `str?`, `float?` | from `risk_profile` / `effective_risk_assessment` |
 | `investment_horizon`, `occupation_type` | `str?` | from `risk_profile` |
-| `annual_income_inr`, `total_liabilities_inr` | `float?` | from `investment_profile` — get `*_indian` siblings at serialise time |
-| `financial_goals` | `list[str]` | goal **names** only (feasibility math is Path X) |
+| `annual_income_inr`, `total_liabilities_inr` | `float?` | from `investment_profile` — get `*_indian` siblings in `build_facts` |
+| `financial_goals` | `list[str]` | goal **names** only — no amounts or dates, which is why feasibility maths is a capability limit |
 
-**`portfolio: PortfolioContext`** — the load-bearing input:
+**`portfolio: PortfolioContext`** — the load-bearing input, built from the primary portfolio (`is_primary`, else the first):
 
 ```
 PortfolioContext
-├── total_value_inr / total_invested_inr / total_gain_percentage
-├── xirr_pct                       # Newton-Raphson XIRR over MF cash flows (gateway); None if <2 flows / no convergence
-├── holdings: list[Holding]        # LARGEST-by-value only, capped at 30 in the gateway
+├── total_value_inr / total_invested_inr / total_gain_percentage   # the primary portfolio's stored totals
+├── xirr_pct                       # Newton-Raphson XIRR over MF cash flows + today's value (gateway);
+│                                  # None when total value ≤ 0, no flow is usable, or the solver fails
+├── holdings: list[Holding]        # every holding when ≤ 30; otherwise the 30 LARGEST by value
 │     ├── name, instrument_type, asset_class, sub_category, quantity
+│     │                                  # asset_class = fund_metadata.category (else instrument_type);
+│     │                                  # sub_category = fund_metadata.sub_category
 │     ├── current_value_inr, allocation_percentage
 │     ├── return_1y_pct / return_3y_pct       # trailing-window; OFTEN null
-│     ├── invested_amount_inr / gain_inr / gain_pct   # cost-basis; populated when avg_cost known
+│     ├── invested_amount_inr / gain_inr / gain_pct   # cost-basis; populated when avg_cost × quantity is known
 │     └── xirr_pct                       # THIS fund's annualised return (UserMfLatestSnapshot);
 │                                        # None for non-MF holdings / too little history
-├── allocations: list[AllocationRow]              # Equity/Debt/Others + Cash
-├── sub_category_allocations: list[SubCategoryAllocationRow]
+├── allocations: list[AllocationRow]              # the stored PortfolioAllocation rows, as persisted
+├── sub_category_allocations: list[SubCategoryAllocationRow]   # holdings with a sub_category, % of total value, largest first
 └── total_holdings_count / holdings_count_by_type / omitted_holdings_count / omitted_holdings_value_inr
 ```
 
-The counts and roll-ups are computed over the **full** portfolio *before* the itemization cap, so "how many funds?" stays exact even when `holdings[]` shows only the top 30. `conversation_history: list[ConversationTurn]` carries `{role: "user"|"assistant", content: str}` turns.
+The counts and sub-category roll-ups are computed over the **full** portfolio *before* the itemization cap, so "how many funds?" stays exact even when `holdings[]` shows only the top 30. `holdings[]` carries every holding row on the primary portfolio — mutual funds and direct stocks alike — so this readout includes direct equity that the allocation engines leave out; the prompt keeps "funds" and "stocks" apart.
 
 ---
 
 ## 4. Output contract
 
-`run(...)` returns `PortfolioQueryResponse`:
+The engine returns no response object: `build_facts` returns the facts dict, and the reply comes back from the formatter. The answer contract is the formatter's forced tool `return_formatted_answer`, widened by the gateway's `_PORTFOLIO_TOOL_FIELDS`:
 
 | Field | Type | Notes |
 |---|---|---|
-| `guardrail_triggered` | `bool` | **required.** True ⇒ the question was out of scope (Path X) |
-| `answer` | `str?` | the in-scope reply (Path M / Path P); `null` when the guardrail fires |
-| `redirect_message` | `str?` | the polite one-sentence redirect; `null` when in-scope |
+| `answer` | `str?` | the reply prose (Path M / Path P) and the only required field; nullable because the gateway passes `allow_empty_answer=True` — Path X leaves it null |
+| `guardrail_triggered` | `bool` | true ⇒ the question hit a hard limit (Path X) |
+| `redirect_message` | `str?` | the polite one-sentence redirect; `null` when in scope |
+| `preference_question` | `bool` | true for any question about saved investment preferences ⇒ `show_preferences_pill` |
+| `path` | `"X"` / `"M"` / `"P"` / `null` | the path chosen in Step 1 — telemetry only |
+| `suggested_intent` | `str?` | usually `null`; set on a capability limit (e.g. `goal_planning`) or for a question wholly owned by another specialist — telemetry only |
 
-A **deterministic backstop** runs in a pydantic `model_validator(mode="after")`: if `guardrail_triggered` is true it *force-clears* `answer` and, if the model forgot to supply a redirect, fills a canned `_DEFAULT_REDIRECT`. Because the gateway renders `answer or redirect_message`, this guarantees no out-of-scope `answer` can ever leak past the LLM's own discipline. The gateway then collapses the model to a single `str` for the chat brain.
+A **deterministic backstop** — `_apply_guardrail_backstop` in the gateway — runs on every formatter result. When `guardrail_triggered` is true it discards `answer` outright (the model may write the out-of-scope reply before deciding it was Path X) and returns the stripped `redirect_message`, or the canned `_DEFAULT_REDIRECT` from `models.py` when the model supplied none. Otherwise it returns `answer`, or the generic failure reply when that is empty. This guarantees no out-of-scope `answer` reaches the customer whatever the model does. The gateway returns `PortfolioQueryReply(text, show_preferences_pill)` to the flow; `path` and `suggested_intent` go only to telemetry (§8).
 
 ---
 
 ## 5. How it thinks
 
-The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) — no pipeline of stages, just the preparation the shared answer formatter then answers from.
+The whole engine is [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) — no pipeline of stages, just the preparation the shared answer formatter then answers from; the gateway wraps both ends.
 
 | Step | Where | What happens |
 |---|---|---|
-| 1 · load commentary **(conditional)** | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_market_commentary` | **only when `want_market_commentary`**. Reads `market_commentary_latest.md` BOM-aware; **missing ⇒ `FileNotFoundError`**, empty ⇒ `ValueError`; truncates to `_MAX_COMMENTARY_CHARS` (7 000). Otherwise a `_COMMENTARY_NOT_REQUESTED` placeholder is substituted and no file is read |
-| 2 · enrich + serialise | `_enrich_inr_fields` / `_dump_enriched_json` | walks the DTO dicts, adds an `*_indian` sibling for every `*_inr`, then compact-JSONs (`exclude_none`, no indent, literal `₹`) |
-| 3 · build the body prompt | `query_body` → `SkillExecutor.render` | renders the skill with `guardrails.md` filled in. The persona, the tool binding and the call itself belong to the shared answer formatter. `temperature=0`. Streams the `answer` field when the turn has an open token stream (§5.3) |
-| 4 · validate | `PortfolioQueryResponse.model_validate` | typed model + the guardrail backstop (§4) — still deterministic, still enforced here |
+| 1 · load the fund-house view **(conditional)** | [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) `_load_fund_house_view` | **only when `want_fund_house_view`**. `load_house_view(prozpr_only=True)` returns the Prozpr-only slice; a missing, empty or structurally invalid file (or an empty slice) yields the `_VIEW_UNAVAILABLE` placeholder — it never raises. Otherwise the `_VIEW_NOT_REQUESTED` placeholder is substituted and no file is read |
+| 2 · enrich | `_enrich_inr_fields` inside `build_facts` | dumps the DTOs (`exclude_none=True`) and adds an `*_indian` sibling after every non-null `*_inr`. The formatter serialises the pack as compact JSON (no indent, literal `₹`) into `CUSTOMER_RECORD` |
+| 3 · build the body prompt | `query_body` → `SkillExecutor.render` | renders the skill's System section with `guardrails.md` filled in. The persona, the tool binding and the call itself belong to the shared answer formatter (`temperature` 0 via `AILAX_FORMATTER_TEMPERATURE`) |
+| 4 · answer + backstop | gateway → `format_with_telemetry` → `_apply_guardrail_backstop` | one forced-tool Haiku call, streaming the `answer` field when the turn has an open token stream (§5.3); the deterministic backstop (§4) then picks the customer-facing text |
 
-### 5.1 The commentary gate — the classifier's `tools_needed` in action
+### 5.1 The fund-house-view gate — the classifier's `tools_needed` in action
 
-Step 1 used to be unconditional. That put fund-house valuation views into the context of **every** "review my portfolio", and the model reached for them: in one live answer it compared a customer's **26.11% small-cap allocation** against a **"35.5x expensive valuation"** — a percentage against a P/E, two quantities that cannot be compared.
+Market context is gated because, given a valuation view alongside the holdings, the model reaches for it in plain portfolio reviews and compares quantities that cannot be compared — in one live answer, a customer's **26.11% small-cap allocation** against a **"35.5x expensive valuation"**, a percentage against a P/E.
 
-The fix moves the decision upstream. The intent classifier emits `tools_needed` (see the `intent_classifier` guide); the gateway passes `want_market_commentary = "market_commentary" in ctx.tools_needed`, and the orchestrator loads the file only then.
+The decision sits upstream. The intent classifier emits `tools_needed` (see the `intent_classifier` guide); the gateway passes `want_fund_house_view = "fund_house_view" in ctx.tools_needed`, and the orchestrator loads the view only then. The eval-gate golden set pins the split: *"Is my portfolio too aggressive?"* expects `{fund_house_view}`, *"What's my current equity allocation?"* expects nothing.
 
-When it is **not** wanted, the commentary block is not empty — it carries `_COMMENTARY_NOT_REQUESTED`, an instruction telling the model to answer from holdings and profile, **not** to speculate about market conditions or valuations, and — importantly — **not to mention that commentary is missing**, since the customer never asked for it. If the question genuinely does need a market view, it offers to pull one up.
+When the view is **not** wanted, the `fund_house_view` fact is not empty — it carries `_VIEW_NOT_REQUESTED`, telling the model to answer from holdings and profile and **not** to speculate about Prozpr's market view. When it was wanted but is unavailable, `_VIEW_UNAVAILABLE` says the same, adds "do not invent a Prozpr market stance", and — importantly — tells the model **not to mention that the view is missing**.
+
+When it **is** loaded it is Prozpr's own stance only: the slice is allow-list (only `Prozpr view:` paragraphs, under their section/question headers), so no fund house is named, and `guardrails.md` tells the model never to attribute a view to one. The view is used for judgement/outlook questions and ignored for pure performance or holdings questions.
 
 Two consequences worth holding on to:
 
-- `want_market_commentary` **defaults to `True`**, so every non-chat caller behaves exactly as before. Only the chat bridge passes the classifier's verdict.
-- The commentary-missing error path (§ edge cases) now fires far less often, because most portfolio turns never touch the file.
+- `want_fund_house_view` **defaults to `False`** in both `build_facts` and `generate_portfolio_query_response`, so a caller that passes nothing gets no market view.
+- No file problem reaches the customer: the view degrades to a placeholder, never an error.
 
 ### 5.2 Two different XIRRs reach the prompt
 
-`current_portfolio.xirr_pct` is the whole portfolio's annualised return. `holdings[].xirr_pct` is **one fund's** — new, and a different number.
+`current_portfolio.xirr_pct` is the whole portfolio's annualised return. `holdings[].xirr_pct` is **one fund's** — a different number.
 
 Per-fund values are read from `UserMfLatestSnapshot`, keyed by `scheme_code`, which *is* the holding's `ticker_symbol` (the same key the `fund_metadata` relationship joins on). The lookup returns `{}` on any failure by design: a missing XIRR should degrade one line of an answer, never fail the turn.
 
-The skill was updated to match, because the model was previously refusing whole questions on a partially-null column. It is now told: per-fund XIRR **is** populated for mutual funds with enough transaction history, so ranking and comparing by it is fair game; say it is unavailable only for the specific holdings where it actually is null — non-MF holdings, or funds bought too recently to solve — and **name** them rather than refusing the question.
+The skill tells the model that per-fund XIRR **is** populated for mutual funds with enough transaction history, so ranking and comparing by it is fair game; it is to say the figure is unavailable only for the specific holdings where it actually is null — non-MF holdings, or funds bought too recently to solve — and **name** them rather than refusing the question.
 
-A related prompt rule landed alongside: **a ranked answer must actually be in rank order.** When the question says rank/sort/top/best/worst, rows are emitted sorted by that metric (descending for top/best, ascending for worst), not in the order `holdings[]` happens to arrive, with null-metric holdings grouped last and named. This is one of the "prompts can't do mechanical work over many rows" cases — it is guidance, not a guarantee.
+A related prompt rule: **a ranked answer must actually be in rank order.** When the question says rank/sort/top/best/worst, rows are emitted sorted by that metric (descending for top/best, ascending for worst), not in the order `holdings[]` happens to arrive, with null-metric holdings grouped last and named. This is one of the "prompts can't do mechanical work over many rows" cases — it is guidance, not a guarantee.
 
 ### 5.3 Streaming
 
-The narrating call streams when — and only when — the turn has an open token stream (`current_token_stream() is not None`) **and** the caller named a field. With no open stream this is the exact `ainvoke` path it has always been, so the non-streaming endpoint is unaffected.
+The formatter's call streams when — and only when — the turn has an open token stream (`current_token_stream() is not None`). `astream_tool_answer` publishes only the `answer` field (its default `answer_field`); the control fields never stream. With no open stream the call is a plain `ainvoke`, so the non-streaming endpoint is unaffected. Streamed deltas are provisional: the text the gateway returns wins, so on a Path X turn any streamed `answer` text is superseded by the redirect.
 
-Streaming is the **formatter's** concern since the 2026-08-05 centralisation — this module names no field and holds no client. The `FINE_GRAINED_TOOL_STREAMING` beta is attached only while streaming: without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. See §4.1 of the ARCHITECTURE walkthrough for the measurements and the trade-off.
+Streaming is the **formatter's** concern — this module names no field and holds no client. The `FINE_GRAINED_TOOL_STREAMING` beta is attached only while streaming: without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. See §4.1 of the ARCHITECTURE walkthrough for the measurements and the trade-off.
 
 ### Prompt plumbing
 
-The prompt content lives in **two** runtime markdown files, both loaded in `__init__` and rendered verbatim into the system prompt:
+The prompt content lives in **two** runtime markdown files, both loaded (BOM-aware) in `__init__` and rendered verbatim into the formatter's system prompt:
 
 | File | Role |
 |---|---|
-| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | YAML front-matter (`model: haiku`, `max_tokens: 1200`) + `## System Prompt` (the three-path routing rules) + `## User Prompt` (the context slots) |
-| [`guardrails.md`](../../src/portfolio_query/guardrails.md) | the scope rules (Category A/B allowed, the 2 forbidden buckets + their redirects), embedded into the system prompt via the `{{guardrail_rules}}` placeholder |
+| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | YAML front-matter (`name`, `model: haiku`, `max_tokens: 1200` — parsed into `SkillExecutor.meta` but read by nothing; the formatter's own model and `max_tokens` of 6000 apply) + a single `## System Prompt` section: the three context sources, the itemization and returns notes, the guardrail slot, the Path X/M/P rules, the preference pointer and the Step 1–5 checklist. There is no `## User Prompt` section — the formatter owns the user message |
+| [`guardrails.md`](../../src/portfolio_query/guardrails.md) | the scope rules — Category A (portfolio) and Category B (market) allowed; one **capability limit** (goal-feasibility and required-savings maths: answer around it, name it); one **hard limit** (out-of-scope financial topics, with its redirect) — embedded into the System section via the `{{guardrail_rules}}` placeholder |
 
-[`skill_executor.py`](../../src/portfolio_query/skill_executor.py) splits the front-matter on `---`, carves the two `## ` sections, and fills `{{name}}` **double-brace** placeholders — single-brace JSON in the prompt (the tool schema examples) is left untouched, so you don't need `str.format` gymnastics. Then `build_system_prompt(system_body, format_profile="chat", question_aware=True)` prepends Pi's identity + shared mechanics. Editing product wording — the paths, the "Portfolio Impact" rule, the redirects — means editing these `.md` files; **no code change.**
+[`skill_executor.py`](../../src/portfolio_query/skill_executor.py) splits the front-matter on `---`, carves the `## System Prompt` section, and fills `{{name}}` **double-brace** placeholders — single-brace JSON in the prompt is left untouched, so you don't need `str.format` gymnastics. The formatter then builds the system prompt as `FORMATTER_HOUSE_STYLE` — Pi's identity + shared mechanics from `persona.build_system_prompt(..., format_profile="chat", question_aware=True)` plus the `CUSTOMER_RECORD` notes — followed by `query_body`; no `LOGIC_REFERENCE` is attached for this module. The user message is `MODULE`, `ACTION_MODE: narrate`, `CUSTOMER_RECORD` (the facts pack), `PROFILE` (`first_name`), `RECENT_HISTORY` and `CUSTOMER_QUESTION`. Editing product wording — the paths, the "Portfolio Impact" rule, the redirects, the preference pointer — means editing these `.md` files; **no code change.**
 
 ### The three paths, decided in one call
 
-- **Path X (out of scope):** a guardrail topic — buy/sell/rebalance recommendations, goal-feasibility / SIP math, or off-topic finance (insurance, tax, crypto, direct stock picks). ⇒ `guardrail_triggered = true`, `answer = null`, polite `redirect_message`.
-- **Path M (general market):** answered from the fund-house commentary in 1–2 sentences, then **always** a bold **Portfolio Impact:** paragraph tied to the client's actual asset-class / sub-category percentages. Total under 100 words.
-- **Path P (portfolio-specific):** answered from the profile + portfolio, routed to the right data source (sub-category rows / allocation rows / holdings / counts / cost-basis gains / XIRR). Under 60 words prose, up to 120 if structured.
+Whatever the path, the reply answers the customer's **current** question; history is background for pronouns and shorthand only.
+
+- **Path X (out of scope):** a hard limit — a buy/sell recommendation (named in the System section) or an out-of-scope financial topic from `guardrails.md` (insurance, tax filing, legal advice, crypto, direct stock picks, foreign markets, commodity trading). ⇒ `guardrail_triggered = true`, `answer = null`, polite `redirect_message`.
+- **Capability limit (not Path X):** goal feasibility and SIP / required-savings maths. The model answers the portfolio part under Path P or M, closes with one sentence naming the limit, and sets `suggested_intent = goal_planning`; it never replies with the limit alone.
+- **Path M (general market):** answered from `fund_house_view` (Prozpr's stance) in 1–2 sentences, then **always** a bold **Portfolio Impact:** paragraph tied to the client's actual asset-class / sub-category percentages. Total under 100 words.
+- **Path P (portfolio-specific):** answered from the profile + portfolio, routed to the right data source (sub-category rows / allocation rows / holdings / counts / cost-basis gains / XIRR), with "funds" and "stocks" kept apart in counts and rankings. Under 60 words prose, up to 120 if structured. Any question about saved investment preferences — reading, changing, clearing, or more/less of a class or category — is Path P and gets one answer: a pointer to the customer's preferences page, with `preference_question = true`. The facts carry no preference record, so the reply states nothing about what is set.
 
 ### A turn, end to end (worked example)
 
@@ -454,21 +471,24 @@ A Path-P question. Watch a rupee figure only ever get *copied*, never converted.
 </div>
 
 <div class="step-panel">
-  <div class="label">Step 2 · enriched, compact context (portfolio slice)</div>
-<pre><code>{"total_value_inr":2000000,"total_value_indian":"₹20 lakh",
+  <div class="label">Step 2 · enriched facts pack (current_portfolio slice)</div>
+<pre><code>{"total_value_inr":2000000.0,"total_value_indian":"₹20 lakh",
  "holdings":[
    {"name":"Axis Bluechip Fund","sub_category":"Large Cap",
-    "current_value_inr":800000,"current_value_indian":"₹8 lakh",
+    "current_value_inr":800000.0,"current_value_indian":"₹8 lakh",
     "allocation_percentage":40.0,"gain_pct":12.3}, ...]}</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
-  <div class="label">Step 3 → tool input → PortfolioQueryResponse</div>
-<pre><code>{ "guardrail_triggered": false,
-  "answer": "Your largest holding is Axis Bluechip Fund at ₹8 lakh — about 40% of your ₹20 lakh portfolio, up 12.3% on cost.",
-  "redirect_message": null }</code></pre>
+  <div class="label">Step 4 · formatter tool input → guardrail backstop</div>
+<pre><code>{ "answer": "Your largest holding is Axis Bluechip Fund at ₹8 lakh — about 40% of your ₹20 lakh portfolio, up 12.3% on cost.",
+  "guardrail_triggered": false,
+  "redirect_message": null,
+  "preference_question": false,
+  "path": "P",
+  "suggested_intent": null }</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
@@ -477,38 +497,42 @@ A Path-P question. Watch a rupee figure only ever get *copied*, never converted.
   <div class="bubble pi"><div class="who">Pi (Path P)</div>Your largest holding is Axis Bluechip Fund at <strong>₹8 lakh</strong> — about 40% of your ₹20 lakh portfolio, up 12.3% on cost.</div>
 </div>
 
-Every rupee figure in the reply is the `*_indian` string copied verbatim from the context — Haiku never divided by a lakh. *(Values above are illustrative — the dev-smoke fixtures, not real DB/NAV rows; don't grep for them.)*
+Every rupee figure in the reply is the `*_indian` string copied verbatim from the facts pack — Haiku never divided by a lakh. *(Values above are illustrative — hand-built DTOs run through `build_facts`, not real DB/NAV rows; don't grep for them. The reply wording is a sample, not a recorded answer.)*
 
 ### What the customer hears in the edge cases
 
-Not every turn even reaches the model — several failures are caught in the **gateway** before the LLM runs:
+Not every turn even reaches the model — several cases are caught before the LLM runs:
 
 | Situation | Decided in | What the customer hears |
 |---|---|---|
+| No imported MF transactions | brain's portfolio gate (before the flow) | *"I don't have your holdings yet, so I can't answer this on your real numbers…"* plus the CAS-statement ask; the turn is flagged `portfolio_data_missing` for the Add-CAMS CTA |
 | No portfolio on the account | gateway (before LLM) | *"I couldn't find an active portfolio on your account yet…"* |
-| No / rejected Anthropic key | gateway (before / around call) | a specific "API key isn't configured / was rejected" message |
-| Commentary file missing | gateway `except FileNotFoundError` | *"…ask me a quick market question first to refresh it…"* |
-| Out-of-scope question | **LLM (Path X)** + validator backstop | the matching guardrail redirect, `answer` force-nulled |
-| Any other LLM failure | gateway `except Exception` | a generic "give it another phrasing" reply — never a stack trace |
+| No Anthropic key (`PORTFOLIO_QUERY_API_KEY`, else `ANTHROPIC_API_KEY`) | gateway (before LLM) | a specific "the Anthropic API key isn't configured" message |
+| Facts build raises | gateway `except Exception` | the generic "give it another phrasing" reply |
+| Fund-house view missing or invalid | orchestrator placeholder | an answer from holdings and profile; the gap is not mentioned |
+| Out-of-scope question | **LLM (Path X)** + gateway backstop | the model's redirect, else `_DEFAULT_REDIRECT`; `answer` discarded |
+| Rejected key, any other LLM failure, truncation at `max_tokens` | formatter → the gateway's `build_fallback` | the generic "give it another phrasing" reply — never a stack trace |
+| Empty `answer` without the guardrail | gateway backstop | the generic reply |
 
 ---
 
 ## 6. Where the LLM is
 
-**Not in this module — and it does no arithmetic anywhere.** The reply LLM was centralised into `app/domains/ai_engine/answer_formatter` on 2026-08-05 (`3b923228`); `llm_client.py` and `dev_run.py` were deleted with it. What survives here is deterministic preparation:
+**Not in this module — and it does no arithmetic anywhere.** The reply LLM is the shared answer formatter ([`app/domains/ai_engine/answer_formatter/formatter.py`](../../../app/domains/ai_engine/answer_formatter/formatter.py)): one forced-tool `return_formatted_answer` call to Claude Haiku 4.5 (`max_tokens` 6000, `temperature` 0). The package has no LLM client and no standalone runner. What lives here is deterministic preparation:
 
 | Part | Where | Deterministic vs LLM |
 |---|---|---|
-| XIRR, cost-basis gains, allocation & sub-category roll-ups, itemization + counts | gateway (`portfolio_query_service.py`) | deterministic Python |
+| XIRR, cost-basis gains, sub-category roll-ups, itemization + counts | gateway (`portfolio_query_service.py`) | deterministic Python |
 | `*_inr` → `*_indian` Indian-notation strings | `orchestrator._enrich_inr_fields` → `common.format_inr_indian` | deterministic |
+| the Prozpr-only fund-house view | `house_view.load_house_view(prozpr_only=True)` | deterministic |
 | path routing (X / M / P) + wording | the shared answer formatter's call | probabilistic |
-| guardrail contract enforcement | `PortfolioQueryResponse` validator | deterministic backstop |
+| guardrail contract enforcement | gateway `_apply_guardrail_backstop` | deterministic backstop |
 
-The module hands the formatter two things and nothing else: `query_body` (the skill prompt) and the facts pack from `build_facts`. Tool binding, forced tool-use, prompt caching, streaming and token accounting are all the formatter's concern now — see `app/domains/ai_engine/CLAUDE.md`. The guardrail contract is still enforced here, deterministically, by the `PortfolioQueryResponse` validator.
+The module hands the formatter two things and nothing else: `query_body` (the skill prompt) and the facts pack from `build_facts`. Tool binding, forced tool-use, prompt caching (the system block is sent with `cache_control: ephemeral`), streaming and token accounting are all the formatter's concern — see `app/domains/ai_engine/CLAUDE.md`. The gateway adds the extra tool fields and enforces the guardrail contract deterministically after the call.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
-  <p>Haiku <strong>frequently drops an order of magnitude on lakh/crore boundaries</strong> — it will write "₹22.6 lakh" for what is really ₹2.26 crore. The defence isn't a smarter prompt: it's that <strong>there is nothing to convert</strong>. Every rupee value is paired with a pre-built <code>*_indian</code> string (<code>_enrich_inr_fields</code>) and the prompt tells the model to copy it verbatim. If you add a new <code>*_inr</code> field to a DTO, the enrichment sibling is created for free — but if you ever hand the model a raw rupee number with no <code>*_indian</code> partner, you have re-opened this bug.</p>
+  <p>Haiku <strong>frequently drops an order of magnitude on lakh/crore boundaries</strong> — it will write "₹22.6 lakh" for what is really ₹2.26 crore. The defence isn't a smarter prompt: it's that <strong>there is nothing to convert</strong>. Every rupee value is paired with a pre-built <code>*_indian</code> string (<code>_enrich_inr_fields</code>) and the shared persona's money rule tells the model to copy it verbatim. If you add a new <code>*_inr</code> field to a DTO, the enrichment sibling is created for free — but if you ever hand the model a raw rupee number with no <code>*_indian</code> partner, you have re-opened this bug.</p>
 </div>
 
 ---
@@ -517,67 +541,75 @@ The module hands the formatter two things and nothing else: `query_body` (the sk
 
 | File | Role |
 |---|---|
-| [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — `query_body` (skill prompt + guardrails) and `build_facts` (commentary load, INR enrichment). Prepares; never answers |
-| [`models.py`](../../src/portfolio_query/models.py) | pydantic I/O: `ConversationTurn`, `ClientContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`, `PortfolioContext`, `PortfolioQueryResponse` (+ guardrail validator) |
+| [`orchestrator.py`](../../src/portfolio_query/orchestrator.py) | `PortfolioQueryOrchestrator` — `query_body` (skill prompt + guardrails) and `build_facts` (gated fund-house view, INR enrichment); the two view placeholders. Prepares; never answers |
+| [`models.py`](../../src/portfolio_query/models.py) | pydantic context models: `ClientContext`, `Holding`, `AllocationRow`, `SubCategoryAllocationRow`, `PortfolioContext`; plus `_DEFAULT_REDIRECT`, the canned out-of-scope line the gateway falls back to |
 | [`skill_executor.py`](../../src/portfolio_query/skill_executor.py) | `SkillExecutor` — front-matter split + `## `-section carve + `{{var}}` render |
-| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | skill prompt (System + User sections) + config front-matter; **runtime source, not docs** |
+| [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) | skill prompt (System section) + front-matter; **runtime source, not docs** |
 | [`guardrails.md`](../../src/portfolio_query/guardrails.md) | scope rules embedded via `{{guardrail_rules}}`; **runtime source** |
-| [`__init__.py`](../../src/portfolio_query/__init__.py) | re-exports the models + orchestrator (the app-layer contract surface) |
+| [`__init__.py`](../../src/portfolio_query/__init__.py) | re-exports the context models + orchestrator (the app-layer contract surface) |
+| [`README.md`](../../src/portfolio_query/README.md) | short human guide to the folder |
 
-App-layer companion (not part of the engine, but where the DTOs come from):
+Shared and app-layer companions (not part of the engine, but where its inputs and its answer come from):
 
 | File | Role |
 |---|---|
-| [`portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | the gateway `answer_portfolio_query` + all ORM→DTO mapping, XIRR, itemization, and the pre-LLM failure replies |
+| [`house_view.py`](../../src/house_view.py) | `load_house_view` — the structure-aware slicer of `fund_house_commentry.md`; Prozpr-only slice for this module, fail-closed |
+| [`portfolio_query_service.py`](../../../app/domains/portfolio/services/portfolio_query_service.py) | the gateway `answer_portfolio_query` + all ORM→DTO mapping, XIRR, itemization, history shaping, the extra tool fields, the guardrail backstop, telemetry and the pre-LLM failure replies |
+| [`answer_formatter/formatter.py`](../../../app/domains/ai_engine/answer_formatter/formatter.py) | `format_with_telemetry` — writes the reply (house style, forced tool, streaming, usage, fallback) |
+| [`portfolio_gate.py`](../../../app/domains/ai_engine/portfolio_gate.py) | the brain's pre-flow gate: `portfolio_query` with no MF transactions short-circuits to the CAS ask (fails open) |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **The commentary load is CONDITIONAL now.** `want_market_commentary` gates it (§5.1). It defaults to `True`, so if you add a caller and forget to pass the classifier's verdict, you silently get the old always-load behaviour back — and with it the valuation-vs-allocation confusion the gate exists to prevent.
-- **`stream_field` must be passed explicitly, and only for `answer`.** The parameter has no default on purpose: an internal field must never be streamed to a customer by accident. `redirect_message` in particular is substituted wholesale by the guardrail backstop, so streaming it would paint text the validator may then null.
-- **Streamed turns report usage on `usage_metadata`, not `response_metadata["usage"]`.** The fallback now lives with the shared answer formatter, since that is where the call moved; without it, token and cost accounting records **zeros for every streamed turn** and per-module cost attribution quietly goes wrong.
+- **The fund-house view is gated and defaults off.** `want_fund_house_view` (default `False`) comes from `"fund_house_view" in ctx.tools_needed` (§5.1). A caller that passes nothing gets no market view; one that hard-codes `True` reopens the allocation-vs-valuation confusion the gate exists to prevent.
+- **The view is Prozpr's own, by construction.** `house_view`'s Prozpr slice is allow-list — it emits only `Prozpr view:` paragraphs — and the loader fails closed (`None`) on a missing, empty or structurally invalid file, which the orchestrator turns into `_VIEW_UNAVAILABLE`. Don't pass `prozpr_only=False` here (that whole-file view is the market path's): on this advice path no fund house may be named. The file is the contract — don't import another agent to get market context.
+- **Only `answer` streams.** `astream_tool_answer` publishes its `answer_field` (default `answer`); the control fields never stream. `redirect_message` in particular is substituted by the backstop, and any `answer` text streamed on a Path X turn is provisional — the returned text wins.
+- **Token accounting is the formatter's.** `track_formatter_llm_usage` aggregates `usage_metadata` through a LangChain callback for streamed and blocking calls alike and writes it as `llm_usage` on the `formatter:narrate` telemetry row; this module records no usage of its own.
 - **Per-fund XIRR failure is swallowed on purpose.** `_xirr_by_scheme` returns `{}` on any exception. That is correct — one missing number must not fail a turn — but it means a broken lookup shows up as "the model stopped citing per-fund XIRR", not as an error. Check the warning log.
-- **The market commentary is a file contract, not an import.** `orchestrator._load_market_commentary` reads `Reference_docs/market_commentary_latest.md` and **raises `FileNotFoundError` if it's absent** (empty ⇒ `ValueError`). The gateway catches that and tells the customer to refresh commentary. Don't "fix" it by importing the `market_commentary` module — the file boundary is why this agent stays a peer.
-- **Every `*_inr` needs its `*_indian` sibling.** `_enrich_inr_fields` builds them; the prompt says copy verbatim. Hand Haiku a bare rupee number and you re-open the lakh/crore bug (§6). Any new rupee DTO field gets the sibling automatically — but only if it *ends in* `_inr`.
-- **The guardrail contract has a deterministic backstop.** `PortfolioQueryResponse`'s validator nulls `answer` and guarantees a redirect whenever `guardrail_triggered` is true. Never rely on the model alone to null the out-of-scope answer, and don't remove the validator.
-- **Count questions use `total_holdings_count` / `holdings_count_by_type`, never `len(holdings[])`.** `holdings[]` is capped at 30 largest-by-value in the gateway; the roll-ups and counts are computed over the full portfolio. A field that is absent means *unknown*, not zero — the prompt forbids asserting a customer doesn't hold a fund that may be in the omitted tail.
-- **Prompt files define behaviour; edits need the eval gate.** `portfolio_query.md` + `guardrails.md` are rendered verbatim and *are* the Path X/M/P logic and the mandatory "Portfolio Impact" paragraph. There is no Logics thesis doc to bump (unlike sibling agents) — but run the prompt eval gate before merging a wording change.
+- **Every `*_inr` needs its `*_indian` sibling.** `_enrich_inr_fields` builds them; the persona's money rule says copy verbatim. Hand Haiku a bare rupee number and you re-open the lakh/crore bug (§6). Any new rupee DTO field gets the sibling automatically — but only if it *ends in* `_inr`.
+- **The guardrail contract has a deterministic backstop in the gateway.** `_apply_guardrail_backstop` discards `answer` whenever `guardrail_triggered` is true and guarantees a redirect (`_DEFAULT_REDIRECT` when the model gave none). It relies on `allow_empty_answer=True`: without it a Path X null `answer` reads as a formatter failure and the customer gets the generic fallback instead of the redirect. Never rely on the model alone to null the out-of-scope answer, and don't remove the backstop.
+- **`path` and `suggested_intent` are telemetry only — reported, never acted on.** `answer_portfolio_query` records `path` on every answered turn (`reason="path"`) and a `suggested_intent` other than `portfolio_query` as `reason="intent_disagreement"` (question cut to 500 chars), both best-effort; nothing branches on either.
+- **Chat neither reads back nor writes a preference record here.** `preference_question` only raises `show_preferences_pill`; the facts pack carries no preferences, so the pointer must not state what is set.
+- **History arrives pre-shaped.** `_build_history` folds `[N days later]` gap notes (breaks of 24 h or more) into the resumed turn **before** taking the last 6 rows, keeps only user/assistant rows, and cuts prior assistant replies to 600 chars + ` …`; the customer's own messages are never truncated. It reaches the formatter as `history_override`, so the formatter's 12-row window never bites here. Without the excerpts, a ~14,000-char goal-planning reply swamps the prompt and the model answers the previous thread instead of the question asked.
+- **Count questions use `total_holdings_count` / `holdings_count_by_type`, never `len(holdings[])`.** `holdings[]` is capped at 30 largest-by-value in the gateway; the counts and sub-category roll-ups are computed over the full portfolio. A field that is absent means *unknown*, not zero — the prompt forbids asserting a customer doesn't hold a fund that may be in the omitted tail.
+- **Asset classes here are the stored labels.** `Holding.asset_class` is `fund_metadata.category` (else `instrument_type`), and `allocations[]` is the persisted `PortfolioAllocation` rows — not the canonical classifier (`allocation_rollup`) the dashboard donut derives from holdings. Chat's asset-class figures can therefore differ from the donut's.
+- **Prompt files define behaviour.** `portfolio_query.md` + `guardrails.md` are rendered verbatim and *are* the Path X/M/P logic, the capability-limit rule, the preference pointer and the mandatory "Portfolio Impact" paragraph. There is no Logics thesis doc to bump (unlike sibling agents); check a wording change by driving real chat turns.
 - **BOM-aware reads, single-brace-safe render.** These `.md` files carry `₹` / em-dashes and inline JSON; `read_text_bom_aware` + the `{{name}}`-only `_render` exist for that reason — don't switch to naive `str.format`.
-- **XIRR here is hand-rolled.** `portfolio_query_service._xirr` is a divergent Newton-Raphson; the memory note flags `mutual_funds.services.xirr_service.compute_portfolio_xirr` as the canonical one — prefer it for new portfolio code.
-- **Failure is soft.** The gateway wraps the call in `try/except` (incl. `AnthropicAuthenticationError`) and returns a specific-but-friendly reply — a commentary-missing or key problem never surfaces a stack trace.
+- **XIRR here is hand-rolled.** `portfolio_query_service._xirr` is a divergent Newton-Raphson; `mutual_funds.services.xirr_service.compute_portfolio_xirr` is the canonical one — prefer it for new portfolio code.
+- **Two key chains.** The gateway's pre-check reads `PORTFOLIO_QUERY_API_KEY` → `ANTHROPIC_API_KEY`; the formatter call resolves `PORTFOLIO_QUERY_API_KEY` → `ANTHROPIC_PORTFOLIO_QUERY_API_KEY` → `ANSWER_FORMATTER_API_KEY` → `ANTHROPIC_API_KEY`. A deployment with only `ANSWER_FORMATTER_API_KEY` set gets the missing-key reply.
+- **Failure is soft.** The gateway catches a facts-build exception, and the formatter turns any LLM failure (bad key, API error, truncation) into the gateway's `_GENERIC_FAILURE_REPLY` via `build_fallback` — a key problem or a broken view file never surfaces a stack trace.
 
 ---
 
 ## 9. Extend & test
 
-- **Change wording / paths / guardrails / redirects** → edit [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) or [`guardrails.md`](../../src/portfolio_query/guardrails.md) only, then run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging — the golden set includes `pq/*` cases in [`golden_cases.py`](../../../app/domains/ai_engine/tests/eval_gate/golden_cases.py).
-- **Add a fact the answer may state** → add the field to `PortfolioContext` / `Holding` in [`models.py`](../../src/portfolio_query/models.py), populate it in the gateway's `_build_*` helpers, and describe it in the skill's context list so the model knows it exists. If it's a rupee field, name it `*_inr` so enrichment picks it up.
-- **Tests.** This engine has **no `Testing/` subfolder** — coverage lives at two levels:
+- **Change wording / paths / guardrails / redirects** → edit [`portfolio_query.md`](../../src/portfolio_query/portfolio_query.md) or [`guardrails.md`](../../src/portfolio_query/guardrails.md) only, then check the wording on real chat turns. The prompt eval gate (`scripts/run_prompt_eval_gate.sh`, live Haiku calls) covers routing — that the `pq/*` cases in [`golden_cases.py`](../../../app/domains/ai_engine/tests/eval_gate/golden_cases.py) classify to `portfolio_query` with the expected `tools_needed` — not this skill's wording.
+- **Add a fact the answer may state** → add the field to `PortfolioContext` / `Holding` / `ClientContext` in [`models.py`](../../src/portfolio_query/models.py), populate it in the gateway's `_build_client_context` / `_build_holdings` / `_build_portfolio_context`, and describe it in the skill's context list so the model knows it exists. If it's a rupee field, name it `*_inr` so enrichment picks it up.
+- **Add a control field the model sets** → add it to `_PORTFOLIO_TOOL_FIELDS` in the gateway and read it from `extras`. Booleans, enums and short strings only — a second prose field competes with `answer`.
+- **Tests.** This engine has **no `Testing/` subfolder**. Test code is local-only (the test folders are gitignored); run it with pytest as usual:
 
   | Level | Where | Covers |
   |---|---|---|
-  | intent gate | [`app/domains/ai_engine/tests/eval_gate/`](../../../app/domains/ai_engine/tests/eval_gate/) | that `pq/*` questions classify to `portfolio_query` (`golden_cases.py` intent cases) |
-  | logic-doc guard | [`answer_formatter/tests/test_logic_docs.py`](../../../app/domains/ai_engine/answer_formatter/tests/test_logic_docs.py) | asserts this module has **no** logic doc: `get_logic_reference("portfolio_query") is None` |
+  | gateway units | [`app/domains/portfolio/tests/`](../../../app/domains/portfolio/tests/) — `test_portfolio_query_*.py`, `test_market_commentary_gate.py`, `test_preference_pill_from_portfolio_query.py`, `test_path_telemetry.py`, `test_intent_disagreement_logging.py` | itemization + counts, the fund-house-view gate, gap notes, history excerpts, the guardrail backstop, the pill, path and disagreement telemetry |
+  | portfolio gate | [`app/domains/ai_engine/tests/test_portfolio_gate.py`](../../../app/domains/ai_engine/tests/test_portfolio_gate.py) | `portfolio_query` short-circuits for a customer with no holdings |
+  | logic-doc guard | [`answer_formatter/tests/test_logic_docs.py`](../../../app/domains/ai_engine/answer_formatter/tests/test_logic_docs.py) | asserts this module has **no** logic doc, in any mode |
+  | intent gate (live) | [`app/domains/ai_engine/tests/eval_gate/`](../../../app/domains/ai_engine/tests/eval_gate/) | that `pq/*` questions classify to `portfolio_query` with the expected `tools_needed` |
 
-  Run the intent gate with the mac venv: `.venv-mac/bin/python -m pytest app/domains/ai_engine/tests/eval_gate/`. The model's actual *wording* under the guardrail lives in that eval gate, not in unit tests.
-- **Run the engine without an API key** — inject a stub at the LLM-client boundary. `call_structured` is the entire seam:
+  Run the units with the mac venv: `.venv-mac/bin/python -m pytest app/domains/portfolio/tests/ app/domains/ai_engine/tests/test_portfolio_gate.py`. The live gate is skipped unless asked for: `ENABLE_LLM_SMOKE=1 .venv-mac/bin/python -m pytest -m real_llm app/domains/ai_engine/tests/eval_gate/ -s`.
+- **Run the engine without an API key** — the engine makes no call, so there is nothing to stub:
 
   ```python
-  class StubLLM:
-      total_input_tokens = total_output_tokens = 0
-      async def call_structured(self, model, system, user, *, tool, max_tokens=1024):
-          return {"guardrail_triggered": False, "answer": "..."}, {}   # any canned tool payload
-
-  orch = PortfolioQueryOrchestrator(StubLLM())
-  resp = await orch.run("what's my biggest holding?", my_client, my_portfolio, [])
+  orch = PortfolioQueryOrchestrator()
+  facts = orch.build_facts(client=my_client, portfolio=my_portfolio, want_fund_house_view=False)
+  body = orch.query_body
   ```
 
-  Hand-build a `ClientContext` + `PortfolioContext` and you can reproduce prompt assembly and INR enrichment with no database and no Anthropic call — `build_facts` and `query_body` are pure. (It still needs `market_commentary_latest.md` on disk when the commentary gate is open.) To exercise an actual answer you must drive a real chat turn, since the reply is the formatter's.
+  Hand-build a `ClientContext` + `PortfolioContext` (with `AI_Agents/src` on `sys.path`, as pytest's `pythonpath` sets it) and you can reproduce prompt preparation and INR enrichment with no database and no Anthropic call — `build_facts` and `query_body` are pure apart from reading `fund_house_commentry.md` when the view is requested, and the formatter's `assemble_prompt` turns them into the exact (system, user) pair without a call. To exercise an actual answer you must drive a real chat turn, since the reply is the formatter's.
 
 ---
 
-*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 
 </script>
 

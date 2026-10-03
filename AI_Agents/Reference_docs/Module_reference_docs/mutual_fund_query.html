@@ -256,7 +256,7 @@
     <div class="header-strip">
       <div class="pill">LLM-driven · Haiku</div>
       <div class="meta">
-        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-07-12
+        Prozpr · Engineering module guide<br />Reconciled with the live code on 2026-10-03
       </div>
     </div>
     <article id="content"></article>
@@ -266,7 +266,7 @@
 <script type="text/markdown" id="source-md">
 # `mutual_fund_query` — grounded answers about one specific fund
 
-> **One line:** when a customer asks about a *named* mutual fund — why we recommend it, what it returned, how it stacks up — this module answers using **only** numbers we can back up from our own stored data, and refuses to invent the rest.
+> **One line:** when a customer asks about a *named* mutual fund — why we recommend it, what it returned, how it stacks up — or asks us to name the best-performing funds, this module answers using **only** numbers we can back up from our own stored data, and refuses to invent the rest.
 >
 > This is the engineer's guide to the module. For the client-facing philosophy (the "no invented numbers" thesis), see [Logics_reference_docs/Mutual_Fund_Query.md](../Logics_reference_docs/Mutual_Fund_Query.md). For where every agent sits in the package, see [Tech_reference_docs/ARCHITECTURE.html](../Tech_reference_docs/ARCHITECTURE.html).
 
@@ -275,7 +275,7 @@
   <div class="cell"><div class="k">Model</div><div class="v">Claude Haiku 4.5</div></div>
   <div class="cell"><div class="k">Trigger intent</div><div class="v"><code>mutual_fund_query</code></div></div>
   <div class="cell"><div class="k">Engine entry</div><div class="v"><code>MutualFundQueryOrchestrator</code></div></div>
-  <div class="cell"><div class="k">LLM passes</div><div class="v">2 &middot; extract + narrate</div></div>
+  <div class="cell"><div class="k">LLM passes</div><div class="v">2 &middot; extract + shared formatter</div></div>
   <div class="cell"><div class="k">Determinism</div><div class="v">numbers pre-computed<br/>wording probabilistic</div></div>
   <div class="cell"><div class="k">Peer imports</div><div class="v">none (peer agent)</div></div>
   <div class="cell"><div class="k">Touches DB?</div><div class="v">no &mdash; app layer does</div></div>
@@ -285,13 +285,14 @@
 
 ## 1. What it's about
 
-The module lives at [`AI_Agents/src/mutual_fund_query/`](../../src/mutual_fund_query/). It handles its own **`mutual_fund_query`** chat intent (a sibling of `portfolio_query`) — a question aimed at a *specific fund by name*, e.g.:
+The module lives at [`AI_Agents/src/mutual_fund_query/`](../../src/mutual_fund_query/). It handles its own **`mutual_fund_query`** chat intent (a sibling of `portfolio_query`) — a question about funds themselves, held or not, e.g.:
 
 - *"Why do you recommend Parag Parikh Flexi Cap?"* → **reasoning**
 - *"What has HDFC Balanced Advantage returned?"* → **returns**
 - *"How does it compare to other flexi-caps?"* / *"Fund A vs Fund B?"* → **comparison**
+- *"Which are the best performing mutual funds?"* / *"Top large cap funds over 5 years?"* → **screen** (no fund named)
 
-It is triggered by the intent classifier's `mutual_fund_query` label and routed by the chat brain's `FLOWS` table into the app-layer gateway `answer_mutual_fund_query` (see §2).
+It is triggered by the intent classifier's `mutual_fund_query` label and routed by the chat brain's `FLOWS` table to `flow_mutual_fund_query` ([`app/domains/ai_engine/services/flow.py`](../../../app/domains/ai_engine/services/flow.py)), which calls the app-layer gateway `answer_mutual_fund_query` (see §2) and returns its text. The flow is read-only — it persists nothing — and the brain's pre-flow portfolio gate does not cover this intent, so it answers for a customer with no statement imported.
 
 The defining design decision: **the LLM never produces a number.** Every figure it can state is pre-computed by the app layer and handed to it as facts. The model's only job is to *narrate* those facts in Pi's voice under a strict guardrail. A confidently-wrong return figure is treated as a worse failure than an honest "we don't have that history yet".
 
@@ -299,70 +300,77 @@ The defining design decision: **the LLM never produces a number.** Every figure 
 
 ```mermaid
 flowchart LR
-    Q([Customer question<br/>+ history]) --> EX["<b>Pass 1 · extract</b><br/>Haiku forced-tool<br/>name fund(s) + classify ask"]
-    EX --> APP["<b>App layer</b><br/>resolve fund → DB returns<br/>+ ranking + peers"]
+    Q([Customer question<br/>+ history]) --> EX["<b>Pass 1 · extract</b><br/>Haiku forced-tool<br/>name fund(s) or spot a screen"]
+    EX -->|named fund| APP["<b>App layer</b><br/>resolve fund → stored-NAV CAGR<br/>+ house rank/reason + peers"]
+    EX -->|is_screen| SCR["<b>App layer</b><br/>screen_top_funds<br/>top 5 by trailing CAGR"]
     APP --> FACTS[("MutualFundQueryFacts<br/>the ONLY numbers allowed")]
-    FACTS --> NA["<b>Pass 2 · shared answer_formatter</b><br/>narrates using narrate_body<br/>+ persona + guardrails"]
-    NA --> R([answer / clarifying_question])
+    FACTS --> NA["<b>Pass 2 · shared answer_formatter</b><br/>fund_detail · narrate_body<br/>+ persona + guardrails + Logics doc"]
+    SCR --> NS["<b>Pass 2 · shared answer_formatter</b><br/>screen · screen body prompt"]
+    NA --> R([reply text])
+    NS --> R
 ```
 
-The engine ([`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py)) owns **pass 1 only** — `extract` plus the `narrate_body` prompt that pass 2 uses. It must never answer the question itself. **Why two passes instead of one?** Because you can't fetch facts for a fund until the model has *named* it — pass 1 turns "the one you recommended" into an actual fund name; only then can the app layer look anything up; only then is there something safe to narrate. And the **middle step is deliberately outside the engine** — the engine is DB-agnostic and only ever sees DTOs, so it can be unit-tested without a database. All DB/CSV reads happen in the app layer.
+The engine ([`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py)) owns **pass 1 only** — `extract`, plus the `narrate_body` prompt that pass 2 uses. It must never answer the question itself. Pass 2 is the shared answer formatter ([`app/domains/ai_engine/answer_formatter/`](../../../app/domains/ai_engine/answer_formatter/)), the same Haiku writer every chat flow ends in. **Why two passes instead of one?** Because you can't fetch facts for a fund until the model has *named* it — pass 1 turns "the one you recommended" into an actual fund name (or recognises a "best funds" screen); only then can the app layer look anything up; only then is there something safe to narrate. And the **middle step is deliberately outside the engine** — the engine is DB-agnostic and only ever sees DTOs, so it can be unit-tested without a database. All DB/CSV reads happen in the app layer.
 
 ---
 
 ## 2. Where it sits
 
-The engine is a peer agent: it imports no other agent, and only the shared [`common.py`](../../src/common.py) (`read_text_bom_aware`) and [`persona.py`](../../src/persona.py) (`build_system_prompt`). Everything database-shaped is the app layer's job.
+The engine is a peer agent: it imports no other agent, and of the shared helpers only [`common.py`](../../src/common.py) (`read_text_bom_aware`). Pi's persona ([`persona.py`](../../src/persona.py) `build_system_prompt`) enters at pass 2, through the formatter. Everything database-shaped is the app layer's job.
 
 | Direction | Who | What flows |
 |---|---|---|
-| **Upstream** | `intent_classifier` → chat brain `FLOWS` | the `mutual_fund_query` intent routes here |
+| **Upstream** | `intent_classifier` → chat brain `FLOWS` → `flow_mutual_fund_query` | the `mutual_fund_query` intent routes here |
 | **Gateway** | [`app/domains/mutual_funds/services/mutual_fund_query_service.py`](../../../app/domains/mutual_funds/services/mutual_fund_query_service.py) | `answer_mutual_fund_query(question, ctx)` — the ONLY caller of the engine |
-| **Fund identity** | `fund_resolver_service.resolve_fund` | customer's words → a real scheme (Direct-Growth by default; a **held** fund resolves to the customer's own plan) |
+| **Fund identity** | `fund_resolver_service.resolve_fund` | customer's words → one scheme. A **held** fund resolves to the customer's own scheme; otherwise the matching fund is canonicalised to its Direct-Growth scheme (any Growth plan when no Direct exists) |
 | **Returns** | `fund_returns_service.trailing_cagr_for_scheme` | 1y/3y/5y CAGR from stored `mf_nav_history`, computed by the shared numeric kernel `financial_primitives.cagr`. **DB-only — never calls mfapi.in inline**, so thin stored history legitimately yields `null` |
-| **House view + peers** | `fund_ranking_lookup` (`ranking_by_isin`, `peers_by_sub_category`) | our shortlist rank + `selection_reason`, and like-for-like category peers, from the fund-ranking CSV |
+| **House view + peers** | `fund_ranking_lookup` (`ranking_by_isin`, `peers_by_sub_category`) | our shortlist rank + `selection_reason`, and same-`sub_category` shortlist peers, from the recommended rows of `prozpr_fund_ranking_june_2026_v2.csv` (loaded by `rebal_engine.fund_rank.get_fund_ranking`) |
+| **Screen** | `fund_screener_service.screen_top_funds` + `category_resolver.resolve_category` | a top-5 list ranked by trailing CAGR over the whole stored scheme universe |
+| **Pass 2** | `answer_formatter.format_with_telemetry` + `logic_docs` | writes the reply; attaches `Mutual_Fund_Query.md` as `LOGIC_REFERENCE` on the `fund_detail` mode |
 
 > **The engine touches no DB.** If you are looking for "where does the 3-year return come from", it is **not** in this module — it is `trailing_cagr_for_scheme` in the app layer. The engine only receives the finished number.
 
 ### What `ctx` must carry
 
-The gateway signature is `answer_mutual_fund_query(question: str, ctx) -> str`. If you're wiring a new caller or debugging a dead turn, `ctx` (the chat brain's turn context) must provide:
+The gateway signature is `answer_mutual_fund_query(question: str, ctx) -> str`. If you're wiring a new caller or debugging a dead turn, `ctx` (the chat brain's `TurnContext`) must provide:
 
 | Attribute | Type | Used for |
 |---|---|---|
-| `ctx.db` | `AsyncSession` | fund resolution + NAV reads; `None` ⇒ instant generic-failure reply |
-| `ctx.conversation_history` | `list[{role, content}]` | pronoun resolution in the extract pass ("the one you recommended") |
-| `ctx.user_ctx` | pre-loaded `User` graph (portfolios → holdings → `fund_metadata`) | the held-fund map, so a fund the customer holds resolves to *their* plan |
+| `ctx.db` | `AsyncSession` | fund resolution, NAV reads, the screen, the formatter's telemetry row; `None` ⇒ generic-failure reply |
+| `ctx.conversation_history` | `list[{role, content}]` | pronoun resolution in the extract pass ("the one you recommended"); the formatter's `RECENT_HISTORY` (last 12 rows) |
+| `ctx.user_ctx` | `User` graph from `load_user_for_ai` (portfolios → holdings → `fund_metadata`) | the held-fund map — primary portfolio (else the first), `instrument_name` → `fund_metadata.scheme_code` — so a fund the customer holds resolves to *their* scheme; `first_name` for the formatter's `PROFILE` |
+| `ctx.user_question` | `str` | the formatter's `CUSTOMER_QUESTION` (extract uses the `question` argument; the flow passes the same `turn.user_question` to both) |
+| `ctx.session_id`, `ctx.effective_user_id` | — | the formatter's `ChatAiModuleRun` telemetry row |
 
 ---
 
 ## 3. Input contract
 
-Two entry methods on `MutualFundQueryOrchestrator`, each with its own input.
+`MutualFundQueryOrchestrator` exposes one LLM method and one prompt property.
 
-**`extract(question, conversation_history)`** — pass 1:
+**`extract(question, conversation_history=None)`** — pass 1:
 
 | Field | Type | Notes |
 |---|---|---|
 | `question` | `str` | the customer's latest message |
-| `conversation_history` | `list[ConversationTurn]` | prior turns, so pronouns ("it", "the one you recommended") resolve to a real fund name |
+| `conversation_history` | `list[ConversationTurn] \| None` | prior turns, so pronouns ("it", "the one you recommended") resolve to a real fund name |
 
-**Pass 2 is the shared answer formatter**, not a method here — `narrate()` was removed when the reply LLM was centralised (2026-08-05, `3b923228`). This module now exposes `narrate_body`, the body prompt the formatter narrates with. The load-bearing input is still `facts: MutualFundQueryFacts` (built by the app layer):
+**`narrate_body`** (property) — the *Narrate System* section of the prompt file, verbatim. The gateway passes it to the shared formatter as `body_prompt`; pass 2 is not a method on this class. The load-bearing input to pass 2 is `facts: MutualFundQueryFacts` (built by the app layer), sent as `facts.model_dump(exclude_none=True)`:
 
 ```
 MutualFundQueryFacts
 ├── funds: list[FundFacts]          # the explicitly-named fund(s)
-│     ├── fund_name, sub_category
+│     ├── fund_name, sub_category   # from the ranking CSV row when shortlisted
 │     ├── returns: FundReturns?     # return_{1y,3y,5y}_cagr_pct — any may be null
 │     ├── house_reason: str?        # our selection_reason (only if has_house_view)
 │     ├── shortlist_rank: int?      # house rank — NOT a category percentile
 │     └── has_house_view: bool
-└── peers: list[PeerFund]           # like-for-like category peers (3y CAGR + rank)
-                                    # populated ONLY for a single-fund comparison;
-                                    # empty when 2+ funds were named
+└── peers: list[PeerFund]           # same-sub_category shortlist peers (3y CAGR + rank)
+                                    # populated ONLY for a single named, shortlisted
+                                    # fund asked as a comparison; empty otherwise
 ```
 
-All models are in [`models.py`](../../src/mutual_fund_query/models.py). The invariant that makes the guardrail work: **`funds[].returns` fields are the only numbers the narration is permitted to state.** A `null` horizon is a contract signal ("no history"), not a missing value to fill.
+All models are in [`models.py`](../../src/mutual_fund_query/models.py). The invariant that makes the guardrail work: **the numbers in the facts are the only numbers the narration is permitted to state.** A `null` horizon is a contract signal ("no history"), not a missing value to fill. Because the pack is dumped with `exclude_none=True`, a `null` horizon reaches the model as an absent key; the guardrail treats null and missing alike.
 
 ---
 
@@ -372,52 +380,64 @@ All models are in [`models.py`](../../src/mutual_fund_query/models.py). The inva
 
 | Field | Type | Notes |
 |---|---|---|
-| `fund_names` | `list[str]` | resolved fund name(s); empty list = none identified |
-| `asked_for` | `"reasoning" \| "returns" \| "comparison"` | drives which facts the app layer builds |
+| `fund_names` | `list[str]` | resolved fund name(s); empty list = none identified (empty for a screen) |
+| `asked_for` | `"reasoning" \| "returns" \| "comparison"` | required by the tool schema; only `comparison` makes the app layer build `peers` |
+| `is_screen` | `bool` (default `false`) | `true` = no fund named, a "best / top funds" ask → the screen branch |
+| `screen_category` | `str?` | the category the customer named (e.g. `"Large Cap"`); `null` = all funds |
+| `screen_horizon_years` | `int?` | the horizon named (`"this year"` → 1); `null` = the default 3 |
 
-**Pass 2** returns `MutualFundQueryResponse`:
+**Pass 2** (the shared formatter) returns a `str`: the `answer` field of its forced `return_formatted_answer` tool. When the formatter fails, the gateway's deterministic brief stands in — `_fund_detail_fallback` (each fund's stored horizons to one decimal, or "no track record stored yet", plus its `house_reason` and a past-performance line) or, on the screen branch, `_screen_fallback` (the numbered list).
 
-| Field | Type | Notes |
-|---|---|---|
-| `answer` | `str` | the reply, grounded only in the facts |
-| `clarifying_question` | `str?` | set instead of answering when the fund is ambiguous/unidentified; else `null` |
-
-The gateway `answer_mutual_fund_query` collapses these into a single customer-facing `str` for the chat brain.
+The gateway returns a single customer-facing `str`; `flow_mutual_fund_query` wraps it in `ModuleOutput(text=...)` for the chat brain.
 
 ---
 
 ## 5. How it thinks
 
-The whole engine is [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) — ~180 lines, no pipeline of steps, just two forced-tool calls around an app-built facts pack.
+The whole engine is [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) — one forced-tool call (`extract`) and a prompt property, no pipeline of steps. Everything else in the turn is app-layer code around it.
 
 ### Pass 1 — `extract`
 
-1. Fill the **Extract User** prompt with the conversation history + question.
-2. One Haiku call, forced to call `return_extract_result` (the `_EXTRACT_TOOL` schema). `tool_choice` pins the model to that tool, so the response is always a single structured `tool_use` block — no JSON parsing on our side.
-3. Validate into `ExtractResult`. The prompt tells the model to resolve pronouns and, when in doubt between `returns` and `comparison`, prefer `comparison` if it sees "vs / compare / peers" or two fund names.
+1. Fill the **Extract User** prompt with the conversation history (rendered as `User:` / `Assistant:` lines, `(No prior conversation)` when empty) + question.
+2. One Haiku call, forced to call `return_extract_result` (the `_EXTRACT_TOOL` schema; `fund_names` and `asked_for` required). `tool_choice` pins the model to that tool, so the response is always a single structured `tool_use` block — no JSON parsing on our side.
+3. Validate into `ExtractResult`. The prompt tells the model to resolve pronouns; when in doubt between `returns` and `comparison`, to prefer `comparison` if it sees "vs / compare / peers" or two fund names; and to set `is_screen` only when no specific fund is named and the ask is for the best / top funds in general.
 
 ### (App layer builds the facts — not in this module)
 
-`build_mutual_fund_query_facts` resolves each named fund, pulls trailing CAGR, looks up the house rank/reason, and — for a **single**-fund comparison — appends category peers. Two+ named funds ⇒ the named funds *are* the comparison set, so `peers` stays empty.
+The gateway branches on the extract result:
 
-### Pass 2 — `narrate`
+1. `is_screen` → the screen branch (below).
+2. No `fund_names` → *"Which fund would you like to know about?"*
+3. Resolve each name with `resolve_fund`. An `Ambiguous` result returns a clarifying question at once; a name that matches nothing is dropped; if nothing resolves, the customer hears *"I couldn't find that fund…"*.
+4. `build_mutual_fund_query_facts` pulls trailing CAGR for each resolved fund and looks it up with `ranking_by_isin`. A shortlist hit takes `fund_name` and `sub_category` from the CSV row, `house_reason` from `selection_reason`, `shortlist_rank` from `rank`, and sets `has_house_view`; a miss keeps the scheme name with returns only. For a **single** fund asked as a `comparison` that has a `sub_category` (i.e. is on the shortlist), `peers` is every other shortlist fund of that `sub_category`, sorted by rank, each with its 3y CAGR. Two+ named funds ⇒ the named funds *are* the comparison set, so `peers` stays empty.
 
-1. Fill the **Narrate User** prompt with `facts_json` (compact `model_dump(exclude_none=True)`), history, and question.
-2. Wrap the **Narrate System** prompt with `build_system_prompt(..., format_profile="chat", question_aware=True)` so Pi's voice + the shared persona rules are prepended to the module's own guardrails.
-3. One Haiku call, forced to call `return_mutual_fund_query_response`. Validate into `MutualFundQueryResponse`.
+### Pass 2 — the shared answer formatter (`fund_detail`)
+
+`format_with_telemetry(action_mode="fund_detail", body_prompt=orch.narrate_body, facts_pack=facts.model_dump(exclude_none=True), profile={"first_name": …}, build_fallback=…)`:
+
+1. System prompt = `FORMATTER_HOUSE_STYLE` (Pi's persona via `build_system_prompt(..., format_profile="chat", question_aware=True)` plus the formatter's cite-only-`CUSTOMER_RECORD` notes) + `narrate_body` + a `LOGIC_REFERENCE` block carrying [`Mutual_Fund_Query.md`](../Logics_reference_docs/Mutual_Fund_Query.md) (`logic_docs` maps this module's `fund_detail` mode to it).
+2. User message = `MODULE`, `ACTION_MODE`, `CUSTOMER_RECORD` (the facts as compact JSON), `PROFILE`, `RECENT_HISTORY` (last 12 rows), `CUSTOMER_QUESTION`.
+3. One Haiku call, forced to call `return_formatted_answer`; its `answer` string is the reply. Any failure — including a `max_tokens` stop — raises `FormatterFailure` and the deterministic brief is returned instead. Either way a `ChatAiModuleRun` row records `formatter:fund_detail`, latency and success.
+
+### The screen branch (`is_screen`)
+
+`_answer_screen` in the gateway:
+
+- **Inputs.** Horizon = `screen_horizon_years or 3`. Category = `resolve_category(screen_category)`: free text → a `sub_category` present in the ranking CSV, by exact match and then a synonym table ("large cap" → `Large Cap Fund`, "tax saver" → `ELSS`, "international" → `FoF Overseas`). Words that map to no ranking category resolve to `None`, which screens all funds.
+- **Ranking.** `screen_top_funds(horizon_years, category, limit=5)` ranks the whole stored scheme universe, not our shortlist: active Regular-plan, Growth-option schemes (names containing "direct" are excluded too, because the feed's `plan_type` is unreliable), filtered to `sub_category == category` when one is set. `as_of` is the latest NAV date in the table; each scheme's end NAV is its latest on or before `as_of` and must be within 30 days of it; its start NAV is its latest on or before `as_of − 365 × horizon` days. CAGR via `financial_primitives.cagr`, best first, top 5.
+- **Reply.** An empty list returns *"I couldn't find enough funds with a full {horizon}-year track record to rank right now…"* directly. Otherwise the formatter runs with `action_mode="screen"`, the `_SCREEN_BODY_PROMPT` constant (in the service, not the prompt file), facts `{"screen": {horizon_years, category, ranked_funds: [{rank, fund_name, amc, sub_category, return_cagr_pct}]}}`, no `LOGIC_REFERENCE`, and `_screen_fallback` as the brief.
 
 ### Prompt plumbing
 
-All four prompt bodies live in **one** markdown file, [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md), with YAML front-matter (`model`, `extract_max_tokens`, `narrate_max_tokens`). The orchestrator splits it on `---`, then carves four `## ` sections by name:
+The extract prompts and the `fund_detail` body live in **one** markdown file, [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md), with YAML front-matter (`name`, `model`, `extract_max_tokens`, `narrate_max_tokens`). The orchestrator splits it on `---`, reads the front-matter between the first two markers, re-joins the rest (so the `---` rules inside *Narrate System* survive), then carves three `## ` sections by name:
 
 | Section | Used by | Contains |
 |---|---|---|
-| `Extract System` | pass 1 system | the routing-helper instructions |
+| `Extract System` | pass 1 system | the routing-helper instructions, including when to set `is_screen` |
 | `Extract User` | pass 1 user | `{{conversation_history}}`, `{{question}}` |
-| `Narrate System` | pass 2 system | narration rules **+ the embedded guardrails** |
-| `Narrate User` | pass 2 user | `{{facts_json}}`, `{{conversation_history}}`, `{{question}}` |
+| `Narrate System` | pass 2 `body_prompt` (via `narrate_body`) | what the facts contain + **the embedded guardrails** + how to respond |
 
-`{{name}}` double-brace placeholders are filled by `_fill`; single-brace JSON (the tool schemas printed in-prompt) is left untouched. Editing product wording means editing this `.md` — no code change.
+`{{name}}` double-brace placeholders (only *Extract User* has them) are filled by `_fill`; single-brace JSON is left untouched. *Narrate System* has no placeholders — the facts reach pass 2 as the formatter's `CUSTOMER_RECORD`, under the field names (`funds[]`, `peers[]`) the section describes. `narrate_max_tokens` is read by no code; pass 2 runs on the formatter's own 6000-token budget. Editing `fund_detail` wording means editing this `.md` — no code change. The screen's wording is `_SCREEN_BODY_PROMPT` in the service, so changing it is a code change.
 
 ### A turn, end to end (worked example)
 
@@ -429,22 +449,22 @@ A customer asks about a fund we recommend. Watch a number *only ever get copied*
 
 <div class="step-panel">
   <div class="label">Pass 1 · extract → ExtractResult</div>
-<pre><code>{ "fund_names": ["Parag Parikh Flexi Cap Fund"], "asked_for": "returns" }</code></pre>
+<pre><code>{ "fund_names": ["Parag Parikh Flexi Cap Fund"], "asked_for": "returns", "is_screen": false }</code></pre>
 </div>
 
 <div class="flow-arrow">↓</div>
 
 <div class="step-panel">
-  <div class="label">App layer · build_mutual_fund_query_facts → MutualFundQueryFacts</div>
+  <div class="label">App layer · build_mutual_fund_query_facts → CUSTOMER_RECORD</div>
 <pre><code>{
   "funds": [{
-    "fund_name": "Parag Parikh Flexi Cap Fund",
+    "fund_name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
     "sub_category": "Flexi Cap Fund",
     "returns": { "return_1y_cagr_pct": 24.6,
-                 "return_3y_cagr_pct": 19.1,
-                 "return_5y_cagr_pct": 22.3 },
-    "house_reason": "Consistent across-cycle performer with a valuation-conscious, benchmark-agnostic mandate.",
-    "shortlist_rank": 1,
+                 "return_3y_cagr_pct": 19.1 },
+                 // no 5y key: a null horizon is dropped by exclude_none
+    "house_reason": "The best known flexicap fund with long history of excellence in investing. The only disadvantage is the ability of fund to keep outperforming given the size of the fund AUM which may make it difficult to give the similar superlative returns..",
+    "shortlist_rank": 2,
     "has_house_view": true
   }],
   "peers": []   // empty: asked_for is "returns", not "comparison"
@@ -454,25 +474,28 @@ A customer asks about a fund we recommend. Watch a number *only ever get copied*
 <div class="flow-arrow">↓</div>
 
 <div class="chat">
-  <div class="bubble pi"><div class="who">Pi (Pass 2 · narrate)</div>Parag Parikh Flexi Cap is our top-ranked flexi-cap pick. On an annualised (CAGR) basis it's returned about <strong>24.6%</strong> over 1 year, <strong>19.1%</strong> over 3 years, and <strong>22.3%</strong> over 5 years — all from our stored NAV history. We like it for its consistent across-cycle performance and valuation-conscious, benchmark-agnostic mandate.</div>
+  <div class="bubble pi"><div class="who">Pi (Pass 2 · shared formatter)</div>Parag Parikh Flexi Cap is on our recommended shortlist. On an annualised (CAGR) basis it has returned about <strong>24.6%</strong> over 1 year and <strong>19.1%</strong> over 3 years, from our stored NAV history — we don't have a 5-year track record stored for it yet. We see it as the best-known flexi-cap fund, with a long record of excellent investing; the one watch-out is whether its size lets it keep repeating those returns. Past performance doesn't guarantee future returns.</div>
 </div>
 
-Every figure in the reply appears verbatim in the facts. "Top-ranked pick" is `shortlist_rank: 1` framed as a *house view* (not "1 of 24"). The rationale is `house_reason` in spirit. Nothing was computed. *(Values above are illustrative, not real CSV/NAV rows — don't grep for them.)*
+Every figure in the reply appears verbatim in the facts, and the missing 5-year horizon is said plainly rather than estimated. `shortlist_rank: 2` is framed as a *house view*, never as "2 of N" — it is the fund's rank inside the CSV's `multi_asset` subgroup, which also holds hybrid and balanced-advantage funds, so it is not a rank among flexi-caps either. The rationale is `house_reason` in spirit. Nothing was computed. *(Fund name, sub-category, rank and reason are the live ranking-CSV row; the returns are illustrative, not stored NAV — don't grep for them.)*
 
 ### What the customer hears in the edge cases
 
-Not every turn reaches the narrate pass — most clarification is decided earlier, in the **app-layer gateway** (`answer_mutual_fund_query`), before facts are ever built:
+Not every turn reaches the formatter — clarification is decided in the **app-layer gateway** (`answer_mutual_fund_query`) before facts are ever built, and those replies are returned as plain strings:
 
 | Situation | Decided in | What the customer hears |
 |---|---|---|
-| No fund identified | gateway (after extract) | *"Which fund would you like to know about?"* |
-| Ambiguous name (Regular vs Direct, two candidates) | gateway `Ambiguous` branch | *"Just to be sure — did you mean X or Y?"* |
-| Fund not in our data | gateway (nothing resolves) | *"I couldn't find that fund in our data — could you double-check the name?"* |
-| A return horizon is `null` | **narrate pass** (guardrail) | *"…we don't have a 5-year track record for this fund yet"* — never an estimate |
-| Fund is off our shortlist (`has_house_view: false`) | **narrate pass** | returns if we have them, plus *"it isn't one we actively recommend"* — no invented rationale |
-| Any LLM/DB failure | gateway `try/except` | a generic *"try again in a moment"* — never a stack trace |
+| No fund identified (and not a screen) | gateway, after extract | *"Which fund would you like to know about?"* |
+| A name spans more than one distinct fund | gateway `Ambiguous` branch | *"Just to be sure — did you mean X or Y?"* (the first two candidates). Direct / Regular / IDCW variants of one fund collapse and never trigger this |
+| A named fund matches nothing | gateway | dropped if another named fund resolved; if none resolve, *"I couldn't find that fund in our data — could you double-check the name?"* |
+| A return horizon is `null` | **formatter** (guardrail) | *"…we don't have a 5-year track record for this fund yet"* — never an estimate |
+| Fund is off our shortlist (`has_house_view: false`) | **formatter** | returns if we have them, plus *"it isn't one we actively recommend"* — no invented rationale, and no peers |
+| Screen finds no fund with a full-horizon history | gateway `_answer_screen` | *"I couldn't find enough funds with a full N-year track record to rank right now…"* |
+| `ctx.db` missing; orchestrator init, extract or screener failure | gateway checks + `try/except` | a generic *"Please try again in a moment"* — never a stack trace |
+| Formatter LLM failure or truncation | `format_with_telemetry` | the deterministic brief (`_fund_detail_fallback` / `_screen_fallback`) |
+| DB error while resolving funds or building facts | not caught by the gateway → chat brain's turn handler | *"Sorry — I couldn't process your request due to a technical issue. Please try again."* (a flow over 180 s gets the brain's timeout message) |
 
-So the engine's own `clarifying_question` is really the *last* rung — the gateway's canned replies handle the common ambiguity cases before narration runs.
+The *Narrate System* section carries its own clarify line ("If the facts carry a clarifying situation…"), but production never reaches it: every clarification is returned by the gateway before facts exist.
 
 ---
 
@@ -480,20 +503,18 @@ So the engine's own `clarifying_question` is really the *last* rung — the gate
 
 **Both passes are LLM calls, both Haiku, both forced-tool-use** — but neither does arithmetic.
 
-| Pass | Model | Determinism |
+| Pass | Model & settings | Determinism |
 |---|---|---|
-| extract | `claude-haiku-4-5`, `temperature=0` | probabilistic routing — which fund, which ask-type. Does **not** stream (no customer-facing prose) |
-| narrate | `claude-haiku-4-5`, `temperature=0` | probabilistic *wording* over deterministic *numbers*. Streams `answer` when a token stream is open |
+| extract | `claude-haiku-4-5-20251001` via this module's `LLMClient`; `temperature=0`, `max_tokens` 512 (`extract_max_tokens`); key `ANTHROPIC_API_KEY` | probabilistic routing — which fund, which ask-type, screen or not. Does **not** stream (no customer-facing prose) |
+| narrate (shared formatter) | `claude-haiku-4-5-20251001`; temperature from `AILAX_FORMATTER_TEMPERATURE` (default `"0"`), `max_tokens` 6000; key from `get_anthropic_formatter_key_for("mutual_fund_query")` (`MUTUAL_FUND_QUERY_API_KEY` → `ANTHROPIC_MUTUAL_FUND_QUERY_API_KEY` → `ANSWER_FORMATTER_API_KEY` → `ANTHROPIC_API_KEY`) | probabilistic *wording* over deterministic *numbers*. Streams `answer` when a token stream is open |
 
-The LLM client is [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper. It binds exactly one tool with `tool_choice={"type": "tool", "name": ...}`, marks the system prompt with `cache_control: ephemeral` (Anthropic prompt caching), pins `temperature=0`, and returns `(tool_input, usage)`. `MODEL_MAP` resolves the `"haiku"` alias to the pinned model id.
+The extract client is [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) — a thin `ChatAnthropic` (LangChain) wrapper used by `extract` only. It binds exactly one tool with `tool_choice={"type": "tool", "name": ...}`, marks the system prompt with `cache_control: ephemeral` (Anthropic prompt caching), pins `temperature=0`, calls `ainvoke`, and returns `(tool_input, usage)` with usage read from `response_metadata["usage"]`. A response with no matching `tool_use` block raises `RuntimeError`, which the gateway turns into the generic failure reply. `MODEL_MAP` resolves the `"haiku"` alias to the pinned model id.
 
-**Streaming.** `call_structured` takes an optional `stream_field`. When it is set *and* the turn has an open token stream, the call switches from `ainvoke` to `astream_tool_answer` and publishes the growth of that one field as deltas; the `FINE_GRAINED_TOOL_STREAMING` beta is attached only in that case, because without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. With no open stream this is byte-for-byte the old blocking path.
-
-Only `narrate` passes one — `stream_field="answer"`. The parameter deliberately has no default: a caller must name the customer-facing field, so an internal one is never streamed by accident. `clarifying_question` is a short fallback the bridge picks when `answer` is empty, and `extract`'s output is pure routing metadata.
+**Streaming** belongs to the formatter. When the turn has an open token stream it calls `astream_tool_answer` instead of `ainvoke` and attaches the `FINE_GRAINED_TOOL_STREAMING` beta — without it the API withholds the tool's input JSON until the end of the response and there is nothing to stream. With no open stream it makes the blocking `ainvoke` call. The gateway's plain-string replies (clarifications, the empty-screen line, failures) bypass the formatter and do not stream.
 
 <div class="callout danger">
   <div class="title">⚠ The failure mode this module designs against</div>
-  <p>Haiku will happily <strong>invent</strong> a plausible-looking return or category rank if given the chance. The defence isn't a smarter prompt — it's that <strong>there is nothing to compute</strong>. Every number is pre-built into the facts (§3); the guardrail (§8) forbids stating any figure that isn't there. The model's only job is to copy. Widen the facts and you widen what it can say — so only add fields you can source.</p>
+  <p>Haiku will happily <strong>invent</strong> a plausible-looking return or category rank if given the chance. The defence isn't a smarter prompt — it's that <strong>there is nothing to compute</strong>. Every number is pre-built into the facts (§3); the guardrail in <em>Narrate System</em> (§8) forbids stating any figure that isn't there. The model's only job is to copy. Widen the facts and you widen what it can say — so only add fields you can source.</p>
 </div>
 
 ---
@@ -502,69 +523,88 @@ Only `narrate` passes one — `stream_field="answer"`. The parameter deliberatel
 
 | File | Role |
 |---|---|
-| [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) | `MutualFundQueryOrchestrator` — the two passes, prompt splitting/filling, the two tool schemas (`_EXTRACT_TOOL`, `_NARRATE_TOOL`) |
-| [`models.py`](../../src/mutual_fund_query/models.py) | pydantic I/O: `ConversationTurn`, `ExtractResult`, `FundReturns`, `FundFacts`, `PeerFund`, `MutualFundQueryFacts`, `MutualFundQueryResponse` |
-| [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper + token accounting |
-| [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) | all prompt content (4 sections) + front-matter config; **runtime source, not docs** |
+| [`orchestrator.py`](../../src/mutual_fund_query/orchestrator.py) | `MutualFundQueryOrchestrator` — the extract pass, the `narrate_body` property, prompt splitting/filling, the extract tool schema (`_EXTRACT_TOOL`) |
+| [`models.py`](../../src/mutual_fund_query/models.py) | pydantic I/O: `ConversationTurn`, `ExtractResult`, `FundReturns`, `FundFacts`, `PeerFund`, `MutualFundQueryFacts` |
+| [`llm_client.py`](../../src/mutual_fund_query/llm_client.py) | `LLMClient` — forced-tool `ChatAnthropic` wrapper for the extract pass + token accounting; no streaming path |
+| [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) | all prompt content (3 sections) + front-matter config; **runtime source, not docs** |
 | [`__init__.py`](../../src/mutual_fund_query/__init__.py) | re-exports the models (the app-layer contract surface) |
-| [`Testing/`](../../src/mutual_fund_query/Testing/) | engine plumbing tests (`test_models.py`, `test_orchestrator.py`) — the LLM is stubbed at the client boundary; they assert on prompt assembly + DTO parsing, never on model wording |
+| [`Testing/`](../../src/mutual_fund_query/Testing/) | engine plumbing tests (`test_models.py`, `test_orchestrator.py`) — the LLM is stubbed at the client boundary; they assert on extract parsing (including the screen fields) and on `narrate_body` carrying the guardrails, never on model wording. Gitignored: local checkouts only |
 
-App-layer companions (not part of the engine, but where the facts come from):
+App-layer companions (not part of the engine, but where the facts and the reply come from):
 
 | File | Role |
 |---|---|
-| [`mutual_fund_query_service.py`](../../../app/domains/mutual_funds/services/mutual_fund_query_service.py) | the gateway + `build_mutual_fund_query_facts` |
-| `fund_ranking_lookup.py` | `ranking_by_isin`, `peers_by_sub_category` over the ranking CSV |
-| `fund_returns_service.py` | `trailing_cagr_for_scheme` — CAGR from `mf_nav_history` |
-| `fund_resolver_service.py` | `resolve_fund` — name → scheme, with `Ambiguous` handling |
+| [`mutual_fund_query_service.py`](../../../app/domains/mutual_funds/services/mutual_fund_query_service.py) | the gateway, `build_mutual_fund_query_facts`, the screen branch (`_answer_screen`, `_SCREEN_BODY_PROMPT`) and both deterministic fallbacks |
+| `app/domains/mutual_funds/services/fund_resolver_service.py` | `resolve_fund` — name → scheme, held-first, Direct-Growth canonicalisation, `Ambiguous` handling |
+| `app/domains/mutual_funds/services/fund_returns_service.py` | `trailing_cagr_for_scheme` — CAGR from `mf_nav_history` |
+| `app/domains/mutual_funds/services/fund_ranking_lookup.py` | `ranking_by_isin`, `peers_by_sub_category` over the ranking CSV (the file also holds `resolve_ranked_fund`, which rebalancing uses) |
+| `app/domains/mutual_funds/services/fund_screener_service.py` | `screen_top_funds` — the whole-universe trailing-CAGR screen |
+| `app/domains/mutual_funds/services/category_resolver.py` | `resolve_category` — free text → ranking `sub_category` |
+| `app/domains/ai_engine/services/flow.py` | `flow_mutual_fund_query` and its `FLOWS` row |
+| `app/domains/ai_engine/answer_formatter/formatter.py` | pass 2: `format_with_telemetry`, prompt assembly, the Haiku call, streaming |
+| `app/domains/ai_engine/logic_docs.py` | attaches `Mutual_Fund_Query.md` to `fund_detail` replies only |
 
 ---
 
 ## 8. Invariants & landmines
 
-- **The engine must never state a number that isn't in `facts`.** This is enforced by prompt, not code — the guardrail block in `mutual_fund_query.md`'s *Narrate System*. If you widen `MutualFundQueryFacts`, keep it to values you can source; a field the model *can* see, it *will* state.
-- **`shortlist_rank` is a house view, not a percentile.** Never let wording drift into "ranks 3 of 24". The guardrail forbids it; a prompt edit that loosens this is a correctness bug, not a style change.
-- **`null` return = "no history", never an estimate.** Thin `mf_nav_history` legitimately yields `null` 5y CAGR. The narration says so plainly. (See the memory note on NAV-coverage gaps — many recommended funds have thin stored history.)
-- **`has_house_view == false` ⇒ don't invent a rationale.** For funds off our shortlist, give returns if we have them, state plainly it isn't one we recommend, and stop.
-- **Peers only for a single named fund.** 2+ named funds ⇒ `peers` empty and the named funds are the comparison set. Don't repopulate `peers` in that branch.
-- **Held funds resolve to the customer's own plan**, not the default Direct-Growth, so a "return" matches what they actually hold.
-- **Prompt file is BOM-aware and split on `---`.** It contains `₹`/em-dashes and inline JSON tool schemas. `read_text_bom_aware` + the single-brace-safe `_fill` exist for this reason — don't switch to a naive `str.format` (it would choke on the JSON braces).
-- **`stream_field` has no default, on purpose.** Naming the field is the caller's job. Adding a default would mean a future tool schema silently streams an internal field to a customer.
-- **The streaming path reports usage on `usage_metadata`,** leaving `response_metadata["usage"]` empty. `llm_client` carries an explicit fallback that reads `input_tokens` / `output_tokens` / cache details off it — remove that and token and cost accounting records **zeros for every streamed turn**, silently.
-- **`temperature=0` must stay a literal in the `ChatAnthropic(...)` call.** A repo-wide test (`test_temperature_is_pinned.py`) scans the call text for it; moving it into a kwargs dict makes the scan miss, and omitting it applies the API default of 1.0.
-- **Failure is soft.** The gateway catches errors (incl. `AnthropicAuthenticationError`) and returns a generic "try again in a moment" reply — a fund lookup problem never surfaces a stack trace to the customer.
+- **The narration must never state a number that isn't in `facts`.** This is enforced by prompt, not code — the guardrail block in `mutual_fund_query.md`'s *Narrate System*, backed by the formatter's cite-only-`CUSTOMER_RECORD` rule. If you widen `MutualFundQueryFacts`, keep it to values you can source; a field the model *can* see, it *will* state.
+- **`shortlist_rank` is a house view, not a percentile.** Never let wording drift into "ranks 3 of 24". The guardrail forbids it; a prompt edit that loosens this is a correctness bug, not a style change. The value is the CSV `rank`, ordered within the row's `asset_subgroup` — a subgroup can span several sub-categories (`multi_asset` holds flexi-cap, hybrid, balanced-advantage and multi-asset funds) — so peers of one `sub_category` can carry non-consecutive ranks.
+- **`null` return = "no history", never an estimate.** `trailing_cagr_for_scheme` reads only stored NAV: a horizon has a value only when a stored NAV exists on or before (latest NAV date − 365 × years). Thin `mf_nav_history` legitimately yields `null`, and keeping history complete is the NAV scheduler's job, not this flow's.
+- **`has_house_view == false` ⇒ don't invent a rationale.** For funds off our shortlist, give returns if we have them, state plainly it isn't one we recommend, and stop. Off-shortlist facts carry no `sub_category`, so they never get peers.
+- **Peers only for a single named, shortlisted fund asked as a comparison.** 2+ named funds ⇒ `peers` empty and the named funds are the comparison set. Don't repopulate `peers` in that branch.
+- **Held funds resolve to the customer's own scheme**, not the default Direct-Growth, so a "return" matches what they actually hold. The house view is then looked up by that scheme's ISIN, and the shortlist lists Direct-Growth ISINs — so a held Regular plan of a shortlisted fund arrives as `has_house_view: false`.
+- **The screen ranks by past return alone.** It covers every stored Regular-Growth scheme, shortlisted or not, and filters a category by exact `sub_category` equality against the ranking CSV's label. A category word `resolve_category` can't map ("liquid", "banking", "index") becomes `None`, and the customer gets the best funds overall.
+- **Prompt file is BOM-aware and split on `---`.** It contains `₹`/em-dashes and inline JSON. `read_text_bom_aware` + the single-brace-safe `_fill` exist for this reason — don't switch to a naive `str.format` (it would choke on the JSON braces).
+- **`_section` cuts a section at the next `## ` heading.** *Narrate System*'s own subsections are `###`, so they stay inside it. A new `## ` heading inside *Narrate System* would silently truncate the body prompt — and with it the guardrails below that point.
+- **The orchestrator is a lazy process singleton.** `_get_orchestrator` builds it (reading the prompt file and the API key) on first use, so a prompt edit takes effect only after a process restart. The Logics doc is likewise read once per process.
+- **`temperature=0` must stay a literal in `llm_client`'s `ChatAnthropic(...)` call.** A repo-wide test (`test_temperature_is_pinned.py`) scans the call text for it; moving it into a kwargs dict makes the scan miss, and omitting it applies the API default of 1.0.
+- **Failure is soft, at two levels.** The gateway catches orchestrator-init, extract (incl. `AnthropicAuthenticationError`) and screener errors and returns a generic "try again in a moment" reply; the formatter falls back to a deterministic brief. A DB error during resolution or the facts build is not caught here — it reaches the chat brain's turn handler, which rolls back and returns its own technical-issue message. No path surfaces a stack trace to the customer.
 
 ---
 
 ## 9. Extend & test
 
-- **Change wording / guardrails** → edit [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) only, then run the prompt eval gate (`scripts/run_prompt_eval_gate.sh`) before merging — the golden cases include mutual-fund-query turns. Because the Logics thesis grounds customer answers, bump [Logics_reference_docs/Mutual_Fund_Query.md](../Logics_reference_docs/Mutual_Fund_Query.md) when the *approach* changes (per the repo's "Logics docs track the engines" rule).
-- **Add a fact the narration may state** → add the field to `MutualFundQueryFacts`/`FundFacts` in [`models.py`](../../src/mutual_fund_query/models.py), populate it in `build_mutual_fund_query_facts`, and describe it in the Narrate System "What the facts contain" list so the model knows it exists.
+- **Change wording / guardrails** → for named-fund answers, edit [`mutual_fund_query.md`](../../src/mutual_fund_query/mutual_fund_query.md) (*Narrate System*) only; for the screen, edit `_SCREEN_BODY_PROMPT` in the service. The prompt eval gate (`scripts/run_prompt_eval_gate.sh`) covers the classifier's routing into `mutual_fund_query` (the `fq/*` golden cases), not the narration's wording. [Logics_reference_docs/Mutual_Fund_Query.md](../Logics_reference_docs/Mutual_Fund_Query.md) rides along on every `fund_detail` reply as `LOGIC_REFERENCE`, so a change of *approach* leaves it stale; reference docs are refreshed when a human asks, so flag it.
+- **Add a fact the narration may state** → add the field to `MutualFundQueryFacts`/`FundFacts` in [`models.py`](../../src/mutual_fund_query/models.py), populate it in `build_mutual_fund_query_facts`, and describe it in the *Narrate System* "What the facts contain" list so the model knows it exists. Add it to `_fund_detail_fallback` too if the brief should show it.
 - **Tests** live at three levels:
 
   | Level | Where | Covers |
   |---|---|---|
-  | engine plumbing | [`Testing/test_orchestrator.py`](../../src/mutual_fund_query/Testing/test_orchestrator.py), `test_models.py` | prompt assembly + DTO parsing, LLM stubbed |
-  | facts builder | `app/domains/mutual_funds/tests/test_build_mutual_fund_query_facts.py` | house-view vs off-shortlist, peers-only-for-single-fund |
-  | gateway e2e | `app/domains/mutual_funds/tests/test_mutual_fund_query_gateway.py` | the clarify ladder + failure branches |
+  | engine plumbing | [`Testing/test_orchestrator.py`](../../src/mutual_fund_query/Testing/test_orchestrator.py), `test_models.py` | extract parsing (incl. screen fields), `narrate_body` contents, DTO validation; LLM stubbed |
+  | facts builder | `app/domains/mutual_funds/tests/test_build_mutual_fund_query_facts.py` | house-view vs off-shortlist, peers-only-for-single-fund-comparison |
+  | gateway e2e | `app/domains/mutual_funds/tests/test_mutual_fund_query_gateway.py` | formatter hand-off, deterministic fallback, the clarify replies, the screen branch |
 
-  Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/mutual_fund_query/Testing/ app/domains/mutual_funds/tests/`. What none of these cover — the model's actual *wording* under the guardrail — lives in the chat eval gate, not unit tests.
-- **Run the engine without an API key** — the pattern the module's own tests use: inject a stub at the LLM-client boundary. `call_structured` is the entire seam:
+  The same folder also tests the resolver, returns, ranking-lookup and screener services. Both test folders are gitignored, so they exist only in local checkouts. Run with the mac venv: `.venv-mac/bin/python -m pytest AI_Agents/src/mutual_fund_query/Testing/ app/domains/mutual_funds/tests/`. What none of these cover — the model's actual *wording* under the guardrail — needs a live run; the dev-only chat eval harness (`AI_Agents/src/chat_eval/`, `--questions questions_mf.yaml`) has four mutual-fund-query cases.
+- **Run both passes' prompts without an API key** — the pattern the module's own tests use: inject a stub at the LLM-client boundary (`call_structured` is the entire seam), then build pass 2's exact prompt with the formatter's pure `assemble_prompt`:
 
   ```python
+  from mutual_fund_query import FundFacts, FundReturns, MutualFundQueryFacts
+  from mutual_fund_query.orchestrator import MutualFundQueryOrchestrator
+  from app.domains.ai_engine.answer_formatter import assemble_prompt
+  from app.domains.ai_engine.logic_docs import logic_reference_for
+
   class StubLLM:
       async def call_structured(self, model, system, user, *, tool, max_tokens=1024):
-          return {"answer": "..."}, {}          # any canned tool payload
+          return {"fund_names": ["Parag Parikh Flexi Cap Fund"], "asked_for": "returns"}, {}
 
   orch = MutualFundQueryOrchestrator(StubLLM())
-  resp = await orch.narrate(my_handmade_facts, "why this fund?", [])
+  extracted = await orch.extract("how has it done?", [])        # pass 1, no API call
+
+  facts = MutualFundQueryFacts(funds=[FundFacts(fund_name="X", returns=FundReturns(return_3y_cagr_pct=14.2))])
+  prompt = assemble_prompt(                                        # pass 2's prompt, no API call
+      question="how has it done?", action_mode="fund_detail", module_name="mutual_fund_query",
+      facts_pack=facts.model_dump(exclude_none=True), body_prompt=orch.narrate_body,
+      history=[], profile={"first_name": None},
+      logic_reference=logic_reference_for("mutual_fund_query", "fund_detail"),
+  )
   ```
 
-  Hand-build a `MutualFundQueryFacts` and you can reproduce any narration quirk — prompt text included — with no database and no Anthropic call.
+  Hand-build a `MutualFundQueryFacts` and you can reproduce any narration prompt — persona, guardrails and Logics doc included — with no database and no Anthropic call.
 
 ---
 
-*Module guide · reconciled with the live code on 2026-08-04. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
+*Module guide · reconciled with the live code on 2026-10-03. If a diagram contradicts the code, trust the code — and flag it so this doc gets fixed.*
 </script>
 
 <script>
