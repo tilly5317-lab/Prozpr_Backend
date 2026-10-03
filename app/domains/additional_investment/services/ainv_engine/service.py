@@ -136,7 +136,9 @@ def _long_term_holdings(
 # 3.7.0: a lumpsum funds the short-term goals' full remaining need first — its
 # practical run assumes no future SIP.
 # Direct stocks are not part of any corpus.
-AINV_ENGINE_VERSION = "ainv-3.7.0"
+# 3.8.0: a subgroup's amount rounds to ₹100 once, then splits across its funds,
+# so two funds total the same as one.
+AINV_ENGINE_VERSION = "ainv-3.8.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
