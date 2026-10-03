@@ -132,6 +132,7 @@ def target_mix_from_rows(rows: Iterable[AssetClassRow]) -> dict[str, float]:
 def plan_rows_from_run(
     fund_rows: Sequence[Any],
     trades: Sequence[Any],
+    subgroup_summaries: Sequence[Any] = (),
 ) -> tuple[list[AssetClassRow], list[AssetClassRow]]:
     """Build the (current, target) row sets for a persisted rebalancing run.
 
@@ -162,6 +163,19 @@ def plan_rows_from_run(
         target_rows.append(
             (subgroup, sub_category, present.get(key, 0.0) + delta.get(key, 0.0))
         )
+    # A frozen subgroup (ELSS lock-in) is held but has no fund rows; it holds as is.
+    fund_subgroups = {row.asset_subgroup for row in fund_rows}
+    for summary in subgroup_summaries:
+        held = float(getattr(summary, "current_holding_inr", 0) or 0)
+        if summary.asset_subgroup not in fund_subgroups and held > 0:
+            current_rows.append((summary.asset_subgroup, None, held))
+            target_rows.append(
+                (
+                    summary.asset_subgroup,
+                    None,
+                    float(getattr(summary, "suggested_final_holding_inr", held) or 0),
+                )
+            )
     return current_rows, target_rows
 
 

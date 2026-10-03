@@ -43,6 +43,9 @@ from app.domains.rebalancing.services.rebal_engine.tax_aging import (
 
 ensure_ai_agents_path()
 
+from practical_asset_allocation.human_override import (  # type: ignore[import-not-found]  # noqa: E402
+    FROZEN_SUBGROUPS,
+)
 from Rebalancing.models import (  # type: ignore[import-not-found]  # noqa: E402
     FundRowInput,
     RebalancingComputeRequest,
@@ -424,18 +427,32 @@ async def build_rebalancing_input_for_user(
     )
     total_corpus = Decimal(int(max(total_corpus, Decimal(0))))
 
+    # 7a. ELSS is under a 3-year lock-in, so it never reaches the engine as a
+    #     tradeable row: its value rides in as the practical input's frozen
+    #     elss_corpus (still inside total_corpus) and comes back as a frozen
+    #     subgroup with no trades.
+    elss_corpus = sum(
+        (
+            r.present_allocation_inr
+            for r in rows
+            if r.asset_subgroup in FROZEN_SUBGROUPS and r.present_allocation_inr > 0
+        ),
+        start=Decimal(0),
+    )
+    rows = [r for r in rows if r.asset_subgroup not in FROZEN_SUBGROUPS]
+
     # 7b. Practical allocation input — the Rebalancing engine runs the practical
     #     (holdings-aware) allocation internally and lifts its per-subgroup MF
     #     targets onto the rank-1 rows. Build it via the practical_asset_allocation
     #     domain, then point the corpus at the held MF value so the targets sum to
     #     what's actually held (a rebalance, not a fresh cash deployment).
-    #     ELSS defaults to 0 — no holdings breakdown wired yet.
     practical_input, _paa_debug = build_practical_allocation_input_for_user(
         ctx, short_term_holdings=_short_term_holdings_from_rows(rows)
     )
     practical_input = practical_input.model_copy(
         update={
             "total_corpus": float(total_corpus),
+            "elss_corpus": float(elss_corpus),
         }
     )
 
@@ -479,6 +496,7 @@ async def build_rebalancing_input_for_user(
     )
     debug = {
         "total_corpus": str(total_corpus),
+        "elss_corpus": str(elss_corpus),
         "lots_per_isin": {e.isin: len(e.lots) for e in ledger},
         "force_exit_count": force_exit_count,
         "neutral_count": neutral_count,

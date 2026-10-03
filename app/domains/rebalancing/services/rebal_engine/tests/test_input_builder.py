@@ -199,3 +199,57 @@ async def test_practical_input_takes_short_term_holdings_from_rows(
         fixture_goal_allocation_output_one_subgroup,
     )
     assert request.practical_allocation_input.short_term_holdings == 0.0
+
+
+@pytest.mark.asyncio
+async def test_held_elss_is_frozen_and_never_traded(
+    db_session,
+    fixture_user_with_dob,
+    fixture_goal_allocation_output_one_subgroup,
+    fixture_seed_low_beta_navs,
+    fixture_one_subgroup_ranking,
+):
+    """ELSS sits under a 3-year lock-in: it reaches the engine only as the practical
+    input's frozen elss_corpus, never as a tradeable row, and stays in the total."""
+    from datetime import date
+
+    from app.domains.ai_engine.common import ensure_ai_agents_path
+    from app.domains.rebalancing.services.rebal_engine.input_builder import (
+        build_rebalancing_input_for_user,
+    )
+
+    from .conftest import _RANK1_ISIN, _add_holding
+
+    ensure_ai_agents_path()
+    from Rebalancing.pipeline import run_rebalancing  # type: ignore[import-not-found]
+
+    user = fixture_user_with_dob
+    await _add_holding(
+        db_session, user=user, scheme_code=f"SCH_{_RANK1_ISIN}", isin=_RANK1_ISIN,
+        units=Decimal("10"), nav=Decimal("60"), txn_date=date(2024, 1, 1),
+    )
+    elss_isin = "INF000ELSS001"
+    await _add_holding(
+        db_session, user=user, scheme_code="ELSS_SCHEME_001", isin=elss_isin,
+        units=Decimal("5"), nav=Decimal("80"), txn_date=date(2022, 1, 1),
+        asset_subgroup="tax_efficient_equities", sub_category="ELSS Tax Saver Fund",
+    )
+
+    request, _ = await build_rebalancing_input_for_user(
+        _ctx_for(user, db_session), fixture_goal_allocation_output_one_subgroup,
+    )
+
+    assert not [r for r in request.rows if r.asset_subgroup == "tax_efficient_equities"]
+    assert request.practical_allocation_input.elss_corpus == pytest.approx(400.0)
+    assert request.total_corpus == Decimal("1000")
+
+    response = run_rebalancing(request)
+    traded = {
+        a.isin
+        for s in response.subgroups
+        for a in s.actions
+        if a.pass1_buy_amount > 0 or a.pass1_sell_amount + a.pass2_sell_amount > 0
+    }
+    assert elss_isin not in traded
+    frozen = [s for s in response.subgroups if s.asset_subgroup == "tax_efficient_equities"]
+    assert len(frozen) == 1 and frozen[0].current_holding_inr == Decimal("400")

@@ -309,7 +309,9 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
     fund_rows = list(run.fund_rows or [])
     subs = list(run.subgroup_summaries or [])
     if fund_rows:
-        current_rows, target_rows = plan_rows_from_run(fund_rows, list(run.trades or []))
+        current_rows, target_rows = plan_rows_from_run(
+            fund_rows, list(run.trades or []), subs
+        )
         current_mix = current_mix_from_rows(current_rows)
         target_mix = target_mix_from_rows(target_rows)
     else:

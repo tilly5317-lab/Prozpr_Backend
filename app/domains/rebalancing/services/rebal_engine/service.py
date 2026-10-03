@@ -312,6 +312,9 @@ def _signed_indian(value: float) -> str:
     return format_inr_indian(0)
 
 
+_FROZEN_SUB_CATEGORY = {"tax_efficient_equities": "ELSS Tax Saver Fund"}
+
+
 def build_rebal_facts_pack(
     response: "RebalancingComputeResponse",
     *,
@@ -480,7 +483,19 @@ def build_rebal_facts_pack(
     fund_rows: list[dict[str, Any]] = []
     for sg in subgroups:
         sg_subgroup = getattr(sg, "asset_subgroup", None)
-        for action in getattr(sg, "actions", []) or []:
+        actions = getattr(sg, "actions", []) or []
+        frozen_held = float(getattr(sg, "current_holding_inr", 0) or 0)
+        if not actions and frozen_held > 0:
+            # A frozen subgroup (ELSS lock-in) has no fund rows: held, never traded.
+            by_key[(sg_subgroup, None)] = {
+                "sub_category": _FROZEN_SUB_CATEGORY.get(sg_subgroup),
+                "asset_subgroup": sg_subgroup,
+                "current_inr": frozen_held,
+                "buy_inr": 0.0,
+                "sell_inr": 0.0,
+            }
+            continue
+        for action in actions:
             present = float(getattr(action, "present_allocation_inr", 0) or 0)
             buy = float(getattr(action, "pass1_buy_amount", 0) or 0)
             sell = float(
