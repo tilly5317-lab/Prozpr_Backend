@@ -86,8 +86,8 @@ async def collect_user_rows(
 ) -> dict[str, list[dict[str, Any]]]:
     """Every row belonging to ``user_id``, keyed by table name.
 
-    Used by the export. ``limit_per_table`` caps the daily series tables — a
-    single account's ``user_portfolio_nav_history`` runs to ~1.2k rows.
+    Used by the export. ``limit_per_table`` caps high-volume tables so one
+    account's history cannot dominate the payload.
     """
     graph = await load_fk_graph(db)
     out: dict[str, list[dict[str, Any]]] = {}

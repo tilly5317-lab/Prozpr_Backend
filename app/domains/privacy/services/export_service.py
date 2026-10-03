@@ -24,9 +24,9 @@ from app.domains.privacy.services.user_graph import collect_user_rows
 
 logger = logging.getLogger(__name__)
 
-#: The daily net-worth series alone is ~1.2k rows per user. Capped so an export
-#: stays a document a person can actually open; the cap is reported in the file
-#: rather than applied silently.
+#: A single high-volume table can run to thousands of rows per user. Capped so
+#: an export stays a document a person can actually open; the cap is reported in
+#: the file rather than applied silently.
 ROW_CAP_PER_TABLE = 5000
 
 #: Columns that are ours, not the user's — hashes and reset material. Returning

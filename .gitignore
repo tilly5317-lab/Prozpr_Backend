@@ -76,6 +76,10 @@ htmlcov/
 # Superpowers (local only)
 docs/superpowers/
 **/docs/superpowers/
+# Subagent-driven-development scratch: per-plan ledgers, briefs, review packages.
+.superpowers/
+# Dev-only scenario ledgers: production-derived dumps, never committed.
+artefact/
 **/.claude/agents/
 **/.claude/hooks/
 
@@ -142,3 +146,36 @@ issue_reports/
 
 # VR smoke-test output (contains vendor table names + row counts, not secrets)
 vr_smoke_report.json
+
+# Test code stays LOCAL — not pushed to GitHub/main (team decision 2026-09-29).
+# Run it with pytest as usual; it is simply not version-controlled.
+conftest.py
+/AI_Agents/src/cashflow_statement/tests
+/AI_Agents/src/*/tests/
+/app/domains/mutual_funds/tests
+/app/domains/portfolio/tests
+/app/domains/portfolio/services/tests
+/app/domains/general_chat/tests
+/app/domains/ai_engine/answer_formatter/tests
+/app/domains/rebalancing/services/tests
+/app/domains/rebalancing/services/rebal_engine/tests
+/app/domains/asset_allocation/services/aa_engine/tests
+/app/domains/additional_investment/services/tests
+/app/domains/additional_investment/services/ainv_engine/tests
+/app/domains/chat/services/tests
+/app/domains/ai_engine/tests
+/app/domains/practical_asset_allocation/services/paa_engine/tests
+/app/domains/intent_classifier/services/tests
+/app/domains/additional_investment/models/tests
+/app/domains/profile/services/_effective_risk/tests
+/app/routers/tests
+/app/domains/cashflow/services/goal_planning_engine/tests
+/app/domains/intent_classifier/tests
+/app/domains/asset_allocation/services/tests
+/app/domains/mutual_funds/services/tests
+/app/domains/chat/tests
+/app/core/tests
+/AI_Agents/tests
+/app/domains/additional_investment/tests
+/app/domains/profile/tests
+/app/domains/rebalancing/tests

@@ -11,17 +11,28 @@ LLM cited the only mix it had — the CURRENT one — and called it the target.
 
 Two rules, and the difference between them is deliberate:
 
-- CURRENT rolls up funds the customer actually HOLDS, so every row is looked
-  through on its own ``sub_category`` (a held Aggressive Hybrid splits 72.5/17.5/10).
-  A holding parked in the ``multi_asset`` subgroup is still just whatever fund it
-  is — it does NOT get the sleeve composition.
-- TARGET rolls up the PLAN, where the ``multi_asset`` sleeve is a generic
-  multi-asset allocation the engine sized by ``DEFAULT_MULTI_ASSET_COMPOSITION_PCTS``
-  (65/25/10) and has not yet filled. It is split by that composition regardless of
-  which funds the rebalancer picks, because splitting by the picked funds' own
-  categories drops the sleeve's Debt/Others slices whenever an equity-heavy fund
-  fills it — which is exactly what happens today (a Flexi Cap fund can land in the
-  sleeve), and it would silently delete most of the plan's debt.
+- PER-FUND rows (CURRENT and the plan's TARGET) are looked through on their own
+  ``sub_category`` — a held Aggressive Hybrid splits 72.5/17.5/10. A holding parked
+  in the ``multi_asset`` subgroup is still just whatever fund it is; it does NOT get
+  the sleeve composition.
+- FUND-LESS rows — subgroup totals (the GOAL mix, the legacy no-fund-rows fallback)
+  and any single row whose ``sub_category`` never resolved — have no category to look
+  through, so there the ``multi_asset`` sleeve IS a generic multi-asset allocation the
+  engine sized by ``DEFAULT_MULTI_ASSET_COMPOSITION_PCTS`` (65/25/10) and is split by
+  that composition. The subgroup's own nominal class would say Equity, which is a
+  worse answer than the estimate.
+
+WHY THE TARGET BAR NO LONGER USES THE SLEEVE (2026-09-27). It used to, and that
+silently re-labelled money the plan never traded: a customer holding a Flexi Cap
+fund (100% equity) and an Aggressive Hybrid inside the ``multi_asset`` subgroup saw
+them looked through honestly on the Current bar and forced to 65/25/10 on the Target
+bar. On a plan that could not sell either fund, the Target bar invented ~11 points of
+Debt and ~4 points of Others out of money that did not move, so the bar matched
+neither the customer's goal mix nor what they would actually hold. The sleeve split
+guards against an equity-heavy fund filling an UNFILLED sleeve and deleting the
+plan's debt — a concern about headroom with no fund attached to it, which is exactly
+the subgroup-total case above. Money that is already a named fund is reported as that
+fund on both bars.
 
 Only genuinely blended SEBI categories are looked through; the band table lives in
 ``scheme_classification.ASSET_CLASS_LOOKTHROUGH_WEIGHTS``.
@@ -48,8 +59,8 @@ from asset_allocation_pydantic.tables import (  # type: ignore[import-not-found]
 MULTI_ASSET_SUBGROUP = "multi_asset"
 
 # The engine sizes its multi_asset sleeve by DEFAULT_MULTI_ASSET_COMPOSITION_PCTS
-# (equity, debt, others), so the TARGET splits the sleeve by that same composition.
-# Sourced from the engine constant so the two can't drift apart.
+# (equity, debt, others), so fund-less sleeve headroom splits by that same
+# composition. Sourced from the engine constant so the two can't drift apart.
 _SLEEVE_EQUITY_PCT, _SLEEVE_DEBT_PCT, _SLEEVE_OTHERS_PCT = (
     DEFAULT_MULTI_ASSET_COMPOSITION_PCTS
 )
@@ -68,15 +79,22 @@ def asset_class_mix_from_rows(
 ) -> dict[str, float]:
     """THE Equity/Debt/Others rollup. Title-case keys, ₹ amounts.
 
-    ``multi_asset_sleeve=True`` (TARGET) splits the ``multi_asset`` subgroup by
-    the engine's own composition instead of by the funds picked to fill it; see
-    the module docstring for why the two bars differ on this one point. Pass
-    ``False`` for CURRENT, where every row is a fund the customer really holds.
+    The sleeve composition stands in wherever a ``multi_asset`` row has NO fund
+    identity to look through — either because the caller says the whole row set is
+    fund-less (``multi_asset_sleeve=True``: subgroup totals, unfilled headroom) or
+    because that individual row's ``sub_category`` never resolved. A row that names a
+    real fund is reported as that fund, because pretending otherwise re-labels money
+    the plan never touched; see the module docstring.
+
+    Note the per-row half matters even with ``multi_asset_sleeve=False``: the
+    subgroup's nominal asset class for ``multi_asset`` is Equity, so a category-less
+    hybrid would otherwise read as 100% equity — worse than the sleeve estimate.
     """
     mix: dict[str, float] = {}
     for asset_subgroup, sub_category, amount in rows:
         amount = float(amount or 0.0)
-        if multi_asset_sleeve and asset_subgroup == MULTI_ASSET_SUBGROUP:
+        no_fund_identity = multi_asset_sleeve or not sub_category
+        if no_fund_identity and asset_subgroup == MULTI_ASSET_SUBGROUP:
             mix[ASSET_CLASS_EQUITY] = (
                 mix.get(ASSET_CLASS_EQUITY, 0.0) + amount * _SLEEVE_EQUITY_PCT / 100.0
             )
@@ -102,8 +120,13 @@ def current_mix_from_rows(rows: Iterable[AssetClassRow]) -> dict[str, float]:
 
 
 def target_mix_from_rows(rows: Iterable[AssetClassRow]) -> dict[str, float]:
-    """TARGET (post-trade) mix — the multi_asset sleeve keeps its composition."""
-    return asset_class_mix_from_rows(rows, multi_asset_sleeve=True)
+    """TARGET (post-trade) mix — every row looked through on its own sub_category.
+
+    Same rule as ``current_mix_from_rows`` on purpose: both bars describe concrete
+    funds, so the SAME untraded rupee must land in the same asset class on both.
+    See the module docstring for the sleeve override this deliberately drops.
+    """
+    return asset_class_mix_from_rows(rows, multi_asset_sleeve=False)
 
 
 def plan_rows_from_run(
@@ -143,11 +166,12 @@ def plan_rows_from_run(
 
 
 def _subgroup_mix(subgroup_summaries: Iterable[Any], attr: str) -> dict[str, float]:
-    """LEGACY fallback: roll one ₹ column of the subgroup summaries up.
+    """Roll one ₹ column of the subgroup summaries up, sleeve-split.
 
-    Only used for runs persisted without fund rows, where per-fund sub_category
-    is unavailable and no look-through is possible. Keeps the sleeve split on
-    BOTH columns, which is this path's long-standing behaviour.
+    Two callers, both of them fund-less by nature: the GOAL mix (subgroup headroom
+    the plan has not assigned to funds yet) and the legacy fallback for runs
+    persisted without fund rows, where per-fund ``sub_category`` is unavailable and
+    no look-through is possible.
     """
     return asset_class_mix_from_rows(
         (
@@ -165,6 +189,21 @@ def _subgroup_mix(subgroup_summaries: Iterable[Any], attr: str) -> dict[str, flo
 def target_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
     """Rebalancing TARGET (``suggested_final_holding_inr``) as Equity/Debt/Others."""
     return _subgroup_mix(subgroup_summaries, "suggested_final_holding_inr")
+
+
+def goal_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:
+    """The GOAL mix (``goal_target_inr``) as Equity/Debt/Others.
+
+    What the customer's goals, risk profile and saved preference call for — the
+    allocation the engine AIMED at, before holdings reality, lock-ins and the
+    short-term-gains rule cut the plan down. Distinct from the target mix, which is
+    where this plan can actually land; the two legitimately differ and the Invest
+    page shows both so a customer who set 50/50 and sees a 77/20 plan can see why.
+
+    Sleeve-split (``_subgroup_mix``) because a goal target is subgroup headroom with
+    no fund attached to it yet.
+    """
+    return _subgroup_mix(subgroup_summaries, "goal_target_inr")
 
 
 def run_current_asset_class_mix(subgroup_summaries: Iterable[Any]) -> dict[str, float]:

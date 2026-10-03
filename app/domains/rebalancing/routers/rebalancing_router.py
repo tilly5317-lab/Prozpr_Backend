@@ -28,6 +28,7 @@ from app.domains.rebalancing.models.rebalancing_run import (
 from app.domains.rebalancing.schemas import (
     AssetClassBreakdownRow,
     RebalancingAssetClassBreakdown,
+    RebalancingPlanGap,
     RebalancingReadinessField,
     RebalancingReadinessResponse,
     RebalancingRunDetailResponse,
@@ -36,10 +37,16 @@ from app.domains.rebalancing.schemas import (
 )
 from app.domains.rebalancing.services.asset_class_breakdown import (
     current_mix_from_rows,
+    goal_asset_class_mix,
     plan_rows_from_run,
     run_current_asset_class_mix,
     target_asset_class_mix,
     target_mix_from_rows,
+)
+from app.domains.rebalancing.services.plan_gap import (
+    build_plan_gap,
+    short_term_locked_fund_count,
+    short_term_locked_inr,
 )
 from app.domains.rebalancing.services.saved_plan_service import (
     ORIGIN_SAVED,
@@ -293,6 +300,11 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
     when it has no subgroup summaries either — the latter's statement-NAV total
     can sit a few percent off the engine's today's-NAV total, which rendered the
     Current bar shorter than the Target bar.
+
+    A third mix rides along: the GOAL (``goal_target_inr``) the plan aimed at, plus
+    the amber disclosure explaining why it stops short. Without them the page showed
+    a Target bar that a customer with a saved preference read as that preference —
+    see ``services/plan_gap.py``.
     """
     fund_rows = list(run.fund_rows or [])
     subs = list(run.subgroup_summaries or [])
@@ -308,19 +320,49 @@ def _build_asset_class_breakdown(run: RebalancingRun) -> RebalancingAssetClassBr
             holdings = list(run.portfolio.holdings) if run.portfolio else []
             current_mix = current_asset_class_mix(holdings)
 
+    goal_mix = goal_asset_class_mix(subs) if subs else {}
+    locked = short_term_locked_inr(fund_rows)
+    moved = float(run.totals.total_sell_inr or 0) if run.totals else 0.0
+
     rows = [
         AssetClassBreakdownRow(
             asset_class=asset_class,
             current_inr=round(current_mix.get(asset_class, 0.0), 2),
             target_inr=round(target_mix.get(asset_class, 0.0), 2),
+            goal_inr=round(goal_mix.get(asset_class, 0.0), 2),
         )
         for asset_class in _BREAKDOWN_ORDER
-        if current_mix.get(asset_class, 0.0) > 0 or target_mix.get(asset_class, 0.0) > 0
+        if current_mix.get(asset_class, 0.0) > 0
+        or target_mix.get(asset_class, 0.0) > 0
+        or goal_mix.get(asset_class, 0.0) > 0
     ]
     return RebalancingAssetClassBreakdown(
         rows=rows,
         current_total_inr=round(sum(current_mix.values()), 2),
         target_total_inr=round(sum(target_mix.values()), 2),
+        goal_total_inr=round(sum(goal_mix.values()), 2),
+        short_term_locked_inr=round(locked, 2),
+        gap=_plan_gap_schema(
+            build_plan_gap(
+                goal_mix,
+                target_mix,
+                locked_inr=locked,
+                moved_inr=moved,
+                locked_fund_count=short_term_locked_fund_count(fund_rows),
+            )
+        ),
+    )
+
+
+def _plan_gap_schema(gap) -> RebalancingPlanGap | None:
+    """Map the pure ``PlanGap`` onto the wire schema (None stays None)."""
+    if gap is None:
+        return None
+    return RebalancingPlanGap(
+        question=gap.question,
+        summary=gap.summary,
+        points=list(gap.points),
+        footnote=gap.footnote,
     )
 
 

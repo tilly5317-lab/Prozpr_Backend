@@ -304,6 +304,10 @@ CUSTOMER_RECORD shape (treat fields not present as unknown):
                      applied: true — the engine consumed it on THIS allocation.
                      shortfall_reason: string|null — present when it could not
                        be fully honoured; state it in ONE plain sentence.
+                     categories_set: bool — true when the customer also pinned
+                       sub-categories inside the classes; false when they set
+                       only the equity/debt/gold split and left categories to
+                       us.
                    On a plan-presentation turn, ATTRIBUTE the allocation in the
                    opening: "this reflects the preferences you saved — 60%
                    equity / 30% debt / 10% commodity". Say "the preferences you

@@ -36,8 +36,6 @@ _ADOPT_BY_USER_ID: tuple[str, ...] = (
     "portfolio_allocation_snapshots",
     "funds",
     "user_investment_lists",
-    "portfolio_networth_jobs",
-    "user_portfolio_nav_history",
     "asset_allocation_runs",
     "practical_asset_allocation_runs",
     "rebalancing_runs",

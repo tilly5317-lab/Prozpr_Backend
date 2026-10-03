@@ -11,6 +11,8 @@ from app.domains.profile.schemas.full_profile import FullProfileResponse
 from app.domains.profile.schemas.investment_preferences import (
     InvestmentPreferenceIntent,
     InvestmentPreferencePreviewResponse,
+    ScreenCurrent,
+    ScreenCurrentHolding,
     ScreenPin,
     ScreenPreferenceGetResponse,
     ScreenPreferenceRequest,
@@ -59,6 +61,8 @@ __all__ = [
     "InvestmentConstraintUpdate",
     "InvestmentPreferenceIntent",
     "InvestmentPreferencePreviewResponse",
+    "ScreenCurrent",
+    "ScreenCurrentHolding",
     "ScreenPin",
     "ScreenPreferenceGetResponse",
     "ScreenPreferenceRequest",

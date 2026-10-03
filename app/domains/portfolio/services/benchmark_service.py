@@ -196,8 +196,8 @@ def _build_summary(bench_cf, cust_val, bench_val, invested, as_of) -> dict:
 # DB adapter
 # ---------------------------------------------------------------------------
 
-# Benchmark index code lives in the benchmarks domain; re-exported here so
-# ``twr_service`` (which imports it from this module) keeps working unchanged.
+# Benchmark index code lives in the benchmarks domain; re-exported here for
+# callers of this module.
 NIFTY_INDEX_NAME = NIFTY_50_CODE
 
 

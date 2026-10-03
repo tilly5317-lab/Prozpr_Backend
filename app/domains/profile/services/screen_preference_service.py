@@ -12,12 +12,20 @@ run back out for the screen. No engine or DB change — see
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 from typing import Optional
 
+from app.domains.additional_investment.services.ainv_engine.holdings_snapshot import (
+    HoldingsSnapshot,
+    load_holdings_snapshot,
+)
 from app.domains.additional_investment.services.lumpsum_reasoning import subgroup_label
 from app.domains.ai_engine.common import ensure_ai_agents_path
 from app.domains.mutual_funds.services.investment_preferences import ResolvedPreferences
 from app.domains.profile.schemas import (
+    ScreenCurrent,
+    ScreenCurrentHolding,
     ScreenPreferenceGetResponse,
     ScreenSaved,
     ScreenSaveResponse,
@@ -32,6 +40,12 @@ from app.domains.profile.services.preference_save_service import (
 )
 
 ensure_ai_agents_path()
+from asset_allocation_pydantic.equity_subgroup_slider import (  # noqa: E402
+    apply_equity_subgroup_slider,
+)
+from asset_allocation_pydantic.steps.step4_long_term import (  # noqa: E402
+    phase5_equity_subgroups,
+)
 from asset_allocation_pydantic.tables import (  # noqa: E402
     DEFAULT_MULTI_ASSET_COMPOSITION_PCTS,
 )
@@ -40,18 +54,33 @@ from practical_asset_allocation.human_override import (  # noqa: E402
     FROZEN_SUBGROUPS,
     SETTABLE_SUBGROUPS,
 )
+from practical_asset_allocation.pipeline import DEBT_DEFAULT_ORDER  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 _CLASSES = ("equity", "debt", "others")
+# A class as the customer reads it: the screen calls "others" Commodity.
+_CLASS_WORD = {"equity": "equity", "debt": "debt", "others": "commodity"}
 _SUM_TOLERANCE = 0.5
 # Every sub-group is settable except the frozen ELSS holding row — the sleeve
 # included (D-A2, 2026-09-14): a multi_asset pin sizes the multi-asset fund,
 # and a zero empties it.
 _SETTABLE_IDS = frozenset(sg for sg in SETTABLE_SUBGROUPS if sg not in FROZEN_SUBGROUPS)
 # Spec 2026-09-15 §5. Read off the engine's own composition rather than written
-# out, so the class-fit check and the engine's carve cannot drift apart.
-_MULTI_ASSET_SLICES: dict[str, float] = dict(
-    zip(_CLASSES, (pct / 100.0 for pct in DEFAULT_MULTI_ASSET_COMPOSITION_PCTS))
+# out, so the class-fit check, the engine's carve and the figures the GET hands
+# the screen cannot drift apart.
+_MULTI_ASSET_COMPOSITION: dict[str, float] = dict(
+    zip(_CLASSES, DEFAULT_MULTI_ASSET_COMPOSITION_PCTS)
 )
+# Only the engine's equity SHARES are kept, so the pool is nominal: ₹1cr, large
+# enough that its ₹100 amount rounding is noise.
+_NOMINAL_EQUITY_POOL = 10_000_000
+
+
+def _js_round(value: float) -> int:
+    """`Math.round` — half UP. Python's `round` is banker's (2.5 -> 2), so it
+    would carve differently from the screen on every exact half."""
+    return math.floor(value + 0.5)
 
 
 def _class_budget_consumed(subgroup: str, pct_of_total: float) -> dict[str, float]:
@@ -63,9 +92,19 @@ def _class_budget_consumed(subgroup: str, pct_of_total: float) -> dict[str, floa
     20 against the equity bar — enough to reject the screen's own
     recommendation, whose sleeve is typically half the portfolio. Every other
     row spends its whole share in its own class.
+
+    The sleeve is charged the screen's WHOLE-PERCENT carve, not the raw
+    composition: debt and others rounded half up, equity the rest — which is
+    what the screen shows, and what it fills each class's own rows up to. The
+    check must charge the fund exactly that, or the screen's own balanced
+    numbers are rejected: at the raw carve its equity rows overshoot by up to
+    0.9, past the 0.5 tolerance, for about one sleeve size in five.
     """
     if subgroup == "multi_asset":
-        return {cls: pct_of_total * share for cls, share in _MULTI_ASSET_SLICES.items()}
+        comp = _MULTI_ASSET_COMPOSITION
+        debt = _js_round(pct_of_total * comp["debt"] / 100)
+        others = _js_round(pct_of_total * comp["others"] / 100)
+        return {"equity": pct_of_total - debt - others, "debt": debt, "others": others}
     return {CLASS_OF.get(subgroup, "others"): pct_of_total}
 
 
@@ -104,6 +143,18 @@ def resolve_screen_preferences(
         pot = float(pin["pct_of_total"])
         if pot < 0:
             raise ScreenPreferenceError(f"{sg}: a share cannot be negative.")
+        if sg == "multi_asset" and pot > 0:
+            # Zero means zero. Any amount of the fund carries some of every
+            # class it holds, which the whole-percent carve below can hide
+            # (1% → 0.25% debt → 0) — but the engine builds no sleeve at all
+            # without debt (`_sleeve_size`), so such a pin would be silently
+            # dropped from the plan. Refuse it here instead.
+            for cls in _CLASSES:
+                if mix[cls] <= 0 and _MULTI_ASSET_COMPOSITION[cls] > 0:
+                    word = _CLASS_WORD[cls]
+                    raise ScreenPreferenceError(
+                        f"Multi-asset funds hold some {word}, so they can't be part of a mix with 0% {word}."
+                    )
         # A zero spends nothing, so it can never push a class over its bar.
         for cls, spent in _class_budget_consumed(sg, pot).items():
             pinned_of_total[cls] += spent
@@ -129,11 +180,69 @@ def _settable_subcategory_ids() -> list[str]:
     return sorted(_SETTABLE_IDS)
 
 
-def subcategory_catalog(out) -> list[ScreenSubcategory]:
+def _engine_default_split(cls: str, rows: list[str], inp) -> dict[str, float]:
+    """Where the engine itself sends a class's long-term money when no row of
+    it is named — the split for a class the plan gave no money of its own.
+
+    Equity: the ideal engine's own two calls, phase 5 then the slider, for this
+    customer's score and market view (`pipeline.py` R196-R215). Debt: wholly to
+    the first settable row of `DEBT_DEFAULT_ORDER` — never plain `arbitrage`,
+    which the engine does not pick unasked (spec 2026-09-15 §4). Others: wholly
+    to gold, where the engine leaves the commodity residual (R220-R222).
+    """
+    if cls == "equity":
+        amounts = phase5_equity_subgroups(
+            total_equity_for_subgroups=_NOMINAL_EQUITY_POOL,
+            score=inp.effective_risk_score,
+            market_commentary=inp.market_commentary,
+        )
+        amounts, _, _ = apply_equity_subgroup_slider(amounts, equity_pool=_NOMINAL_EQUITY_POOL)
+        return {sg: float(amounts.get(sg, 0)) for sg in rows}
+    home = (
+        next((sg for sg in DEBT_DEFAULT_ORDER if sg in rows), None)
+        if cls == "debt"
+        else "gold_commodities"
+    )
+    return {sg: float(sg == home) for sg in rows}
+
+
+def _weights_in_class(rec_by_sg: dict[str, float], inp) -> dict[str, float]:
+    """`weight_in_class` for every settable row except the sleeve, which is one
+    fund across all three classes and so no class's own row."""
+    rows_by_class: dict[str, list[str]] = {}
+    for sg in _settable_subcategory_ids():
+        if sg != "multi_asset":
+            rows_by_class.setdefault(CLASS_OF.get(sg, "others"), []).append(sg)
+
+    weights: dict[str, float] = {}
+    for cls, rows in rows_by_class.items():
+        amounts = {sg: rec_by_sg.get(sg, 0.0) for sg in rows}
+        if sum(amounts.values()) <= 0:
+            amounts = _engine_default_split(cls, rows, inp)
+        if sum(amounts.values()) <= 0:
+            # Defensive — the engine placed nothing either. Still a whole class.
+            amounts = dict.fromkeys(rows, 1.0)
+        # Plain ratios: the screen normalises by their sum, so exact-sum
+        # rounding here would buy nothing.
+        total = sum(amounts.values())
+        weights.update({sg: amt / total for sg, amt in amounts.items()})
+    return weights
+
+
+def subcategory_catalog(out, inp) -> list[ScreenSubcategory]:
     """Settable subcategories + Prozpr's recommended share of total, from a
-    neutral practical-allocation run output."""
+    neutral practical-allocation run output and the input it was run on.
+
+    Each row also carries `weight_in_class`, its share of its class's OWN rows,
+    which the screen spreads a moved class bar by. It is the plan's own ratio,
+    so an untouched class re-spreads to exactly the plan. A class the plan gave
+    no money of its own — routinely debt and commodity, when the multi-asset
+    fund carries all of both — has no ratio to read, and takes the split the
+    engine would choose unprompted (`_engine_default_split`) instead.
+    """
     grand = float(getattr(out, "grand_total", 0.0)) or 1.0
     rec_by_sg = {r.subgroup: float(r.total) for r in out.aggregated_subgroups}
+    weights = _weights_in_class(rec_by_sg, inp)
     items: list[ScreenSubcategory] = []
     for sg in _settable_subcategory_ids():
         items.append(
@@ -141,10 +250,45 @@ def subcategory_catalog(out) -> list[ScreenSubcategory]:
                 id=sg,
                 label=subgroup_label(sg),
                 recommended_pct_of_total=round(rec_by_sg.get(sg, 0.0) * 100.0 / grand, 1),
+                weight_in_class=weights.get(sg),
                 **{"class": CLASS_OF.get(sg, "others")},
             )
         )
     return items
+
+
+def current_block(snapshot: HoldingsSnapshot) -> ScreenCurrent:
+    """Where the customer sits today, in the screen's own rows (frontend spec
+    2026-09-20 §3.1, D6).
+
+    ``holdings`` carries every settable row as a share of the SETTABLE part of
+    what they hold, so it sums to 100 (to the tenth — the frontend re-spreads
+    the rounding). Everything else is ``excluded_pct``, a share of the WHOLE
+    portfolio before that rescale: the frozen ELSS row the caption names, AND
+    any held category this screen cannot set — dividend yield, silver, China,
+    value whose metadata never classified (decision 2026-09-26). Folding those in with the frozen rows keeps the figures
+    honest: dropping them would inflate every settable row and report nothing
+    excluded, so a customer 40% in a dividend fund would read as holding none
+    of it.
+
+    Nothing settable held → ``holdings`` is empty, which the screen reads as
+    "nothing to show" (D8).
+    """
+    total = snapshot.total_inr
+    settable = {sg: snapshot.by_subgroup.get(sg, 0.0) for sg in _settable_subcategory_ids()}
+    settable_total = sum(settable.values())
+    holdings = (
+        [
+            ScreenCurrentHolding(
+                subgroup=sg, pct_of_total=round(amt * 100.0 / settable_total, 1)
+            )
+            for sg, amt in settable.items()
+        ]
+        if settable_total > 0
+        else []
+    )
+    excluded = round((total - settable_total) * 100.0 / total, 1) if total > 0 else 0.0
+    return ScreenCurrent(holdings=holdings, excluded_pct=excluded)
 
 
 async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
@@ -182,14 +326,31 @@ async def screen_read_model(db, user) -> ScreenPreferenceGetResponse:
             pins.append({"subgroup": sg, "pct_of_total": float(pct_of_total)})
         saved = ScreenSaved(class_mix=mix, pins=pins, saved_at=row.activated_at)
 
+    # Frontend spec 2026-09-20 D1: today's holdings ride on this GET, off the
+    # same snapshot the lump-sum deficit fill reads. The block is an adornment
+    # the screen degrades gracefully without (D8), and the split it exists to
+    # be compared against must still arrive — so a failed read costs the today
+    # bar, not the screen. WARNING, so the failure reaches us, not just them.
+    snapshot: Optional[HoldingsSnapshot]
+    try:
+        snapshot = await load_holdings_snapshot(db, user.id)
+    except Exception:
+        logger.warning(
+            "investment-preferences: holdings snapshot failed; sending no today block",
+            exc_info=True,
+        )
+        snapshot = None
+
     return ScreenPreferenceGetResponse(
         saved=saved,
         recommendation={"class_mix": class_rec},
-        subcategories=subcategory_catalog(out),
+        subcategories=subcategory_catalog(out, inp),
+        multi_asset_composition=_MULTI_ASSET_COMPOSITION,
         # Spec 2026-09-15 §9.1. Read off the same profile the catalog was built
         # from, through the engine's own helper — so this warning and the §9
         # record attached after the run can never name different facts.
         carve_outs_at_risk=carve_outs_at_risk(inp),
+        current=current_block(snapshot) if snapshot is not None else None,
     )
 
 

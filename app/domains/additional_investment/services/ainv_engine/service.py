@@ -123,16 +123,20 @@ def _long_term_holdings(
 # 2026-07-06.
 # 3.2.0: lumpsum per-fund cap floored at AINV_LUMPSUM_FUND_CAP_FLOOR_INR
 # (both deficit-fill and legacy modes) — same amendment.
-# 3.3.0: top-1/2 funds per subgroup by corpus; per-fund cap and SIP mirror retired.
-# 3.4.0: FY-end horizon anchoring live — the short-goal funding boundary counts to
+# 3.3.0: a SIP whose plan was shaped by a stated preference targets the
+# long-term column — the stated split — instead of the nearest unfunded goal
+# (spec 2026-09-20).
+# 3.4.0: top-1/2 funds per subgroup by corpus; per-fund cap and SIP mirror retired.
+# 3.5.0: FY-end horizon anchoring live — the short-goal funding boundary counts to
 # the financial-year end (months_to_fy_end), matching the allocation engine.
-# 3.5.0: SIP-first goal waterfall — goal money first from the practical
+# 3.6.0: SIP-first goal waterfall — goal money first from the practical
 # allocation's goal_funding (no cashflow projection); the rest follows the
 # long-term plan; lumpsum deficits exclude the held short-term money the goals use.
-# 3.6.0: a lumpsum funds the short-term goals' full remaining need first — its
+# A preference plan has no goal_funding, so its SIP follows the stated split.
+# 3.7.0: a lumpsum funds the short-term goals' full remaining need first — its
 # practical run assumes no future SIP.
 # Direct stocks are not part of any corpus.
-AINV_ENGINE_VERSION = "ainv-3.6.0"
+AINV_ENGINE_VERSION = "ainv-3.7.0"
 
 # Sentinel: derive the preference FK from `preference_id_for` (existing
 # behaviour) unless the caller names the row that shaped the run (a chat
@@ -312,6 +316,9 @@ async def compute_additional_investment_result(
             output=None, blocking_message=_MSG_ENGINE_ERROR
         )
 
+    # The allocation the CHAT FACTS narrate — the sized run below reassigns this so
+    # the reply never describes a plan that was discarded.
+    effective_result = paa_outcome.result
     if (
         cadence is Cadence.SIP_MONTHLY
         and deploy_amount_inr - goal_share_inr > 0
@@ -338,6 +345,7 @@ async def compute_additional_investment_result(
                     goal_share_inr=goal_share_inr,
                     goal_subgroup=goal_subgroup,
                 )
+                effective_result = sized.result
                 trace_line("additional_investment SIP long-term split taken from a sized allocation")
         except Exception:  # noqa: BLE001 — keep the real-corpus split, never raise
             logger.exception(
@@ -451,6 +459,8 @@ async def compute_additional_investment_result(
             source_allocation_run_id = await persist_practical_allocation_run(
                 db,
                 user_id=acting_user_id,
+                # The REAL-corpus allocation on purpose, not effective_result: the
+                # sized one is a ₹1cr notional used only to recover ratios.
                 output=paa_outcome.result,
                 chat_session_id=chat_session_id,
                 user_question=user_question,
@@ -493,5 +503,5 @@ async def compute_additional_investment_result(
         output=response,
         run_id=run_id,
         deficit_facts=deficit_facts,
-        practical_result=paa_outcome.result,
+        practical_result=effective_result,
     )

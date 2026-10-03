@@ -37,8 +37,10 @@ from app.domains.goals.models import (  # noqa: F401
 )
 from app.domains.portfolio.models import (  # noqa: F401
     portfolio,
-    user_portfolio_nav_history,
     portfolio_networth_job,
+    user_networth_series_state,
+    user_portfolio_nav_history,
+    user_scheme_position,
 )
 from app.domains.ingestion.models import (  # noqa: F401
     cas_upload,

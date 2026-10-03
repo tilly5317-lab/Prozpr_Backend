@@ -1,0 +1,541 @@
+"""End-to-end tests for the invite-only launch.
+
+The Apps Script web app is stubbed with an in-memory sheet that honours the
+same contract (append, dedupe-on-email, seat numbering, claimed count), so
+these exercise the router and service wiring without a network call — and
+pin the two behaviours that would be expensive to get wrong in production:
+a lead silently lost, or a "you're on the list" shown when no row exists.
+"""
+
+from __future__ import annotations
+
+import os
+import pathlib
+from datetime import date
+
+import pytest
+
+import app.all_models  # noqa: F401  — register every ORM model before app.main
+from fastapi.testclient import TestClient
+
+from app.core.config import get_settings
+from app.domains.early_access.services import early_access_service as svc
+from app.main import app
+
+API = "/api/v1/early-access"
+
+APPLICATION = {
+    "name": "Ananya Rao",
+    "email": "ananya@example.com",
+    "whatsapp": "+91 98765 43210",
+    "profession": "Finance",
+    "source": "earlyaccess_page",
+}
+
+
+class FakeSheet:
+    """Stands in for the Apps Script web app — see the script in CLAUDE.md."""
+
+    def __init__(self) -> None:
+        self.emails: list[str] = []
+
+    def __call__(self, method: str, *, json=None, params=None) -> dict:
+        if method == "GET":
+            return {"ok": True, "claimed": len(self.emails)}
+        email = json["email"]
+        if email in self.emails:
+            seat = self.emails.index(email) + 1
+            return {
+                "ok": True,
+                "seat": seat,
+                "claimed": len(self.emails),
+                "already_registered": True,
+            }
+        self.emails.append(email)
+        return {
+            "ok": True,
+            "seat": len(self.emails),
+            "claimed": len(self.emails),
+            "already_registered": False,
+        }
+
+
+@pytest.fixture
+def sheet(monkeypatch: pytest.MonkeyPatch):
+    """A client wired to a fresh in-memory sheet, with the caches cleared.
+
+    Both caches are process-global, so leaving either populated would leak a
+    seat count from one test into the next.
+    """
+    monkeypatch.setenv("EARLY_ACCESS_SHEET_WEBHOOK_URL", "https://script.example/exec")
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "100")
+    monkeypatch.delenv("SLACK_EARLY_ACCESS_WEBHOOK_URL", raising=False)
+    fake = FakeSheet()
+    monkeypatch.setattr(svc, "_call_sheet", fake)
+    monkeypatch.setattr(svc, "_seats_cache", None, raising=False)
+    svc._rate_hits.clear()
+    yield fake
+    svc._rate_hits.clear()
+
+
+@pytest.fixture
+def client(sheet) -> TestClient:
+    return TestClient(app)
+
+
+def test_application_takes_a_seat(client: TestClient, sheet: FakeSheet):
+    r = client.post(f"{API}/signup", json=APPLICATION)
+    assert r.status_code == 201
+    assert r.json() == {
+        "ok": True,
+        "seats_total": 100,
+        "seats_claimed": 1,
+        "seats_left": 99,
+        "waitlisted": False,
+        "already_registered": False,
+    }
+    assert sheet.emails == ["ananya@example.com"]
+
+
+def test_repeat_email_is_a_success_not_a_duplicate_row(
+    client: TestClient, sheet: FakeSheet
+):
+    """The page renders this as "you're already on the list" — never an error,
+    and never a second row for the same person."""
+    client.post(f"{API}/signup", json=APPLICATION)
+    r = client.post(
+        f"{API}/signup", json={**APPLICATION, "email": "ANANYA@Example.com"}
+    )
+    assert r.status_code == 201
+    assert r.json()["already_registered"] is True
+    assert r.json()["seats_claimed"] == 1
+    assert sheet.emails == ["ananya@example.com"]
+
+
+def test_seat_meter_reads_the_sheet(client: TestClient):
+    client.post(f"{API}/signup", json=APPLICATION)
+    r = client.get(f"{API}/seats")
+    assert r.status_code == 200
+    assert r.json() == {"seats_total": 100, "seats_claimed": 1, "seats_left": 99}
+
+
+def test_past_the_cap_is_waitlisted_not_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "1")
+    client.post(f"{API}/signup", json=APPLICATION)
+    r = client.post(
+        f"{API}/signup", json={**APPLICATION, "email": "second@example.com"}
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["waitlisted"] is True
+    # Still recorded, and the meter never goes negative.
+    assert body["seats_left"] == 0
+
+
+def test_baseline_is_added_to_the_sheet_count(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Testers recruited before the page went up are real seats gone, so the
+    meter has to include them or it understates how full the beta is."""
+    monkeypatch.setenv("EARLY_ACCESS_SEATS_BASELINE", "60")
+    client.post(f"{API}/signup", json=APPLICATION)
+    r = client.get(f"{API}/seats")
+    assert r.json() == {"seats_total": 100, "seats_claimed": 61, "seats_left": 39}
+
+
+def test_baseline_defaults_to_zero_so_the_count_is_the_register(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Unset means the page reports exactly what the Sheet holds — no invented
+    head start."""
+    monkeypatch.delenv("EARLY_ACCESS_SEATS_BASELINE", raising=False)
+    client.post(f"{API}/signup", json=APPLICATION)
+    assert client.get(f"{API}/seats").json()["seats_claimed"] == 1
+
+
+def test_baseline_pushes_the_beta_full_and_waitlists(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A beta that is already full must not keep handing out seats it lacks."""
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "10")
+    monkeypatch.setenv("EARLY_ACCESS_SEATS_BASELINE", "10")
+    r = client.post(f"{API}/signup", json=APPLICATION)
+    body = r.json()
+    assert body["waitlisted"] is True
+    assert body["seats_left"] == 0
+    # The meter is clamped at the cap rather than reading "11 of 10".
+    assert body["seats_claimed"] == 10
+
+
+def test_honeypot_writes_nothing_and_reveals_nothing(
+    client: TestClient, sheet: FakeSheet
+):
+    r = client.post(f"{API}/signup", json={**APPLICATION, "referrer_note": "Acme Corp"})
+    assert r.status_code == 201  # a scraper learns nothing from the status
+    assert sheet.emails == []  # …and no row was written
+    assert r.json()["seats_claimed"] == 100  # nor anything about the real count
+
+
+def test_honeypot_name_is_not_something_a_browser_autofills(
+    client: TestClient, sheet: FakeSheet
+):
+    """The trap was once called `company`. Chrome recognised that as the
+    organization field, filled it from the visitor's saved profile, and every
+    applicant with autofill on was silently discarded behind a success screen.
+
+    So: a field a browser knows how to fill must never be the trap. `company`
+    is now just an unknown key, which pydantic ignores — the application goes
+    through instead of vanishing.
+    """
+    r = client.post(f"{API}/signup", json={**APPLICATION, "company": "Acme Corp"})
+    assert r.status_code == 201
+    assert r.json()["already_registered"] is False
+    assert sheet.emails == ["ananya@example.com"], "a real applicant was dropped"
+
+
+def test_rate_limit_after_a_burst(client: TestClient):
+    for i in range(svc._RATE_LIMIT_MAX):
+        assert (
+            client.post(f"{API}/signup", json={**APPLICATION, "email": f"n{i}@x.com"})
+        ).status_code == 201
+    r = client.post(f"{API}/signup", json={**APPLICATION, "email": "over@x.com"})
+    assert r.status_code == 429
+
+
+def test_unreachable_sheet_is_503_never_a_false_success(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """The Sheet is the sole register: if the row cannot be written, the
+    applicant must be asked to retry, not told they are on the list."""
+
+    def boom(*args, **kwargs):
+        raise svc.EarlyAccessRegisterError("register down")
+
+    monkeypatch.setattr(svc, "_call_sheet", boom)
+    monkeypatch.setattr(svc, "_seats_cache", None, raising=False)
+    assert client.post(f"{API}/signup", json=APPLICATION).status_code == 503
+    # The meter errors too, rather than confidently rendering a wrong count.
+    assert client.get(f"{API}/seats").status_code == 503
+
+
+def test_unconfigured_webhook_is_503(monkeypatch: pytest.MonkeyPatch):
+    """No `sheet` fixture here on purpose: this is the real service against an
+    unset webhook, i.e. exactly what a deploy that forgot the env var does."""
+    monkeypatch.delenv("EARLY_ACCESS_SHEET_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(svc, "_seats_cache", None, raising=False)
+    svc._rate_hits.clear()
+    r = TestClient(app).post(f"{API}/signup", json=APPLICATION)
+    assert r.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"email": "not-an-email"},
+        {"profession": "Astronaut"},
+        {"whatsapp": "call me maybe"},
+        {"whatsapp": "12345"},
+        {"name": "   "},
+    ],
+)
+def test_invalid_input_is_422(client: TestClient, bad: dict):
+    r = client.post(f"{API}/signup", json={**APPLICATION, **bad})
+    assert r.status_code == 422
+
+
+# ── Mail is NEVER automatic ─────────────────────────────────────────────────
+def test_signing_up_sends_no_mail_whatsoever(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Applicant mail goes out in batches the team triggers by hand, never on
+    submit. A form being tested, spammed or replayed must not mail anyone, so
+    this asserts the absence of a send rather than trusting a comment.
+    """
+    import httpx
+
+    calls: list[str] = []
+
+    async def explode(self, url, *args, **kwargs):  # noqa: ANN001
+        calls.append(str(url))
+        raise AssertionError(f"signup tried to send mail: {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", explode)
+    r = client.post(f"{API}/signup", json=APPLICATION)
+    assert r.status_code == 201
+    assert calls == []
+
+
+def test_the_router_does_not_even_import_the_mail_service():
+    """Defence in depth: no import, so no later edit can wire a send back in
+    by accident."""
+    from app.domains.early_access.routers import early_access_router
+
+    src = pathlib.Path(early_access_router.__file__).read_text(encoding="utf-8")
+    assert "send_early_access_confirmation" not in src.replace("# ", "").split(
+        "def signup"
+    )[0].replace("scripts/send_early_access_mails.py", "")
+    assert not hasattr(early_access_router, "send_early_access_confirmation")
+
+
+# ── The mail template (sent by hand, see scripts/) ──────────────────────────
+def test_ticket_names_the_holder_but_never_a_seat_number():
+    """The /earlyaccess page shows a smaller seats-left count than the register
+    holds, so a seat or position number in the mail would contradict it."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    subject, text, html_body = _render(
+        full_name="Shreyash Dhakate", seat=37, seats_total=100, waitlisted=False
+    )
+    assert "early access" in subject.lower()
+    # The ticket carries the full name as a holder, the note greets by first.
+    assert "Shreyash Dhakate" in html_body and "Shreyash Dhakate" in text
+    assert "You're in, Shreyash." in text
+    assert "ADMIT ONE" in html_body.upper()
+    for body in (subject, text, html_body):
+        assert "037" not in body and "of 100" not in body
+        # The programme has a NAME, never a version: "Beta 2.0" once sat beside
+        # the wordmark and in every subject line, and "MVP" is our word for it.
+        # Neither belongs in a letter to a prospective customer.
+        assert "MVP" not in body
+        assert "2.0" not in body
+        assert "Beta" not in body
+
+
+def test_the_stub_carries_the_date_and_says_nothing_twice():
+    """The stub is the half you keep, so what it prints has to mean something.
+
+    It briefly carried a generated reference ("PZ-RBSU") in place of the
+    edition number this mail used to print — an identifier nobody could look
+    up, sitting directly above a second "Standby" on the standby ticket. The
+    date is the one fact the stub can carry that is both real and useful, and
+    it appears there ONLY, not on both panels.
+    """
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    for waitlisted, admission in ((False, "Admit one"), (True, "Standby")):
+        _, _, html_body = _render(
+            full_name="Asha",
+            seat=7,
+            seats_total=100,
+            waitlisted=waitlisted,
+            issued_on=date(2026, 9, 18),
+        )
+        assert "PZ-" not in html_body
+        assert "Reference" not in html_body
+        # Printed once on the ticket, on the stub — not on both panels.
+        assert html_body.count("18 SEP 2026") == 1
+        # The admission word appears once, on the main panel.
+        assert html_body.count(admission) == 1
+
+
+def test_what_happens_next_sits_outside_the_ticket():
+    """The ticket is the object; the words are the covering note. If the two
+    ever merge, the design intent is gone."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Asha", seat=3, seats_total=100, waitlisted=False
+    )
+    ticket_end = html_body.index("THE COVERING NOTE")
+    assert "What happens next" not in html_body[:ticket_end]
+    assert "What happens next" in html_body[ticket_end:]
+
+
+def test_the_wordmark_and_barcode_survive_a_blocked_image():
+    """Most clients block remote images by default, so nothing the ticket needs
+    may be an image."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Asha", seat=3, seats_total=100, waitlisted=False
+    )
+    assert "<img" not in html_body
+    assert "prozp&#8377;" in html_body  # wordmark as live text
+    assert "Instrument Serif" in html_body
+    # Barcode drawn with table cells, each carrying a REAL height. The first
+    # version put the height on the table and left the cells at font-size:0,
+    # so they collapsed and the barcode was invisible in real inboxes.
+    # `class="tk-bar"`, not "tk-bar" — the latter also matches the dark-mode
+    # rule in the <style> block, which is not a bar.
+    assert html_body.count('class="tk-bar"') == 18
+    assert 'height="28"' in html_body
+    assert "line-height:28px" in html_body
+    # No coloured cell relies on a zero-sized space to hold its height open:
+    # that is exactly what made the barcode invisible in real inboxes, and the
+    # gold rule was one edit from the same fate. (`font-size:0` on its own is
+    # fine and still present — the fluid-hybrid wrapper needs it to kill the
+    # whitespace gap between the two inline-block panels.)
+    assert "font-size:0;line-height:0" not in html_body
+
+
+def test_the_ticket_stacks_on_mobile_without_needing_a_media_query():
+    """Gmail's mobile app strips <style> for many account types, so a layout
+    that needs a media query to stack does not stack on the phones most of
+    these people read mail on — the columns just crush. The panels are
+    inline-blocks with max-widths that wrap on their own instead.
+    """
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="Shreyash Dhakate", seat=2, seats_total=100, waitlisted=False
+    )
+    # Two panels that wrap by themselves, not percentage table columns.
+    assert html_body.count("display:inline-block") == 2
+    assert 'width="62%"' not in html_body and 'width="38%"' not in html_body
+    # The gap inline-block would otherwise render between the panels.
+    assert "font-size:0;text-align:left" in html_body
+    # Outlook ignores inline-block, so it gets a real table.
+    assert "[if mso]" in html_body
+    # The stacked (mobile) perforation is the DEFAULT, inline; the side-by-side
+    # one is the enhancement. If the <style> block is dropped, mobile is right.
+    assert "border-top:1px dashed" in html_body
+    # Panels are FULL WIDTH inline. The side-by-side caps live only in the
+    # media query: capping them inline left the stub at 236px on a 356px
+    # phone, so the perforation stopped dead at 45% of the card and the seat
+    # block sat off-centre beneath a half-drawn line.
+    assert "max-width:358px" not in html_body.split("</style>")[1]
+    assert "max-width:236px" not in html_body.split("</style>")[1]
+    assert "max-width:358px" in html_body.split("</style>")[0]
+
+
+def test_a_standby_ticket_never_claims_a_seat():
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    subject, text, html_body = _render(
+        full_name="Asha Rao", seat=104, seats_total=100, waitlisted=True
+    )
+    assert "standby" in subject.lower()
+    assert "STANDBY" in html_body.upper()
+    for body in (subject, text, html_body):
+        assert "position" not in body.lower()
+        assert "You're in" not in body
+        assert "ADMIT ONE" not in body.upper()
+
+
+def test_a_submitted_name_cannot_inject_markup_into_our_mail():
+    """The name comes from a public form and goes out under our own sending
+    domain, so it is escaped in the HTML part — and left raw in the text part,
+    or "O'Brien" arrives as "O&#x27;Brien"."""
+    from app.domains.early_access.services.early_access_email_service import _render
+
+    _, _, html_body = _render(
+        full_name="<img src=x onerror=alert(1)>",
+        seat=1,
+        seats_total=100,
+        waitlisted=False,
+    )
+    assert "<img src=x onerror" not in html_body
+    assert "&lt;img" in html_body
+
+    _, text, _ = _render(full_name="O'Brien", seat=1, seats_total=100, waitlisted=False)
+    assert "O'Brien" in text and "&#x27;" not in text
+
+
+def test_missing_name_falls_back_rather_than_printing_an_empty_ticket():
+    from app.domains.early_access.services.early_access_email_service import (
+        _first_name,
+        _holder_name,
+    )
+
+    assert _first_name("Shreyash Dhakate") == "Shreyash"
+    assert _first_name("   ") == "there"
+    assert _holder_name("  ") == "Founding tester"
+
+
+async def test_mail_without_a_resend_key_reports_failure_not_an_exception(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A batch run must carry on to the next recipient rather than stop."""
+    from app.domains.early_access.services import early_access_email_service as mail
+
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    ok = await mail.send_early_access_confirmation(
+        to_email="a@example.com",
+        full_name="Asha",
+        seat=1,
+        seats_total=100,
+        waitlisted=False,
+    )
+    assert ok is False
+
+
+# ── The signup block ────────────────────────────────────────────────────────
+def _can_sign_up(phone: str) -> bool:
+    from app.domains.identity.routers.auth_router import _can_sign_up as fn
+
+    return fn(phone)
+
+
+def test_signups_closed_by_default(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("SIGNUPS_OPEN", raising=False)
+    monkeypatch.delenv("EARLY_ACCESS_ALLOWED_PHONES", raising=False)
+    assert _can_sign_up("+919123456780") is False
+
+
+def test_allowlist_lets_an_approved_number_through(monkeypatch: pytest.MonkeyPatch):
+    """The formats differ on purpose — the team will paste these by hand."""
+    monkeypatch.delenv("SIGNUPS_OPEN", raising=False)
+    monkeypatch.setenv(
+        "EARLY_ACCESS_ALLOWED_PHONES", " +91 98765-43210 , 919000000001 "
+    )
+    assert _can_sign_up("+919876543210") is True
+    assert _can_sign_up("+919000000001") is True
+    assert _can_sign_up("+919123456780") is False
+
+
+def test_signups_open_reopens_for_everyone(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SIGNUPS_OPEN", "true")
+    assert _can_sign_up("+919123456780") is True
+
+
+def test_check_mobile_tells_an_unknown_number_it_cannot_sign_up(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("SIGNUPS_OPEN", raising=False)
+    monkeypatch.delenv("EARLY_ACCESS_ALLOWED_PHONES", raising=False)
+    r = client.post(
+        "/api/v1/auth/check-mobile",
+        json={"country_code": "+91", "mobile": "9123456780"},
+    )
+    assert r.status_code == 200
+    assert r.json()["exists"] is False
+    assert r.json()["can_sign_up"] is False
+
+
+def test_settings_read_per_request_so_no_redeploy_is_needed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """`get_settings()` is cached, but these read os.environ each call — the
+    whole point of the escape hatches is flipping them without a deploy."""
+    settings = get_settings()
+    monkeypatch.setenv("SIGNUPS_OPEN", "true")
+    assert settings.signups_open() is True
+    monkeypatch.setenv("SIGNUPS_OPEN", "false")
+    assert settings.signups_open() is False
+
+
+def test_seat_cap_falls_back_when_misconfigured(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "not-a-number")
+    assert get_settings().get_early_access_seats() == 100
+    monkeypatch.setenv("EARLY_ACCESS_SEATS", "0")
+    assert get_settings().get_early_access_seats() == 100
+
+
+def test_env_example_documents_every_new_setting():
+    """A setting nobody can find is a setting nobody sets."""
+    root = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+    with open(os.path.join(root, ".env.example"), encoding="utf-8") as fh:
+        env = fh.read()
+    for key in (
+        "SIGNUPS_OPEN",
+        "EARLY_ACCESS_ALLOWED_PHONES",
+        "EARLY_ACCESS_SEATS",
+        "EARLY_ACCESS_SHEET_WEBHOOK_URL",
+        "EARLY_ACCESS_SHEET_TOKEN",
+        "EARLY_ACCESS_SEATS_BASELINE",
+        "SLACK_EARLY_ACCESS_WEBHOOK_URL",
+        "PUBLIC_SITE_URL",
+    ):
+        assert key in env, f"{key} is missing from .env.example"

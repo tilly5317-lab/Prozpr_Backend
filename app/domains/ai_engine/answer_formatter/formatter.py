@@ -93,6 +93,13 @@ FORMATTER_HOUSE_STYLE = build_system_prompt(
 )
 
 
+# Conversation ROWS (not exchanges) the answer writer sees. The classifier reads
+# 20 (`chat/services/chat_context.py`), so at 6 the writer had a third of the
+# routing layer's context — on turn 29 it saw turns 26-28 and nothing else, which
+# is the mechanical cause of the context-loss answers.
+FORMATTER_HISTORY_ROWS = 12
+
+
 class _Prompt(TypedDict):
     system: str
     user: str
@@ -124,7 +131,8 @@ def assemble_prompt(
         )
     system = "\n\n".join(system_parts)
     history_lines = [
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in (history or [])[-6:]
+        f"{m.get('role', 'user')}: {m.get('content', '')}"
+        for m in (history or [])[-FORMATTER_HISTORY_ROWS:]
     ]
     # Compact + literal ₹: pretty separators and \uXXXX escapes inflated a
     # 20-holding portfolio pack by 11% at zero information gain, and the money

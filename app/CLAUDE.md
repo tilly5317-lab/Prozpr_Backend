@@ -9,7 +9,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **identity/** — user, auth, OTP, family members, linked accounts, onboarding
   - **profile/** — risk, tax, investment, constraints, personal finance, properties, and the standing **investment preferences** record every engine reads
   - **goals/** — financial goals, contributions, holdings
-  - **portfolio/** — portfolio + allocations + holdings + history + NAV history
+  - **portfolio/** — portfolio + allocations + holdings + history
   - **benchmarks/** — benchmark index data (e.g. Nifty50 TRI), scheduler-fed
   - **mutual_funds/** — MF metadata, NAV, txns, SIPs, snapshots, watchlists, AA imports, mfapi.in
   - **equities/** — company metadata, prices, transactions
@@ -29,6 +29,7 @@ FastAPI application package, organised **domain-first**: every business capabili
   - **general_chat/** — Anthropic-backed fallback chat (web-search research + composed reply) when no specialist owns the intent
   - **privacy/** — DPDP data-principal rights: append-only consent ledger, access/export, two-stage erasure, grievances. See `domains/privacy/CLAUDE.md`.
   - **support/** — in-app issue reports: logs to the Google Sheet register (+ optional screenshot/email)
+  - **early_access/** — invite-only launch: the public `/earlyaccess` waiting list (Google Sheet register, seat meter) and the `/auth/signup` block that closes the front door to new numbers. See `domains/early_access/CLAUDE.md`.
   - **vr_data/** — Value Research vendor-data mirror in its own `vr` Postgres schema (no FKs into the app schema); spec-driven sync, `plan_id`↔`scheme_code` crosswalk, additive read API. See `domains/vr_data/CLAUDE.md`.
 - **routers/** — thin top-level package: `health.py`, `tags.py` (OpenAPI tags), and the aggregator `__init__.py` exposing `all_routers` for `main.py`. Every other route lives under `domains/*/routers/`.
 

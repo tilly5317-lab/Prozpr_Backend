@@ -128,12 +128,11 @@ The CUSTOMER_RECORD has this shape (treat fields not present as unknown):
     compare across years. Reference material for year-specific questions; not
     something to render wholesale.
 
-    For "when will I reach ₹X?", compare the RAW `corpus_closing` numbers against
-    X and name the fy_label of the FIRST year that reaches it — never the last row
-    of the table, and never a later year's corpus. Quote the `_indian` sibling in
-    the reply. If `headline.corpus_today` is already at or above X, the answer is
-    that they are ALREADY there: lead with that and give today's figure. Do not
-    name a future year, and never open with a year you then contradict.
+  corpus_milestone — "when do I reach ₹X?", already resolved. Never scan
+    annual_cashflow for a crossing. already_reached → they are ALREADY there:
+    say so with headline.corpus_today_indian and name no future year. Else name
+    reached_fy_label and quote reached_corpus_indian; null means the projection
+    never gets there. Block absent → you have no crossing year; don't derive one.
 
   validation_issues — engine warnings worth raising if they bear on the question.
 
@@ -234,6 +233,20 @@ class GoalChatAction(BaseModel):
     clarification_question: Optional[str] = Field(
         default=None,
         description="When mode='clarify', the one question to ask the customer.",
+    )
+    # Guidance lives in the field description, not the prompt body: the same
+    # pattern measured 7/8 accurate for `tools_needed` on the intent classifier,
+    # where moving it into the body cost a case by priming vocabulary.
+    milestone_target_inr: Optional[float] = Field(
+        default=None,
+        description=(
+            "The corpus amount, in rupees, when the customer asks WHEN they will "
+            "reach a specific figure — 'when do I hit 10 crore?', 'how long until "
+            "I have 1 crore?', 'what year do I cross 50 lakh?'. Convert Indian "
+            "units yourself: 1 lakh = 100000, 1 crore = 10000000. Null for every "
+            "other question, including goal-funding questions ('will I afford my "
+            "child's education?') where the amount is a goal, not a corpus target."
+        ),
     )
 
 
@@ -356,6 +369,7 @@ async def goal_planning_chat(ctx: TurnContext) -> ChatHandlerResult:
             anchor_date=date.today(),
             db=ctx.db,
             overrides=overrides,
+            milestone_target_inr=action.milestone_target_inr,
         )
     except ValueError as e:
         if str(e) == "missing_date_of_birth":

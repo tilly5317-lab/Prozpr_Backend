@@ -10,12 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.cas_scope import get_scope, resolve_active_cas_upload_id, scoped_to
 
 if TYPE_CHECKING:
     from app.domains.ai_engine.turn_context import TurnContext
@@ -98,6 +100,12 @@ class RebalancingRunOutcome:
 
 
 FUND_ACTIONS_LIMIT = 30
+# At or above this many trades the plan is too long to list fund by fund, so the
+# pack ships pre-ranked top_buys/top_sells instead.
+_FULL_TRADE_LIST_MAX_TRADES = 10
+_TOP_TRADES_LIMIT = 5
+# Equity gap (percentage points) beyond which a reply bridges ideal vs target.
+_IDEAL_BRIDGE_GAP_PCT = 5
 
 
 _BUCKET_HORIZON_LABELS = {
@@ -217,10 +225,11 @@ def _asset_class_mix_from_buckets(
 
     Delegates to the SHARED rollup that also builds the Invest-page bars, so chat
     and the page cannot disagree about one run. ``amount_key`` picks the column
-    (``current_inr`` for the current mix, ``planned_final_inr`` for the target);
-    ``multi_asset_sleeve`` must be True only for the target — see
-    ``asset_class_breakdown`` for why. Built in canonical title-case, then mapped
-    to this builder's long-standing lowercase contract for chat facts.
+    (``current_inr`` for the current mix, ``planned_final_inr`` for the target).
+    ``multi_asset_sleeve`` is False on both: every bucket here is a concrete fund,
+    so its own category decides — see ``asset_class_breakdown`` for why. Built in
+    canonical title-case, then mapped to this builder's long-standing lowercase
+    contract for chat facts.
     """
     from app.domains.rebalancing.services.asset_class_breakdown import (
         asset_class_mix_from_rows,
@@ -274,8 +283,20 @@ _SUBGROUP_FLOW_LABEL: dict[str, str] = {
 # asset_subgroup is internal — the prompt already forbids surfacing it. Both are
 # still read DURING construction (asset-class rollup, group_flows, sorting); they
 # are removed only from the final rows to keep the pack lean.
-_ROW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "asset_subgroup")
-_GROUP_FLOW_DROP = ("current_inr", "buy_inr", "sell_inr", "planned_final_inr", "net_change_inr")
+_ROW_DROP = (
+    "current_inr",
+    "buy_inr",
+    "sell_inr",
+    "planned_final_inr",
+    "asset_subgroup",
+)
+_GROUP_FLOW_DROP = (
+    "current_inr",
+    "buy_inr",
+    "sell_inr",
+    "planned_final_inr",
+    "net_change_inr",
+)
 
 
 def _slim_row(row: dict[str, Any], drop: tuple[str, ...]) -> dict[str, Any]:
@@ -388,6 +409,19 @@ def build_rebal_facts_pack(
         # Number of additional smaller holdings beyond fund_actions cap
         # (only present when truncated).
         "more_holdings_count": <int>,
+
+        # The largest trades, already ranked. Present ONLY when the plan has
+        # >= _FULL_TRADE_LIST_MAX_TRADES trades — the formatter renders these
+        # instead of a full fund-level list, so the block's presence is the
+        # branch. fund_actions is ordered by HOLDING size, not trade size.
+        "top_buys":  [{"fund_name": <str>, "sub_category": <str>, "amount_indian": <str>}, ...],
+        "top_sells": [{"fund_name": <str>, "sub_category": <str>, "amount_indian": <str>}, ...],
+
+        # Present with ideal_asset_class_mix_pct. Whether this plan's target
+        # sits far enough from the ideal that the reply should bridge the two;
+        # decided here so the formatter never judges the gap itself.
+        "ideal_vs_target_equity_gap_pct": <int>,   # target − ideal, signed
+        "bridge_ideal_and_target": <bool>,
 
         # Optional — present when AA output drove this rebalance. Lets the LLM
         # tie trades back to goals + horizon + planned equity/debt/others split.
@@ -517,7 +551,14 @@ def build_rebal_facts_pack(
     # (Current -> Buy -> Sell -> Planned, one row per group instead of ~16 SEBI
     # rows), and so the group holds its OWN held total — a "sell X out of Y held"
     # line then pairs the group sell with the GROUP's held, not a single category's.
-    _z = lambda: {"current_inr": 0.0, "buy_inr": 0.0, "sell_inr": 0.0, "planned_final_inr": 0.0}  # noqa: E731
+    def _z() -> dict[str, float]:
+        return {
+            "current_inr": 0.0,
+            "buy_inr": 0.0,
+            "sell_inr": 0.0,
+            "planned_final_inr": 0.0,
+        }
+
     group_acc: dict[str, dict[str, float]] = {}
     for bucket in buckets:
         label = _SUBGROUP_FLOW_LABEL.get(bucket["asset_subgroup"], "Other funds")
@@ -527,9 +568,12 @@ def build_rebal_facts_pack(
     group_flows = [
         {
             "group": label,
-            "current_inr": v["current_inr"], "current_indian": format_inr_indian(v["current_inr"]),
-            "buy_inr": v["buy_inr"], "buy_indian": format_inr_indian(v["buy_inr"]),
-            "sell_inr": v["sell_inr"], "sell_indian": format_inr_indian(v["sell_inr"]),
+            "current_inr": v["current_inr"],
+            "current_indian": format_inr_indian(v["current_inr"]),
+            "buy_inr": v["buy_inr"],
+            "buy_indian": format_inr_indian(v["buy_inr"]),
+            "sell_inr": v["sell_inr"],
+            "sell_indian": format_inr_indian(v["sell_inr"]),
             # net_change = buy - sell (= planned - current), pre-signed for the table's
             # middle column so the LLM never computes or signs it.
             "net_change_inr": v["buy_inr"] - v["sell_inr"],
@@ -545,9 +589,10 @@ def build_rebal_facts_pack(
     ]
 
     # Asset-class mix, CURRENT and TARGET. Both go through the shared rollup that
-    # builds the Invest-page bars. The target is the post-trade mix (per-bucket
-    # planned_final = current + buy - sell) and keeps the multi_asset sleeve at
-    # its engine composition. Shipping only the current mix is what let the
+    # builds the Invest-page bars, and both look every bucket through on its own
+    # sub_category — a bucket the plan does not trade must not change asset class
+    # between the two. The target is the post-trade mix (per-bucket planned_final
+    # = current + buy - sell). Shipping only the current mix is what let the
     # formatter answer "what is the plan moving me toward?" with the current one.
     def _mix_block(amount_key: str, *, multi_asset_sleeve: bool):
         inr = _asset_class_mix_from_buckets(
@@ -564,7 +609,7 @@ def build_rebal_facts_pack(
         "current_inr", multi_asset_sleeve=False
     )
     target_class_inr, target_class_pct, target_class_indian = _mix_block(
-        "planned_final_inr", multi_asset_sleeve=True
+        "planned_final_inr", multi_asset_sleeve=False
     )
 
     warnings: list[str] = []
@@ -605,6 +650,26 @@ def build_rebal_facts_pack(
         fa["planned_final_indian"] = format_inr_indian(fa["planned_final_inr"])
     more_holdings_count = max(0, len(fund_actions_all) - FUND_ACTIONS_LIMIT)
 
+    # Largest trades, pre-ranked. fund_actions is ordered by EXPOSURE and ships
+    # amounts as _indian strings only (_ROW_DROP), so asking the formatter for
+    # "the largest ~5 buys and sells" made it rank up to 30 rows by parsing
+    # "₹1.2 lakh" against "₹95,000" — against an ordering that disagreed with
+    # the answer. Shipped only on plans too long to list in full, so the block's
+    # presence IS the branch the formatter used to compute from trade_count.
+    def _top_trades(amount_key: str) -> list[dict[str, Any]]:
+        traded = sorted(
+            (f for f in fund_actions_all if f[amount_key] > 0),
+            key=lambda f: -f[amount_key],
+        )
+        return [
+            {
+                "fund_name": f["fund_name"],
+                "sub_category": f["sub_category"],
+                "amount_indian": format_inr_indian(f[amount_key]),
+            }
+            for f in traded[:_TOP_TRADES_LIMIT]
+        ]
+
     # Surface the actual tax rates / exemption the engine used, so the formatter
     # can cite them instead of falling back on training-data priors (Haiku tends
     # to narrate the pre-July-2024 10% LTCG + ₹1 lakh exemption otherwise).
@@ -626,6 +691,15 @@ def build_rebal_facts_pack(
             ),
         }
 
+    trade_count = sum(
+        1
+        for r in rows
+        if (
+            float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
+            or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
+        )
+    )
+
     pack: dict[str, Any] = {
         "total_portfolio_inr": total_portfolio,
         "total_portfolio_indian": format_inr_indian(total_portfolio),
@@ -643,14 +717,7 @@ def build_rebal_facts_pack(
             "stcg_offset_by_losses_inr": stcg_offset_by_losses,
             "stcg_offset_by_losses_indian": format_inr_indian(stcg_offset_by_losses),
         },
-        "trade_count": sum(
-            1
-            for r in rows
-            if (
-                float(getattr(r, "pass1_buy_amount", 0) or 0) > 0
-                or float(getattr(r, "pass1_sell_amount", 0) or 0) > 0
-            )
-        ),
+        "trade_count": trade_count,
         "current_asset_class_mix_pct": asset_class_pct,
         "current_asset_class_mix_indian": asset_class_indian,
         "target_asset_class_mix_pct": target_class_pct,
@@ -668,14 +735,26 @@ def build_rebal_facts_pack(
     if include_ideal:
         ideal_mix = ideal_asset_class_mix_pct(response)
         if ideal_mix is not None:
-            pack["ideal_asset_class_mix_pct"] = {
-                cls: round(value) for cls, value in ideal_mix.items()
-            }
+            ideal_pct = {cls: round(value) for cls, value in ideal_mix.items()}
+            pack["ideal_asset_class_mix_pct"] = ideal_pct
+            # Whether this plan's target sits far enough from the ideal to be
+            # worth bridging in the reply. Decided here because the formatter
+            # otherwise had to subtract two percentages and judge the result
+            # against "~5 points" before a whole paragraph fired.
+            ideal_equity = ideal_pct.get("equity")
+            target_equity = target_class_pct.get("equity")
+            if ideal_equity is not None and target_equity is not None:
+                gap = target_equity - ideal_equity
+                pack["ideal_vs_target_equity_gap_pct"] = gap
+                pack["bridge_ideal_and_target"] = abs(gap) > _IDEAL_BRIDGE_GAP_PCT
 
     if tax_rules is not None:
         pack["tax_rules"] = tax_rules
     if more_holdings_count > 0:
         pack["more_holdings_count"] = more_holdings_count
+    if trade_count >= _FULL_TRADE_LIST_MAX_TRADES:
+        pack["top_buys"] = _top_trades("buy_inr")
+        pack["top_sells"] = _top_trades("sell_inr")
     if goal_buckets:
         pack["goal_buckets"] = goal_buckets
     if constraint_impact is not None:
@@ -783,6 +862,10 @@ async def compute_rebalancing_result(
 ) -> RebalancingRunOutcome:
     """Top-level orchestrator: cache → builder → engine → persist → format.
 
+    Reads holdings from the ACTIVE CAS snapshot only (via CAS scope). All
+    calculations respect the user's current statement, excluding archived funds
+    from previous uploads.
+
     ``progress`` (optional) is awaited at each real stage boundary with
     (percent, customer-facing message) — the Invest page's compute endpoint
     passes a writer so its progress poller can show the live pipeline stage.
@@ -800,6 +883,34 @@ async def compute_rebalancing_result(
     wouldn't reflect.
     """
     trace_line("module: rebalancing — start")
+
+    # Ensure we're scoped to the active CAS snapshot so we read only active funds.
+    # The request path (get_effective_user) should have set this already, but if
+    # called from a background task or API without proper scoping, set it here.
+    #
+    # Recurse ONLY when there is a snapshot to enter. ``cas_scope_for_user`` yields
+    # None for a user with no active upload, which leaves ``get_scope()`` None, and
+    # the old "enter scope, call myself" guard then called itself until Python raised
+    # RecursionError (~943 frames, one SELECT cas_uploads each) — three production
+    # 500s on 2026-09-27 for exactly the users who have not uploaded yet. With no
+    # snapshot we simply carry on unscoped; ``_user_has_mf_holdings`` below answers
+    # such a user with the friendly "no holdings" message.
+    if get_scope() is None:
+        snapshot_id = await resolve_active_cas_upload_id(db, acting_user_id)
+        if snapshot_id is not None:
+            with scoped_to(snapshot_id):
+                return await compute_rebalancing_result(
+                    user,
+                    user_question,
+                    db=db,
+                    acting_user_id=acting_user_id,
+                    chat_session_id=chat_session_id,
+                    persist=persist,
+                    origin=origin,
+                    force_fresh_allocation=force_fresh_allocation,
+                    chat_ctx=chat_ctx,
+                    progress=progress,
+                )
 
     # Stage messages are customer-facing: describe the benefit, never the
     # mechanics (no engine/strategy internals — ranks, caps, tax lots, caches).
@@ -884,6 +995,12 @@ async def compute_rebalancing_result(
 
     if progress:
         await progress(58, "Comparing your investments with your target…")
+
+    # The input builder reads holdings/NAV/metadata/tax through ``ctx.db``.
+    # Out-of-chat callers (preference save, routers) build a TurnContext
+    # without a session, so backfill it from the one we were handed.
+    if chat_ctx.db is None:
+        chat_ctx = dc_replace(chat_ctx, db=db)
 
     try:
         request, debug = await build_rebalancing_input_for_user(
